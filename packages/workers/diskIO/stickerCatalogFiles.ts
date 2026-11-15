@@ -1,3 +1,6 @@
+/**
+ * 贴纸目录快照的脏标记、定时合并落盘与持久化回执（Disk I/O Worker 侧）。
+ */
 import { SNAPSHOT_FLUSH_INTERVAL_MS } from "../../consts/diskIO/snapshots";
 import {
   dirtyStickerPacks,
@@ -9,6 +12,7 @@ import {
   stickerFlushState,
 } from "../../cache/workers/diskIO/stickers";
 import { flushDirtyEntries } from "./dirtyFlush";
+import { retainOnlyKeys } from "../../libs/record";
 import { armDiskIOFlushTimer, cancelDiskIOFlushTimer } from "./timedFlush";
 import { writeStickerCatalogFile } from "./snapshotFiles";
 import type { StickerCatalogFileDependencies } from "../../types/diskIO/snapshotOwners";
@@ -69,12 +73,8 @@ export function flushStickerCatalogs(
     },
     describeFailure: (pack: string): string => `[diskIOWorker] failed to write sticker catalog for pack "${pack}":`,
   });
-  for (const pack of stickerCatalogCache.keys()) {
-    if (!dirtyStickerPacks.has(pack)) stickerCatalogCache.delete(pack);
-  }
-  for (const pack of stickerCatalogRevisions.keys()) {
-    if (!dirtyStickerPacks.has(pack)) stickerCatalogRevisions.delete(pack);
-  }
+  retainOnlyKeys(stickerCatalogCache, dirtyStickerPacks);
+  retainOnlyKeys(stickerCatalogRevisions, dirtyStickerPacks);
   if (dirtyStickerPacks.size > 0) scheduleStickerCatalogFlush();
   return dirtyStickerPacks.size === 0;
 }

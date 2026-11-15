@@ -116,8 +116,14 @@ export function createRunRoot(): string {
 export async function createBenchmarkConfigRoot(runRoot: string): Promise<string> {
   assertInsidePerformanceMockRoot(runRoot);
   const configRoot: string = join(runRoot, BENCHMARK_CONFIG_ROOT_NAME);
-  // 目标树可能已经存在：逐个落点都过 assertInsidePerformanceMockRoot。
-  await copyFixtureTree(CONFIG_EXAMPLE_ROOT, configRoot, assertInsidePerformanceMockRoot);
+  // 只复制白名单允许的两个子目录；config_example/README/ 不属于部署配置布局。
+  for (const dirName of [STATIC_CONFIG_DIR_NAME, DYNAMIC_CONFIG_DIR_NAME]) {
+    await copyFixtureTree(
+      join(CONFIG_EXAMPLE_ROOT, dirName),
+      join(configRoot, dirName),
+      assertInsidePerformanceMockRoot
+    );
+  }
 
   const agentPath: string = join(configRoot, DYNAMIC_CONFIG_DIR_NAME, "agent.json");
   let agentConfig: string = await Bun.file(agentPath).text();
@@ -202,10 +208,9 @@ export function assertBenchmarkRuntimeRoot(path: string): void {
 }
 
 /**
- * 删除 mock 根内的一棵子树；越界时抛错而不是静默跳过。
+ * 删除 mock 根内的一棵子树；路径越界或父链含软链接时直接抛错。
  *
- * 只核对父链：末端本身是软链接时 `rmSync` 只摘链接、不动目标；中间任何一段是
- * 软链接即拒绝。
+ * 仅核对父链：末端本身为软链接时 `rmSync` 只解除链接而不触碰目标；父链中间任一分量为软链接时拒绝。
  * @param path 待删除的 mock 根内子树路径。
  */
 export function removeMockPath(path: string): void {

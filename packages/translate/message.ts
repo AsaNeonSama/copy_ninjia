@@ -2,7 +2,7 @@ import type { Message } from "grammy/types";
 import { translateConfigReadiness } from "../config/readiness";
 import { TELEGRAM_MESSAGE_MAX_CHARS } from "../consts/telegram";
 import { TRANSLATE_CHAT_BACKLOG_MAX } from "../consts/translate";
-import { getChatState } from "../infra/storage/stateStore";
+import { getChatState } from "../infra/chatStateStorage";
 import { sendMessage } from "../infra/telegram";
 import { translateMessageBacklogs, translateMessageRunner, translateRuntime } from "../cache/main/translate";
 import { logger } from "../infra/logger";
@@ -40,11 +40,10 @@ export interface TranslateMessageParams {
 }
 
 /**
- * 在按群串行链里翻译 source（入队时取出的正文或图注）并只发送译文：按纯文字 sendMessage 发出
- * （不带实体、不设 parse_mode，正文消息的 link_preview_options 原样沿用），不发送原文，也不复制
- * 图片、文件等媒体。翻译 API 失败、译文与原文逐字相同、译文含可渲染命令（见
- * libs/renderableCommand.ts）或超过正文长度上限时整条不发送，对发送者静默；只有 API 异常由
- * client.ts 记错误日志。开始前与异步完成后各复核一次会话，停止或重开后的迟到结果不发送。
+ * 在按群串行链内翻译 `source` 并仅发送译文：
+ * - 以纯文本 `sendMessage` 发出（不带实体、不设 `parse_mode`，沿用原消息的 `link_preview_options`），不附带原文或媒体。
+ * - API 失败、译文与原文完全一致、译文含可渲染命令（见 `libs/renderableCommand.ts`）或超出长度上限时静默跳过发送（API 异常由 `client.ts` 记录）。
+ * - 发起翻译前与异步返回后各复核一次翻译会话引用，拦截停止或重开后的迟到结果。
  * @param params 翻译消息所属群聊、原消息、会话与话题参数。
  * @param source 入队前提取出的原文正文或图注字符串。
  */
@@ -59,15 +58,11 @@ async function translateMessage(params: TranslateMessageParams, source: string):
 }
 
 /**
- * 把翻译目标的一条消息交给按群串行的后台链后立即返回：串行的 update 循环不等 Google RPC 与译文
- * 发送，同群译文仍按收到顺序发出。
+ * 将翻译目标的消息投入按群串行的后台翻译链后立即返回，不阻塞串行 update 循环且保证同群译文按序发出。
  *
- * 正文与图注一律按字符串处理，带链接、@ 或格式实体的文字照常翻译，带图注的媒体只翻译图注。既无
- * 正文也无图注（贴纸、不带图注的图片与文件等）、原文含可渲染命令或同语种与中性文字
- * （needsNoTranslation 命中）的消息在入队前直接跳过：不调用翻译、不计入积压、不回提示。本群积压
- * （含正在执行的那条）已达 TRANSLATE_CHAT_BACKLOG_MAX 时本条不翻译，同一段积压只记一次日志。
- * 任务登记在 translateRuntime.tasks，由停机 drainTranslate 等待；失败只记日志，update 取消导致的
- * 中止不记。
+ * - **入队过滤**：正文与图注统一按纯文本处理（带图注的媒体仅翻译图注）；无文字载荷、含可渲染命令或 `needsNoTranslation` 命中的消息在入队前直接跳过。
+ * - **积压上限**：本群在途与排队总数达到 `TRANSLATE_CHAT_BACKLOG_MAX` 时丢弃新消息，同一段满载周期只记录一次错误日志。
+ * - **停机追踪**：任务登记在 `translateRuntime.tasks` 供停机阶段 `drainTranslate` 等待；非取消异常记错误日志。
  * @param params 翻译消息所属群聊、原消息、会话与话题参数。
  */
 export function queueTranslateMessage(params: TranslateMessageParams): void {

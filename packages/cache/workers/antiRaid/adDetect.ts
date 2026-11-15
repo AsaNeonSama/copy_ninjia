@@ -1,15 +1,19 @@
 /** owner: workers/antiRaid。广告检测流水线状态（packages/workers/antiRaid/adDetect/）。 */
 
-import { AD_DETECT_MAX_PENDING_SENDERS } from "../../../consts/antiRaid/adDetect";
+import {
+  AD_DETECT_CUSTOM_EMOJI_SET_CACHE_MAX,
+  AD_DETECT_MAX_PENDING_SENDERS,
+} from "../../../consts/antiRaid/adDetect";
 import { FifoMap } from "../../../libs/fifoMap";
 import { LinkedQueue } from "../../../libs/linkedQueue";
+import { LruCache } from "../../../libs/lruCache";
 import type {
   AdDetectedEvent,
   AdDetectPrompts,
   AdMessageBundle,
-  ReferencedAdWarningState,
   AdVerdictTrueEvent,
 } from "../../../types/antiRaid/adDetect";
+import type { ReferencedAdWarningState } from "../../../types/states/adReferenceWarning";
 
 /**
  * 待检发言者键（`chatId:senderId`）FIFO 队列，每个节拍取走队首至多 AD_DETECT_BATCH_SIZE 个。
@@ -31,6 +35,16 @@ export const queuedAdDetectKeys: Set<string> = new Set<string>();
  * 容量：FifoMap 限制为 AD_DETECT_MAX_PENDING_SENDERS，满载时淘汰最早处置键。
  */
 export const recentlyDisposedAdKeys: FifoMap<string, number> = new FifoMap(AD_DETECT_MAX_PENDING_SENDERS);
+
+/**
+ * 自定义表情 ID -> 所属表情包 short name（不属于任何表情包时为 null），供 emoji_black_list 核对时跳过已查过的 ID。
+ * 填充：workers/antiRaid/adDetect/verdict.ts 的 getCustomEmojiStickers 查询成功后按返回的每个贴纸写入；未返回的 ID 不写入，下次照常查询。
+ * 清理：Worker 停止时清空；ID 与所属包的对应不随 emoji_black_list 热重载变化，不另行失效。
+ * 重建：Worker 崩溃重启后从空表开始。
+ * 容量：LruCache 限制为 AD_DETECT_CUSTOM_EMOJI_SET_CACHE_MAX，满载时淘汰最久未使用的 ID。
+ */
+export const customEmojiSetNames: LruCache<string, string | null> =
+  new LruCache(AD_DETECT_CUSTOM_EMOJI_SET_CACHE_MAX);
 
 /**
  * 引用类广告已公开警告的发送者键 -> 警告状态与失效时刻。
@@ -64,14 +78,14 @@ export const pendingAdMessages: Map<number, Map<number, AdMessageBundle>> = new 
 export const pendingAdBundleCount: { current: number } = { current: 0 };
 
 /**
- * 按当前广告样本快照拼接的判定提示词缓存。
- * 填充：classifier.ts 首次判定时构造并写入；清理：收到新广告样本快照时由 workers/antiRaid/adDetect/config.ts 重置为 null；重建：Worker 重启后从 null 按需重建；容量：固定为单个槽位。
+ * 按当前广告检测配置（`ad_detect.json`）中的示例拼接的判定提示词缓存。
+ * 填充：classifier.ts 首次判定时构造并写入；清理：收到新广告检测配置（`ad_detect.json`）快照时由 workers/antiRaid/adDetect/config.ts 重置为 null；重建：Worker 重启后从 null 按需重建；容量：固定为单个槽位。
  */
 export const adDetectPrompts: { current: AdDetectPrompts | null } = { current: null };
 
 /**
- * 正在等待模型判定或首次警告发送结算的发言者键集合。
- * 填充：批次派发时登记；清理：判定及首次警告网络往返结算后移除；重建：Worker 重启后从空集合开始；容量：上限为 AD_DETECT_MAX_IN_FLIGHT。
+ * 正在执行广告分类/管理员核查或首次引用警告发送的发言者键集合。
+ * 填充：批次派发时登记，首次引用警告在 `warnReferencedOnlySender` 发送前再次登记；清理：分类与管理员核查结算后移除、首次警告发送结算后移除，或 Worker 停止时清空；重建：Worker 重启后从空集合开始；容量：派发阶段上限为 AD_DETECT_MAX_IN_FLIGHT。
  */
 export const inFlightAdDetectKeys: Set<string> = new Set<string>();
 

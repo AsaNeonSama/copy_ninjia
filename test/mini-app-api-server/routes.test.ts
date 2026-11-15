@@ -1,7 +1,12 @@
+/**
+ * Mini App 服务端认证门禁（预检、密码登录、滑窗续期、登出、锁定告警）、TOTP 验证器全生命周期与状态看板路由测试。
+ */
+
 import { afterEach, describe, expect, mock, setSystemTime, test } from "bun:test";
 import { mkdirSync, rmSync } from "node:fs";
 import {
   buildSignedTestInitData,
+  buildSuperAdminHeaders,
   installMiniAppTestDiskIOMock,
   resetMiniAppTestDiskIOState,
 } from "../helpers/miniAppInitData";
@@ -43,11 +48,13 @@ const { formatLocalTime } = await import("../../packages/libs/time");
 const {
   MINI_APP_TOTP_FILE_MODE,
   MINI_APP_TOTP_RECORD_VERSION,
+  MINI_APP_TOTP_SECRET_BYTES,
+  MINI_APP_TOTP_SECRET_PATTERN,
   MINI_APP_TOTP_STEP_SECONDS,
 } = await import("../../packages/consts/miniAppTotp");
 const { chatAtmosphere } = await import("../../packages/infra/atmosphere");
 const { telegramApiState } = await import("../../packages/cache/perThread/telegramApi");
-const { getOrCreateChatState } = await import("../../packages/infra/storage/stateStore");
+const { getOrCreateChatState } = await import("../../packages/infra/chatStateStorage");
 const {
   issueMiniAppAuthSession,
   stopMiniAppServer,
@@ -58,8 +65,8 @@ const { dispatchMiniAppTestRequest: handleMiniAppHttpRequest } = await import(
 import type {
   MiniAppAccessDiagnostics,
   MiniAppLoginSuccessResponse,
-  MiniAppStatusView,
-} from "../../packages/types/miniApp";
+} from "../../packages/types/miniApp/auth";
+import type { MiniAppStatusView } from "../../packages/types/miniApp/server";
 import type {
   MiniAppTotpMutationResponse,
   MiniAppTotpSetupResponse,
@@ -78,24 +85,16 @@ function installTelegramSendMessageStub(): void {
 }
 
 /**
- * 构造携带当前 `BOT_TOKEN`、`SUPER_ADMIN_USER_ID` 签名与 45 分钟有效密码会话的测试请求头。
+ * 构造携带当前 `BOT_TOKEN`、`SUPER_ADMIN_USER_ID` 签名与有效密码会话令牌的测试请求头。
  * @returns 包含 `X-Telegram-Init-Data` 与 `X-Mini-App-Session` 的请求头。
  */
 function superAdminHeaders(): Record<string, string> {
-  const initData: string = buildSignedTestInitData({
+  return buildSuperAdminHeaders({
     botToken: BOT_TOKEN,
-    authDate: Math.floor(Date.now() / 1000),
-    user: {
-      id: SUPER_ADMIN_USER_ID,
-      first_name: "SuperAdmin",
-      username: "super_admin",
-    },
+    superAdminUserId: SUPER_ADMIN_USER_ID,
+    sessionToken: issueMiniAppAuthSession().token,
+    username: "super_admin",
   });
-  const session = issueMiniAppAuthSession();
-  return {
-    [MINI_APP_INIT_DATA_HEADER]: initData,
-    [MINI_APP_SESSION_HEADER]: session.token,
-  };
 }
 
 afterEach(async (): Promise<void> => {
@@ -527,7 +526,8 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
     expect(setup1Res.status).toBe(200);
     const setup1: MiniAppTotpSetupResponse = (await setup1Res.json()) as MiniAppTotpSetupResponse;
     expect(setup1.ok).toBeTrue();
-    expect(setup1.secret).toMatch(/^[A-Z2-7]{32}$/);
+    expect(setup1.secret).toMatch(MINI_APP_TOTP_SECRET_PATTERN);
+    expect(setup1.secret.length).toBe((MINI_APP_TOTP_SECRET_BYTES * 8) / 5);
     expect(setup1.otpauthUri).toContain("otpauth://totp/");
     expect(setup1.qrSvg).toContain("<svg");
 
@@ -883,5 +883,97 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
     const exactJson = (await exactRes.json()) as { readonly ok: boolean; readonly id?: number };
     expect(exactJson.ok).toBeTrue();
     expect(exactJson.id).toBe(88999);
+  });
+
+  test("诊断 Host 与客户端 IP 归一化同口径，且会话过期与畸形令牌分别返回 SESSION_EXPIRED 与 PASSWORD_REQUIRED", async () => {
+    for (const ipHost of ["2001:db8::1", "[2001:db8::1]:8443"]) {
+      const res: Response = await handleMiniAppHttpRequest(
+        new Request("http://127.0.0.1:3000/api/auth/precheck", {
+          headers: { host: ipHost },
+        })
+      );
+      expect(res.status).toBe(401);
+      const diag: MiniAppAccessDiagnostics = (await res.json()) as MiniAppAccessDiagnostics;
+      expect(diag.host).toBe("localhost");
+    }
+
+    const multiHopHostRes: Response = await handleMiniAppHttpRequest(
+      new Request("http://127.0.0.1:3000/api/auth/precheck", {
+        headers: {
+          "x-forwarded-host": "a.example, 1.2.3.4",
+          origin: "https://a.example",
+        },
+      })
+    );
+    expect(multiHopHostRes.status).toBe(401);
+    const multiHopDiag: MiniAppAccessDiagnostics =
+      (await multiHopHostRes.json()) as MiniAppAccessDiagnostics;
+    expect(multiHopDiag.code).toBe("MISSING_INIT_DATA");
+    expect(multiHopDiag.host).toBe("a.example");
+
+    const blankForwardedHostRes: Response = await handleMiniAppHttpRequest(
+      new Request("http://127.0.0.1:3000/api/auth/precheck", {
+        headers: {
+          "x-forwarded-host": "   ",
+          host: "panel.example",
+        },
+      })
+    );
+    expect(blankForwardedHostRes.status).toBe(401);
+    expect(((await blankForwardedHostRes.json()) as MiniAppAccessDiagnostics).host).toBe(
+      "panel.example"
+    );
+
+    const xffRes: Response = await handleMiniAppHttpRequest(
+      new Request("http://127.0.0.1:3000/api/auth/precheck", {
+        headers: {
+          "x-forwarded-for":
+            "[::1]:54321, 0:0:0:0:0:0:0:1, 0:0:0:0:0:0:0:0, localhost:3000, [unclosed, [2001:db8::1]bad, [2001:db8::1]:abc, 203.0.113.9:99999, 203.0.113.5:41234",
+        },
+      })
+    );
+    expect(xffRes.status).toBe(401);
+    expect(((await xffRes.json()) as MiniAppAccessDiagnostics).clientIp).toBe("203.0.113.5");
+
+    const ipv6BracketPortRes: Response = await handleMiniAppHttpRequest(
+      new Request("http://127.0.0.1:3000/api/auth/precheck", {
+        headers: {
+          "x-forwarded-for": "[2001:db8::42]:8443",
+        },
+      })
+    );
+    expect(ipv6BracketPortRes.status).toBe(401);
+    expect(((await ipv6BracketPortRes.json()) as MiniAppAccessDiagnostics).clientIp).toBe(
+      "2001:db8::42"
+    );
+
+    const baseHeaders: Record<string, string> = superAdminHeaders();
+    const malformedSessionRes: Response = await handleMiniAppHttpRequest(
+      new Request("http://127.0.0.1:3000/api/status", {
+        headers: {
+          [MINI_APP_INIT_DATA_HEADER]: baseHeaders[MINI_APP_INIT_DATA_HEADER]!,
+          [MINI_APP_SESSION_HEADER]: "not-a-hex-session",
+        },
+      })
+    );
+    expect(malformedSessionRes.status).toBe(401);
+    const malformedDiag: MiniAppAccessDiagnostics =
+      (await malformedSessionRes.json()) as MiniAppAccessDiagnostics;
+    expect(malformedDiag.code).toBe("PASSWORD_REQUIRED");
+    expect(malformedDiag.error).toBe("PASSWORD_REQUIRED");
+
+    const unknownValidHexRes: Response = await handleMiniAppHttpRequest(
+      new Request("http://127.0.0.1:3000/api/status", {
+        headers: {
+          [MINI_APP_INIT_DATA_HEADER]: baseHeaders[MINI_APP_INIT_DATA_HEADER]!,
+          [MINI_APP_SESSION_HEADER]: "f".repeat(64),
+        },
+      })
+    );
+    expect(unknownValidHexRes.status).toBe(401);
+    const expiredDiag: MiniAppAccessDiagnostics =
+      (await unknownValidHexRes.json()) as MiniAppAccessDiagnostics;
+    expect(expiredDiag.code).toBe("PASSWORD_REQUIRED");
+    expect(expiredDiag.error).toBe("SESSION_EXPIRED");
   });
 });

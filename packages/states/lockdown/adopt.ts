@@ -44,7 +44,7 @@ export function handleAdopt(
           { kind: "prefetchAdmins", onlyIfCold: false },
           ...announceEffects,
           ...(!event.persisted
-            ? []
+            ? NO_LOCKDOWN_EFFECTS
             : [{ kind: "commitApply" } as const]),
         ],
       };
@@ -60,7 +60,7 @@ export function handleAdopt(
         effects: [
           { kind: "prefetchAdmins", onlyIfCold: false },
           ...(!event.persisted
-            ? []
+            ? NO_LOCKDOWN_EFFECTS
             : [{ kind: "beginRestore", originalPermissions: event.originalPermissions } as const]),
         ],
       };
@@ -77,7 +77,7 @@ export function handleAdopt(
           ...announceEffects,
           { kind: "scheduleRestore", delayMs: event.remainingMs },
           ...(!event.persisted
-            ? []
+            ? NO_LOCKDOWN_EFFECTS
             : [{ kind: "beginReapply" } as const]),
         ],
       };

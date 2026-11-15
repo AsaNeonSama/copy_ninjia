@@ -1,3 +1,6 @@
+/**
+ * 永久黑白名单在共享 SQLite 中的写入校验、名单互斥与待踢 outbox 引用检查及叠加未提交缓冲的读取接口（Disk I/O Worker 侧）。
+ */
 import {
   storagePendingBudgets,
   pendingBlocklistWrites,
@@ -22,6 +25,7 @@ import {
   prepareStoredIdentityIdLookups,
   readStoredIdentityIdPage,
   readStoredIdentityPolicies,
+  readStoredIdentityPolicy,
 } from "../../../database/interact/identityPolicy";
 import { readStoredTemporaryAdBypassActivities } from
   "../../../database/interact/temporaryAdBypass";
@@ -45,6 +49,7 @@ import type {
   StoredTemporaryAdBypassActivity,
 } from "../../../types/temporaryAdBypass";
 import type {
+  StorageDatabaseReader,
   StoredIdentityIdLookup,
   StoredIdentityIdLookups,
   StoredIdentityPolicyRow,
@@ -218,8 +223,18 @@ function assertOppositePolicyAbsent(message: IdentityPolicyWriteDiskMessage): vo
 function temporaryAdBypassRowsWithPending(
   ids: readonly number[]
 ): readonly StoredTemporaryAdBypassActivity[] {
+  if (ids.length === 0) return [];
+  const reader: StorageDatabaseReader = requireStorageDatabaseReader();
+  if (ids.length === 1) {
+    const id: number = ids[0]!;
+    const pending: PendingTemporaryAdBypassWrite | undefined = pendingTemporaryAdBypassWrites.get(id);
+    if (pending !== undefined) {
+      return pending.activity === null ? [] : [{ id, ...pending.activity }];
+    }
+    return readStoredTemporaryAdBypassActivities(reader, ids);
+  }
   const rows: readonly StoredTemporaryAdBypassActivity[] =
-    readStoredTemporaryAdBypassActivities(requireStorageDatabaseReader(), ids);
+    readStoredTemporaryAdBypassActivities(reader, ids);
   const values: Map<number, StoredTemporaryAdBypassActivity> = new Map();
   for (const row of rows) values.set(row.id, row);
   for (const id of ids) {
@@ -289,8 +304,18 @@ function policyRowsWithPending(
   ids: readonly number[]
 ): readonly (readonly [number, string])[] {
   if (ids.length === 0) return [];
+  const reader: StorageDatabaseReader = requireStorageDatabaseReader();
+  if (ids.length === 1) {
+    const id: number = ids[0]!;
+    const pending: PendingIdentityPolicyWrite | undefined = pendingPolicyMap(table).get(id);
+    if (pending !== undefined) {
+      return pending.data === null ? [] : [[id, pending.data]];
+    }
+    const row: StoredIdentityPolicyRow | undefined = readStoredIdentityPolicy(reader, table, id);
+    return row === undefined ? [] : [[row.id, row.data]];
+  }
   const rows: readonly StoredIdentityPolicyRow[] = readStoredIdentityPolicies(
-    requireStorageDatabaseReader(),
+    reader,
     table,
     ids
   );
@@ -314,7 +339,9 @@ export function readIdentityPolicies(
   message: ReadIdentityPoliciesRequest
 ): IdentityPoliciesReadReply {
   try {
-    const ids: number[] = [...new Set<number>(message.ids)];
+    const ids: readonly number[] = message.ids.length === 1
+      ? message.ids
+      : [...new Set<number>(message.ids)];
     for (const id of ids) {
       assertTelegramIdentityId(id, `${IDENTITY_DATABASE_PATH}:readIdentityPolicies`);
     }

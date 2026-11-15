@@ -1,17 +1,15 @@
 import {
+  MINI_APP_API_AUTH_POLICY,
   MINI_APP_GALLERY_DOWNLOAD_ROUTE_PATTERN,
   MINI_APP_GALLERY_FILE_ROUTE_PATTERN,
+  MINI_APP_PROTECTED_ASSET_AUTH_POLICY,
   MINI_APP_PROTECTED_ASSET_EXT_PATTERN,
 } from "../../consts/miniApp";
-import type { MiniAppRouteContext } from "../../types/miniApp";
+import type { MiniAppRouteContext } from "../../types/miniApp/server";
 import { buildNoStoreHeaders, jsonResponse } from "../libs/response";
 import { configuredBasePathname, normalizeRoutePathname } from "../libs/routePath";
 import type { NormalizedRoutePath } from "../libs/routePath";
-import {
-  MINI_APP_API_AUTH_MIDDLEWARE_CHAIN,
-  MINI_APP_PROTECTED_ASSET_MIDDLEWARE_CHAIN,
-} from "../middleware/chains";
-import { executeMiniAppMiddlewareChain } from "../middleware/pipeline";
+import { runMiniAppAuthorized } from "../middleware/pipeline";
 import { MINI_APP_AUTH_BUN_ROUTES } from "../routes/auth";
 import { MINI_APP_CHATS_BUN_ROUTES } from "../routes/chats";
 import { MINI_APP_GALLERY_BUN_ROUTES } from "../routes/gallery";
@@ -23,7 +21,7 @@ import indexHtml from "../../mini-app-frontend/index.html";
 
 /**
  * 合并各领域路由表片段（`routes/` 目录）为传给 `Bun.serve({ routes })` 的原生路由表；
- * 当 `mini_app.url` 配置了子路径前缀（`basePath !== "/"`）时，为除 `/_bundle` 外的每条路由同步注册 `${basePath}` 前缀别名（`/` 对应 `${basePath}/`），同时覆盖反向代理保留前缀与剥离前缀两种转发模式。
+ * 当 `mini_app.url` 配置了子路径前缀（`basePath !== "/"`）时，为每条路由同步注册 `${basePath}` 前缀别名（`/` 对应 `${basePath}/`），同时覆盖反向代理保留前缀与剥离前缀两种转发模式。
  * @returns `Bun.serve` 原生路由定义对象。
  */
 export function createMiniAppBunRoutes(): Bun.Serve.Routes<undefined, string> {
@@ -41,7 +39,7 @@ export function createMiniAppBunRoutes(): Bun.Serve.Routes<undefined, string> {
 
   const routes: Bun.Serve.Routes<undefined, string> = { ...baseRoutes };
   for (const [routeKey, routeValue] of Object.entries(baseRoutes)) {
-    if (routeKey === "/_bundle" || routeValue === undefined) continue;
+    if (routeValue === undefined) continue;
     const prefixedKey: string = routeKey === "/" ? `${basePath}/` : `${basePath}${routeKey}`;
     routes[prefixedKey] = routeValue;
   }
@@ -64,8 +62,11 @@ function isProtectedMiniAppAssetPath(routePath: string): boolean {
 }
 
 /**
- * 处理未命中 `Bun.serve` 原生路由表的请求（子路径末尾斜杠重定向、携带子路径前缀的本地打包静态资源、方法不匹配或未知路径），按以下顺序兜底：
- * `${basePath}` 的 `308` 补斜杠 → 子路径打包静态资源回环读取 → 受保护图片后缀路径经受保护资源鉴权链后返回 404 → 非 `/api/` 未知路径返回 404 → `/api/` 下未知路径或方法不匹配经完整双层业务 API 鉴权链后返回 404。
+ * 处理未命中 `Bun.serve` 原生路由表的请求，按以下顺序兜底分发：
+ * 1. `GET`/`HEAD` 访问无尾斜杠 `${basePath}` 时返回 `308` 补斜杠重定向；
+ * 2. 尝试匹配并验明门禁分发前端打包静态资源；
+ * 3. 非 `DELETE` 的受保护图片路径经受保护资源鉴权策略核验后返回 `404`；
+ * 4. 非 `/api/` 未知路径直接返回 `404`；`/api/` 下的未知路径或方法不匹配经完整双层 API 鉴权后返回 `404`。
  * @param request 传入的 HTTP `Request`。
  * @returns 完整的 HTTP `Response`。
  */
@@ -88,17 +89,20 @@ export async function handleMiniAppHttpRequest(request: Request): Promise<Respon
     request,
     url,
     method,
-    routePath,
     params: {},
   };
 
-  const bundleAssetResponse: Response | null = await dispatchBundleAssetRoute(ctx);
+  const bundleAssetResponse: Response | null = await dispatchBundleAssetRoute(
+    ctx,
+    routePath,
+    indexHtml
+  );
   if (bundleAssetResponse !== null) return bundleAssetResponse;
 
   if (method !== "DELETE" && isProtectedMiniAppAssetPath(routePath)) {
-    return executeMiniAppMiddlewareChain(
+    return runMiniAppAuthorized(
       ctx,
-      MINI_APP_PROTECTED_ASSET_MIDDLEWARE_CHAIN,
+      MINI_APP_PROTECTED_ASSET_AUTH_POLICY,
       (): Response => jsonResponse({ error: "Resource not found" }, 404)
     );
   }
@@ -107,9 +111,9 @@ export async function handleMiniAppHttpRequest(request: Request): Promise<Respon
     return jsonResponse({ error: "Not found" }, 404);
   }
 
-  return executeMiniAppMiddlewareChain(
+  return runMiniAppAuthorized(
     ctx,
-    MINI_APP_API_AUTH_MIDDLEWARE_CHAIN,
+    MINI_APP_API_AUTH_POLICY,
     (): Response => jsonResponse({ error: "API route not found" }, 404)
   );
 }

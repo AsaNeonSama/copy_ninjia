@@ -29,8 +29,8 @@ export function toLocalEpochMs(serverEpochMs: number, response: Response): numbe
 }
 
 /**
- * 检查服务端响应头中是否包含超过 5 分钟自动刷新的新会话令牌（`X-Mini-App-Session` 与 `X-Mini-App-Session-Expires-At`），
- * 若存在合法的新令牌则立即同步更新本地持久化凭据，并按 `toLocalEpochMs` 换算后的本机到期时刻延长有效期（无法换算出未来时刻时按本机当前时刻加 45 分钟）。
+ * 读取响应头中的新会话令牌（`X-Mini-App-Session` 与 `X-Mini-App-Session-Expires-At`）并同步更新本地持久化凭据。
+ * 到期时刻经 `toLocalEpochMs` 换算为本机时钟；无法解析出未来时刻时按本机当前时刻延长 45 分钟。
  * @param response HTTP 响应对象
  */
 export function syncRefreshedMiniAppSession(response: Response): void {
@@ -68,6 +68,18 @@ export function buildMiniAppAuthHeaders(includeSession: boolean, contentType?: s
 }
 
 /**
+ * 判断错误文案是否携带服务端鉴权失效或锁定前缀（`[PASSWORD_REQUIRED]` 或 `[PASSWORD_LOCKED]`）。
+ * @param message 错误消息文本
+ * @returns 命中鉴权失效或锁定前缀时返回 `true`
+ */
+export function isMiniAppAuthErrorMessage(message: string): boolean {
+  return (
+    message.includes("[PASSWORD_REQUIRED]") ||
+    message.includes("[PASSWORD_LOCKED]")
+  );
+}
+
+/**
  * 核对服务端错误响应记录中的鉴权失败状态码：命中 `PASSWORD_REQUIRED` 或 `PASSWORD_LOCKED` 时
  * 清除本地会话令牌并返回 `"[<状态码>] "` 前缀，否则返回空字符串。
  * @param record 服务端响应 JSON 解析出的字典
@@ -85,8 +97,8 @@ export function consumeMiniAppAuthErrorPrefix(
 }
 
 /**
- * 调用 Mini App 后端 JSON 接口并附带 SuperAdmin `initData` 与 45 分钟密码会话令牌请求头。
- * 非 2xx 响应抛出 `Error`：会话缺失或锁定（`PASSWORD_REQUIRED` / `PASSWORD_LOCKED`）时先清除本地会话令牌，并在消息前加 `[代号] ` 前缀。
+ * 调用 Mini App 后端 JSON 接口，自动附带 SuperAdmin `initData` 与 45 分钟二次认证会话令牌请求头。
+ * 非 2xx 响应抛出 `Error`；命中 `PASSWORD_REQUIRED` 或 `PASSWORD_LOCKED` 时先清除本地会话令牌，并在错误消息前附加 `[状态码] ` 前缀。
  * @param path 相对路径（如 `./api/status`）
  * @param init 可选 `RequestInit` 配置
  * @returns 解析后的 JSON 响应对象

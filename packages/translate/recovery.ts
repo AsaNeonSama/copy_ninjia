@@ -1,4 +1,4 @@
-import { getChatStateCache } from "../infra/storage/stateStore";
+import { getChatStateCache } from "../infra/chatStateStorage";
 import { updateCachedIdentity } from "../users/senderIdentity";
 import type { TranslateState } from "../types/translate";
 

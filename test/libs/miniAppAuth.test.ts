@@ -24,7 +24,7 @@ import {
   verifyMiniAppTotpCode,
 } from "../../packages/libs/miniAppTotp";
 import { renderQrCodeSvg } from "../../packages/libs/qrcodeSvg";
-import type { MiniAppAuthResult } from "../../packages/types/miniApp";
+import type { MiniAppAuthResult } from "../../packages/types/miniApp/auth";
 import { buildSignedTestInitData } from "../helpers/miniAppInitData";
 
 describe("verifyMiniAppInitData", () => {

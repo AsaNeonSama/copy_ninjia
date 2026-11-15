@@ -32,9 +32,9 @@ import type {
 
 /** 基准身份的起始 id；远离 fixture 里其它场景使用的号段。 */
 const IDENTITY_BASE: number = 7_000_000_000;
-/** 一个活跃群里反复发言的身份数；其余条目是历史上见过的负缓存。 */
+/** 活跃群高频发言的工作集身份数；其余槽位填充不在黑白名单内的负缓存条目。 */
 const WORKING_SET: number = 500;
-/** 固定取键序列的下标掩码：序列长度为 KEY_SEQUENCE_MASK + 1（2 的幂），便于用位与取模。 */
+/** 固定取键序列的下标掩码：序列长度为 `KEY_SEQUENCE_MASK + 1`（2 的幂，用于按位与取模）。 */
 const KEY_SEQUENCE_MASK: number = 65_535;
 
 const BENCHMARK_META: WhitelistEntryData["meta"] = {
@@ -54,10 +54,10 @@ const BLOCKLIST_ENTRY: Readonly<BlocklistEntryData> = {
 };
 
 /**
- * 超级管理员在两个读口都会短路，序列里的 id 避开它。
+ * 换算基准身份的用户 ID：与 `SUPER_ADMIN_USER_ID` 冲突时偏移到号段外，使每次读取均经身份缓存查找。
  *
  * @param index 身份缓存槽位下标
- * @returns 避开超级管理员的基准用户 ID
+ * @returns 非超级管理员的基准用户 ID
  */
 function benchmarkIdentityId(index: number): number {
   const id: number = IDENTITY_BASE + index;

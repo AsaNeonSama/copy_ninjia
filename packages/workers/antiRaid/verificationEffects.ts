@@ -1,3 +1,7 @@
+/**
+ * 入群验证状态机副作用分发与终态许可闸门（Anti-Raid Worker 侧）：
+ * 为含终态动作的批次统一申请进程级执行许可，按序执行消息删除、踢人、提醒投递、欢迎语播报与管理员核查，并在异常或配额耗尽时触发退避重试或延后收口。
+ */
 import { workerAtmosphere } from "./atmosphere";
 import { answerVerificationCallback } from "./verificationCallbacks";
 import {

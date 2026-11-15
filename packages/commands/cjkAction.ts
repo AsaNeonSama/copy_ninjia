@@ -120,16 +120,14 @@ export async function handleCjkActionUsageCommand(ctx: Context): Promise<void> {
 }
 
 /**
- * 处理 `/<动作词>` 动作命令：回复「发起人 <动作词>了 目标！」，
- * 两个名字都用 first_name last_name 形式，并各自挂上 t.me 主页链接（只有公开
- * username 的人才有链接，其余是纯文本）。链接靠显式 entities 表达，不使用 parse_mode。
- * 目标解析与 /copy、/block 共用 targetResolution.ts：支持回复目标或当前缓存中的
- * 用户名；回复与参数同时给出时必须指向同一身份。
- * 成功动作结果属获授权的长期保留例外，与 `/permission help`、`/permission query`
- * 一样显式设置 preserveInGroup；目标解析失败与 `/x` 用法提示仍走默认自动清理。
- * 命令名只收 ASCII，动作命令拿不到 bot_command 实体，由 bot.hears 按原文匹配；
- * 菜单里的 `/x` 是占位说明项，见 handleCjkActionUsageCommand 与
- * consts/atmosphere/teasing/commands.ts 的 BOT_COMMANDS。
+ * 处理 `/<动作词>` 中文动作命令：
+ * - **回复格式**：输出「发起人 <动作词>了 目标！」，双方名称采用 `first_name last_name`，对带公开 `username`
+ *   的身份通过显式 `text_link` 实体附上 `t.me` 主页链接（不启用 `parse_mode`）。
+ * - **目标解析**：复用 `targetResolution.ts`，支持回复消息或身份缓存中的 `@username`；同时提供时须指向同一身份。
+ * - **消息留存**：成功的动作结果显式传 `preserveInGroup: true` 长期保留；目标解析失败提示与 `/x` 用法说明仍走 30 秒自动清理。
+ * - **路由匹配**：Telegram `bot_command` 实体仅覆盖 ASCII 命令名，本处理器经 `bot.hears` 按正则匹配纯文本消息；
+ *   命令菜单由 `/x` 占位说明（见 `handleCjkActionUsageCommand` 与 `consts/atmosphere/teasing/commands.ts` 的 `BOT_COMMANDS`）。
+ *
  * @param ctx grammY 上下文。
  * @param next 命令并非发给本机器人或消息形态不符时放行，回到普通消息流水线。
  */

@@ -1,17 +1,12 @@
 /**
- * `/send` 代发会话里的 TTS 请求。
- *
- * 超级管理员在私聊里发一整条代码块（唯一一个覆盖全文的 `pre` 实体），内容按 JSONC
- * （允许注释与尾逗号）解析为 `{ "type": "tts", "tone"?: 语气, "text": 台词 }` 时，机器人
- * 不复制原消息，而是把台词经 AI Worker 的语音合成公共实现（aiChat/voiceSynthesis.ts）
- * 念成语音，以语音气泡发到代发目标群；语气拼在基础朗读风格之后。别的消息——不是整条
- * 代码块、解析不出 JSON、或 `type` 不是 `tts`——照常代发。
- *
- * `type` 为 `tts` 但键或取值不合规时按格式错误拒绝，不代发；`agent.tts` 未配置时直接
- * 报错。合成与发送耗时较长，接纳后交给延迟命令执行器（commands/deferredCommands.ts），
- * 不占住串行的 update runner；执行器满时回「稍后再试」。合成或发送失败、每日额度
- * （`agent.tts.daily_reserve_quota`，与 cron 共用）用尽时只回一句提示，代发会话保持开启。给超管的提示都经
- * sendProxyTtsNotice 发到私聊，不挂延迟删除。
+ * `/send` 代发会话中的 TTS 语音代发：
+ * - **识别规则**：超管私聊发送覆盖全文的单一 `pre` 代码块，且内容按 JSONC 解析为
+ *   `{ "type": "tts", "tone"?: string, "text": string }` 时，经 `aiChat/voiceSynthesis.ts` 合成语音并发往目标群
+ *   （`tone` 拼接在基础朗读风格之后）。非整条代码块、非合法 JSONC 或 `type !== "tts"` 的消息返回 `none`，照常原样代发。
+ * - **校验与异步执行**：`type === "tts"` 但字段或长度不合法时按格式错误拒绝；接纳后提交给 `commands/deferredCommands.ts`
+ *   后台合成与发送，不阻塞当前 update（队列满时提示稍后再试）。
+ * - **错误反馈**：`agent.tts` 未配置、每日预留额度（`agent.tts.daily_reserve_quota`，与 cron 共用）耗尽或合成/发送失败时，
+ *   经 `sendProxyTtsNotice` 在私聊回复提示（不挂延迟删除），代发会话保持开启。
  */
 
 import type { Message, MessageEntity } from "grammy/types";
@@ -61,7 +56,7 @@ function boundedLine(value: unknown, maxChars: number): string | undefined {
 }
 
 /**
- * 消息是不是恰好一整条代码块：唯一一个实体是从头覆盖到尾的 `pre`。
+ * 判断消息正文是否由单一 `pre` 实体完整覆盖。
  *
  * @param text 消息正文
  * @param entities 消息实体数组
@@ -74,11 +69,11 @@ function isWholeCodeBlock(text: string, entities: readonly MessageEntity[] | und
 }
 
 /**
- * 把一条私聊消息判定为 TTS 请求。`text` 必填、`tone` 可省；两者清洗成单行后必须非空，
- * 台词不超过 VOICE_OPERATOR_TEXT_MAX_CHARS，语气不超过 VOICE_TONE_MAX_CHARS。
+ * 解析私聊消息是否为 `/send` TTS 请求：`text` 必填、`tone` 可选；两者清洗为单行后均须非空，
+ * 且分别不超过 `VOICE_OPERATOR_TEXT_MAX_CHARS` 与 `VOICE_TONE_MAX_CHARS`。
  *
  * @param message 入站私聊消息
- * @returns 解析出的 TTS 代发请求结果
+ * @returns 解析出的 TTS 代发请求结果（`none`、`invalid` 或 `tts`）
  */
 export function parseProxyTtsRequest(message: Message): ProxyTtsRequest {
   const content: string | undefined = message.text;

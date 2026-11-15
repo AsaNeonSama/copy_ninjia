@@ -148,6 +148,22 @@ describe("广告命中样本旁路", () => {
     expect(await Bun.file(join(AD_SAMPLE_MEMORY_DIR, `sample.${today}.2.json`)).exists()).toBeTrue();
   });
 
+  test("候选归档路径被同名目录占用时跳到下一序号而不误选目录", async () => {
+    mkdirSync(AD_SAMPLE_MEMORY_DIR, { recursive: true });
+    const today: string = getDateKey();
+    const occupiedDir: string = join(AD_SAMPLE_MEMORY_DIR, `sample.${today}.json`);
+    mkdirSync(occupiedDir);
+    await Bun.write(AD_SAMPLE_FILE_PATH, '{"-1001:1":{"reason":"旧样本"}}');
+    adSampleFileState.current = { size: AD_SAMPLE_FILE_MAX_BYTES, empty: false };
+
+    await appendSample(sample({ messages: [{ messageId: 88, text: "新样本", quote: undefined, replyTo: undefined }] }));
+
+    expect(existsSync(occupiedDir)).toBeTrue();
+    expect(await Bun.file(join(AD_SAMPLE_MEMORY_DIR, `sample.${today}.2.json`)).text())
+      .toBe('{"-1001:1":{"reason":"旧样本"}}');
+    expect(Object.keys(await readSamples())).toEqual(["-1001:88"]);
+  });
+
   test("归档只按严格文件名保留最近 15 个配置时区的自然日，不误删当前文件、未知项或目录", async () => {
     mkdirSync(AD_SAMPLE_MEMORY_DIR, { recursive: true });
     const removedNames: string[] = [

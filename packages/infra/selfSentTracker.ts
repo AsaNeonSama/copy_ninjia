@@ -1,3 +1,10 @@
+/**
+ * 机器人自发消息追踪与频道回投汇合（rendezvous）边界：
+ * 出站请求在发出前调用 `beginSelfSentSend`、成功后调用 `markSelfSent`、结算后调用 `endSelfSentSend`，
+ * 供入站自动流水线与动作命令识别并跳过频道发帖及关联讨论组自动转发的自发回环。
+ * @see ../../docs/cn/04-invariants.md
+ */
+
 import type { Message, MessageOrigin } from "grammy/types";
 import {
   SELF_SENT_MESSAGE_TTL_MS,
@@ -9,13 +16,6 @@ import {
   sentMessages,
 } from "../cache/perThread/selfSentTracker";
 import type { SelfSentWaiter } from "../types/telegram";
-
-/**
- * 机器人自发消息追踪与频道回投汇合（rendezvous）边界：
- * 出站请求在发出前调用 `beginSelfSentSend`、成功后调用 `markSelfSent`、结算后调用 `endSelfSentSend`，
- * 供入站自动流水线与动作命令识别并跳过频道发帖及关联讨论组自动转发的自发回环。
- * @see ../../docs/cn/04-invariants.md
- */
 
 /**
  * TTL 到期：摘掉这一条，并在该群最后一条消失时把内层表一并删除。
@@ -156,7 +156,6 @@ export function endSelfSentSend(chatId: number): void {
  * @returns 在本线程 TTL 窗口内登记为自发消息时返回 true，否则返回 false。
  */
 export function isSelfSent(chatId: number, messageId: number): boolean {
-  // 本线程没有登记过任何消息时直接返回 false。
   if (sentMessages.size === 0) return false;
   return sentMessages.get(chatId)?.has(messageId) === true;
 }

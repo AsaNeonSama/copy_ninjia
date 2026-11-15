@@ -9,7 +9,7 @@ import { observeWedMembers } from "../../packages/commands/wed/members";
 import { WED_MEMBER_LIMIT } from "../../packages/consts/wed";
 import { STATE_MANAGED_CHAT_LIMIT } from "../../packages/consts/storage";
 import { isPresentMember } from "../../packages/libs/chatMember";
-import { getChatState, getOrCreateChatState } from "../../packages/infra/storage/stateStore";
+import { getChatState, getOrCreateChatState } from "../../packages/infra/chatStateStorage";
 
 /** 与前置链一致：先各读一次 `ctx.chat` 与群状态快照，再交给 observeWedMembers。 */
 function observeLikePreamble(ctx: Context): void {

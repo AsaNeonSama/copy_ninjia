@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <a href="content-table.md">📚 开发者文档首页</a> · <a href="11-mini-app.md">← 上一页：11 Mini App 设置与推荐配置</a> · <b>下一页：无 →</b>
+  <a href="content-table.md">📚 开发者文档首页</a> · <a href="11-performance.md">← 上一页：11 性能基准</a> · <b>下一页：无 →</b>
 </p>
 
 ---
@@ -42,7 +42,7 @@
   <tr>
     <td><nobr>📨 <b>私聊机器人没反应</b></nobr></td>
     <td>
-      • 私聊窗口仅响应超级管理员发送的 <code>/send</code> 跨群中转指令，默认忽略所有其他命令与普通闲聊。
+      • 私聊窗口仅响应超级管理员发送的 <code>/send</code> 跨群中转指令（配置了 <code>mini_app</code> 时左下角挂载 <code>App</code> 控制台按钮），默认忽略所有其他命令与普通闲聊。
     </td>
   </tr>
   <tr>
@@ -76,7 +76,7 @@
     <td>
       • <b>默认处于关闭状态</b>：需在群内显式执行 <code>/antiraid enable</code>、<code>/ad_detect enable</code>、<code>/flood_control enable</code>。<br>
       • <b>机器人权限不足</b>：机器人必须具备群管理员身份（并拥有“删除消息”与“封禁/限制用户”权限）。<br>
-      • <b>检测配置未就绪</b>：广告检测依赖 <code>config/dynamic/agent.json</code> 中的 <code>agent.ad_detect</code> 配置以及 <code>config/dynamic/ad_samples.json</code> 样本库。
+      • <b>检测配置未就绪</b>：广告检测依赖 <code>config/dynamic/agent.json</code> 中的 <code>agent.ad_detect</code> 配置以及 <code>config/dynamic/ad_detect.json</code> 配置。
     </td>
   </tr>
   <tr>
@@ -96,7 +96,7 @@
 
 - **显式配置**：在 `config/static/bot.json` 中配置 `atmosphere` 字段为 `mesugaki`（调侃/雌小鬼版）或 `normal`（克制/普通版），重启服务后即可生效。显式配置具有最高优先级。
 - **缺省判定**：若未显式配置 `atmosphere`，系统会根据人设文件自动选择：当项目根目录下存在 `prompt/persona.md` 自定义人设时，全群统一采用普通版；若使用内置人设，则默认采用调侃版。
-- **作用边界**：通知语气配置仅影响机器人的系统通知、命令回执、菜单描述和按钮文案，不会改变 AI 闲聊的 System Prompt 人设内容。
+- **作用边界**：通知语气配置仅影响机器人的系统通知、命令回执、菜单描述和按钮文案，不会改变 AI 闲聊的 System Prompt 人设内容；Mini App 管理控制台界面文案固定为调侃雌小鬼语气，不随 `atmosphere` 切换。
 
 ---
 
@@ -217,6 +217,6 @@
 
 <div align="center">
 
-[← 上一页：11 Mini App 设置与推荐配置](11-mini-app.md) · [📚 开发者文档首页](content-table.md) · [⬆️ 回到顶部](#12-常见问题) · **下一页：无 →**
+[← 上一页：11 性能基准](11-performance.md) · [📚 开发者文档首页](content-table.md) · [⬆️ 回到顶部](#12-常见问题) · **下一页：无 →**
 
 </div>

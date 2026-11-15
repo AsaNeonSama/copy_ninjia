@@ -1,10 +1,10 @@
-import type { Sticker, PhotoSize } from "grammy/types";
-import { stickerSentTagTemplate } from "../../../consts/aiChat/prompts/transcript";
-import type { TelegramVisionSource } from "../../../types/media";
-
 /**
  * 贴纸视觉解析素材选择与对话缓存文本格式化纯函数（不接触缓存，供主线程与 AI Worker 共用）。
  */
+
+import type { Sticker, PhotoSize } from "grammy/types";
+import { stickerSentTagTemplate } from "../../../consts/aiChat/prompts/transcript";
+import type { TelegramVisionSource } from "../../../types/media";
 
 /**
  * 选择单枚贴纸用于视觉解析的下载素材（静态贴纸取本体，动态或视频贴纸取缩略图），

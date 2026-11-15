@@ -5,18 +5,17 @@ import {
   disableChatStateSwitch,
   getActiveProxySendTarget,
   persistChatState,
-} from "../../infra/storage/stateStore";
+} from "../../infra/chatStateStorage";
 import { copyMessage, sendMessage } from "../../infra/telegram";
 import { handleProxyTtsRequest, parseProxyTtsRequest } from "./proxyTts";
 import type { ProxyTtsRequest } from "../../types/proxySend";
 
 /**
- * 私聊只消费超级管理员当前活动的 /send 中转会话。整条代码块形式的 TTS 请求交给
- * ./proxyTts.ts 合成语音代发，其余消息原样复制到目标群。
+ * 处理私聊中的超级管理员 `/send` 代发会话：整条代码块形式的 TTS 请求交由 `./proxyTts.ts`
+ * 合成语音代发，其余消息原样复制到目标群。
  *
- * 本函数开头是「私聊是否进入中转」（超管身份、活动目标）的唯一判定点；调用方
- * （auto/message/index.ts 的私聊分支）直接交给本函数，不得在外层重复同一条件，
- * 否则两处条件分别修改后会互相矛盾。
+ * 本函数开头是「私聊是否进入 `/send` 代发」（超管身份与活动目标群）的唯一判定边界，
+ * 调用方（`auto/message/index.ts` 私聊分支）直接转发至此，不在外层重复判定。
  *
  * @param message 入站私聊消息
  */

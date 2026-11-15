@@ -6,7 +6,10 @@
  */
 
 import type { ChatFullInfo } from "grammy/types";
-import { VERIFICATION_CHAT_KIND_FETCH_MAX } from "../../consts/antiRaid/verification";
+import {
+  CHAT_KIND_FETCH_TIMEOUT_MS,
+  VERIFICATION_CHAT_KIND_FETCH_MAX,
+} from "../../consts/antiRaid/verification";
 import {
   workerChatIsSupergroup,
   workerChatKindFetches,
@@ -14,6 +17,7 @@ import {
 } from "../../cache/workers/antiRaid/chatKind";
 import { telegramApi } from "../../infra/telegram";
 import { logger } from "../../infra/logger";
+import { telegramSignal } from "../../libs/telegramSignal";
 
 /**
  * 应用一条主线程镜像过来的群类型变化。
@@ -41,7 +45,8 @@ export function resolveChatIsSupergroup(
   if (workerChatKindActiveFetches.size >= VERIFICATION_CHAT_KIND_FETCH_MAX) {
     return Promise.resolve(undefined);
   }
-  const task: Promise<boolean | undefined> = telegramApi.getChat(chatId)
+  const task: Promise<boolean | undefined> = telegramApi
+    .getChat(chatId, telegramSignal(AbortSignal.timeout(CHAT_KIND_FETCH_TIMEOUT_MS)))
     .then((chat: ChatFullInfo): boolean | undefined => {
       // 主线程镜像可能在查询期间到达：迟到请求不覆盖它，当前等待者直接使用那份更新值。
       if (workerChatKindFetches.get(chatId) !== task) {

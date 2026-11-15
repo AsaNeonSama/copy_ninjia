@@ -16,7 +16,7 @@ import {
   latestStickerCatalogs,
 } from "../cache/main/aiChat";
 import { logger } from "../infra/logger";
-import { getChatState } from "../infra/storage/stateStore";
+import { getChatState } from "../infra/chatStateStorage";
 import type { AiBotInfo } from "../types/aiChat/protocol";
 
 /**

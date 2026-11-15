@@ -75,14 +75,14 @@ Comprehensive multi-page developer documentation covering environment setup, sys
     <td align="center"><nobr><a href="09-commands.md">📖 09 Commands</a></nobr></td>
   </tr>
   <tr>
-    <td><nobr>📊 <b>Performance</b></nobr></td>
-    <td>Release benchmarks for cold/hot paths, throughput, I/O footprint, and end-to-end latency</td>
-    <td align="center"><nobr><a href="10-performance.md">📖 10 Performance</a></nobr></td>
-  </tr>
-  <tr>
     <td><nobr>🖥️ <b>Mini App Console</b></nobr></td>
     <td><code>mini_app</code> setup, recommended Cloudflare Tunnel configuration, two-tier auth, and TOTP binding</td>
-    <td align="center"><nobr><a href="11-mini-app.md">📖 11 Mini App Setup</a></nobr></td>
+    <td align="center"><nobr><a href="10-mini-app.md">📖 10 Mini App Setup</a></nobr></td>
+  </tr>
+  <tr>
+    <td><nobr>📊 <b>Performance</b></nobr></td>
+    <td>Release benchmarks for cold/hot paths, throughput, I/O footprint, and end-to-end latency</td>
+    <td align="center"><nobr><a href="11-performance.md">📖 11 Performance</a></nobr></td>
   </tr>
   <tr>
     <td><nobr>❓ <b>Troubleshooting</b></nobr></td>
@@ -104,14 +104,14 @@ Comprehensive multi-page developer documentation covering environment setup, sys
    - Initial group onboarding and running `/init enable`.
 
 2. **[02 Architecture Overview](02-architecture.md)**
-   - Threading topology: Main thread coordinator plus 3 isolated Workers (AI Chat, Anti-Raid, and Disk I/O).
+   - Threading topology: Main thread coordinator (Telegram runner, outbound gate, optional Mini App HTTP server) plus 3 isolated Workers (AI Chat, Anti-Raid, and Disk I/O).
    - Lifecycle of a Telegram Update from gateway ingestion to worker dispatch.
-   - Startup sequence, asynchronous state restoration, and graceful shutdown via Flush Barrier.
+   - Startup sequence, asynchronous state restoration, and graceful shutdown via sequential drain barriers.
 
 3. **[03 Directory Map and Code Placement](03-directory-map.md)**
-   - Clear module boundaries and responsibilities across `packages/`.
-   - Structural decision trees for locating constants, types, memory caches, and worker routines.
-   - Strict thread-ownership rules for memory caches to prevent cross-thread contamination.
+   - Module boundaries and responsibilities across `packages/` (including `mini-app-api-server/` and isolated `mini-app-frontend/`).
+   - Structural decision order for locating constants, types, in-memory caches, pure state machines, and worker routines.
+   - Strict thread-ownership rules for `packages/cache/` and compatibility barrel conventions.
 
 4. **[04 Authoritative Runtime Invariants](04-invariants.md)**
    - The single source of truth for runtime constraints across modules and lifecycles (referenced by source `@see` comments).
@@ -131,10 +131,10 @@ Comprehensive multi-page developer documentation covering environment setup, sys
    - Adding in-memory caches, updating inter-worker message protocols, and executing offline database cold migrations.
 
 7. **[07 Operations and Troubleshooting](07-operations.md)**
-   - Systemd unit setup, hardware planning reference, and binary release deployment.
-   - Data root directory structure, filesystem compatibility checks (fsync, hard link, rename), and permission security.
-   - Persistent data migrations: fresh database initialization, the /wed member window cold migration, and staged historical upgrades.
-   - Fast-fail startup diagnosis: handling `bot.lock` conflicts, schema mismatches, and receipt HMAC validation.
+   - Systemd unit setup, hardware sizing guidance, and standalone binary deployment.
+   - Data root directory layout, filesystem capability checks (fsync, hard link, atomic rename), and permission lockdown.
+   - Persistent data migrations: fresh database bootstrap, the `/wed` member window cold migration (`migrate:wed-member-window`), `ad_detect.json` configuration layout migration, and staged historical upgrades.
+   - Fast-fail startup diagnosis: resolving `bot.lock` conflicts, schema mismatches, and fortune receipt HMAC validation.
 
 8. **[08 Image Library and Scheduled Tasks](08-images-and-cron.md)**
    - Dedicated image library setup, image curation via `/h_image add`, and SHA-256 content deduplication.
@@ -146,15 +146,15 @@ Comprehensive multi-page developer documentation covering environment setup, sys
    - Authorization matrix: Group Member, Identity Policy (`isCanXxx`), and Super Administrator.
    - Deep-dive behavioral contracts for speech restrictions (`/gag`), target message deletion (`/delete_message`), global blocklists (`/block`), batch kicks, and anti-flood mutes.
 
-10. **[10 Performance Benchmark](10-performance.md)**
-    - Measurement scope of `bun run perf:full`: cold-start recovery, production hot paths, SQLite transaction chains, and data structures.
-    - Statistical summaries with multi-round averages, min/max values, and coefficients of variation.
-    - Total throughput, I/O footprint, and mock directory resource consumption.
-
-11. **[11 Mini App Setup and Recommended Configuration](11-mini-app.md)**
+10. **[10 Mini App Setup and Recommended Configuration](10-mini-app.md)**
     - Configuring the `mini_app` section in `config/static/bot.json` and activation rules.
     - Exposing the local HTTP server via Cloudflare Tunnel (`cloudflared`), DNS routing, and systemd service setup.
     - Private-chat `App` button entry, two-tier authentication, and binding Google Authenticator (TOTP) 2FA.
+
+11. **[11 Performance Benchmark](11-performance.md)**
+    - Measurement scope of `bun run perf:full`: cold-start recovery, production hot paths, SQLite transaction chains, and data structures.
+    - Statistical summaries with multi-round averages, min/max values, and coefficients of variation.
+    - Total throughput, I/O footprint, and mock directory resource consumption.
 
 12. **[12 FAQ](12-faq.md)**
     - Comprehensive troubleshooting checklist when a running bot fails to reply in chat.

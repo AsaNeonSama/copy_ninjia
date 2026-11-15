@@ -194,17 +194,16 @@ export class ApplicationLifecycle {
     this.flags.aiChatInitialized = true;
     this.dependencies.hydrateAiMemory(loaded.aiMemories);
     this.dependencies.hydrateStickerCatalog(loaded.stickerCatalogs);
-    // 早于 runner 开始投喂更新。
     this.dependencies.hydrateBlocklist(loaded.pendingBlockedRemovals);
     this.dependencies.initAntiRaid();
     this.flags.antiRaidInitialized = true;
-    // 定时任务按启动总闸接管的 cron.json 登记；先于热重载，热重载的对账改动该调度器。
+    // 定时任务调度器须先于热重载启动，后续热重载对账直接作用于该调度器。
     this.dependencies.startCronScheduler();
-    // 两条业务 Worker 都已持有初始配置快照，此后 config/dynamic/ 的改动才有分发对象。
+    // 两条业务 Worker 已持有初始配置快照，此后可接纳 config/dynamic/ 热重载分发。
     this.dependencies.startConfigReload();
     this.dependencies.startMiniAppServer();
     this.dependencies.initBlocklistSweepScheduler();
-    // 在 runner 接收新 update 前，对所有已初始化且已确证管理员的群补跑一轮黑名单清扫。
+    // 开始拉取新 update 前，对已初始化且确证具备管理员权限的群执行首轮黑名单补扫。
     await this.dependencies.sweepManagedBlocklistChats();
 
     this.dependencies.logger.log(
@@ -217,7 +216,7 @@ export class ApplicationLifecycle {
       this.dependencies.bot,
       TELEGRAM_ALLOWED_UPDATES
     );
-    // 启动期到达的停止信号在各运行时初始化完成后重新收口，位于 refreshAllChatTitles 之前。
+    // 启动期间已收到退出信号时立即停止轮询器。
     if (this.stopRequested) this.stopForShutdown("Error stopping runner:");
     this.dependencies.enableWedMemberReview();
     this.chatTitleRefreshSettled = false;
@@ -228,7 +227,7 @@ export class ApplicationLifecycle {
       .finally((): void => { this.chatTitleRefreshSettled = true; });
   }
 
-  /** 等待轮询停止、在途 update 排空、后台维护结束，并确认最终 update offset；各步等待受整段停机总截止约束。 */
+  /** 等待轮询停止、关闭 Mini App 服务、排空在途 update 与后台维护，并确认最终 update offset；各步受停机总截止约束。 */
   async wait(): Promise<void> {
     const runner: AcknowledgedUpdateRunner | null = this.runner;
     if (runner === null) throw new Error("Application lifecycle has not been initialized");
@@ -236,8 +235,7 @@ export class ApplicationLifecycle {
     try {
       await runner.task();
     } catch (error: unknown) {
-      // task() 抛错时下面的最终 offset 确认整段跳过：这里把
-      // finalOffsetGateSucceeded 置 false，dispose 据此判为 "offsetWithheld"。
+      // 取数循环异常退出时跳过最终 offset 确认，标记未确认以供 dispose 判定为 offsetWithheld。
       this.finalOffsetGateSucceeded = false;
       throw error;
     } finally {
@@ -250,18 +248,14 @@ export class ApplicationLifecycle {
     });
     const runnerDrained: boolean = await this.waitForRunnerDrain(runner);
 
-    // 标题刷新可能排入 chatState SQLite 写缓冲，先等它完成，再做最终 flush。
+    // 标题刷新可能产生 chat_states 写入，须在全量落盘前结算。
     const maintenanceSettled: boolean = await this.waitForBackgroundMaintenance(
       budgetWithinDeadline(NORMAL_FLUSH_TIMEOUTS.maintenanceMs, deadline, this.dependencies.monotonicNow)
     );
     const persistenceFlushed: boolean = await this.flushAllToDisk(NORMAL_FLUSH_TIMEOUTS, deadline);
     if (!maintenanceQuiesceSucceeded || !runnerDrained || !maintenanceSettled) process.exitCode = 1;
 
-    // 停机时取数循环放弃在途 update、不再 await 它的结算，之后发生的失败由
-    // runner 的这个标记表达（task() 正常 resolve）。失败的 update 留给 Telegram
-    // 重投，不随最终 offset 确认，见 docs/cn/04-invariants.md「Telegram update
-    // 只有在对应 middleware 完成后才可推进确认边界」。读取位于 waitForRunnerDrain
-    // 之后：标记与 size() 归零同步。
+    // 在途 update 排空后检查是否有失败 update；存在失败时不确认最终 offset，交由重启后重投（见 docs/cn/04-invariants.md）。
     const failedUpdateWithheld: boolean = runner.hasFailedUpdate();
     if (failedUpdateWithheld) {
       process.exitCode = 1;
@@ -299,7 +293,7 @@ export class ApplicationLifecycle {
   }
 
   /**
-   * 停止活动 runner，等待后台任务完成，排空持久化并释放单实例锁；各步等待受整段停机总截止约束。
+   * 停止 Mini App 服务与活动 runner，等待后台任务完成，排空并终止各持久化/Worker owner，最后按停机结局处置单实例锁。
    * @param timeouts 各停机阶段的超时预算，默认使用常规关停预算。
    * @returns 停机排空与锁释放流程完成的 Promise（重复调用复用首次 Promise）。
    */

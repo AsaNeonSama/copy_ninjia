@@ -8,12 +8,14 @@ export const MINI_APP_TOTP_RECORD_VERSION: number = 1;
 
 /**
  * `memory/mini-app-totp/totp.json` 首次创建时的文件权限位（仅属主可读写 `0o600`）。
- * 不变量：文件已存在时沿用原权限（见 `libs/atomicFile.ts` 的 `atomicWriteText`）；首次落盘时以此权限创建，禁止 group/other 读写 TOTP 密钥。所属模块：`packages/mini-app-api-server/auth/totpStorage.ts`。
+ * 不变量：文件已存在时沿用原权限（见 `libs/atomicFile.ts` 的 `atomicWriteText`）；首次落盘时以此权限创建，
+ * 关闭 group/other 读写位。所属模块：`packages/mini-app-api-server/auth/totpStorage.ts`。
  */
 export const MINI_APP_TOTP_FILE_MODE: number = 0o600;
 
 /**
- * 生成 RFC 6238 / Google Authenticator 兼容 TOTP 密钥的随机字节长度（20 字节 = 160 位，编码为 32 位无填充 Base32 字符串）。
+ * 生成 RFC 6238 / Google Authenticator 兼容 TOTP 密钥的随机字节长度（20 字节 = 160 位，
+ * 编码为 32 位无填充 Base32 字符串）。
  * 不变量：正整数 `20`，恰好被 5 位一组整除（`20 * 8 / 5 = 32`）。所属模块：`packages/libs/miniAppTotp.ts`。
  */
 export const MINI_APP_TOTP_SECRET_BYTES: number = 20;
@@ -144,7 +146,7 @@ export const QR_FORMAT_BCH_MASK: number = 0x5412;
 export const QR_VERSION_BCH_GENERATOR: number = 0x1f25;
 
 /**
- * QR Code Reed-Solomon 有限域 $\text{GF}(2^8)$ 的本原多项式（$x^8 + x^4 + x^3 + x^2 + 1 = \text{0x11D}$）。
+ * QR Code Reed-Solomon 有限域 GF(2^8) 的本原多项式（`x^8 + x^4 + x^3 + x^2 + 1 = 0x11D`）。
  * 不变量：ISO/IEC 18004 规范固定值。所属模块：`packages/libs/qrcodeSvg.ts`。
  */
 export const QR_GF256_PRIMITIVE_POLY: number = 0x11d;

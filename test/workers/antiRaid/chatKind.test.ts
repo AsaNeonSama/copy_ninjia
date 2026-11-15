@@ -4,17 +4,18 @@ import { VERIFICATION_CHAT_KIND_FETCH_MAX } from "../../../packages/consts/antiR
 
 interface PendingChatRequest {
   readonly chatId: number;
+  readonly signal: AbortSignal | undefined;
   readonly resolve: (chat: { type: "group" | "supergroup" | "private" }) => void;
   readonly reject: (error: Error) => void;
 }
 
 const pendingChatRequests: PendingChatRequest[] = [];
-const getChat = mock((chatId: number): Promise<{ type: "group" | "supergroup" | "private" }> =>
+const getChat = mock((chatId: number, signal?: AbortSignal): Promise<{ type: "group" | "supergroup" | "private" }> =>
   new Promise((
     resolve: (chat: { type: "group" | "supergroup" | "private" }) => void,
     reject: (error: Error) => void
   ): void => {
-    pendingChatRequests.push({ chatId, resolve, reject });
+    pendingChatRequests.push({ chatId, signal, resolve, reject });
   })
 );
 const logError = mock((..._args: unknown[]): void => {});
@@ -115,6 +116,20 @@ describe("Anti-Raid Worker 群类型反查", () => {
 
     await expect(old).resolves.toBeUndefined();
     expect(workerChatIsSupergroup.size).toBe(0);
+    expect(workerChatKindActiveFetches.size).toBe(0);
+  });
+
+  test("反查携带超时信号；超时失败返回 undefined、记错误日志并释放单飞槽位", async () => {
+    const first: Promise<boolean | undefined> = chatKind.resolveChatIsSupergroup(-1007);
+    const req = pendingChatRequests[0]!;
+    expect(req.signal).toBeInstanceOf(AbortSignal);
+    expect(req.signal?.aborted).toBeFalse();
+
+    req.reject(new DOMException("The operation timed out.", "TimeoutError"));
+    await expect(first).resolves.toBeUndefined();
+    expect(logError).toHaveBeenCalledTimes(1);
+    expect(workerChatIsSupergroup.has(-1007)).toBeFalse();
+    expect(workerChatKindFetches.size).toBe(0);
     expect(workerChatKindActiveFetches.size).toBe(0);
   });
 });

@@ -72,8 +72,8 @@ const {
 } = await import("../../packages/commands/deferredCommands");
 const { DEFERRED_COMMAND_MAX_CONCURRENT } = await import("../../packages/consts/deferredCommands");
 const { deferredCommandRuntime } = await import("../../packages/cache/main/deferredCommands");
-const { batchKickChats } = await import("../../packages/cache/main/batchKick");
-const { getOrCreateChatState } = await import("../../packages/infra/storage/stateStore");
+const { batchKickChats, batchKickInFlightSeqByChat } = await import("../../packages/cache/main/batchKick");
+const { getOrCreateChatState } = await import("../../packages/infra/chatStateStorage");
 
 /** 等延迟命令执行器里已接纳的任务（含排队中的）全部结算。 */
 async function settleDeferredCommands(): Promise<void> {
@@ -165,6 +165,7 @@ beforeEach(async () => {
   await settleDeferredCommands();
   initDeferredCommandRuntime();
   batchKickChats.clear();
+  batchKickInFlightSeqByChat.clear();
   const chatState = getOrCreateChatState(-1001);
   chatState.isInitEnabled = true;
   chatState.botPermissions = undefined;
@@ -458,6 +459,27 @@ describe("/batch_kick", () => {
     expect(kickChatMemberWithOutcome).toHaveBeenCalledTimes(2);
   });
 
+  test("读入群日志期间同群已被另一入口抢占单飞或停管时不重复启动批次", async () => {
+    readJoinLog.mockImplementationOnce(async (): Promise<readonly JoinLogRecord[]> => {
+      batchKickChats.add(-1001);
+      return [{ userId: 42, joinedAt: 1 }];
+    });
+    await handleBatchKickCommand(context());
+    expect(lastReplyText(sendMessage)).toBe(ATMOSPHERE_TEXTS.teasing.NOTICE_TEXTS.batchKickRunning);
+    expect(probeChatMembership).not.toHaveBeenCalled();
+    batchKickChats.delete(-1001);
+
+    sendMessage.mockClear();
+    readJoinLog.mockImplementationOnce(async (): Promise<readonly JoinLogRecord[]> => {
+      getOrCreateChatState(-1001).isInitEnabled = false;
+      return [{ userId: 42, joinedAt: 1 }];
+    });
+    await runCommand(context());
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(probeChatMembership).not.toHaveBeenCalled();
+    expect(batchKickChats.size).toBe(0);
+  });
+
   test.each([
     ["/init disable", (): void => { getOrCreateChatState(-1001).isInitEnabled = false; }],
     ["被撤管理员", (): void => {
@@ -480,9 +502,11 @@ describe("/batch_kick", () => {
     await runCommand(context());
 
     expect(probeChatMembership.mock.calls.length).toBeLessThanOrEqual(BATCH_KICK_CONCURRENCY);
+    expect(kickChatMemberWithOutcome).not.toHaveBeenCalled();
     expect(sendMessage).toHaveBeenCalledTimes(1);
     expect(lastReplyText(sendMessage)).toBe(acceptedText(6));
     expect(batchKickChats.size).toBe(0);
+    expect(batchKickInFlightSeqByChat.size).toBe(0);
 
     // 已受理回执发送期间本群停管：首块开始前直接退出，连身份冷读都不发起。
     getOrCreateChatState(-1001).isInitEnabled = true;

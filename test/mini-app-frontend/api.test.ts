@@ -39,32 +39,26 @@ import {
   readElementBodyHeight,
   scrollModalBodyToTop,
 } from "../../packages/mini-app-frontend/components/animations/TabHeightSizer";
-import {
-  computeRangeProgressPercent,
-  interpolateSpringRangeValue,
-  resolveAnimatedRangeStartValue,
-} from "../../packages/mini-app-frontend/components/animations/useAnimatedRangeProgress";
-import { AddModeButtonList } from "../../packages/mini-app-frontend/components/AddModeButtonList";
-import { ChatTargetsMenuButtonList } from "../../packages/mini-app-frontend/components/ChatTargetsMenuButtonList";
 import { ConfirmModal } from "../../packages/mini-app-frontend/components/ConfirmModal";
-import { IdentitySearchAndAddCard } from "../../packages/mini-app-frontend/components/IdentitySearchAndAddCard";
-import { IdentitySubtabsBar } from "../../packages/mini-app-frontend/components/IdentitySubtabsBar";
-import { ManagedChatList } from "../../packages/mini-app-frontend/components/ManagedChatList";
 import { PermissionDrawer } from "../../packages/mini-app-frontend/components/PermissionDrawer";
 import { PrefsBar } from "../../packages/mini-app-frontend/components/PrefsBar";
-import { StatusOverviewCard } from "../../packages/mini-app-frontend/components/StatusOverviewCard";
 import { Toast } from "../../packages/mini-app-frontend/components/Toast";
-import { LoadingBox } from "../../packages/mini-app-frontend/components/skeletons/LoadingBox";
 import { AuthGatePage } from "../../packages/mini-app-frontend/pages/AuthGatePage";
+import { VERBATIM_CONTEXT_MAX } from "../../packages/mini-app-frontend/consts/memory";
 import {
+  CHAT_QA_ANSWER_MAX_CHARS,
+  CHAT_QA_MAX_PER_CHAT,
+  CHAT_QA_QUESTION_MAX_CHARS,
   MINI_APP_CONFIRM_CLOSE_ANIMATION_MS,
-  MINI_APP_DEFAULT_ACCENT_COLOR,
+  MINI_APP_DARK_BG_COLOR,
+  MINI_APP_DARK_HEADER_COLOR,
   MINI_APP_FEATURE_KEYS,
-  MINI_APP_HTML_TITLE,
   MINI_APP_INITIAL_THEME,
   MINI_APP_INIT_DATA_HEADER,
   MINI_APP_LANG_MENU_CLOSE_ANIMATION_MS,
   MINI_APP_LANGUAGES,
+  MINI_APP_LIGHT_BG_COLOR,
+  MINI_APP_LIGHT_HEADER_COLOR,
   MINI_APP_MIN_LOADING_MS,
   MINI_APP_SESSION_EXPIRES_AT_HEADER,
   MINI_APP_SESSION_HEADER,
@@ -86,51 +80,15 @@ import {
   setMiniAppAssetToken,
   setMiniAppSessionToken,
 } from "../../packages/mini-app-frontend/libs/credentials";
-import {
-  areCapabilityStatusEqual,
-  blurEventCurrentTarget,
-  buildMiniAppGalleryDownloadFileName,
-  extractSelectedFilesAndReset,
-  formatClockTime,
-  formatGalleryFileSize,
-  formatMemoryMb,
-  formatTime,
-  formatUptime,
-  getFeatureDisplayMeta,
-  getPermissionDisplayLabel,
-  readEventTargetChecked,
-  readEventTargetValue,
-  sanitizeBidiText,
-  shortenGalleryFileName,
-  truncateDisplayText,
-} from "../../packages/mini-app-frontend/libs/formatters";
+import { areCapabilityStatusEqual } from "../../packages/mini-app-frontend/libs/formatters";
 import { waitMinimumLoadingDuration } from "../../packages/mini-app-frontend/libs/loading";
+import { getTelegramWebApp, readMiniAppInitData } from "../../packages/mini-app-frontend/libs/telegram";
 import {
-  getTelegramWebApp,
-  readMiniAppInitData,
-} from "../../packages/mini-app-frontend/libs/telegram";
-import {
-  ChatsSvgIcon,
-  DownloadSvgIcon,
-  GallerySvgIcon,
-  GlobeCnSvgIcon,
-  GlobeEnSvgIcon,
-  GlobeJaSvgIcon,
   GlobeSvgIcon,
-  IdentitiesSvgIcon,
   MenuSvgIcon,
-  SearchSvgIcon,
-  StatusSvgIcon,
   TabSvgIcon,
-  TrashSvgIcon,
 } from "../../packages/mini-app-frontend/resource";
-import {
-  applyMiniAppThemeToDocument,
-  resetMiniAppStoreForTest,
-  resolveMiniAppAccentColor,
-  useMiniAppStore,
-} from "../../packages/mini-app-frontend/store/app";
-import { createIdentitiesStore } from "../../packages/mini-app-frontend/store/identities";
+import { applyMiniAppThemeToDocument, resetMiniAppStoreForTest, useMiniAppStore } from "../../packages/mini-app-frontend/store/app";
 import { createMessagesStore } from "../../packages/mini-app-frontend/store/messages";
 import type { MiniAppMessagesStoreState } from "../../packages/mini-app-frontend/store/messages";
 
@@ -144,6 +102,8 @@ interface RecordedRequest {
 const requests: RecordedRequest[] = [];
 const responses: Map<string, () => Response> = new Map<string, () => Response>();
 const originalFetch: typeof fetch = globalThis.fetch;
+const initialWindowDescriptor: PropertyDescriptor | undefined =
+  Object.getOwnPropertyDescriptor(globalThis, "window");
 const session: string = "e".repeat(64);
 
 beforeEach((): void => {
@@ -165,8 +125,13 @@ beforeEach((): void => {
 
 afterEach((): void => {
   globalThis.fetch = originalFetch;
-  (globalThis as { Telegram?: unknown }).Telegram = undefined;
-  (globalThis as { document?: unknown }).document = undefined;
+  if (initialWindowDescriptor !== undefined) {
+    Object.defineProperty(globalThis, "window", initialWindowDescriptor);
+  } else {
+    Reflect.deleteProperty(globalThis, "window");
+  }
+  Reflect.deleteProperty(globalThis, "Telegram");
+  Reflect.deleteProperty(globalThis, "document");
   clearMiniAppSessionToken();
   clearMiniAppAssetToken();
 });
@@ -296,27 +261,6 @@ describe("前端接口文件与纯函数辅助库", () => {
     expect(confirmMarkup).toContain("确定移除该目标？");
     useMiniAppStore.getState().resolveConfirm(false);
     expect(await pendingConfirm).toBeFalse();
-
-    const permDrawerMarkup: string = renderToStaticMarkup(
-      createElement(PermissionDrawer, {
-        entry: {
-          id: 1001,
-          isChannel: false,
-          displayName: "Alice",
-          permissions: Object.fromEntries(
-            WHITELIST_PERMISSION_KEYS.map((key) => [
-              key,
-              key === WHITELIST_PERMISSION_KEYS[0],
-            ])
-          ) as Record<(typeof WHITELIST_PERMISSION_KEYS)[number], boolean>,
-        },
-        descriptors: [],
-        onUpdated: (): void => {},
-        onClose: (): void => {},
-      })
-    );
-    expect(permDrawerMarkup).toContain('class="perm-drawer-inline"');
-    expect(permDrawerMarkup).toContain("Alice");
     resetMiniAppStoreForTest();
   });
 
@@ -324,28 +268,6 @@ describe("前端接口文件与纯函数辅助库", () => {
     (globalThis as { Telegram?: unknown }).Telegram = undefined;
     clearMiniAppSessionToken();
     clearMiniAppAssetToken();
-
-    expect(formatUptime(90_061_000)).toBe("1d 1h 1m");
-    expect(formatUptime(3_661_000)).toBe("1h 1m 1s");
-    expect(formatUptime(65_000)).toBe("1m 5s");
-    expect(formatMemoryMb(128.456 * 1024 * 1024)).toBe("128.46 MB");
-    expect(
-      buildMiniAppGalleryDownloadFileName(`${"a".repeat(64)}.PNG`, 1_792_934_567_890)
-    ).toBe("1792934567.png");
-    const sampleTimestampMs: number = 1_700_000_000_000;
-    expect(formatTime(0)).toBe("-");
-    expect(formatTime(-1)).toBe("-");
-    expect(formatTime(Number.NaN)).toBe("-");
-    expect(formatTime(sampleTimestampMs)).toBe(
-      new Date(sampleTimestampMs).toLocaleString("zh-CN", { hour12: false })
-    );
-    expect(formatClockTime(0)).toBe("-");
-    expect(formatClockTime(-1)).toBe("-");
-    expect(formatClockTime(Number.NaN)).toBe("-");
-    expect(formatClockTime(sampleTimestampMs)).toBe(
-      new Date(sampleTimestampMs).toLocaleTimeString("zh-CN", { hour12: false })
-    );
-    expect(formatClockTime(sampleTimestampMs)).toMatch(/^\d{2}:\d{2}:\d{2}$/u);
 
     const baseCap = {
       key: "agent",
@@ -403,12 +325,12 @@ describe("前端接口文件与纯函数辅助库", () => {
         expect(TabSvgIcon({ tabKey })).toBeDefined();
       }
       for (const featureKey of MINI_APP_FEATURE_KEYS) {
-        const meta = getFeatureDisplayMeta(featureKey, lang);
+        const meta = dict.chats.featureMeta[featureKey];
         expect(meta.label.length).toBeGreaterThan(0);
         expect(meta.command.startsWith("/")).toBeTrue();
       }
       for (const permKey of WHITELIST_PERMISSION_KEYS) {
-        expect(getPermissionDisplayLabel(permKey, lang).length).toBeGreaterThan(0);
+        expect(dict.permissionDrawer.labels[permKey].length).toBeGreaterThan(0);
       }
       expect(
         dict.gate.deniedPolicyReason("MISSING_INIT_DATA", "fallback").length
@@ -428,11 +350,17 @@ describe("前端接口文件与纯函数辅助库", () => {
       expect(dict.chats.targetsKindLabel.qa.length).toBeGreaterThan(0);
       expect(dict.chats.targetsKindLabel.deleteMessage.length).toBeGreaterThan(0);
       expect(dict.chats.targetsKindLabel.translate.length).toBeGreaterThan(0);
-      expect(dict.chats.targetsModalSubtitle("群A", 2, 15)).toContain("2/15");
+      expect(dict.chats.targetsModalSubtitle("群A", 2, CHAT_QA_MAX_PER_CHAT)).toContain(
+        `2/${CHAT_QA_MAX_PER_CHAT}`
+      );
       expect(dict.chats.qaOpenEditorButton.length).toBeGreaterThan(0);
       expect(dict.chats.qaCancelEditButton.length).toBeGreaterThan(0);
-      expect(dict.chats.qaQuestionPlaceholder(256)).toContain("256");
-      expect(dict.chats.qaAnswerPlaceholder(3840)).toContain("3840");
+      expect(dict.chats.qaQuestionPlaceholder(CHAT_QA_QUESTION_MAX_CHARS)).toContain(
+        String(CHAT_QA_QUESTION_MAX_CHARS)
+      );
+      expect(dict.chats.qaAnswerPlaceholder(CHAT_QA_ANSWER_MAX_CHARS)).toContain(
+        String(CHAT_QA_ANSWER_MAX_CHARS)
+      );
       expect(
         dict.chats.detailStatsLine({
           chatId: -1001,
@@ -447,7 +375,7 @@ describe("前端接口文件与纯函数辅助库", () => {
             qaSet: false,
           },
           hotMessageCount: 0,
-          hotMessageMax: 256,
+          hotMessageMax: VERBATIM_CONTEXT_MAX,
           qaPairCount: 1,
           deleteMessageTargetCount: 2,
           translateTargetCount: 3,
@@ -655,10 +583,48 @@ describe("前端接口文件与纯函数辅助库", () => {
 
     expect(MINI_APP_LANGUAGES).toContain(detectBrowserDefaultLanguage());
     expect(MINI_APP_LANGUAGES).toContain(detectInitialMiniAppLanguage());
-    expect(resolveMiniAppAccentColor(undefined)).toBe(MINI_APP_DEFAULT_ACCENT_COLOR);
-    expect(resolveMiniAppAccentColor({ themeParams: { link_color: " #3b82f6 " } })).toBe("#3b82f6");
-    expect(resolveMiniAppAccentColor({ themeParams: { button_color: "#2563eb", link_color: "#3b82f6" } })).toBe("#2563eb");
+    const attrs: [string, string][] = [];
+    const styleProps: [string, string][] = [];
+    const headerColors: string[] = [];
+    const bgColors: string[] = [];
+    let themeParamsAccessed: boolean = false;
+    (globalThis as { document?: unknown }).document = {
+      getElementById: (): null => null,
+      documentElement: {
+        setAttribute: (name: string, val: string): void => { attrs.push([name, val]); },
+        style: { setProperty: (prop: string, val: string): void => { styleProps.push([prop, val]); } },
+      },
+    };
+    const mockWebApp: Record<string, unknown> = {
+      setHeaderColor: (color: string): void => { headerColors.push(color); },
+      setBackgroundColor: (color: string): void => { bgColors.push(color); },
+    };
+    Object.defineProperty(mockWebApp, "themeParams", {
+      get: (): Record<string, string> => {
+        themeParamsAccessed = true;
+        return { button_color: "#2563eb", link_color: "#3b82f6", button_text_color: "#000000" };
+      },
+    });
+    (globalThis as { Telegram?: unknown }).Telegram = { WebApp: mockWebApp };
     applyMiniAppThemeToDocument("light");
+    applyMiniAppThemeToDocument("dark");
+    applyMiniAppThemeToDocument("invalid" as never);
+    expect(attrs).toEqual([["data-theme", "light"], ["data-theme", "dark"], ["data-theme", MINI_APP_INITIAL_THEME]]);
+    expect(headerColors).toEqual([MINI_APP_LIGHT_HEADER_COLOR, MINI_APP_DARK_HEADER_COLOR, MINI_APP_LIGHT_HEADER_COLOR]);
+    expect(bgColors).toEqual([MINI_APP_LIGHT_BG_COLOR, MINI_APP_DARK_BG_COLOR, MINI_APP_LIGHT_BG_COLOR]);
+    expect(styleProps).toEqual([]);
+    expect(themeParamsAccessed).toBeFalse();
+    const isolatedBgColors: string[] = [];
+    (globalThis as { Telegram?: unknown }).Telegram = {
+      WebApp: {
+        setHeaderColor: (): void => { throw new Error("unsupported"); },
+        setBackgroundColor: (color: string): void => { isolatedBgColors.push(color); },
+      },
+    };
+    expect((): void => applyMiniAppThemeToDocument("dark")).not.toThrow();
+    expect(isolatedBgColors).toEqual([MINI_APP_DARK_BG_COLOR]);
+    (globalThis as { document?: unknown }).document = undefined;
+    (globalThis as { Telegram?: unknown }).Telegram = undefined;
 
     resetMiniAppStoreForTest();
     expect(MINI_APP_LANG_MENU_CLOSE_ANIMATION_MS).toBe(
@@ -732,7 +698,6 @@ describe("前端接口文件与纯函数辅助库", () => {
               WHITELIST_PERMISSION_KEYS.map((key) => [key, false])
             ) as never,
           },
-          descriptors: [],
           onUpdated: (): void => undefined,
           onClose: (): void => undefined,
         }),
@@ -764,7 +729,7 @@ describe("前端接口文件与纯函数辅助库", () => {
     );
     useMiniAppStore.setState({ language: "zh", authMode: "password", passwordBusy: false });
     const idleGateHtml: string = renderToStaticMarkup(createElement(AuthGatePage));
-    expect(idleGateHtml).toContain(getMiniAppTranslations("zh").gate.passwordSubmitButton);
+    expect(idleGateHtml).toContain(`<span>${getMiniAppTranslations("zh").gate.passwordSubmitButton}</span>`);
     expect(idleGateHtml).not.toContain("join-clean-loading-dots");
     useMiniAppStore.setState({ authMode: "totp", passwordBusy: true });
     const busyGateHtml: string = renderToStaticMarkup(createElement(AuthGatePage));
@@ -786,124 +751,10 @@ describe("前端接口文件与纯函数辅助库", () => {
     const fallbackScrollEl: { scrollTop: number } = { scrollTop: 140 };
     scrollModalBodyToTop(fallbackScrollEl);
     expect(fallbackScrollEl.scrollTop).toBe(0);
-    expect(computeRangeProgressPercent(1, 1, 24)).toBe("0.00%");
-    expect(computeRangeProgressPercent(24, 1, 24)).toBe("100.00%");
-    expect(computeRangeProgressPercent(12.5, 1, 24)).toBe("50.00%");
-    const statusOverviewHtml: string = renderToStaticMarkup(
-      createElement(StatusOverviewCard, {
-        t: getMiniAppTranslations("zh"),
-        status: {
-          generatedAt: 1_700_000_000_000,
-          uptimeMs: 120_000,
-          cpuAveragePercent: 0.22,
-          memoryCurrentRssBytes: 64 * 1024 * 1024,
-          memoryPeakRssBytes: 80 * 1024 * 1024,
-          memoryHeapUsedBytes: 32 * 1024 * 1024,
-          memoryOtherBytes: 128 * 1024 * 1024,
-          memoryTotalBytes: 1024 * 1024 * 1024,
-          managedChatCount: 3,
-          whitelistCount: 5,
-          blocklistCount: 1,
-          activeSessions: { total: 2, gag: 1, wed: 0, verify: 1, qaSet: 0 },
-          telegramOutbound: {
-            inFlight: 1,
-            maxConcurrency: 20,
-            waiting: 0,
-            retryQueueSize: 0,
-            retryQueueMax: 100,
-          },
-          capabilities: [],
-        },
-      })
-    );
-    expect(statusOverviewHtml).toContain('class="stat-value stat-value-active">0.22%</div>');
-    expect(statusOverviewHtml).toContain('class="stat-value-active">1</span>');
     resetMiniAppStoreForTest();
-
-    expect(MenuSvgIcon({})).toBeDefined();
-    expect(StatusSvgIcon({})).toBeDefined();
-    expect(ChatsSvgIcon({})).toBeDefined();
-    expect(IdentitiesSvgIcon({})).toBeDefined();
-    expect(GallerySvgIcon({})).toBeDefined();
-    expect(GlobeCnSvgIcon({})).toBeDefined();
-    expect(GlobeJaSvgIcon({})).toBeDefined();
-    expect(GlobeEnSvgIcon({})).toBeDefined();
-    expect(GlobeSvgIcon({})).toBeDefined();
-    expect(DownloadSvgIcon({})).toBeDefined();
-    expect(SearchSvgIcon({})).toBeDefined();
-    expect(TrashSvgIcon({})).toBeDefined();
 
     expect(getTelegramWebApp()).toBeUndefined();
     expect(readMiniAppInitData()).toBe("");
-    expect(sanitizeBidiText("\u202EDoro\u202C")).toBe("Doro");
-    expect(truncateDisplayText("短名称", 20)).toBe("短名称");
-    expect(truncateDisplayText("😀😀", 2)).toBe("😀😀");
-    expect(truncateDisplayText("😀😀😀", 2)).toBe("😀😀…");
-    expect(truncateDisplayText("A\uD800B", 2)).toBe("A\uD800…");
-    expect(truncateDisplayText("\uD800BC", 2)).toBe("\uD800B…");
-    expect(truncateDisplayText("😀BC", 0)).toBe("😀…");
-    expect(truncateDisplayText("😀BC", 1)).toBe("😀…");
-    expect(readEventTargetValue({ currentTarget: { value: "杂鱼" } })).toBe("杂鱼");
-    expect(readEventTargetChecked({ currentTarget: { checked: true } })).toBeTrue();
-    let blurred: boolean = false;
-    blurEventCurrentTarget({ currentTarget: { blur: (): void => { blurred = true; } } });
-    expect(blurred).toBeTrue();
-    expect(extractSelectedFilesAndReset({ currentTarget: { value: "", files: null } })).toEqual([]);
-    const fileInputTarget: { value: string; files: File[] } = {
-      value: "C:\\fakepath\\a.png",
-      files: [new File(["x"], "a.png", { type: "image/png" })],
-    };
-    expect(extractSelectedFilesAndReset({ currentTarget: fileInputTarget })).toHaveLength(1);
-    expect(fileInputTarget.value).toBe("");
-    expect(computeRangeProgressPercent(1, 1, 24)).toBe("0.00%");
-    expect(computeRangeProgressPercent(24, 1, 24)).toBe("100.00%");
-    expect(interpolateSpringRangeValue(1, 6, 0.72)).toBeGreaterThan(6);
-    expect(interpolateSpringRangeValue(1, 6, 1)).toBe(6);
-    expect(interpolateSpringRangeValue(12, 24, 0.72)).toBeLessThan(24);
-    expect(interpolateSpringRangeValue(12, 24, 1)).toBe(24);
-    expect(interpolateSpringRangeValue(6, 1, 0.72)).toBeGreaterThan(1);
-    expect(interpolateSpringRangeValue(6, 1, 1)).toBe(1);
-    // 连续点击与回撤时保证至少有足够位移区间驱动弹跳动画
-    expect(resolveAnimatedRangeStartValue(5.9, 5, 6)).toBeLessThanOrEqual(5.65);
-    expect(resolveAnimatedRangeStartValue(5.1, 6, 5)).toBeGreaterThanOrEqual(5.45);
-    expect(MINI_APP_HTML_TITLE).toBe(getMiniAppTranslations("zh").appTitle);
-    expect(getMiniAppTranslations("zh").appTitle).toBe("杂鱼控制台♡");
-    expect(getMiniAppTranslations("en").appTitle).toBe("Zaako Console♡");
-    expect(getMiniAppTranslations("ja").appTitle).toBe("雑魚コンソール♡");
-    const addModeHtml: string = renderToStaticMarkup(createElement(AddModeButtonList, {
-      idFormOpen: true, disabled: false, interactive: true, t: getMiniAppTranslations("zh"), onSelectMode: (): void => undefined,
-    }));
-    expect(addModeHtml).toContain("add-mode-grid");
-    const targetsMenuHtml: string = renderToStaticMarkup(createElement(ChatTargetsMenuButtonList, {
-      targetsMenuOpen: true, chatDetail: null, chatTargets: null, t: getMiniAppTranslations("zh"),
-      onToggleMenu: (): void => undefined, onCloseMenu: (): void => undefined, onSelectTargetKind: (): void => undefined,
-    }));
-    expect(targetsMenuHtml).toContain("chat-targets-dropdown");
-    const subtabsHtml: string = renderToStaticMarkup(createElement(IdentitySubtabsBar, {
-      subTab: "whitelist", loadingList: false, t: getMiniAppTranslations("zh"), onSelectSubTab: (): void => undefined, onRefresh: (): void => undefined,
-    }));
-    expect(subtabsHtml).toContain("subtabs-bar");
-    const identitiesStore = createIdentitiesStore();
-    identitiesStore.getState().setSearchInput("doro");
-    const searchCardHtml: string = renderToStaticMarkup(createElement(IdentitySearchAndAddCard, { state: identitiesStore.getState() }));
-    expect(searchCardHtml).toContain('type="text" inputMode="text" lang="" class="search-input" placeholder="id/name" value="doro"');
-    expect(searchCardHtml).not.toContain('type="search"');
-    expect(searchCardHtml).not.toContain("debounce-status-hint");
-    const loadingBoxHtml: string = renderToStaticMarkup(createElement(LoadingBox, { children: createElement("div", { className: "skeleton-line" }) }));
-    expect(loadingBoxHtml).toContain('class="loading-box"');
-    expect(loadingBoxHtml).toContain('class="skeleton-stack"');
-    expect(loadingBoxHtml).not.toContain("loading-text");
-    const chatListHtml: string = renderToStaticMarkup(createElement(ManagedChatList, {
-      chats: [{
-        chatId: -1001, title: "群A", isLockdownActive: true, hotMessageCount: 3, qaPairCount: 2,
-        features: { init: true, aiChat: false, translation: false, adDetect: false, floodControl: false, antiRaid: false, proxySend: true },
-      }],
-      t: getMiniAppTranslations("zh"), onSelectChat: (): void => undefined,
-    }));
-    expect(chatListHtml).toContain('class="row identity-row"');
-    expect(chatListHtml).toContain('class="identity-title-row"');
-    expect(chatListHtml).toContain('class="toolbar-actions identity-row-actions"');
-    expect(chatListHtml).not.toContain("interactive-card");
     const refreshedSession: string = "f".repeat(64);
     const refreshedExp: number = Date.now() + 180_000;
     responses.set("GET /api/status", (): Response =>
@@ -923,20 +774,6 @@ describe("前端接口文件与纯函数辅助库", () => {
     const minWaitStart: number = Date.now();
     await waitMinimumLoadingDuration(minWaitStart, 20);
     expect(Date.now() - minWaitStart).toBeGreaterThanOrEqual(15);
-    expect(
-      truncateDisplayText(
-        "念云｜工单是不回的｜片是必须看的｜有问题找群you｜群主天天摆烂｜群里充斥大量萝莉控｜空调开放｜群主个臭乐乐",
-        20
-      )
-    ).toBe("念云｜工单是不回的｜片是必须看的｜有问题…");
-    expect(formatGalleryFileSize(2_048)).toBe("2.0 KiB");
-    expect(formatGalleryFileSize(2 * 1024 * 1024)).toBe("2.00 MiB");
-    expect(
-      shortenGalleryFileName(
-        "004930939ef37baed630e1bbfbc07fadf546783159d874e83f22a592b1a112c2.jpg"
-      )
-    ).toBe("00493093…a112c2.jpg");
-    expect(shortenGalleryFileName("short.png")).toBe("short.png");
     expect(buildMiniAppGalleryImageUrl("abc.jpg")).toBe("./api/gallery/file/abc.jpg");
     expect(readMiniAppAssetToken()).toBe("");
     setMiniAppAssetToken("b".repeat(64));

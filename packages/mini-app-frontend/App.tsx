@@ -1,6 +1,7 @@
-import { useEffect } from "react";
+import { Fragment, useEffect } from "react";
 import type React from "react";
 import { AppShell } from "./components/AppShell";
+import { ConfirmModal } from "./components/ConfirmModal";
 import { getMiniAppTranslations } from "./i18n";
 import { AccessDeniedPage } from "./pages/AccessDeniedPage";
 import { AuthGatePage } from "./pages/AuthGatePage";
@@ -10,8 +11,29 @@ import type { MiniAppLanguage, MiniAppThemeMode, TelegramWindow } from "./types/
 import type { MiniAppTranslations } from "./types/miniAppI18n";
 
 /**
- * Copy Ninja Mini App 根 React 应用组件：同步主题到宿主，在 `checking` 阶段首先请求首个服务端预检接口校验请求头，
- * 服务端完成校验前不渲染任何骨架，校验完成后按门禁状态渲染拦截页、密码 / TOTP 门禁或解锁后的控制台外壳。
+ * 按非 `checking` 门禁状态渲染对应主视图节点。
+ *
+ * @param gateState 已完成预检后的门禁状态
+ * @returns 门禁页、拦截页或解锁后的控制台外壳节点
+ */
+function renderGateView(
+  gateState: Exclude<MiniAppGateState, "checking">
+): React.JSX.Element {
+  switch (gateState) {
+    case "denied":
+      return <AccessDeniedPage />;
+    case "password":
+      return <AuthGatePage />;
+    case "unlocked":
+      return <AppShell />;
+  }
+}
+
+/**
+ * Copy Ninja Mini App 根应用组件：
+ * 1. 同步文档主题、页面标题与 `<html lang>` 属性，卸载时清理全局定时器。
+ * 2. `checking` 阶段请求服务端预检接口且不渲染骨架；预检完成后按门禁状态切换拦截页、登录门禁或控制台外壳。
+ * 3. 顶层 `<Fragment>` 常驻同级挂载 `<ConfirmModal />`，跨门禁状态切换时保持确认弹窗的退场过渡。
  *
  * @returns React 根视图
  */
@@ -54,14 +76,14 @@ export function App(): React.JSX.Element | null {
     void runAccessPrecheck();
   }, [gateState, runAccessPrecheck]);
 
-  switch (gateState) {
-    case "checking":
-      return null;
-    case "denied":
-      return <AccessDeniedPage />;
-    case "password":
-      return <AuthGatePage />;
-    case "unlocked":
-      return <AppShell />;
+  if (gateState === "checking") {
+    return null;
   }
+
+  return (
+    <Fragment>
+      {renderGateView(gateState)}
+      <ConfirmModal />
+    </Fragment>
+  );
 }

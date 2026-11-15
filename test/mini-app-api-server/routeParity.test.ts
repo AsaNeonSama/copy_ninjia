@@ -7,7 +7,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import {
-  buildSignedTestInitData,
+  buildSuperAdminHeaders,
   installMiniAppTestDiskIOMock,
   resetMiniAppTestDiskIOState,
 } from "../helpers/miniAppInitData";
@@ -45,19 +45,15 @@ interface ExpandedRouteCase {
 }
 
 /**
- * 构造携带当前 `BOT_TOKEN`、`SUPER_ADMIN_USER_ID` 签名与 45 分钟有效密码会话的测试请求头。
+ * 构造携带当前 `BOT_TOKEN`、`SUPER_ADMIN_USER_ID` 签名与有效密码会话令牌的测试请求头。
  * @returns 包含 `X-Telegram-Init-Data` 与 `X-Mini-App-Session` 的请求头。
  */
 function superAdminHeaders(): Record<string, string> {
-  const initData: string = buildSignedTestInitData({
+  return buildSuperAdminHeaders({
     botToken: BOT_TOKEN,
-    authDate: Math.floor(Date.now() / 1000),
-    user: { id: SUPER_ADMIN_USER_ID, first_name: "SuperAdmin" },
+    superAdminUserId: SUPER_ADMIN_USER_ID,
+    sessionToken: issueMiniAppAuthSession().token,
   });
-  return {
-    [MINI_APP_INIT_DATA_HEADER]: initData,
-    [MINI_APP_SESSION_HEADER]: issueMiniAppAuthSession().token,
-  };
 }
 
 /**
@@ -71,7 +67,6 @@ function expandRouteCases(
   const cases: ExpandedRouteCase[] = [];
   for (const [routePattern, entry] of Object.entries(routes)) {
     if (
-      routePattern === "/_bundle" ||
       entry === undefined ||
       typeof entry !== "object" ||
       entry === null ||
@@ -135,6 +130,7 @@ describe("Mini App 原生路由表子路径一致性与兜底分发", () => {
     });
     const rootBase: string = `http://127.0.0.1:${rootServer!.port}`;
     const rootRoutes: Bun.Serve.Routes<undefined, string> = createMiniAppBunRoutes();
+    expect("/_bundle" in rootRoutes).toBeFalse();
     const cases: readonly Readonly<ExpandedRouteCase>[] = expandRouteCases(rootRoutes);
     expect(cases.length).toBeGreaterThanOrEqual(35);
 
@@ -171,14 +167,12 @@ describe("Mini App 原生路由表子路径一致性与兜底分发", () => {
     });
     const subBase: string = `http://127.0.0.1:${subServer!.port}`;
     const subRoutes: Bun.Serve.Routes<undefined, string> = createMiniAppBunRoutes();
+    expect("/_bundle" in subRoutes).toBeFalse();
+    expect("/sub/_bundle" in subRoutes).toBeFalse();
     for (const routeKey of Object.keys(rootRoutes)) {
       expect(routeKey in subRoutes).toBeTrue();
-      if (routeKey === "/_bundle") {
-        expect("/sub/_bundle" in subRoutes).toBeFalse();
-      } else {
-        const expectedPrefixedKey: string = routeKey === "/" ? "/sub/" : `/sub${routeKey}`;
-        expect(expectedPrefixedKey in subRoutes).toBeTrue();
-      }
+      const expectedPrefixedKey: string = routeKey === "/" ? "/sub/" : `/sub${routeKey}`;
+      expect(expectedPrefixedKey in subRoutes).toBeTrue();
     }
 
     for (const routeCase of cases) {

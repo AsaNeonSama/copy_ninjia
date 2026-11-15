@@ -1,3 +1,7 @@
+/**
+ * Worker 级共享心情状态：按配置档位及当前天气与时段倍率加权随机抽选，并在随机寿命到期或收到切换指令时重抽。
+ */
+
 import { currentMoodState } from "../../cache/workers/aiChat/mood";
 import { getMoodConfig } from "../../config/mood";
 import { MOOD_REROLL_MAX_MS, MOOD_REROLL_MIN_MS } from "../../consts/aiChat/mood";
@@ -12,10 +16,6 @@ interface WeightedMood {
   mood: MoodOption;
   weight: number;
 }
-
-/**
- * Worker 级共享心情状态：按配置档位及当前天气与时段倍率加权随机抽选，并在随机寿命到期或收到切换指令时重抽。
- */
 
 /** 天气描述文案到粗粒度天气桶的反查表。 */
 const WEATHER_DESCRIPTION_TO_BUCKET: Readonly<Record<string, WeatherBucket>> = Object.fromEntries(

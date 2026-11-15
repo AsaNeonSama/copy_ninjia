@@ -1,6 +1,6 @@
-import { existsSync } from "node:fs";
 import { dirname, extname, relative, resolve } from "node:path";
 import { withoutMarkdownCodeFences } from "./markdownSource";
+import { pathExists } from "./pathStat";
 
 /**
  * Markdown 本地链接里 `#片段` 的存在性核对。
@@ -104,39 +104,76 @@ export function collectMarkdownAnchors(source: string): ReadonlySet<string> {
   return anchors;
 }
 
-/** 每份文档的锚点集合只算一次，按文档路径缓存。 */
-const markdownAnchorCache: Map<string, ReadonlySet<string> | null> = new Map();
+/** 单个已缓存 Markdown 文档的原文与解析得到的锚点集合。 */
+interface CachedMarkdownAnchors {
+  readonly text: string;
+  readonly anchors: ReadonlySet<string>;
+}
+
+/** 每份文档的锚点集合按文档路径缓存；仅在正文变化时重算，读盘失败不写入缓存。 */
+const markdownAnchorCache: Map<string, CachedMarkdownAnchors> = new Map();
 
 /**
- * 读取并缓存一份文档的锚点；文件读不到时返回 null（路径那一半另有报错）。
+ * 读取并缓存一份文档的锚点；优先复用当前正文或预读文本，文件读不到时不写入缓存。
  * @param path Markdown 文档绝对路径。
+ * @param fileTexts 可选的按绝对路径缓存的预读文本。
+ * @param inlineSource 当前正在检查的同文档内存正文；存在时优先使用。
  * @returns 文档中的锚点集合；读取失败时返回 null。
  */
-async function anchorsOf(path: string): Promise<ReadonlySet<string> | null> {
-  const cached: ReadonlySet<string> | null | undefined = markdownAnchorCache.get(path);
-  if (cached !== undefined) return cached;
-  let anchors: ReadonlySet<string> | null;
-  try {
-    anchors = collectMarkdownAnchors(await Bun.file(path).text());
-  } catch {
-    anchors = null;
+async function anchorsOf(
+  path: string,
+  fileTexts?: ReadonlyMap<string, string>,
+  inlineSource?: string
+): Promise<ReadonlySet<string> | null> {
+  let text: string;
+  if (inlineSource !== undefined) {
+    text = inlineSource;
+  } else {
+    const preloaded: string | undefined = fileTexts?.get(path);
+    if (preloaded !== undefined) {
+      text = preloaded;
+    } else {
+      try {
+        text = await Bun.file(path).text();
+      } catch {
+        return null;
+      }
+    }
   }
-  markdownAnchorCache.set(path, anchors);
+  const cached: CachedMarkdownAnchors | undefined = markdownAnchorCache.get(path);
+  if (cached?.text === text) {
+    return cached.anchors;
+  }
+  const anchors: ReadonlySet<string> = collectMarkdownAnchors(text);
+  markdownAnchorCache.set(path, { text, anchors });
   return anchors;
 }
 
+/** 基于已读取 Markdown 正文核对本地链接与标题锚点的参数。 */
+export interface MarkdownLocalLinkCheckOptions {
+  /** 仓库根目录绝对路径。 */
+  readonly projectRoot: string;
+  /** Markdown 文档绝对路径。 */
+  readonly path: string;
+  /** Markdown 文档原始正文。 */
+  readonly source: string;
+  /** 承接检查失败信息的数组。 */
+  readonly failures: string[];
+  /** 可选的按绝对路径缓存的预读文本。 */
+  readonly fileTexts?: ReadonlyMap<string, string>;
+}
+
 /**
- * 检查 Markdown inline/reference link 与 HTML href/src 的本地目标。
- * @param projectRoot 仓库根目录绝对路径。
- * @param path Markdown 文档绝对路径。
- * @param failures 承接检查失败信息的数组。
+ * 基于已读取的 Markdown 正文检查 inline/reference link 与 HTML href/src 的本地目标。
+ * @param options Markdown 正文、预读缓存与失败收集数组。
  */
-export async function checkMarkdownLocalLinks(
-  projectRoot: string,
-  path: string,
-  failures: string[]
-): Promise<void> {
-  const source: string = await Bun.file(path).text();
+export async function checkMarkdownLocalLinksFromText({
+  projectRoot,
+  path,
+  source,
+  failures,
+  fileTexts,
+}: MarkdownLocalLinkCheckOptions): Promise<void> {
   const searchable: string = withoutMarkdownCodeFences(source);
   const patterns: readonly RegExp[] = [
     /!?\[[^\]\n]*\]\(\s*<?([^)\s>]+)>?(?:\s+["'][^)]*["'])?\s*\)/g,
@@ -169,7 +206,8 @@ export async function checkMarkdownLocalLinks(
           decodedTarget = targetWithoutFragment;
         }
         linkedPath = resolve(dirname(path), decodedTarget);
-        if (!existsSync(linkedPath)) {
+        const exists: boolean = fileTexts?.has(linkedPath) === true || await pathExists(linkedPath);
+        if (!exists) {
           failures.push(
             `${relative(projectRoot, path)}:${line} local link target does not exist: ${target}`
           );
@@ -183,7 +221,11 @@ export async function checkMarkdownLocalLinks(
       } catch {
         decodedFragment = fragment;
       }
-      const anchors: ReadonlySet<string> | null = await anchorsOf(linkedPath);
+      const anchors: ReadonlySet<string> | null = await anchorsOf(
+        linkedPath,
+        fileTexts,
+        linkedPath === path ? source : undefined
+      );
       if (anchors === null || anchors.has(decodedFragment.toLowerCase())) continue;
       failures.push(
         `${relative(projectRoot, path)}:${line} link fragment has no matching heading in ` +

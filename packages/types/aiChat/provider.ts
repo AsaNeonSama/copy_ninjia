@@ -28,8 +28,10 @@ export interface AiToolDefinition {
   readonly parametersJsonSchema: Readonly<Record<string, unknown>>;
 }
 
-/** 模型抛回的一次函数调用。id 供需要回填调用标识的供应商使用（OpenAI 的
- *  `call_id` 与 Anthropic 的 `tool_use_id` 必填，Gemini 的 `id` 可选）。 */
+/**
+ * 模型抛回的一次函数调用。id 供需要回填调用标识的供应商使用（OpenAI 的
+ * `call_id` 与 Anthropic 的 `tool_use_id` 必填，Gemini 的 `id` 可选）。
+ */
 export interface AiFunctionCall {
   readonly id?: string;
   readonly name: string;
@@ -171,8 +173,9 @@ export interface AiTextRequest {
   readonly normalize: (text: string) => string;
 }
 
-/** 视觉描述请求（群聊图片/贴纸/GIF 共用一条流水线）。模型与 token 上限同样
- *  由实现包自行决定。 */
+/**
+ * 视觉描述请求（群聊图片/贴纸/GIF 共用一条流水线）。模型与 token 上限同样由实现包自行决定。
+ */
 export interface AiVisionRequest {
   /** 描述指令，同时充当系统提示词。 */
   readonly prompt: string;

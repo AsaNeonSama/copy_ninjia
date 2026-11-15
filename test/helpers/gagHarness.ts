@@ -136,7 +136,7 @@ mock.module("../../packages/infra/chatTeardownRegistry", () => ({
 mock.module("../../packages/infra/logger", () => ({
   logger: loggerStub(),
 }));
-mock.module("../../packages/infra/storage/stateStore", () => ({
+mock.module("../../packages/infra/chatStateStorage", () => ({
   getChatState: (): Readonly<Record<string, never>> => ({}),
   getGagThumbnailUrl: (): string => GAG_THUMBNAIL_URL,
 }));

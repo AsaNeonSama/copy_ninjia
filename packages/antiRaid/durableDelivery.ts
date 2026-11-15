@@ -1,3 +1,7 @@
+/**
+ * Anti-Raid 主线程持久化投递与停机排空边界：协调 Worker 邮箱屏障、主线程在途广告处置，
+ * 以及入群验证与群封锁镜像的落盘屏障（见 docs/cn/04-invariants.md）。
+ */
 import { logger } from "../infra/logger";
 import {
   flushStateToDisk,

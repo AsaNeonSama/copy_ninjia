@@ -37,7 +37,7 @@ export interface AdDetectJsonRequestParams {
   readonly systemPrompt: string;
   /** 本次待处理的用户内容；一律当数据，不承担指令语义。 */
   readonly userContent: string;
-  /** 模型采样温度。 */
+  /** 模型采样温度（仅 OpenAI 兼容传输写入请求体；Anthropic 与 Google 路径省略该字段并沿用各自默认采样行为）。 */
   readonly temperature: number;
   /** 单次响应允许生成的最大输出 token 数。 */
   readonly maxOutputTokens: number;
@@ -46,7 +46,7 @@ export interface AdDetectJsonRequestParams {
 }
 
 /**
- * 按当前广告示例快照拼好的判定提示词（见 cache/workers/antiRaid/adDetect.ts）。
+ * 按当前广告检测配置（`config/dynamic/ad_detect.json`）中的示例拼好的判定提示词（见 `cache/workers/antiRaid/adDetect.ts`）。
  * 各系统提示词共用同一份 instructions 前缀；系统提示词 = instructions + 换行 + 对应的系统事实。
  */
 export interface AdDetectPrompts {
@@ -71,7 +71,7 @@ export interface AdSampleContext {
  * 机器人是本群管理员、且发送者不是自己人时才投递（见 antiRaid/adCandidate.ts）。
  * Worker 侧按发送者归并成消息串排队送检，见 workers/antiRaid/adDetect/queue.ts。
  *
- * 字段全部必填、缺省显式 undefined，除 linkUrls 外只含原始值；发送者元数据与引用
+ * 字段全部必填、缺省显式 undefined，除 linkUrls、customEmojiIds 外只含原始值；发送者元数据与引用
  * 上下文平铺成独立字段，Worker 侧按需重新组装。
  */
 export interface AdCandidateMessage {
@@ -107,6 +107,10 @@ export interface AdCandidateMessage {
   justJoined: boolean;
   /** 正文里不可见的 text_link 落地页 URL；没有时为 undefined。 */
   linkUrls: string[] | undefined;
+  /** 消息携带的贴纸所属贴纸包 short name（message.sticker?.set_name）；无贴纸或未归属贴纸包时为 undefined。 */
+  stickerSetName: string | undefined;
+  /** 消息或图注实体中的自定义表情 ID 去重列表（custom_emoji 实体）；没有时为 undefined。 */
+  customEmojiIds: string[] | undefined;
   /**
    * 被引用段与被回复原文（口径同 AdSampleContext 的 quote 与 replyTo）；与 text 一起
    * 参与判定并留进命中样本，缺席时为 undefined。
@@ -124,11 +128,14 @@ export interface ClearAdDetectMessage {
 /** 命中样本里的一条消息：判定读到的内容，以及单独保留的引用上下文。 */
 export interface AdSampleMessage extends AdSampleContext {
   messageId: number;
-  /** 送检时的内容（当次用户姓名、已截断正文与 text_link 落地页），与模型读到的完全一致。 */
+  /**
+   * 送检时的内容（当次用户姓名、已截断正文与 text_link 落地页），与模型读到的完全一致；
+   * 没有送检文本的纯贴纸条目记其贴纸包 short name。
+   */
   text: string;
 }
 
-/** Worker -> 主线程：发送者被判成广告，请按 /block 同样的处置办。 */
+/** Worker -> 主线程：发送者被判成广告，涉事消息已删除，请按 ad_detect.json 的处罚设置处置。 */
 export interface AdDetectedEvent {
   type: "adDetected";
   chatId: number;
@@ -137,7 +144,7 @@ export interface AdDetectedEvent {
   /** 处置播报里的展示标签，Worker 按 meta 与本进程氛围算好。 */
   label: string;
   meta: Readonly<TelegramIdentityMetadata>;
-  /** 模型给出的简短理由，只进日志、播报与命中样本；不参与控制流。 */
+  /** 命中原因摘要（贴纸包或自定义表情包黑名单命中说明，或模型给出的简短理由），只进日志、播报与命中样本；不参与控制流。 */
   reason: string;
   /** 本次判定依据的完整消息串。 */
   messages: readonly AdSampleMessage[];
@@ -162,21 +169,11 @@ export interface AdCandidateEntry extends AdSampleContext {
    * 处理墙钟重新推断。
    */
   withinReferencedWarning: boolean;
+  /** 本条消息携带的贴纸所属贴纸包 short name；用于贴纸黑名单快路径检测，没有时为 undefined，键恒写。 */
+  stickerSetName: string | undefined;
+  /** 本条消息携带的自定义表情 ID 去重列表；用于自定义表情包黑名单检测，没有时为 undefined，键恒写。 */
+  customEmojiIds: readonly string[] | undefined;
 }
-
-/** 每个群内发送者的引用广告警告阶段。 */
-export type ReferencedAdWarningState =
-  | {
-    readonly phase: "sending";
-    /** 同 key 的单调 attempt；清群后迟到的旧回执不命中新状态。 */
-    readonly generation: number;
-  }
-  | {
-    readonly phase: "warned";
-    readonly generation: number;
-    readonly warnedAt: number;
-    readonly expiresAt: number;
-  };
 
 /** 某个发言者在一个群里累积的待检消息串（队列里只排它的键）。 */
 export interface AdMessageBundle {
@@ -189,8 +186,9 @@ export interface AdMessageBundle {
   /** 用户 id；频道马甲发言时是该频道的负数 id。 */
   senderId: number;
   /**
-   * 随候选冻结并在昵称变化时更新，用于主线程最终写入黑名单；处置播报的展示标签也由它
-   * 现算（见 workers/antiRaid/adDetect/disposal.ts 的 adSenderLabel）。
+   * 随候选冻结并在昵称变化时更新：命中后随 `AdDetectedEvent.meta` 回传主线程（当 `ad_detect.json`
+   * 处罚配置为跨群拉黑 `kick.block=true, block_scope="global"` 时写入永久黑名单），同时供处置播报现算展示标签
+   * （见 workers/antiRaid/adDetect/disposal.ts 的 adSenderLabel）。
    */
   meta: Readonly<TelegramIdentityMetadata>;
   /**
@@ -234,7 +232,7 @@ export interface AdVerdict {
   reason: string;
 }
 
-/** Worker -> 主线程：模型明确返回 ad=true；用于清空连续合格日累计。 */
+/** Worker -> 主线程：广告分类命中（贴纸/自定义表情包黑名单命中或模型判定为广告，含直接广告与仅引用命中）；用于清空连续合格日累计。 */
 export interface AdVerdictTrueEvent {
   type: "adVerdictTrue";
   chatId: number;

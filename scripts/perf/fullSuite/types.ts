@@ -78,7 +78,11 @@ export type ChainName =
   | "ai-reply-command"
   | "cron-send-voice"
   | "cron-config-reload"
-  | "mini-app-api-request";
+  | "mini-app-api-request"
+  | "mini-app-reject-page"
+  | "mini-app-page-gate-allow"
+  | "mini-app-auth-login"
+  | "mini-app-gallery-asset";
 
 /** 单条链路一轮的完整回传；延迟分位数来自逐次 durable 往返。 */
 export interface ChainRound {
@@ -95,7 +99,7 @@ export interface ChainRound {
    *
    * 落盘动作的终点是 durable 回执；命令、配置热重载与 Mini App API 请求的终点分别是
    * 处置排空/消息发出、调度重排完成与 HTTP JSON 响应解析完成。批量动作的 `throughputPerSecond`
-   * 按记录折算，是它的 recordsPerOperation 倍，不用于比较一次完整动作的成本。
+   * 按记录数折算（等于本字段乘以 `recordsPerOperation`）。
    */
   readonly operationThroughputPerSecond: number;
   /** 业务记录吞吐（records/s），已按 recordsPerOperation 折算。 */

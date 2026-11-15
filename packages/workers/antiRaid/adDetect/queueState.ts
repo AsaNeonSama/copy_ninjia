@@ -36,11 +36,11 @@ import type { AdRequeueDecision } from "../../../types/states/adDetectAdmission"
  * @param bundle 待检消息束。
  */
 export function requeueIfUnchecked(key: string, bundle: AdMessageBundle): void {
-  const decision: AdRequeueDecision = admitAdRequeue({
-    hasUncheckedContent: latestSeq(bundle) > bundle.checkedSeq,
-    queued: queuedAdDetectKeys.has(key),
-    inFlight: inFlightAdDetectKeys.has(key),
-  });
+  const decision: AdRequeueDecision = admitAdRequeue(
+    latestSeq(bundle) > bundle.checkedSeq,
+    queuedAdDetectKeys.has(key),
+    inFlightAdDetectKeys.has(key)
+  );
   if (decision === "skip") return;
   queuedAdDetectKeys.add(key);
   adDetectQueue.push(key);
@@ -165,9 +165,9 @@ export function hasActiveAdDisposalMarker(key: string): boolean {
  * @param now 当前单调时钟毫秒读数，默认取 `performance.now()`。
  */
 export function expireAdDetectDisposalMarkers(now: number = performance.now()): void {
-  for (const [key, disposedAt] of recentlyDisposedAdKeys) {
+  recentlyDisposedAdKeys.forEach((disposedAt: number, key: string): void => {
     if (!adDisposalMarkerActive(disposedAt, now)) recentlyDisposedAdKeys.delete(key);
-  }
+  });
 }
 
 /**

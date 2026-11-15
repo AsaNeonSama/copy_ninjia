@@ -43,10 +43,9 @@ export function admitTrigger(input: AdmitTriggerInput): AdmitDecision {
 }
 
 /**
- * 限频闸判定：该群 RATE_LIMIT_LONG_WINDOW_MS 滑动窗口内的触发数是否已达
- * RATE_LIMIT_LONG_MAX_TRIGGERS。调用方先挤掉窗口外的旧触发再数 windowCount；本函数只比较数量。
- * 返回 true 时调用方不记账，按触发来源通知或保留队首；false 时记账后执行。
- * @param windowCount 挤掉过期项之后，窗口内剩余的触发数。
+ * 限频闸判定：判断该群 `RATE_LIMIT_LONG_WINDOW_MS` 滑动窗口内的触发次数是否已达到 `RATE_LIMIT_LONG_MAX_TRIGGERS`。
+ * 调用方先淘汰窗口外的过期触发再传入 `windowCount`；返回 `true` 时不记账，返回 `false` 时记账后启动回复轮。
+ * @param windowCount 淘汰过期项后窗口内剩余的触发次数。
  * @returns 已达到或超过长窗口限频上限时返回 true，否则返回 false。
  */
 export function isReplyRoundRateLimited(windowCount: number): boolean {

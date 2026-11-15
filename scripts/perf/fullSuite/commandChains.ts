@@ -7,7 +7,7 @@ import type {
 import type { botChatPermissionsIn } from
   "../../../packages/infra/botAdmin";
 import type { getOrCreateChatState } from
-  "../../../packages/infra/storage/stateStore";
+  "../../../packages/infra/chatStateStorage";
 import type { cacheAdminIds } from
   "../../../packages/cache/workers/antiRaid/admins";
 import type {
@@ -141,6 +141,8 @@ function adDetectCommandChain(
         blocked: false,
         justJoined: true,
         linkUrls: undefined,
+        stickerSetName: undefined,
+        customEmojiIds: undefined,
         sampleQuote: undefined,
         sampleReplyTo: undefined,
       });
@@ -402,6 +404,10 @@ export function createCommandChain(
     case "cron-send-voice": return cronSendVoiceChain(dependencies);
     case "cron-config-reload":
     case "mini-app-api-request":
+    case "mini-app-reject-page":
+    case "mini-app-page-gate-allow":
+    case "mini-app-auth-login":
+    case "mini-app-gallery-asset":
     case "join-log-append":
     case "identity-policy-write":
     case "temporary-whitelist-write":

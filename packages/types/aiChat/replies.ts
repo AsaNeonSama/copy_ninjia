@@ -11,8 +11,10 @@ export interface QueuedReplyTrigger {
   replyToMessageId: number;
   /** 入队时 Telegram 发送面处于高压；该项补跑时同群最多只开一轮。 */
   telegramBackpressured: boolean;
-  /** 触发消息自身的单跳快照；排队期间即使它滑出热区，机器人发送后的
-   * 自录仍可保留 Telegram 实际建立的回复关系。 */
+  /**
+   * 触发消息自身的单跳快照；排队期间即使它滑出热区，机器人发送后的
+   * 自录仍可保留 Telegram 实际建立的回复关系。
+   */
   triggerReference?: BufferedReplyReference;
   replyTo?: BufferedReplyReference;
   /** 当前触发消息是转发时的来源；排队期间即使原转录滑出也保留归属。 */
@@ -34,13 +36,15 @@ export interface QueuedReplyTrigger {
   mediaPreparation?: Promise<MediaCommentContext | null>;
 }
 
-/** 一轮回复交给模型的有序初始上下文区块。各区块恒定出现——触发类型只改变
- * replyTask 的内容（直接触发时它开头多一句唤起者声明），本接口没有可选字段。
+/**
+ * 一轮回复交给模型的有序初始上下文区块。各区块恒定出现——触发类型只改变
+ * replyTask 的内容（直接触发时开头多一句唤起者声明），本接口没有可选字段。
  *
  * 模型实际收到的「本轮运行时状态」（心情、当前时间与本轮工具状态）不在本接口内，
  * 由 workers/aiChat/runtimeState.ts 在 replyModel 里补在转录与回复任务之间。区块保持
  * 领域语义，直到各供应商实现包的 replySession.ts 边界，才按稳定/易变两组映射成同一个
- * user 轮次下的多段文本（见 types/aiChat/provider.ts 的 AiReplySessionParams）。 */
+ * user 轮次下的多段文本（见 types/aiChat/provider.ts 的 AiReplySessionParams）。
+ */
 export interface ReplyPromptSections {
   readonly referenceMemory: string;
   readonly currentConversation: string;
@@ -104,10 +108,11 @@ export interface ReplyToolContext {
   isActive: () => boolean;
   /** 本轮 generation 的取消信号；模型、等待和 Telegram 调用必须沿用。 */
   signal?: AbortSignal;
-  /** repliedToMessageId 是这次发送实际挂上的回复目标（send_message 由模型的
-   *  reply_to_trigger 决定、图片请求固定指向触发消息）；Telegram 因目标已删除
-   *  而退化为普通发送时省略。供 Worker 自录记忆时带上「回复了谁」，让机器
-   *  人自己的发言同样保留上下文中的回复关系。 */
+  /**
+   * repliedToMessageId 为本次发送实际挂上的回复目标（send_message 由模型的
+   * reply_to_trigger 决定，图片请求固定指向触发消息）；Telegram 因目标已删除
+   * 而退化为普通发送时省略，供 Worker 自录记忆时保留上下文中的回复关系。
+   */
   onMessageSent: (text: string, messageId: number, repliedToMessageId?: number) => void;
   onStickerSent: (stickerDescription: string, messageId: number) => void;
   /** 生图落地后自录并开始识图，见 workers/aiChat/botImages.ts 的 trackGeneratedImage。 */
@@ -145,15 +150,21 @@ export type WebSearchToolExecutor = (argumentsJson: string) => Promise<WebSearch
 
 /** 一轮 AI 回复的函数工具集与执行状态。 */
 export interface ReplyToolset {
-  /** 本轮全部自定义函数声明（静态查询工具 + 行动工具）。中立 JSON Schema 表达，
-   *  各供应商实现包各自转成自家形状；同一部署同一人设下每轮逐字相同。 */
+  /**
+   * 本轮全部自定义函数声明（静态查询工具 + 行动工具）。以中立 JSON Schema 表达，
+   * 各供应商实现包各自转成对应结构；同一部署同一人设下每轮逐字相同。
+   */
   readonly functions: readonly AiToolDefinition[];
-  /** 本轮工具状态段（含段首标签），拼进运行时状态区块（见
-   *  aiChat/ai/tools/replyToolset/toolStatus.ts）。按轮变化的可用性（直接触发资格、
-   *  群冷却、参考素材、语音余量、问答条数）只写在这里，不进工具声明。 */
+  /**
+   * 本轮工具状态段（含段首标签），拼进运行时状态区块（见
+   * aiChat/ai/tools/replyToolset/toolStatus.ts）。按轮变化的可用性（直接触发资格、
+   * 群冷却、参考素材、语音余量、问答条数）只写在这里，不进工具声明。
+   */
   readonly toolStatus: string;
-  /** 本轮是否挂载 text 模型的服务端联网检索工具（Gemini 的 googleSearch /
-   *  OpenAI 与 Anthropic 的服务端 web_search）；配置了 web_search 能力时恒为 false。 */
+  /**
+   * 本轮是否挂载 text 模型的服务端联网检索工具（Gemini 的 googleSearch /
+   * OpenAI 与 Anthropic 的服务端 web_search）；配置了 web_search 能力时恒为 false。
+   */
   readonly webSearch: boolean;
   /**
    * 配置了 web_search 能力时的本地 `web_search` 函数工具执行器（声明已在 functions 里）；

@@ -3,7 +3,7 @@ import { chatAtmosphere } from "../infra/atmosphere";
 import type { CommandContext, Context } from "grammy";
 import { requestAiMood } from "../aiChat";
 import { aiChatConfigReadiness } from "../config/readiness";
-import { getChatState } from "../infra/storage/stateStore";
+import { getChatState } from "../infra/chatStateStorage";
 import { logger } from "../infra/logger";
 import { replyCommandNotice } from "../infra/telegram";
 import { refuseIfConfigBroken } from "./configGate";
@@ -95,11 +95,12 @@ async function queryMood(ctx: CommandContext<Context>): Promise<void> {
 }
 
 /**
- * 处理 /mood switch 指令：立即重抽 AI 的当前心情并回复结果，新心情对所有群同时生效。心情缓存
- * 在 AI Worker 线程内（cache/workers/aiChat/mood.ts），主线程只 post 一条 switchMood
- * 请求、等 moodSwitched 回执单独带回新心情名（见 aiChat/workerBridge.ts 的 requestAiMood），
- * 回复固定从这里发出，不走 AI 回复流水线。仅持有 isCanSwitchMood 的身份可用；
- * 超级管理员恒持有该权限（见 infra/identityPolicy/whitelist.ts），白名单身份可由 /permission 单独获权；其他身份收到拒绝回执。
+ * 处理 `/mood switch` 指令：立即重抽 AI 当前心情并回执新心情名称（全局一份，对所有群同时生效）。
+ * - **跨线程交互**：心情状态驻留在 AI Worker 内（`cache/workers/aiChat/mood.ts`）；主线程仅经
+ *   `aiChat/workerBridge.ts` 的 `requestAiMood` 投递 `switchMood` 请求并等待 `moodSwitched` 回执，
+ *   命令结果直接在此处发出，不经过 AI 回复流水线。
+ * - **权限要求**：仅持有 `isCanSwitchMood` 的身份可用（超级管理员恒持有，见 `infra/identityPolicy/whitelist.ts`；
+ *   白名单身份可经 `/permission` 单独获授）。
  * @param ctx grammY 命令上下文。
  */
 async function switchMood(ctx: CommandContext<Context>): Promise<void> {

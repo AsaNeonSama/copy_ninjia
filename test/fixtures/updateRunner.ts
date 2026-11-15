@@ -1,3 +1,7 @@
+/**
+ * `runAcknowledgedUpdateBatches` 子进程夹具：验证网络退避与 429 冷却下的 `SIGTERM` 停机响应及长跑堆稳定性。
+ */
+
 import type { Bot } from "grammy";
 import type { Update } from "grammy/types";
 import { heapStats } from "bun:jsc";

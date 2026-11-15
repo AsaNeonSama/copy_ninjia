@@ -4,7 +4,7 @@ import {
   MINI_APP_MESSAGES_DEFAULT_PAGE_SIZE,
   MINI_APP_MESSAGES_MAX_PAGE_SIZE,
 } from "../../consts/miniApp";
-import { getChatState } from "../../infra/storage/stateStore";
+import { getChatState } from "../../infra/chatStateStorage";
 import { parseAiMemorySnapshot } from "../../libs/persistedSnapshotCodec";
 import type {
   AiMemorySnapshot,
@@ -14,7 +14,7 @@ import type { ChatState } from "../../types/chatState";
 import type {
   MiniAppMessageItem,
   MiniAppMessagePage,
-} from "../../types/miniApp";
+} from "../../types/miniApp/chats";
 import { formatManagedChatTitle } from "./chats/query";
 
 /** `readManagedChatMessages` 的入参。 */

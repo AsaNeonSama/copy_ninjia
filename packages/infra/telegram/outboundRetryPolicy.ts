@@ -102,6 +102,7 @@ export function telegramRetryCategoryFor(
     case "getChat":
     case "getChatAdministrators":
     case "getChatMember":
+    case "getCustomEmojiStickers":
     case "getStickerSet":
     case "getUserProfilePhotos":
       return "query";

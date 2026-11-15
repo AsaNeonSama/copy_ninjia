@@ -1,3 +1,6 @@
+/**
+ * Disk I/O Worker 独占 SQLite 连接访问、连接级预编译语句缓存与错误定位路径辅助函数。
+ */
 import { storageDatabaseHandle, storageDatabaseReaders } from "../../../cache/workers/diskIO/storageDatabase";
 import { IDENTITY_DATABASE_PATH } from "../../../consts/paths";
 import { prepareStorageDatabaseReader } from "../../../database/interact/reader";

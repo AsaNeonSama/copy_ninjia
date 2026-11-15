@@ -12,12 +12,10 @@ import type { AcknowledgedUpdateRunner } from "../../types/lifecycle";
 import type { ApplicationLifecycleDependencies } from "../lifecycleDependencies";
 
 /**
- * 依次关闭所有会在停机排空期间继续制造工作的维护 owner。
- *
- * 每次调用都完整执行全部入口（均为幂等赋值）；app/lifecycle.ts 的 init() 会把各 owner 的
- * 接纳重新置真。
+ * 依次静默所有在停机排空期间可能继续产生新任务的后台维护入口（幂等）。
+ * 每个入口独立捕获异常，前一项失败不阻断后续入口关闸。
  * @param dependencies 应用生命周期依赖集合。
- * @returns 全部入口都未抛错时为 true。
+ * @returns 全部入口均未抛错时返回 `true`，否则返回 `false`。
  */
 export function quiesceLifecycleMaintenance(
   dependencies: ApplicationLifecycleDependencies
@@ -31,20 +29,15 @@ export function quiesceLifecycleMaintenance(
       dependencies.logger.error(`Shutdown owner ${owner} quiesce threw during shutdown:`, error);
     }
   };
-  // 每个入口独立结算：前一个 owner 抛错不影响后续入口。
   quiesceOwner("avatar", (): void => dependencies.quiesceAvatarUpdates());
   quiesceOwner("chat-title", (): void => dependencies.quiesceChatTitleRefresh());
   quiesceOwner("translate", (): void => dependencies.quiesceTranslate());
   quiesceOwner("gag", (): void => dependencies.quiesceGagRuntime());
   quiesceOwner("wed", (): void => dependencies.quiesceWedRuntime());
   quiesceOwner("deferred-commands", (): void => dependencies.quiesceDeferredCommandRuntime());
-  // 定时任务会在排空期间继续触发发送，与其它发送方一起在排空前关闸。
   quiesceOwner("cron", (): void => dependencies.quiesceCronScheduler());
-  // 补扫 timer 能启动 Anti-Raid 网络任务与 outbox 写入，在确认最终 offset
-  // 前与其它 maintenance owner 一起关闸，排空之后不再有生产者。
   quiesceOwner("blocklist-sweep", (): void =>
     dependencies.quiesceBlocklistSweepScheduler());
-  // 配置热重载会向两条业务 Worker 投递新快照并启动贴纸目录对账，同样在排空前关闸。
   quiesceOwner("config-reload", (): void => dependencies.quiesceConfigReload());
   return succeeded;
 }

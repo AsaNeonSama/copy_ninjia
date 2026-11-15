@@ -17,7 +17,7 @@ export function aiContextSource(source: string, chatId: number): string {
 }
 
 /**
- * 同一启动只读连接严格恢复 JSONB 上下文；SQL NULL 表示从未保存或已清除。
+ * 读取并严格解码全表非空的群 AI 上下文 JSONB 快照；SQL NULL 表示未保存或已清除。
  * @param database 共享存储数据库连接。
  * @param source 数据库来源路径标识，用于构造致命错误诊断。
  * @returns 按群会话 ID 索引并归一化后的 AI 记忆快照 JSON 文本映射。

@@ -8,7 +8,7 @@ export interface ListSkeletonRowsProps {
 }
 
 /**
- * 渲染受管群列表与黑白名单列表共用的两行式骨架占位卡片。
+ * 渲染受管群列表与黑白名单列表共用的双行条纹卡片骨架行集合。
  *
  * @param props 骨架行数
  * @returns React 节点

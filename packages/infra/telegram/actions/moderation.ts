@@ -74,6 +74,45 @@ export async function muteChatMemberWithOutcome({
   return outcome === "forbidden" ? "forbidden" : "failed";
 }
 
+/** `muteChatMemberPermanentlyWithOutcome` 永久禁言群成员的参数。 */
+export interface MuteChatMemberPermanentlyParams {
+  /** 目标群聊 ID。 */
+  chatId: number;
+  /** 被禁言的目标用户 ID。 */
+  userId: number;
+  /** 执行成员权限限制的 Telegram API 接口。 */
+  api?: RestrictMemberApi;
+  /** 调用方的取消信号；永久禁言不带 `until_date`，没有派发截止。 */
+  signal?: AbortSignal;
+}
+
+/**
+ * 永久收走成员在本群的全部发言权限：请求不带 `until_date`，Telegram 按永久限制处理，直到管理员解除。
+ * @param params 永久禁言参数。
+ * @returns 禁言成功返回 "muted"，权限拒绝返回 "forbidden"，其余失败返回 "failed"。
+ */
+export async function muteChatMemberPermanentlyWithOutcome({
+  chatId,
+  userId,
+  api = telegramApi,
+  signal,
+}: MuteChatMemberPermanentlyParams): Promise<MuteChatMemberOutcome> {
+  const outcome: PermissionAwareOutcome = await runPermissionAwareTelegramAction({
+    action: `mute chat member permanently (chat ${chatId}, user ${userId})`,
+    execute: (requestSignal?: AbortSignal): Promise<true> =>
+      api.restrictChatMember(
+        chatId,
+        userId,
+        MUTED_CHAT_PERMISSIONS,
+        {},
+        telegramSignal(requestSignal)
+      ),
+    signal,
+  });
+  if (outcome === "succeeded") return "muted";
+  return outcome === "forbidden" ? "forbidden" : "failed";
+}
+
 /** `unmuteChatMemberWithOutcome` 解除群成员禁言的参数。 */
 export interface UnmuteChatMemberParams {
   /** 目标群聊 ID。 */

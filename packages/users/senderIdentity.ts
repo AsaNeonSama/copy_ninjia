@@ -6,18 +6,17 @@ import { explicitReplyTo } from "../libs/forumTopic";
 import { channelIdentity, userIdentity, visibleSenderChat } from "./visibleSender";
 
 /**
- * 消息发送者的身份解析与缓存。自动流程（packages/auto/message/ 靠 cacheSender
- * 刷新 username 缓存）和命令处理（packages/commands 下的 /copy、/block 靠
- * resolveReplyTarget 从被回复的消息定位目标，靠 resolveUsernameTarget 按
- * @username 定位目标）共用这一份逻辑。缓存状态见 cache/main/senderIdentity.ts。
+ * 消息发送者身份解析与双向缓存维护。
+ * - 自动消息链路通过 `cacheSender` 刷新 `@username` 缓存。
+ * - 命令链路通过 `resolveReplyTarget`、`resolveUsernameTarget`、`resolveIdTarget` 定位目标身份。
+ * 缓存结构定义见 `cache/main/senderIdentity.ts`。
  */
 
 /**
- * 解析出一条消息发送者的 CachedUser 形态身份：可能是真实 Telegram 用户
- * （`from`），也可能是通过 `sender_chat` 或纯粹的 `channel_post`（这种情况下
- * 没有 `sender_chat`，帖子自身的 `chat` 就是该频道）体现的频道身份。既用于
- * 填充 username 缓存，也用于直接从被回复的消息中解析出 /copy 目标，以及为
- * 中文动作命令取出发起人身份（见 commands/cjkAction.ts）。
+ * 解析消息发送者的 `CachedUser` 身份：
+ * - 若消息带有可见频道或群组会话身份（`sender_chat` 或 `channel_post` 的 `chat`），返回频道身份；
+ * - 否则若存在真实用户 `from`，返回用户身份。
+ * 供 `@username` 缓存刷新、被回复消息目标解析及中文动作命令发起人提取共用。
  * @param message 待解析发送者身份的 Telegram 消息。
  * @returns 解析出的用户或频道身份；消息无可用发送者信息时返回 undefined。
  */
@@ -35,8 +34,8 @@ export function resolveSenderIdentity(message: Message): CachedUser | undefined 
 }
 
 /**
- * 删除正向 alias，并仅在反向索引仍指向该 alias 时同步删除两份按 id 的记录。
- * 反向索引与 identityById 的键集恒等，因此两者必须在同一个条件分支里一起摘除。
+ * 删除正向用户名映射，并在反向索引仍指向该用户名时同步删除两张按 ID 索引的表。
+ * `senderUsernameCache` 与 `identityById` 键集恒等，必须在同一分支内一并摘除。
  * @param username 待摘除的小写用户名键（不带 `@`）。
  */
 function deleteAlias(username: string): void {
@@ -49,13 +48,10 @@ function deleteAlias(username: string): void {
 }
 
 /**
- * 原子维护 username <-> sender id 双向缓存，以及按 id 直查身份的 identityById。
- * 所有身份写入（消息观察与启动预热）都必须走这里；改名、去名、username 换绑
- * 和容量淘汰都在此同步维护各张表。
- *
- * identityById 的每一次写入和删除都紧贴同一条 senderUsernameCache 语句：两张表
- * 的键集恒等是 cacheSender 直查的前提。
- * @param identity 待写入或更新的用户/频道缓存身份。
+ * 原子维护 `username <-> id` 双向索引及按 ID 直查表 `identityById`。
+ * 消息观察与启动预热均须经此函数写入，集中处理改名、移除用户名、用户名换绑与容量淘汰。
+ * `identityById` 与 `senderUsernameCache` 始终成对更新，保持键集恒等。
+ * @param identity 待写入或更新的用户或频道缓存身份。
  */
 export function updateCachedIdentity(identity: CachedUser): void {
   const username: string | undefined = identity.username
@@ -63,7 +59,7 @@ export function updateCachedIdentity(identity: CachedUser): void {
     : undefined;
   const previousUsername: string | undefined = senderUsernameCache.get(identity.id);
 
-  // 同一 sender 改名或移除 username：先撤销只属于 TA 的旧 alias。
+  // 同一发送者改名或移除 username：先撤销归属于该发送者的旧别名。
   if (previousUsername !== undefined && previousUsername !== username) {
     if (userCache.get(previousUsername)?.id === identity.id) {
       userCache.delete(previousUsername);
@@ -74,7 +70,7 @@ export function updateCachedIdentity(identity: CachedUser): void {
 
   if (username === undefined) return;
 
-  // 同一 username 被另一 sender 接管：旧 sender 不再拥有该 alias。
+  // 同一 username 被另一发送者接管：清理旧发送者的按 ID 索引。
   const previousIdentity: CachedUser | undefined = userCache.get(username);
   if (previousIdentity && previousIdentity.id !== identity.id &&
     senderUsernameCache.get(previousIdentity.id) === username) {
@@ -82,9 +78,7 @@ export function updateCachedIdentity(identity: CachedUser): void {
     identityById.delete(previousIdentity.id);
   }
 
-  // 只有新增正向 key 才占容量，同名资料刷新和 username 换绑不增长条数。
-  // 淘汰经 deleteAlias 连带摘掉 senderUsernameCache 与 identityById 两份按 id 的索引，
-  // 写入前就腾出位置，userCache（FifoMap）自身的容量淘汰不会触发。
+  // 仅新增正向键才占用容量；超限前经 deleteAlias 淘汰最旧键并同步清理按 ID 索引。
   if (!previousIdentity && userCache.size >= USER_CACHE_MAX) {
     const oldestUsername: string | undefined = userCache.oldestKey();
     if (oldestUsername !== undefined) deleteAlias(oldestUsername);
@@ -96,11 +90,10 @@ export function updateCachedIdentity(identity: CachedUser): void {
 }
 
 /**
- * 记录或刷新消息发送者的缓存条目（两类身份见上方 resolveSenderIdentity），
- * 供 `/copy @username` 等命令查找。没有公开 username 的发送者不写入缓存
- * （见 CachedUser 注释），但仍可经 resolveReplyTarget 定位。
+ * 记录或刷新消息发送者的缓存条目，供 `@username` 命令查找。
+ * 无公开 `username` 的发送者不入缓存，仍可经 `resolveReplyTarget` 或裸 ID 定位。
  * @param message 待提取并缓存发送者资料的 Telegram 消息。
- * @returns 解析出的发送者 ID（频道会话 ID 优先，否则为真实用户 ID）；消息不含可用发送者信息时返回 undefined。
+ * @returns 解析出的发送者 ID（频道会话 ID 优先，其次为真实用户 ID）；无可用发送者信息时返回 undefined。
  */
 export function cacheSender(message: Message): number | undefined {
   const fromUser: User | undefined = message.from;
@@ -110,16 +103,12 @@ export function cacheSender(message: Message): number | undefined {
   const username: string | undefined = senderChat !== undefined
     ? ("username" in senderChat ? senderChat.username : undefined)
     : fromUser!.username;
-  // 直查按 id 的身份，不经 alias 再回查 userCache；两张表的键集恒等
-  // （见 cache/main/senderIdentity.ts 的 identityById）。这条判定跑在每条群消息上。
+  // 按 ID 直查缓存身份（见 cache/main/senderIdentity.ts 的 identityById）。
   const cached: CachedUser | undefined = identityById.get(identityId);
   if (username === undefined && cached === undefined) {
     return identityId;
   }
-  // 逐字段比对，不构造临时 CachedUser（每条群消息都走到这里）。两种身份形态
-  // 缺席的字段也要比（频道没有 first/last_name，用户没有 title/isChannel）。
-  // 字段清单必须与 resolveSenderIdentity 构造的两种形态一致，
-  // 见 test/users/senderIdentity.test.ts 的形态同步用例。
+  // 逐字段比对现值，资料未变时不分配临时对象；比对字段与 resolveSenderIdentity 的两种形态保持一致。
   if (senderChat !== undefined) {
     const title: string | undefined = "title" in senderChat
       ? senderChat.title
@@ -145,18 +134,15 @@ export function cacheSender(message: Message): number | undefined {
     return identityId;
   }
 
-  // 只有确实要写入时才构造，且一律走 resolveSenderIdentity：两种身份形态的字面量
-  // 只在 users/visibleSender.ts 的 channelIdentity / userIdentity 各一处，本文件与
-  // commands/commandActor.ts 都调它们。这条路只在资料变化时才走到。
+  // 仅当资料变化或首次缓存时才经 resolveSenderIdentity 构造对象并写入。
   const identity: CachedUser | undefined = resolveSenderIdentity(message);
   if (identity !== undefined) updateCachedIdentity(identity);
   return identityId;
 }
 
 /**
- * 从 /copy 指令所回复的消息中解析出目标；对方没有公开 @username 或尚未被缓存时，
- * 只要能回复到其一条消息即可定位。只认显式回复：论坛话题里 Bot API 自动填入的
- * 话题创建消息不算（见 libs/forumTopic.ts 的 explicitReplyTo）。
+ * 从命令显式回复的消息中解析目标发送者身份。
+ * 仅识别显式回复，忽略论坛话题自动挂载的话题创建消息（见 libs/forumTopic.ts 的 explicitReplyTo）。
  * @param message 触发命令的 Telegram 消息。
  * @returns 被显式回复消息的发送者身份；未显式回复或无法识别发送者时返回 undefined。
  */
@@ -167,9 +153,7 @@ export function resolveReplyTarget(message: Message): CachedUser | undefined {
 }
 
 /**
- * 按 @username 参数（不带 @，大小写不敏感）在缓存里查找目标，供
- * /copy、/block 等命令解析 @username 形式的目标，见
- * commands/targetResolution.ts 的 resolveCommandTarget。
+ * 按不带 `@` 的用户名（大小写不敏感）从双向缓存查找目标身份，供 commands/targetResolution.ts 的 resolveCommandTarget 调用。
  * @param username 待查找的用户名（不带 `@` 前缀）。
  * @returns 双向索引一致时返回缓存身份，未命中或索引不一致时返回 undefined。
  */
@@ -178,7 +162,7 @@ export function resolveUsernameTarget(username: string): CachedUser | undefined 
   const identity: CachedUser | undefined = userCache.get(normalizedUsername);
   if (!identity) return undefined;
 
-  // 已知不一致的 alias 一律拒绝，并清除坏的正向记录；提示层建议回复消息定位。
+  // 正反向索引不一致时清除失效的正向记录并视为未命中。
   if (senderUsernameCache.get(identity.id) !== normalizedUsername) {
     userCache.delete(normalizedUsername);
     return undefined;
@@ -188,21 +172,10 @@ export function resolveUsernameTarget(username: string): CachedUser | undefined 
 }
 
 /**
- * 按裸 id 取目标身份，供 `/block … enable`、`/block … disable`、`/gag`、`/ungag`、
- * `/delete_message`、`/permission` 与 `/white` 解析 id 形式的参数，见 commands/targetResolution.ts。
- *
- * **与 @username 那条路的差别：查不到不是失败。** id 本身就是权威目标，
- * 缓存只用来给回执配一个人类可读的标签；缓存落空时返回只带 id 的最小身份，
- * 命令照常执行（@username 目标的现查要求见 docs/cn/04-invariants.md）。
- *
- * 负数 id 一律标成频道身份：负 id 只来自 `sender_chat`，处置侧按同一符号分派
- * （见 workers/antiRaid/blocklistEffects.ts 的 removeOne）。`/block disable` 据此
- * 决定走 unbanChatSenderChat 还是 unbanChatMemberIfBanned。缓存命中那条路不重复标：
- * 负 id 的缓存条目都已带上 isChannel——消息观察一律经
- * resolveSenderIdentity 构造（cacheSender 与 resolveReplyTarget 都走它），启动预热的
- * updateCachedIdentity 写入的是持久化状态里原样保留该标记的身份。
- *
- * 双向一致才采信缓存里的那份，同 resolveUsernameTarget。
+ * 按裸 ID 解析命令目标身份（供 `/block`、`/gag`、`/ungag`、`/delete_message`、`/permission`、`/white` 调用）。
+ * - 裸 ID 本身即为权威目标：双向缓存命中且一致时返回带名称的缓存身份，未命中时返回仅含 `id` 的最小身份（负数 ID 同时标记 `isChannel: true`）。
+ * - 负数 ID 仅来自频道身份（`sender_chat`），后续封禁/解封与回执标签据此区分频道与用户。
+ * @see ../../docs/cn/04-invariants.md
  * @param targetId 目标用户（正整数）或频道（负整数）的 Telegram ID。
  * @returns 缓存命中且双向一致时返回完整缓存身份，否则返回仅含 id（及负数 isChannel）的最小身份。
  */

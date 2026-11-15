@@ -34,11 +34,11 @@ import type { TelegramWorkerTemporaryMessageResult } from "../../../types/telegr
 /** `disposeAdSender` 处置命中广告发送者的参数。 */
 export interface DisposeAdSenderParams {
   /** 待处置发送者的待检消息束。 */
-  bundle: AdMessageBundle;
+  readonly bundle: AdMessageBundle;
   /** 分类器给出的广告判定结果与命中原因。 */
-  verdict: AdVerdict;
+  readonly verdict: AdVerdict;
   /** 本次送检时入选的条目快照（见 bundle.ts 的 selectAdBundleEntries）。 */
-  judged: readonly AdCandidateEntry[];
+  readonly judged: readonly AdCandidateEntry[];
 }
 
 /** `deleteReferencedAdMessages` 清理首次引用广告警告前消息的参数。 */
@@ -146,6 +146,37 @@ export function deleteReferencedAdMessages({
   });
 }
 
+/** appendDisposalEntryIds 的入参。 */
+interface AppendDisposalEntryIdsParams {
+  /** 待收集消息 ID 的候选条目列表。 */
+  readonly entries: readonly AdCandidateEntry[];
+  /** 已收集的消息 ID 去重集合。 */
+  readonly seen: Set<number>;
+  /** 按遍历顺序追加消息 ID 的目标数组。 */
+  readonly ids: number[];
+  /** 允许计入的最大消息 ID（含）。 */
+  readonly messageIdThrough: number;
+}
+
+/**
+ * 按条目顺序将不大于 `messageIdThrough` 且未见过的消息 ID 追加进 `ids`。
+ *
+ * @param params 候选条目、已见集合、输出数组与消息 ID 上界。
+ */
+function appendDisposalEntryIds({
+  entries,
+  seen,
+  ids,
+  messageIdThrough,
+}: AppendDisposalEntryIdsParams): void {
+  for (const entry of entries) {
+    if (entry.messageId > messageIdThrough) continue;
+    if (seen.has(entry.messageId)) continue;
+    seen.add(entry.messageId);
+    ids.push(entry.messageId);
+  }
+}
+
 /**
  * 汇总本次处置需删除的消息 ID 集合（送检条目 ∪ 当前束内条目 ∪ 淘汰转存的 pendingDeleteIds）。
  *
@@ -160,12 +191,8 @@ function disposalMessageIds({
 }: DisposalMessageIdsParams): number[] {
   const ids: number[] = [];
   const seen: Set<number> = new Set<number>();
-  for (const entry of [...judged, ...current]) {
-    if (entry.messageId > messageIdThrough) continue;
-    if (seen.has(entry.messageId)) continue;
-    seen.add(entry.messageId);
-    ids.push(entry.messageId);
-  }
+  appendDisposalEntryIds({ entries: judged, seen, ids, messageIdThrough });
+  appendDisposalEntryIds({ entries: current, seen, ids, messageIdThrough });
   for (const messageId of evictedIds) {
     if (messageId > messageIdThrough || seen.has(messageId)) continue;
     seen.add(messageId);
@@ -175,7 +202,7 @@ function disposalMessageIds({
 }
 
 /**
- * 删除已拉黑或刚处置频道身份在封禁落地前发出的尾随广告消息（见 docs/cn/04-invariants.md）。
+ * 删除刚处置发送者在处置抑制窗口内发出的尾随消息，以及已拉黑频道身份的消息（见 states/adDetectAdmission.ts 与 docs/cn/04-invariants.md）。
  *
  * @param chatId 目标群 ID。
  * @param messageId 待删除的尾随消息 ID。
@@ -186,7 +213,7 @@ export function deleteStragglerAdMessage(chatId: number, messageId: number): voi
 }
 
 /**
- * 执行广告命中处置：向主线程发布 adDetected 事件并批量删除涉事消息。
+ * 执行广告命中处置：向主线程发布 adDetected 事件（处罚由主线程按处罚设置执行）并批量删除涉事消息。
  *
  * @param params 待处置消息束、判定结果与送检条目快照。
  */
@@ -205,7 +232,7 @@ export async function disposeAdSender({ bundle, verdict, judged }: DisposeAdSend
   if (publish === null) {
     logger.error(
       `Ad detection could not report sender ${bundle.senderId} in chat ${bundle.chatId}: ` +
-      "the main-thread channel is closed; deleting the messages without announcing a block."
+      "the main-thread channel is closed; deleting the messages without punishing or announcing."
     );
     await deleteAdMessages(bundle.chatId, messageIds);
     return;
@@ -220,7 +247,7 @@ export async function disposeAdSender({ bundle, verdict, judged }: DisposeAdSend
     reason: verdict.reason,
     messages: judged.map((entry: AdCandidateEntry): AdSampleMessage => ({
       messageId: entry.messageId,
-      text: entry.text,
+      text: entry.text.length > 0 ? entry.text : entry.stickerSetName ?? "",
       quote: entry.quote,
       replyTo: entry.replyTo,
     })),

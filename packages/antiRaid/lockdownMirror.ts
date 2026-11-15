@@ -10,7 +10,7 @@ import {
   clearChatStateField,
   getChatStateCache,
   saveChatStateInBackground,
-} from "../infra/storage/stateStore";
+} from "../infra/chatStateStorage";
 import { telegramApi } from "../infra/telegram/client";
 import { deleteMessageWithOutcome } from "../infra/telegram/actions";
 import { restoreLockdownInvitePermission } from "../infra/telegram/lockdownPermissions";
@@ -290,7 +290,10 @@ function startEmergencyLockdownRecovery(chatId: number, record: LockdownRecord):
   runEmergencyLockdownRecovery(chatId, recovery);
 }
 
-/** 停机时停止全部主线程紧急封锁恢复的重试定时器并清空恢复表。 */
+/**
+ * 停机时停止全部主线程紧急封锁恢复的重试定时器并清空恢复表；
+ * 在途请求返回后见到 `stopped` 直接退出，保留群状态中的 `lockdown` 记录供下次启动恢复。
+ */
 export function stopEmergencyLockdownRecoveries(): void {
   emergencyLockdownRecoveryRuntime.stopped = true;
   for (const recovery of emergencyLockdownRecoveries.values()) {
@@ -299,7 +302,6 @@ export function stopEmergencyLockdownRecoveries(): void {
       recovery.retryTimer = null;
     }
   }
-  // 停机时标记 stopped 并清空恢复表；在途请求完成后不再修改群状态，保留 lockdown 记录供下次启动恢复。
   emergencyLockdownRecoveries.clear();
 }
 

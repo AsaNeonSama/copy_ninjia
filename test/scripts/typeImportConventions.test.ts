@@ -1,3 +1,4 @@
+/** ESLint `consistent-type-imports` 与 `Promise.all` 禁用规则生效性测试。 */
 import { expect, test } from "bun:test";
 import { ESLint } from "eslint";
 import type { Linter } from "eslint";

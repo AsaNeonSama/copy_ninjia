@@ -11,12 +11,8 @@ import { budgetWithinDeadline } from "../../libs/monotonicDeadline";
 import type { ApplicationLifecycleDependencies } from "../lifecycleDependencies";
 
 /**
- * 停机时各持久化/后台 owner 的排空顺序与失败隔离（owner 是 packages/app/lifecycle.ts）。
- * 主文件保留 init/wait/run、进程 handler 与实例锁处置，这里只负责「按固定顺序
- * 走完每个 owner，并把每一步的结果如实带回去」。
- *
- * 本模块负责失败隔离：dispose() 是异常退出路径上最后一次落盘机会，
- * 单个 owner 抛错不跳过其后的 owner 与 flushStateToDisk。
+ * 停机阶段各持久化与后台 owner 的固定排空、关闭、终止顺序及失败隔离（归属 `packages/app/lifecycle.ts`）。
+ * 单个 owner 抛错仅记入对应失败结果，不中断后续 owner 排空与最终状态落盘。
  * @see ../../../docs/cn/04-invariants.md
  */
 
@@ -75,19 +71,19 @@ type ShutdownOwnerClose =
 
 /** 一个按固定顺序排空的停机 owner。 */
 interface ShutdownDrainOwner {
-  /** 写进哪个结果字段；问答表单、延迟命令、cron、目标消息待删队列与延迟删除不参与共享数据落盘闸门，为 null。 */
+  /** 对应的结果字段名；纯内存/状态机消息清理类 owner 不参与共享数据落盘闸门，设为 `null`。 */
   readonly result: keyof OwnerDrainResults | null;
   /** 失败隔离与诊断日志里的 owner 名。 */
   readonly label: string;
   /** 取哪一档时间预算。 */
   readonly timeout: keyof FlushTimeouts;
-  /** 未初始化就整步跳过（记为 flushed）；终止后由 close 把它置回 false。 */
+  /** 未初始化时整步跳过（视为 `flushed`）；终局 `close` 执行后重置回 `false`。 */
   readonly initFlag: keyof OwnerInitFlags | null;
   /** 执行该 owner 的排空动作。 */
   readonly drain: (
     dependencies: ApplicationLifecycleDependencies,
     timeoutMs: number,
-    /** 本次是不是进程真正要退出的那一遍（dispose()）。 */
+    /** 是否为终局停机（`dispose()` 调用时为 `true`）。 */
     terminal: boolean
   ) => Promise<FlushResult>;
   /** 仅在终局停机（`terminal === true`）且排空结束后紧接执行的关闭或终止步骤。 */
@@ -95,14 +91,9 @@ interface ShutdownDrainOwner {
 }
 
 /**
- * 停机 owner 的唯一有序表：确认最终 offset 之前的落盘（flushAllToDisk）与
- * 进程退出前的收尾（runShutdownOwners）共用它的顺序、门禁与结果聚合。
- *
- * 顺序是约束（见 docs/cn/04-invariants.md）：
- * - gag、问答表单、wed、延迟命令、cron、目标消息待删队列与延迟删除排在 Telegram 总闸之前，
- *   它们的收尾要发 Telegram 请求。
- * - 延迟删除排在 anti-raid 之后：anti-raid 排空期间补发的待删公告一并提前兑现。
- * - AI memory 先回传到 diskIOWorker，再 flush 那个 Worker。
+ * 停机排空 owner 的固定有序表：`flushAllToDisk`（确认最终 offset 前）与 `runShutdownOwners`（终局退出前）共用。
+ * 顺序约束见 `docs/cn/04-invariants.md`：需发送或删除 Telegram 消息的 owner 均排在 Telegram 出站总闸之前，
+ * 延迟删除排在 `antiRaid` 之后以一并清理排空期间补发的公告，AI 记忆刷盘排在 Disk I/O 刷盘之前。
  */
 const SHUTDOWN_DRAIN_OWNERS: readonly Readonly<ShutdownDrainOwner>[] = [
   {
@@ -136,8 +127,7 @@ const SHUTDOWN_DRAIN_OWNERS: readonly Readonly<ShutdownDrainOwner>[] = [
       dependencies.drainAntiRaid(timeoutMs),
   },
   {
-    // gag 开始提示是带按钮的功能状态，在 Telegram 总闸关闭前由自己的状态机
-    // 删除；失败如实计入 gag 结果。
+    // gag 提示消息由状态机在 Telegram 出站总闸关闭前主动删除，结果计入停机门禁。
     result: "gag",
     label: "gag drain",
     timeout: "maintenanceMs",
@@ -146,8 +136,6 @@ const SHUTDOWN_DRAIN_OWNERS: readonly Readonly<ShutdownDrainOwner>[] = [
       dependencies.drainGagRuntime(timeoutMs),
   },
   {
-    // `/qa set` 表单同为状态机消息，由自己的路径删除；没有要落盘的数据，
-    // 不参与共享数据落盘闸门。
     result: null,
     label: "qa form drain",
     timeout: "maintenanceMs",
@@ -164,7 +152,6 @@ const SHUTDOWN_DRAIN_OWNERS: readonly Readonly<ShutdownDrainOwner>[] = [
       dependencies.drainWedRuntime(timeoutMs),
   },
   {
-    // 延迟命令没有要落盘的数据，不参与共享数据落盘闸门。
     result: null,
     label: "deferred commands drain",
     timeout: "maintenanceMs",
@@ -173,7 +160,6 @@ const SHUTDOWN_DRAIN_OWNERS: readonly Readonly<ShutdownDrainOwner>[] = [
       dependencies.drainDeferredCommandRuntime(timeoutMs),
   },
   {
-    // 定时任务没有要落盘的数据，不参与共享数据落盘闸门。
     result: null,
     label: "cron drain",
     timeout: "maintenanceMs",
@@ -182,7 +168,6 @@ const SHUTDOWN_DRAIN_OWNERS: readonly Readonly<ShutdownDrainOwner>[] = [
       dependencies.drainCronScheduler(timeoutMs),
   },
   {
-    // `/delete_message` 的待删队列只在内存里，超出预算时整队丢弃并记日志，不属于共享数据落盘闸门。
     result: null,
     label: "target message deletion drain",
     timeout: "maintenanceMs",
@@ -191,7 +176,6 @@ const SHUTDOWN_DRAIN_OWNERS: readonly Readonly<ShutdownDrainOwner>[] = [
       dependencies.drainTargetMessageDeletions(timeoutMs),
   },
   {
-    // 删除失败/超时有自己的统一日志，但不属于共享数据落盘闸门。
     result: null,
     label: "Telegram delayed deletion drain",
     timeout: "maintenanceMs",
@@ -217,7 +201,7 @@ const SHUTDOWN_DRAIN_OWNERS: readonly Readonly<ShutdownDrainOwner>[] = [
     label: "Telegram outbound drain",
     timeout: "maintenanceMs",
     initFlag: null,
-    // 关闸只在终局那一遍（见 outboundGate 的 quiesce 说明）。
+    // 仅终局停机（terminal 为 true）关闭出站总闸；非终局路径保留总闸开启供最终 offset 确认请求使用。
     drain: (
       dependencies: ApplicationLifecycleDependencies,
       timeoutMs: number,
@@ -234,7 +218,7 @@ const SHUTDOWN_DRAIN_OWNERS: readonly Readonly<ShutdownDrainOwner>[] = [
   },
 ];
 
-/** 排空全部结束后才执行的终止型 owner，顺序同样固定；只有 dispose() 走。 */
+/** 全部排空完成后由终局 `dispose()` 依次执行的 Worker 终止列表。 */
 const SHUTDOWN_TERMINATION_OWNERS: readonly Readonly<{
   readonly label: string;
   readonly initFlag: keyof OwnerInitFlags;
@@ -408,14 +392,9 @@ function allOwnersSettled(results: ShutdownResults): boolean {
 }
 
 /**
- * 把停机结局分成 clean / offsetWithheld / unsettled（语义见 types/lifecycle.ts 的 `ShutdownOutcome`）。
- *
- * offsetWithheld 由这些路径产生：最终确认请求失败、前置未满足而跳过，或
- * `runner.task()` 直接抛错而跳过确认前闸门。
- *
- * 判据是调用方这一轮的 `ShutdownResults`，不是 `wait()` 当时的观测：
- * `wait()` 里 flush 失败、随后 `dispose()` 自己那次 flush 成功时，结果为
- * offsetWithheld（offset 不确认、锁释放）。
+ * 将停机汇总结果归类为 `"clean"`、`"offsetWithheld"` 或 `"unsettled"`（语义见 `types/lifecycle.ts` 的 `ShutdownOutcome`）。
+ * 只要当前 `results` 中全部共享数据与终止阶段均已完成，即便 `wait()` 期间未完成最终 offset 确认，
+ * 也归类为 `"offsetWithheld"`（释放单实例锁、等待重启重投），否则归类为 `"unsettled"`（扣住单实例锁）。
  * @param results 本次停机汇总的各阶段结算结果。
  * @returns 停机分类结果（`"clean"`、`"offsetWithheld"` 或 `"unsettled"`）。
  */

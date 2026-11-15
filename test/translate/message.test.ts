@@ -38,10 +38,12 @@ const translateStates = {
   clear: (): void => { chatStates.clear(); },
 };
 mock.module("../../packages/infra/storage/stateStore", () => ({
+  activeCopyTargetIdIn: () => 999,
+}));
+mock.module("../../packages/infra/chatStateStorage", () => ({
   getChatState: (chatId: number): TestChatState => chatStates.get(chatId) ?? createTestChatState(),
   getChatStateCache: (): ReadonlyMap<number, TestChatState> => chatStates,
   getOrCreateChatState: chatStateFor,
-  activeCopyTargetIdIn: () => 999,
   persistChatState: async (): Promise<void> => {},
 }));
 const { activeTranslateStateIn, queueTranslateMessage } = await import("../../packages/translate/message");

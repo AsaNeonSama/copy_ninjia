@@ -172,7 +172,7 @@ mock.module("../../packages/users/messageOrigin", () => ({
 const { Bot: RealBot } = await import("grammy");
 const { registerHandlers } = await import("../../packages/app/registerHandlers");
 const { wedMemberStates, resetWedMemberStates } = await import("../../packages/cache/main/wedMembers");
-const { getOrCreateChatState } = await import("../../packages/infra/storage/stateStore");
+const { getOrCreateChatState } = await import("../../packages/infra/chatStateStorage");
 
 const BOT_ID: number = 4242;
 const BOT_USERNAME: string = "tensai_bot";

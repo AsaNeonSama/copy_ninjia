@@ -37,7 +37,7 @@ import {
   sentMessages,
 } from "../../../packages/cache/perThread/selfSentTracker";
 import { isSelfSent } from "../../../packages/infra/selfSentTracker";
-import { getChatState, getOrCreateChatState } from "../../../packages/infra/storage/stateStore";
+import { getChatState, getOrCreateChatState } from "../../../packages/infra/chatStateStorage";
 import { cacheSender } from "../../../packages/users/senderIdentity";
 import { BENCHMARK_CHAT_ID, BENCHMARK_EPOCH_MS, BENCHMARK_SENDER_ID } from "./fixtures";
 import type { Scenario } from "./types";

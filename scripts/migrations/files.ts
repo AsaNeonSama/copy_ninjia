@@ -4,12 +4,17 @@ import { isAbsolute, join, relative } from "node:path";
 import type { Stats } from "node:fs";
 import { invalidInput } from "../../packages/libs/inputValidation";
 
-/** 冷迁移清单里的一项：相对路径、哈希与权限元数据，不记录文件内容。 */
+/** 冷迁移文件清单项：记录相对路径、SHA-256 哈希与权限属主元数据，不含文件正文。 */
 export interface MigrationFileRecord {
+  /** 相对备份根或产物根的文件路径。 */
   readonly path: string;
+  /** 文件内容的 64 位小写十六进制 SHA-256 摘要。 */
   readonly sha256: string;
+  /** 文件权限位（`mode & 0o7777`）。 */
   readonly mode: number;
+  /** 文件属主 UID。 */
   readonly uid: number;
+  /** 文件属组 GID。 */
   readonly gid: number;
 }
 

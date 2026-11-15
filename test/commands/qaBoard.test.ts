@@ -84,7 +84,8 @@ describe("看板装页", () => {
 
   test("超过每页条数就分页，短问答也照样分", () => {
     // 按条数装页：短问答也按每页条数分页，buildQaBoardKeyboard 在只有一页时返回 undefined，翻页条不出现。
-    const entries = Array.from({ length: 5 }, (_unused: unknown, index: number) => ({
+    const trailingCount: number = Math.min(2, QA_QUERY_PAGE_MAX_ENTRIES);
+    const entries = Array.from({ length: QA_QUERY_PAGE_MAX_ENTRIES + trailingCount }, (_unused: unknown, index: number) => ({
       q: `问题${index}`,
       a: `答案${index}`,
     }));
@@ -94,7 +95,7 @@ describe("看板装页", () => {
     expect(pages).toHaveLength(2);
     expect(parsePage(pages[0]!.text, pages[0]!.entities[0]!) as unknown[])
       .toHaveLength(QA_QUERY_PAGE_MAX_ENTRIES);
-    expect(parsePage(pages[1]!.text, pages[1]!.entities[0]!) as unknown[]).toHaveLength(2);
+    expect(parsePage(pages[1]!.text, pages[1]!.entities[0]!) as unknown[]).toHaveLength(trailingCount);
     expect(buildQaBoardKeyboard(0, pages.length, ATMOSPHERE_TEXTS.teasing)).toBeDefined();
   });
 
@@ -204,8 +205,9 @@ describe("翻页条", () => {
 
 describe("翻页回调", () => {
   test("翻页正文和按钮随本进程文案风格使用同一版，空看板也一致", async () => {
+    const multiPageCount: number = QA_QUERY_PAGE_MAX_ENTRIES + 1;
     botAtmosphereState.current = "plain";
-    chatQaEntries.set(CHAT_ID, new Map(Array.from({ length: 5 }, (_, index) => [`问题${index}`, "答案"])));
+    chatQaEntries.set(CHAT_ID, new Map(Array.from({ length: multiPageCount }, (_, index) => [`问题${index}`, "答案"])));
     await handleQaBoardCallback(callbackContext(`${QA_QUERY_PAGE_CALLBACK_PREFIX}1`));
     let call: EditCall = editMessageText.mock.calls.at(-1)![0];
     expect(call.text).toStartWith(ATMOSPHERE_TEXTS.plain.QA_COMMAND_TEXTS.queryPrefix);
@@ -216,7 +218,7 @@ describe("翻页回调", () => {
     expect(editMessageText.mock.calls.at(-1)![0].text).toBe(ATMOSPHERE_TEXTS.plain.QA_COMMAND_TEXTS.queryEmpty);
 
     botAtmosphereState.current = "teasing";
-    chatQaEntries.set(CHAT_ID, new Map(Array.from({ length: 5 }, (_, index) => [`问题${index}`, "答案"])));
+    chatQaEntries.set(CHAT_ID, new Map(Array.from({ length: multiPageCount }, (_, index) => [`问题${index}`, "答案"])));
     await handleQaBoardCallback(callbackContext(`${QA_QUERY_PAGE_CALLBACK_PREFIX}1`));
     call = editMessageText.mock.calls.at(-1)![0];
     expect(call.text).toStartWith(QA_COMMAND_TEXTS.queryPrefix);
@@ -231,7 +233,7 @@ describe("翻页回调", () => {
 
   test("认领后当场应答，并按目标页改写同一条消息", async () => {
     chatQaEntries.set(CHAT_ID, new Map(
-      Array.from({ length: 5 }, (_unused: unknown, index: number): [string, string] =>
+      Array.from({ length: QA_QUERY_PAGE_MAX_ENTRIES + 1 }, (_unused: unknown, index: number): [string, string] =>
         [`问题${index}`, "长".repeat(QA_QUERY_ANSWER_PREVIEW_MAX_CHARS)])
     ));
 

@@ -43,8 +43,8 @@
 <p align="center">
   <a href="#-纯-ai-开发"><img src="https://img.shields.io/badge/Code-100%25_AI--written-e91e63?style=flat-square" alt="100% AI-written"></a>
   <a href="#-纯-ai-开发"><img src="https://img.shields.io/badge/Audits-Claude_/_Gemini_/_Grok-6d4aff?style=flat-square" alt="Audited"></a>
-  <a href="docs/cn/05-dev-workflow.md"><img src="https://img.shields.io/badge/Tests-7001_Passed-2ea44f?style=flat-square" alt="Tests"></a>
-  <a href="docs/cn/05-dev-workflow.md"><img src="https://img.shields.io/badge/Coverage-98.13%25-2ea44f?style=flat-square" alt="Coverage"></a>
+  <a href="docs/cn/05-dev-workflow.md"><img src="https://img.shields.io/badge/Tests-7200_Passed-2ea44f?style=flat-square" alt="Tests"></a>
+  <a href="docs/cn/05-dev-workflow.md"><img src="https://img.shields.io/badge/Coverage-97.58%25-2ea44f?style=flat-square" alt="Coverage"></a>
   <a href="LICENSES/LICENSE"><img src="https://img.shields.io/badge/License-MIT-007ec6?style=flat-square" alt="License: MIT"></a>
 </p>
 
@@ -109,11 +109,11 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="public/coverage_dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="public/coverage_light.svg">
-    <img alt="bun run test:coverage：7001 项测试全部通过 / 588 个测试文件 / 456,453 次 expect() 调用 / 函数覆盖率 97.57% / 行覆盖率 98.13%" src="public/coverage_light.svg" width="780">
+    <img alt="bun run test:coverage：7200 项测试全部通过 / 605 个测试文件 / 463,493 次 expect() 调用 / 函数覆盖率 96.85% / 行覆盖率 97.58%" src="public/coverage_light.svg" width="780">
   </picture>
 </p>
 
-性能基准（冷热路径 · 总吞吐与总读写 · 端到端链路耗时）见 **[📊 10 性能基准](docs/cn/10-performance.md)**。
+性能基准（冷热路径 · 总吞吐与总读写 · 端到端链路耗时）见 **[📊 11 性能基准](docs/cn/11-performance.md)**。
 
 <p align="right"><sub><a href="#copy-ninjia">⬆️ 回到顶部</a></sub></p>
 
@@ -173,7 +173,7 @@
 </td>
 <td align="left" valign="top" width="33%">
   <p><b>📮 智能广告检测</b><br>
-  <sub>消息自动串联送审，判定为广告立即撤回并执行永久封禁。</sub></p>
+  <sub>消息自动串联送审，判定为广告立即撤回，并按配置的处罚设置禁言、踢出或封禁。</sub></p>
 </td>
 </tr>
 <tr>
@@ -270,7 +270,10 @@
 </tbody>
 </table>
 
-- **TTS 语音服务接入**：需在 `config/dynamic/agent.json` 中配置 `agent.tts`（支持 Google 原生、OpenAI 兼容 `audio/speech` 及 xAI Grok `/tts`；Google 端点支持配置 `base_url` 接入反向代理或网关）。可选 `bot_language`（`TTS_BOT_LANGUAGES`，缺省为 `TTS_DEFAULT_BOT_LANGUAGE`）用于指定 AI 语音台词的语言；在项目根目录放置 `prompt/voice_tool.md` 可完整覆盖 `send_voice` 工具的使用说明（重启生效，示例见 [`prompt_example/voice_tool.md`](prompt_example/voice_tool.md)）。AI 回复时会根据 `bot_language` 自动在声线后追加朗读语言指导；`style` 字段由 `/send` 与定时任务通用，建议只描述音色风格，切换 `bot_language` 时建议同步调整 `style` 与 `voice_tool.md`。
+- **TTS 语音服务接入**：
+  - 在 `config/dynamic/agent.json` 中配置 `agent.tts`（支持 Google 原生、OpenAI 兼容 `audio/speech` 及 xAI Grok `/tts`；Google 端点支持配置 `base_url` 接入反向代理或网关）。
+  - 可选 `bot_language`（`TTS_BOT_LANGUAGES`，缺省为 `TTS_DEFAULT_BOT_LANGUAGE`）指定 AI 语音台词语言；AI 回复时会根据 `bot_language` 自动在声线后追加朗读语言指导。
+  - 在项目根目录放置 `prompt/voice_tool.md` 可完整覆盖 `send_voice` 工具说明（重启生效，示例见 [`prompt_example/voice_tool.md`](prompt_example/voice_tool.md)）；`style` 字段同时服务于 `/send` 与定时任务，建议仅描述音色特征，切换 `bot_language` 时同步调整 `style` 与 `voice_tool.md`。
 - **配额物理隔离**：每日总配额 `daily_limit`（缺省 `TTS_DEFAULT_DAILY_LIMIT`）中切分出 `daily_reserve_quota`（缺省 `TTS_DEFAULT_DAILY_RESERVE_QUOTA`）专供 `/send` 与定时任务使用，AI 闲聊仅使用剩余额度；两套额度独立统计、互不挤占。配额窗口（`TTS_USAGE_WINDOW_MS`）从窗口内首次请求开始计时，到期后的首个请求会自动清零计数开启新周期。
 - **记忆准入机制**：`/send` 转发消息与定时语音不录入 AI 对话上下文；群内图片的自动记录仅在群内已启用 AI 且当前未处于复读状态时生效。详见 [12 常见问题](docs/cn/12-faq.md)。
 
@@ -284,9 +287,11 @@
 
 - **群成员基础权限**：复读、按群翻译、中文动作、`/info` 查资料、`/wed` 抽老婆、`/h_image` 看图等日常群聊交互命令，所有群成员均可直接使用。
 - **身份策略权限（`isCanXxx`）**：群组管理与运维命令，包括 `/bot_status` 查看系统状态、`/mute` / `/unmute` 禁言控制、`/gag` 限制发言、`/block` 黑名单控制、`/h_image add` 图库入库以及各项功能的启停开关。通过细粒度权限列表单独授权。
-- **超级管理员专属（`SUPER_ADMIN_USER_ID`）**：`/init` 初始化群接管、`/permission` 权限分配、`/white disable` 移除白名单身份、`/batch_kick` 批量清理新成员、`/delete_message` 删除指定身份此后的发言，以及私聊专属的 `/send` 跨群中转与左下角 `App` 菜单按钮（`MenuButtonWebApp`）打开的 Mini App 管理控制台。拥有 `isCanWhiteOther` 权限的普通白名单用户可通过 `/white enable` 协助添加成员，但仅能赋予默认的基础权限。
+- **超级管理员专属（`SUPER_ADMIN_USER_ID`）**：
+  - 群内命令：`/init` 初始化群接管、`/permission` 权限分配、`/white disable` 移除白名单身份、`/batch_kick` 批量清理新成员、`/delete_message` 追着删指定身份的新发言（拥有 `isCanWhiteOther` 的白名单成员可通过 `/white enable` 协助添加成员，仅赋予默认基础权限）。
+  - 私聊与控制台：私聊 `/send` 跨群中转，以及点击私聊左下角 `App` 菜单按钮（`MenuButtonWebApp`）打开的 Mini App 管理控制台。
 
-图库与 cron 定时任务的配置和使用请参阅 [08 图库与定时任务](docs/cn/08-images-and-cron.md)，Mini App 的设置与 Cloudflare Tunnel 推荐配置请参阅 [11 Mini App 设置与推荐配置](docs/cn/11-mini-app.md)，源码与二进制部署的离线冷迁移步骤请参阅 [运维手册](docs/cn/07-operations.md)。
+图库与 cron 定时任务的配置和使用请参阅 [08 图库与定时任务](docs/cn/08-images-and-cron.md)，Mini App 的设置与 Cloudflare Tunnel 推荐配置请参阅 [10 Mini App 设置与推荐配置](docs/cn/10-mini-app.md)，源码与二进制部署的离线冷迁移步骤请参阅 [运维手册](docs/cn/07-operations.md)。
 
 完整命令列表、权限要求与详细行为说明请参阅 **[📖 09 命令与行为参考](docs/cn/09-commands.md)**。
 
@@ -415,14 +420,14 @@ Copy Ninjia 的架构总览、模块导览、运行时权威约束、测试流�
     <td align="center"><nobr><a href="docs/cn/09-commands.md">📖 09 命令参考</a></nobr></td>
   </tr>
   <tr>
-    <td><nobr>📊 <b>看性能读数</b></nobr></td>
-    <td>冷热路径、总吞吐与总读写、端到端链路耗时的发布基准</td>
-    <td align="center"><nobr><a href="docs/cn/10-performance.md">📖 10 性能基准</a></nobr></td>
-  </tr>
-  <tr>
     <td><nobr>🖥️ <b>Mini App 控制台</b></nobr></td>
     <td><code>mini_app</code> 配置、Cloudflare Tunnel 推荐穿透方案、双层认证与 TOTP 绑定</td>
-    <td align="center"><nobr><a href="docs/cn/11-mini-app.md">📖 11 Mini App 设置与推荐配置</a></nobr></td>
+    <td align="center"><nobr><a href="docs/cn/10-mini-app.md">📖 10 Mini App 设置与推荐配置</a></nobr></td>
+  </tr>
+  <tr>
+    <td><nobr>📊 <b>看性能读数</b></nobr></td>
+    <td>冷热路径、总吞吐与总读写、端到端链路耗时的发布基准</td>
+    <td align="center"><nobr><a href="docs/cn/11-performance.md">📖 11 性能基准</a></nobr></td>
   </tr>
   <tr>
     <td><nobr>❓ <b>排查没有回复</b></nobr></td>
@@ -481,7 +486,9 @@ Copy Ninjia 的架构总览、模块导览、运行时权威约束、测试流�
 
 > [!WARNING]
 > **Bot-to-Bot 跨机器人通讯模式说明**：
-> 开启此模式后，机器人可以在具备管理员权限或已关闭群隐私模式的群组中接收其他第三方 Bot 的普通发言。接收到的其他 Bot 消息会经过全局入口防刷限流保护：同一个 Bot 在连续活跃期间的前 `BOT_MESSAGE_ACTIVITY_LIMIT` 条消息允许进入业务处理，超出后静默忽略；停止发言满 `BOT_MESSAGE_ACTIVITY_TTL_MS` 后重新计数。系统最多记录 `BOT_MESSAGE_ACTIVITY_MAX_ENTRIES` 个其他 Bot 的活跃状态，池满时暂不接收新 Bot；机器人自身的发言与本群 `/delete_message` 目标的发言不计入该限额（后者每条都会被删除）。详见 [消息分发约束](docs/cn/04-invariants.md)。
+> - 开启此模式后，机器人可在具备管理员权限或已关闭群隐私模式的群组中接收第三方 Bot 的普通发言。
+> - 入口防刷限流：同一个第三方 Bot 连续活跃期间仅前 `BOT_MESSAGE_ACTIVITY_LIMIT` 条消息进入业务处理，超额静默忽略，静默满 `BOT_MESSAGE_ACTIVITY_TTL_MS` 后重置计数；全局最多跟踪 `BOT_MESSAGE_ACTIVITY_MAX_ENTRIES` 个其他 Bot，池满时暂不接收新 Bot。
+> - 豁免边界：本机器人自身发言与本群 `/delete_message` 目标的发言不计入该限额（后者每条均会被删除）。详见 [消息分发约束](docs/cn/04-invariants.md)。
 
 ### 群内管理员权限
 
@@ -501,7 +508,7 @@ Copy Ninjia 的架构总览、模块导览、运行时权威约束、测试流�
   </tr>
   <tr>
     <td><nobr>🚫 <b>限制与封禁成员</b></nobr></td>
-    <td>入群验证答错或超时踢出、防冲群自动切私密、<code>/block enable|disable</code>、<code>/mute</code> / <code>/unmute</code>、<code>/batch_kick</code>、刷屏自动禁言、广告处置封禁。</td>
+    <td>入群验证答错或超时踢出、防冲群自动切私密、<code>/block enable|disable</code>、<code>/mute</code> / <code>/unmute</code>、<code>/batch_kick</code>、刷屏自动禁言、广告处罚（禁言、踢出、封禁）。</td>
   </tr>
 </tbody>
 </table>

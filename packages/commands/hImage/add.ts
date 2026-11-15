@@ -1,17 +1,14 @@
 /**
- * `/h_image add`：把被回复消息里的图（连同同一相册里已见过的其余几张）收进随机图库。
+ * `/h_image add`：将被回复消息及其所属相册中已观测到的图片收入随机图库。
  *
- * 发起身份要有 isCanAddHImage（超级管理员恒有）。handler 同步收集候选并交给延迟命令执行器
- * 的 background 档；任务先列一次图库目录拿到张数，再在 H_IMAGE_ADD_TASK_BUDGET_MS 的
- * 总预算内按 H_IMAGE_ADD_DOWNLOAD_BATCH_SIZE 张一页处理，内存里至多同时有一页的图：
- * 一页内同时下载，已知超过 RANDOM_IMAGE_MAX_BYTES 的不下载，其余经共享的 Telegram 文件下载
- * 读进有界内存，再按 `sendPhoto` 的尺寸门槛（isSendablePhotoDimensions）过一道闸；整页结算后
- * 按候选顺序逐张按字节嗅探格式写进图库（infra/imageGallery.ts），写完才开始下一页。
- * 结果只回一句汇总（新收张数、收图前图库张数，以及跳过、尺寸不合规与失败的张数），
- * 走默认自动清理；停机取消时静默收场。
- *
- * 同批候选按 file_unique_id 去重；与图库的去重在下载后由 storeRandomImage
- * 按内容 SHA-256 文件名判定，不读取已有图片，也不按 Telegram 标识查询图库。
+ * - **权限与后台调度**：要求发起身份持有 `isCanAddHImage`（超级管理员恒持有）。handler 同步收集候选后提交至
+ *   延迟命令执行器的 `background` 档。
+ * - **分页并发下载与按序入库**：任务先读取一次图库当前张数，随后在 `H_IMAGE_ADD_TASK_BUDGET_MS` 总预算内按每页
+ *   `H_IMAGE_ADD_DOWNLOAD_BATCH_SIZE` 张分批处理（内存至多驻留一页图片）：页内并发下载未超出 `RANDOM_IMAGE_MAX_BYTES`
+ *   的图片并校验 `sendPhoto` 尺寸门槛（`isSendablePhotoDimensions`），整页结算后按候选顺序逐张嗅探格式写入图库
+ *   （`infra/imageGallery.ts`），写完再进入下一页。
+ * - **去重与回执**：同批候选按 `file_unique_id` 去重；与已有图库的去重在下载后由 `storeRandomImage` 按内容 SHA-256
+ *   文件名判定。完成后发送单条汇总回执（走默认自动清理）；停机取消时静默结束。
  */
 
 import type { CommandContext, Context } from "grammy";

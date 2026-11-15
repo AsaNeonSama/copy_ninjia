@@ -15,7 +15,9 @@ export function questionRejectionOf(question: string): QaFieldRejection | null {
 }
 
 /**
- * 校验问答答案字段：超长，或按直答出口同一套围栏拆分（`auto/message/qaDirectAnswer.ts` 的 `sendQaDirectAnswer`）后代码块之外的文字含可点击 `/command` 时返回拒绝原因；代码块内的命令示例照常放行。
+ * 校验问答答案字段：超出 `CHAT_QA_ANSWER_MAX_CHARS` 时返回 `"answerTooLong"`；
+ * 按直答出口同款代码围栏拆分（`auto/message/qaDirectAnswer.ts` 的 `sendQaDirectAnswer`）后，
+ * 代码块之外的正文若含可点击 `/command` 则返回 `"answerHasCommand"`（代码块内的命令示例放行）。
  * @param answer 回答文本。
  * @returns 拒绝原因；合规时返回 `null`。
  */

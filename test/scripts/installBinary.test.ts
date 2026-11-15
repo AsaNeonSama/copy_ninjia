@@ -1,3 +1,4 @@
+/** 二进制发行包模式下 `install.sh` 流程与权限边界测试。 */
 import { afterEach, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";

@@ -86,14 +86,14 @@ curl -fsSL https://raw.githubusercontent.com/AsaNeonSama/copy_ninjia/master/inst
 
 > [!TIP]
 > **インストーラーの実行フロー概要**（`install.sh` の進捗表示と対応。サービスとバックアップの境界については [07 運用](07-operations.md#インストーラーのサービスとバックアップ境界) を参照）：
-> 1. **プラットフォーム検証**：Linux 環境、読み取り可能な `/proc`、および対話型端末（`/dev/tty`）の存在を確認します。
-> 2. **リポジトリおよびバイナリの取得**：スクリプト実行元、カレントディレクトリ、対象ディレクトリの順に既存環境を探索します。存在しない場合は最新 Release タグのソースをクローンするか、プラットフォーム（x64/arm64、glibc/musl）に合致するバイナリをダウンロードしてハッシュを検証します。
-> 3. **ツールチェーンと Bun の準備**：ソースモードでは必要に応じて指定バージョンの Bun（`package.json` の `packageManager` と一致）をセットアップします。バイナリモードでは内蔵バイナリを使用します。
-> 4. **依存関係のインストール**：ソースモードでは `bun install --frozen-lockfile` を実行し、バイナリモードではスキップします。
-> 5. **設定ディレクトリの構造化**：誤った位置にあるファイルや旧バージョンのグローバル状態・データベースを検知した場合は起動を阻止します。不足している設定テンプレートのみを展開し、`agent.json`、`g-auth.json`、`cron.json` は手動設定に委ねます（既存ファイルは上書きしません）。
-> 6. **対話型設定ウィザード**：端末上で `config/static/bot.json` の必須項目を案内し、`config/dynamic/agent.json` が未作成の場合は各 AI 機能の設定（カスタム `base_url` エンドポイントを含む）をステップ形式で入力します。既存設定を変更する場合はワークツリー外に自動バックアップを取り、厳格なバリデーションを通過した時点で安全にアトミック置換します。
-> 7. **データベース初期化**：`database/storage.sqlite` を検証します。既存データベースが存在する場合は設定されたタイムゾーンが `bot.json` の `time_zone` と一致することを読み取り専用で照合します（不一致の場合はサービス登録前に停止）。新規の場合は現行スキーマでデータベースを初期化し、タイムゾーンマーカーを書き込みます。
-> 8. **サービス登録と稼働監視**：`copy-ninjia.service` を systemd に登録・起動します（systemd が利用できないコンテナ環境等ではフォアグラウンド実行）。起動直後のステータスを監視し、`active/running` 状態、再起動ループの非発生、およびログに異常終了がないことを確認した上で一時バックアップをクリーンアップします。
+> 1. **プラットフォーム検証**：Linux 環境、読み取り可能な `/proc`、および対話型端末（`/dev/tty`）を確認します。
+> 2. **リポジトリおよびバイナリの取得**：スクリプト実行元、カレントディレクトリ、対象ディレクトリの順に既存環境を探索します。未導入の場合は最新 Release タグをクローンするか、プラットフォーム（x64/arm64、glibc/musl）適合バイナリを取得して SHA-256 を検証します。
+> 3. **ツールチェーンと Bun の準備**：ソースモードでは指定バージョンの Bun（`package.json` の `packageManager`）を用意し、バイナリモードでは同梱バイナリを使用します。
+> 4. **依存関係のインストール**：ソースモードでは `bun install --frozen-lockfile` を実行します（バイナリモードではスキップ）。
+> 5. **設定ディレクトリの検査と展開**：3 階層のホワイトリストで `config/` を検査します（`config/` 直下は `static/` と `dynamic/` のみ、各サブディレクトリは宣言済み設定ファイルのみを許可。`ad_samples.json` などの旧ファイル、誤配置、隠し／バックアップ／スワップファイル、データルート直下の旧 `state.json` / `storage.sqlite` を検知すると即座に停止）。検査通過後、未作成のテンプレートのみを展開し、既存ファイルは上書きしません（`agent.json`、`g-auth.json`、`cron.json` はウィザードまたは手動設定に委ねます）。
+> 6. **対話型設定ウィザード**：`config/static/bot.json` の必須項目を案内し、`config/dynamic/agent.json` が未作成なら各 AI 機能（カスタム `base_url` を含む）を順に入力します。既存設定を変更する際はワークツリー外へバックアップを取り、厳格な検証を通過した後にのみアトミック置換します。
+> 7. **データベース初期化**：既存の `database/storage.sqlite` があれば `bot.json` の `time_zone` との一致を読み取り専用で照合し（不一致ならサービス登録前に停止）、新規環境では現行スキーマの作成とタイムゾーンマーカーの記録を行います。
+> 8. **サービス登録と稼働監視**：systemd 環境では `copy-ninjia.service` を登録・起動し（非対応環境ではフォアグラウンド実行）、`active/running` 状態・再起動ループなし・非ゼロ終了なしを確認してから一時バックアップを削除します。
 
 ### ソースからの手動インストール
 
@@ -130,18 +130,22 @@ Bot の基本設定およびグローバルスーパー管理者は `config/stat
   - スーパー管理者の Telegram ユーザー ID（10進数値）。
   - **特権スコープ**：この ID はホワイトリストで管理される**すべての権限**を最初から保有しており、SQLite のホワイトリストテーブルには登録されません。
   - **保護ポリシー**：リピートや画像生成などのクールダウン免除はこの ID のみに付与されます。常にホワイトリストの内側に保護されているため、自動リスク管理の対象外となり、`/block`、`/mute`、`/delete_message`、`/batch_kick`、AI `abuse_mark` で処分することはできません。
-  - **専用コマンド**：`/init`、`/batch_kick`、`/delete_message`、`/permission` による権限変更、`/white disable`、`/send` の実行はスーパー管理者のみに許可されています。
+  - **専用コマンド**：`/init`、`/batch_kick`、`/delete_message`、`/permission` による権限変更、`/white disable`、個別チャットの `/send` 中継、および Mini App 管理コンソールはこの ID のみに許可されています。
 - **`atmosphere`**（任意、列挙型：`"mesugaki"` | `"normal"`）
-  - システム通知やメニュー表示のトーンスタイル（メスガキ風 / 標準）。
-  - 明示的に指定した値が最優先されます。省略時は `prompt/persona.md` が存在すれば標準、存在しなければメスガキ風が適用されます。前後の空白はトリムして検証され、不正な値は起動を拒否します。
+  - システム通知やメニュー表示の口調スタイル（小悪魔風 / 標準）。
+  - 明示指定が最優先されます。省略時は `prompt/persona.md` が存在すれば `"normal"`、存在しなければ `"mesugaki"` が適用されます。前後の空白はトリムされ、不正な値は起動を拒否します。
 - **`time_zone`**（任意、IANA タイムゾーン名。省略時は `DEFAULT_BOT_TIME_ZONE`。ホストのローカルタイムゾーンは継承しません）
-  - おみくじ日付境界、ログ出力、広告判定の発言カウント、AI 時刻認識、日次クリーンアップ、タイムゾーン省略時の cron スケジュール基準となるタイムゾーンです。
-  - 前後の空白をトリムして検証され、Temporal 仕様に基づいて大文字・小文字が正規化されます（エイリアスも保持）。空文字列、不正な型、あるいは Temporal / Bun cron が認識できないタイムゾーンは起動を拒否します。
-  - 初回データベース初期化時に `storage_metadata` の `time-zone` に記録され、以降そのデータルートは該当タイムゾーンに固定されます。起動時およびインストーラーは常にこの値を検証し、タイムゾーンの変更は許可されません（変更検知時は `storage_metadata.time-zone` エラーで起動を阻止します）。既存データルートに対するタイムゾーンの事後変更はサポートしていません。
+  - おみくじの日付境界、ログローテーション、広告判定の発言カウント、AI の時刻認識、日次クリーンアップ、タイムゾーン省略時の cron 実行基準となるタイムゾーンです。
+  - 前後の空白をトリムし、Temporal 仕様で大文字・小文字を正規化します（エイリアスも保持）。空文字列や未対応のタイムゾーンは起動時に拒否されます。
+  - **データルートとの束縛**：初回データベース初期化時に `storage_metadata` の `time-zone` へ記録され、以降そのデータルートはこのタイムゾーンに固定されます。既存データルートでの `time_zone` 変更は起動時に `storage_metadata.time-zone` エラーで拒否されます。
 - **`mini_app`**（任意、オブジェクト：`{ url: string, port: number, host?: string, password: string }`）
   - スーパー管理者専用の Telegram Mini App 管理コンソールを設定します。省略時は HTTP サーバー・ルート・個人チャットメニューボタンを一切登録しません。
-  - **フィールド要件**：`url` は必須の公開 `https://` URL（サブパスプレフィックスに対応）、`port` は必須のローカル待受ポート（`MINI_APP_PORT_MIN`～`MINI_APP_PORT_MAX` の整数、サンプル設定は `3000`）、`host` は任意で既定値は `MINI_APP_DEFAULT_HOST`（`"127.0.0.1"`）、`password` は必須の初回画面アクセスパスワードです（プレースホルダー以外の文字列で 6 桁以上の数字 `0-9` を含むこと。`config_example/` から手動でコピーして Mini App を使用しない場合は `mini_app` セクションを削除してください）。
-  - **動作と認証**：ローカル `Bun.serve` HTTP コンソールを起動し、スーパー管理者の個人チャット左下に `MenuButtonWebApp`（`App` ボタン）を設定します。`initData` 署名と初回画面資格情報の二段階認証を強制し、任意の Google Authenticator TOTP バインド（`memory/mini-app-totp/totp.json` に永続化）にも対応します。完全な設定手順、Cloudflare Tunnel 推奨構成、セッション再開・ロックアウト規則、TOTP バインドは [11 Mini App の設定方法と推奨構成](11-mini-app.md) を参照してください。
+  - **フィールド仕様**：
+    - `url`（必須）：公開 `https://` URL（サブパスプレフィックスに対応）。
+    - `port`（必須）：ローカル待受ポート（`MINI_APP_PORT_MIN`～`MINI_APP_PORT_MAX` の整数。サンプル設定は `3000`）。
+    - `host`（任意）：バインドアドレス（既定値は `MINI_APP_DEFAULT_HOST` の `"127.0.0.1"`）。
+    - `password`（必須）：初回画面アクセスパスワード（プレースホルダー以外の文字列で、数字 `0-9` を 6 桁以上含むこと。`config_example/static/bot.json` を手動コピーして Mini App を使わない場合は `mini_app` セクションごと削除してください）。
+  - **動作と認証**：ローカル `Bun.serve` HTTP コンソールを起動し、スーパー管理者の個人チャット左下に `MenuButtonWebApp`（`App` ボタン）を設定します。`initData` 署名検証と初回画面資格情報の二段階認証を強制し、Google Authenticator (TOTP) バインド（`memory/mini-app-totp/totp.json` に永続化）にも対応します。詳細は [10 Mini App の設定方法と推奨構成](10-mini-app.md) を参照してください。
 
 ---
 
@@ -159,7 +163,7 @@ config/
     ├── assets.json         # サムネイル、デフォルトアバター、画像ライブラリパス
     ├── stickers.json       # スタンプパックの許可リスト
     ├── mood.json           # ムード段階と重み配分
-    ├── ad_samples.json     # 広告判定用の参照サンプル集
+    ├── ad_detect.json      # 広告の処罰設定、判定用の参照サンプルとステッカー／絵文字ブラックリスト
     └── cron.json           # 定期実行タスク定義（任意）
 ```
 
@@ -188,8 +192,14 @@ config/
 - **`config/dynamic/mood.json`**（[サンプル](../../config_example/dynamic/mood.json)）
   - AI の感情ステータス配列 `moods` を定義します。各項目は `name`、`weight`、`instruction` を含み、必要に応じて `weatherMultipliers` や `timeMultipliers` を設定できます。名前の重複は不可、重みは正の整数であり、全要素の合計値が厳密に `MOOD_WEIGHT_TOTAL` と一致する必要があります。
 
-- **`config/dynamic/ad_samples.json`**（[サンプル](../../config_example/dynamic/ad_samples.json)）
-  - 広告検出モデルの判定用参照サンプル文字列配列を定義します。空白文字の正規化とトリムが行われた上で、各項目は空文字不可、最大 `AD_SAMPLE_MAX_CHARS` 文字以内、重複不可、最大 `MAX_CONFIGURED_AD_SAMPLES` 件まで登録可能です。
+- **`config/dynamic/ad_detect.json`**（[サンプル](../../config_example/dynamic/ad_detect.json)）
+  - 広告判定後の処罰方式、分類器への参照サンプル、および高速照合ブラックリストを定義します：
+    - `punishment`：広告と判定された送信者への処罰。`mute` と `kick` は排他で、**必ず一方のみ**を指定します：
+      - `mute`：発生グループで送信者を禁言します（`permanent: true` なら無期限、それ以外は `duration` の期間）。
+      - `kick`：発生グループから送信者を退出させます（`block: false` なら BAN なし、`block: true` なら `block_scope` に応じて該当グループのみ BAN（`"chat"`）または恒久ブラックリスト登録＋全管理グループ横断 BAN（`"global"`））。
+      - チャンネル身元は `"global"` BAN 以外の設定ではメッセージ削除のみを行います。
+    - `samples`：AI 広告分類モデルに渡す few-shot 参照サンプル配列。空白正規化・トリム後に非空かつ最大 `AD_SAMPLE_MAX_CHARS` 文字で重複不可（最大 `MAX_CONFIGURED_AD_SAMPLES` 件）。
+    - `sticker_black_list` / `emoji_black_list`：AI 判定より**前**に高速経路としてこの順で照合するステッカーパックおよびカスタム絵文字パックの short name ブラックリスト。各要素はトリム後に `STICKER_PACK_NAME_PATTERN` と一致し重複不可（各リスト最大 `MAX_CONFIGURED_AD_BLACKLIST_PACKS` 件）。一致した場合は AI 分類をスキップして直ちに `punishment` を適用します。
 
 - **`config/dynamic/agent.json`**（[サンプル](../../config_example/dynamic/agent.json)）
   - AI システムの各機能を定義します。トップレベルキーは `agent` のみです。各機能は独立して設定され、機能間での自動フォールバックは行われません。未知のキーが存在する場合は起動を拒否します：

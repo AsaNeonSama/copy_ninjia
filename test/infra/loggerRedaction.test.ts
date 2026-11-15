@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
+import ts from "typescript";
+import { LOGGER_SENSITIVE_FIELD_NAMES } from "../../packages/consts/logger";
 import { REDACTED_SECRET } from "../../packages/consts/redaction";
-import { redactSensitiveFieldsInText } from "../../packages/infra/logger/redaction";
+import {
+  createLogRedactionReplacer,
+  redactSensitiveFieldsInText,
+} from "../../packages/infra/logger/redaction";
+import type { LogRedactionReplacer } from "../../packages/types/logger";
 
 describe("文本内嵌凭据字段的值边界", () => {
   test("引号值里的转义引号不提前结束扫描，密钥尾段不会漏出", () => {
@@ -43,5 +49,42 @@ describe("文本内嵌凭据字段的值边界", () => {
       .toBe(`token=${REDACTED_SECRET}`);
     expect(redactSensitiveFieldsInText("cookie: [{\"name\":\"secret-5\"}, \"tail\""))
       .toBe(`cookie: ${REDACTED_SECRET}`);
+  });
+
+  test("isSensitiveLogField 的 switch 分支与敏感字段清单双向一致", async () => {
+    const path: string = new URL("../../packages/infra/logger/redaction.ts", import.meta.url).pathname;
+    const source: ts.SourceFile = ts.createSourceFile(path, await Bun.file(path).text(), ts.ScriptTarget.Latest, true);
+    const caseLabels: string[] = [];
+    const visit = (node: ts.Node, inGuard: boolean): void => {
+      const entering: boolean = inGuard ||
+        (ts.isFunctionDeclaration(node) && node.name?.text === "isSensitiveLogField");
+      if (entering && ts.isCaseClause(node) && ts.isStringLiteral(node.expression)) {
+        caseLabels.push(node.expression.text);
+      }
+      ts.forEachChild(node, (child: ts.Node): void => visit(child, entering));
+    };
+    visit(source, false);
+    expect(caseLabels.length).toBeGreaterThan(0);
+    expect(new Set(caseLabels).size).toBe(caseLabels.length);
+    expect([...caseLabels].sort()).toEqual([...LOGGER_SENSITIVE_FIELD_NAMES].sort());
+  });
+
+  test("replacer 对全量敏感字段大小写无关脱敏", () => {
+    const replacer: LogRedactionReplacer = createLogRedactionReplacer([]);
+    for (const field of LOGGER_SENSITIVE_FIELD_NAMES) {
+      const upper: string = field.toUpperCase();
+      const mixed: string = field[0]!.toUpperCase() + field.slice(1);
+      const encoded: string = JSON.stringify(
+        { [field]: "v1", [upper]: "v2", [mixed]: "v3", ok: true, "x-proxy-authorization": "keep" },
+        replacer
+      );
+      expect(JSON.parse(encoded)).toEqual({
+        [field]: REDACTED_SECRET,
+        [upper]: REDACTED_SECRET,
+        [mixed]: REDACTED_SECRET,
+        ok: true,
+        "x-proxy-authorization": "keep",
+      });
+    }
   });
 });

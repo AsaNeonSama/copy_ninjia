@@ -45,8 +45,8 @@ export const PRODUCTION_NODE_IMPORTS: Readonly<
   },
   "packages/config/layout.ts": {
     "node:fs/promises": {
-      symbols: ["lstat"],
-      purpose: "deployment config layout validation: rejecting misplaced entries including dangling links without reading their contents",
+      symbols: ["readdir"],
+      purpose: "deployment config layout whitelist validation: listing directory entries without reading their contents",
     },
   },
   "packages/config/readiness.ts": {
@@ -137,7 +137,7 @@ export const PRODUCTION_NODE_IMPORTS: Readonly<
   },
   "packages/workers/diskIO/adSampleFile.ts": {
     "node:fs": {
-      symbols: ["existsSync", "mkdirSync", "readdirSync", "renameSync"],
+      symbols: ["mkdirSync", "readdirSync", "renameSync"],
       purpose: "Disk I/O owner directory maintenance and atomic archive publication",
     },
   },

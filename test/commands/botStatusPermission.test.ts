@@ -67,7 +67,7 @@ mock.module("../../packages/config/agent", () => ({
     throw new Error("unreachable AI config");
   },
 }));
-mock.module("../../packages/infra/storage/stateStore", () => ({ getChatState }));
+mock.module("../../packages/infra/chatStateStorage", () => ({ getChatState }));
 mock.module("../../packages/infra/telegram/outboundLifecycle", () => ({ telegramOutboundStats }));
 mock.module("../../packages/infra/processStatus", () => ({ readBotProcessStatus }));
 mock.module("../../packages/cache/main/gag", () => ({ activeGagSessionCount }));

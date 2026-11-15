@@ -1,10 +1,8 @@
 /**
- * 按次回复工具集（`createReplyToolset`）用例文件共用的 Telegram 出站与停顿替身、逐用例复位。
+ * 按次回复工具集（`createReplyToolset`）测试共用的 Telegram 出站与 `sleep` 替身及逐用例复位。
  *
- * 形态照 `test/helpers/autoMessageMocks.ts`：import 期登记 `mock.module`，必须在被测
- * 生产模块之前 import；各用例文件用顶层 `await import` 拿生产模块，天然满足。Telegram
- * 模块保留真实导出，只替换本组用例观察的出站调用；`libs/sleep` 整体替换为立即完成的替身，
- * 动作节奏与快速补字的停顿只留下调用记录。
+ * 模块加载期登记 `mock.module`（须在动态导入被测生产模块前导入）：Telegram 模块保留真实导出并仅替换
+ * 出站动作，`libs/sleep` 替换为立即完成的记录替身。
  */
 
 import { mock } from "bun:test";
@@ -45,10 +43,7 @@ mock.module("../../packages/libs/sleep", () => ({
   sleep: sleepMock,
 }));
 
-/**
- * 各用例文件的 beforeEach：复位消息 ID、清空调用记录；有用例排 *Once 的替身用 mockReset
- * 连同没消费完的 Once 一起清掉，再装回默认实现。
- */
+/** 逐用例复位消息 ID 序号、调用记录与替身默认实现。 */
 export function resetReplyToolsetMocks(): void {
   nextMessageId.current = 100;
   sendMessageMock.mockReset();

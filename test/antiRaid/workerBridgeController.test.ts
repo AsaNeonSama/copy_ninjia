@@ -117,7 +117,7 @@ const {
 const { antiRaidRuntimeState } =
   await import("../../packages/cache/main/antiRaid/proxy");
 const { chatIsSupergroupById } = await import("../../packages/cache/main/antiRaid/chatKind");
-const { getOrCreateChatState } = await import("../../packages/infra/storage/stateStore");
+const { getOrCreateChatState } = await import("../../packages/infra/chatStateStorage");
 const { VERIFICATION_RECORD_CAPACITY } =
   await import("../../packages/consts/antiRaid/verification");
 const {

@@ -90,7 +90,7 @@ curl -fsSL https://raw.githubusercontent.com/AsaNeonSama/copy_ninjia/master/inst
 > 2. **获取文件**：依次检查当前脚本所在目录、当前工作目录及目标克隆目录；若均无现存副本，则从 GitHub 拉取对应 Release 源码或下载预编译二进制包（自动识别 x64/arm64 与 glibc/musl）。之后转入目标目录自带的安装脚本继续执行。
 > 3. **工具与环境**：源码模式按需安装指定版本的 Bun；二进制模式直接使用包内自带的可执行文件。
 > 4. **安装依赖**：源码模式执行 `bun install --frozen-lockfile`；二进制模式直接跳过。
-> 5. **准备配置目录**：检查配置目录结构；自动补充缺失的基础配置模板，但跳过可选的 `agent.json`、`g-auth.json` 与 `cron.json`，且绝不覆盖已有文件。
+> 5. **准备配置目录**：按三级白名单检查 `config/` 目录结构（`config/` 仅允许 `static/` 与 `dynamic/`，`static/` 与 `dynamic/` 仅允许各自声明的配置文件；检测到未迁移旧文件、错放文件、隐藏/备份/交换文件或旧版全局状态/数据库时立即终止）；自动补充缺失的基础配置模板，但跳过可选的 `agent.json`、`g-auth.json` 与 `cron.json`，且绝不覆盖已有文件。
 > 6. **交互式填写配置**：在终端引导填写 `config/static/bot.json`；若 `agent.json` 尚不存在，则逐项询问并配置 AI 能力（含自定义 `base_url` 端点）。覆盖已有配置文件前会自动在临时目录外部备份，经严格格式校验通过后原子替换。
 > 7. **初始化身份数据库**：检查 `database/storage.sqlite`。若数据库已存在，核对其记录的时区与 `bot.json` 的 `time_zone` 是否一致（不一致时拒绝注册服务）；若不存在，则以当前配置的时区初始化全新的空数据库。随后对所有已存在的配置文件执行全面校验。
 > 8. **注册服务并观测**：注册或更新 systemd 服务 `copy-ninjia.service`（无可用 systemd 时提示在前台运行）。启动后持续观察服务状态，确认进程正常运行、无异常重启且日志无报错后，清理临时配置备份。
@@ -139,9 +139,13 @@ done
   - 配置时会自动去除首尾空白并规范化名称（例如 `asia/tokyo` 会标准化为 `Asia/Tokyo`）。
   - **时区绑定**：数据库初始化时会将此时区写入 `storage_metadata` 表中。此后机器人启动或安装脚本均会核对此时区；若中途修改 `time_zone` 将导致启动报错退出。已有数据不支持直接更换时区。
 - **`mini_app`**（可选，对象：`{ url: string, port: number, host?: string, password: string }`）
-  - 超级管理员专属 Telegram Mini App 管理控制台配置；不配置时直接不注册 HTTP 服务器与路由，也不挂载私聊入口按钮。
-  - **字段要求**：`url` 为必填的公网 `https://` 地址（支持带子路径前缀）；`port` 为必填的本地监听端口（`MINI_APP_PORT_MIN`～`MINI_APP_PORT_MAX` 正整数，示例配置为 `3000`）；`host` 可选，缺省为 `MINI_APP_DEFAULT_HOST`（`"127.0.0.1"`）；`password` 为必填的首屏访问密码（非占位符字符串，至少包含 6 位数字 `0-9`；手工从 `config_example/` 复制配置且不使用 Mini App 时须删除 `mini_app` 节）。
-  - **运行与认证**：配置后启动本地 `Bun.serve` HTTP 控制台，在超级管理员私聊左下角挂载 `MenuButtonWebApp`（`App` 按钮），启用 `initData` 签名 + 首屏凭据的双层鉴权，并支持绑定 Google Authenticator TOTP 动态码（持久化于 `memory/mini-app-totp/totp.json`）。完整设置步骤、Cloudflare Tunnel 推荐配置、会话续接/防爆破锁定规则与 TOTP 绑定见 [11 Mini App 设置与推荐配置](11-mini-app.md)。
+  - 超级管理员专属 Telegram Mini App 管理控制台配置；整节缺省时，机器人不启动本地 HTTP 服务，也不挂载私聊入口按钮。
+  - **字段要求**：
+    - `url`：必填，公网 `https://` 绝对地址（支持带子路径前缀）。
+    - `port`：必填，本地监听端口（`MINI_APP_PORT_MIN`～`MINI_APP_PORT_MAX` 正整数，示例配置为 `3000`）。
+    - `host`：可选，缺省为 `MINI_APP_DEFAULT_HOST`（`"127.0.0.1"`）。
+    - `password`：必填，首屏访问密码（非占位符字符串，至少包含 6 位数字 `0-9`；手工从 `config_example/` 复制配置且不使用 Mini App 时须删除整节 `mini_app`）。
+  - **运行与认证**：配置后启动本地 `Bun.serve` HTTP 控制台，在超级管理员私聊左下角挂载 `MenuButtonWebApp`（`App` 按钮），启用 `initData` 签名 + 首屏凭据的双层鉴权，并支持绑定 Google Authenticator TOTP 动态码（持久化于 `memory/mini-app-totp/totp.json`）。完整设置步骤、Cloudflare Tunnel 推荐配置、会话续接/防爆破锁定规则与 TOTP 绑定见 [10 Mini App 设置与推荐配置](10-mini-app.md)。
 
 ---
 
@@ -161,7 +165,7 @@ config/
     ├── assets.json         # 界面素材缩略图、默认头像与图库路径
     ├── stickers.json       # AI 贴纸包白名单
     ├── mood.json           # AI 心情挡位与权重配置
-    ├── ad_samples.json     # 广告识别参考样本
+    ├── ad_detect.json      # 广告处罚设置、识别参考样本与贴纸/表情黑名单
     └── cron.json           # 定时任务配置（可选）
 ```
 
@@ -189,8 +193,13 @@ config/
 - **`config/dynamic/mood.json`**（参考 [示例](../../config_example/dynamic/mood.json)）
   - 配置 AI 心情轮换挡位（`moods` 数组）。每项包含 `name`（心情名称）、`weight`（抽取权重）与 `instruction`（注入模型的行为指示），可选配置天气与时段权重加成。
 
-- **`config/dynamic/ad_samples.json`**（参考 [示例](../../config_example/dynamic/ad_samples.json)）
-  - 提供给广告检测模型的少样本参考集，为纯文本字符串数组。
+- **`config/dynamic/ad_detect.json`**（参考 [示例](../../config_example/dynamic/ad_detect.json)）
+  - 广告检测配置对象，包含以下四个必填字段：
+    - `punishment`：判定为广告后的处罚方式，`mute` 与 `kick` 互斥、恰好配置其一：
+      - `mute`：在触发群禁言；`permanent` 为 `true` 时永久禁言，为 `false` 时按 `duration` 限时禁言。
+      - `kick`：移出触发群；`block` 为 `false` 时只踢不封，为 `true` 时按 `block_scope` 仅在本群封禁（`"chat"`）或写入永久黑名单并在全部受管群封禁（`"global"`）。频道身份在 `"global"` 永久拉黑以外的处罚设置下只删除涉事消息。
+    - `samples`：广告检测模型的少样本参考集；空白规范化并去掉首尾空白后须非空、互不重复，单条最长 `AD_SAMPLE_MAX_CHARS` 字符，总数最多 `MAX_CONFIGURED_AD_SAMPLES` 条。
+    - `sticker_black_list` 与 `emoji_black_list`：分别为贴纸包与自定义表情包的 short name 黑名单（贴纸黑名单作为快路径最先核对，自定义表情黑名单在 AI 判定前核对）。元素去掉首尾空白后须匹配 `STICKER_PACK_NAME_PATTERN` 且互不重复，每份最多 `MAX_CONFIGURED_AD_BLACKLIST_PACKS` 条；命中即跳过 AI 判定，直接按 `punishment` 处罚。
 
 - **`config/dynamic/agent.json`**（参考 [示例](../../config_example/dynamic/agent.json)）
   - 配置 AI 系统的各项模型能力，顶层为 `agent` 对象。每项能力独立配置，各自声明 provider、api_key、model 及端点，能力之间不设自动回退：

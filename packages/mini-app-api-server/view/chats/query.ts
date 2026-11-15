@@ -21,7 +21,7 @@ import { readJoinLog } from "../../../infra/diskIO";
 import {
   getChatState,
   getChatStateCache,
-} from "../../../infra/storage/stateStore";
+} from "../../../infra/chatStateStorage";
 import { parseAiMemorySnapshot } from "../../../libs/persistedSnapshotCodec";
 import { verificationKey } from "../../../libs/verificationKey";
 import { isTerminalVerificationPhase } from "../../../states/verification/shared";
@@ -34,7 +34,7 @@ import type {
   MiniAppChatDetail,
   MiniAppChatFeatureFlags,
   MiniAppChatSummary,
-} from "../../../types/miniApp";
+} from "../../../types/miniApp/chats";
 
 /**
  * 读取指定群当前的热缓冲区消息条数（优先取 `aiMemoryUsages` 镜像，回退解析 `latestAiMemories`）。

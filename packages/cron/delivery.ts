@@ -1,20 +1,10 @@
 /**
- * cron 动作的唯一 Telegram 发送边界（`check:conventions` 禁止 packages/cron/ 其它文件发送）。
+ * `cron.json` 定时动作的唯一 Telegram 发送边界（`check:conventions` 禁止 `packages/cron/` 其余文件直接发送）。
  *
- * cron 消息是用户授权的长期保留例外（见 AGENTS.md「Telegram 提示留存」），不挂固定
- * 延迟删除；不带话题（落在 General）。只有 `send_web_digest` 设 `parse_mode: "MarkdownV2"`，
- * 其余动作不设。全部请求都经主线程
- * grammY 客户端，因此照常经过出站闸（发送类进所属聊天的发送调度器车道）；成功后登记自发消息。
- * 单图调用 sendPhoto，多图调用一次 sendMediaGroup，只有首图携带 caption；
- * 相册逐项应用遮罩并登记所有返回消息 ID；发出的每张图都写一条 AI 记忆占位态自录。
- * `send_voice` 先经 AI Worker 的语音合成公共实现（aiChat/voiceSynthesis.ts）把台词与语气
- * 合成成 Telegram 语音（OGG/Opus 或 MP3），再按其文件名调用 sendVoice；合成结果登记进本轮的 CronRoundVoices，重试与后续
- * 会话复用同一段语音。本轮首次发送成功后记下 Telegram 交回的 file_id，之后改为引用它，
- * 不重复上传。`send_web_digest` 经 AI Worker 生成摘要（未搜索时为加警示的模型正文），拿回
- * MarkdownV2 原文登记进本轮的 CronRoundDigests，重试与后续会话复用；不传 link_preview_options，
- * 由 Telegram 为正文第一个链接生成预览。每次调用只投递一次，失败按 CronDeliveryOutcome 分类
- * 交给 cron/run.ts 决定是否重试，本边界不记日志；Telegram 拒收（4xx，含 MarkdownV2 解析失败）
- * 不重试，也不降级成纯文本。
+ * - **留存与格式**：定时消息属于用户授权的长期保留例外（见 `AGENTS.md`「Telegram 提示留存」），不挂固定延迟删除，也不带话题（落在 General）。仅 `send_web_digest` 设 `parse_mode: "MarkdownV2"`（不传 `link_preview_options`，由 Telegram 为首个链接生成预览），其余动作均按纯文本发送。
+ * - **出站与自录**：全部请求经主线程 grammY 客户端发出，经过出站闸与所属会话发送调度器，发送成功后登记自发消息。`send_image` 单图调 `sendPhoto`、多图调 `sendMediaGroup`（仅首图带 `caption`，逐项应用剧透遮罩），并为每张已发出图片写入 AI 记忆占位态自录。
+ * - **轮内复用**：`send_voice` 经 `aiChat/voiceSynthesis.ts` 合成语音后记入本轮 `CronRoundVoices`，跨重试与跨会话复用，且首次发送成功后改用返回的 `file_id` 免重复上传；`send_web_digest` 经 AI Worker 组稿后记入本轮 `CronRoundDigests` 复用同一份 MarkdownV2 正文。
+ * - **错误分类**：每次调用只尝试投递一次、不记日志，失败按 `CronDeliveryOutcome` 分类交由 `cron/run.ts` 决定是否重试；Telegram 4xx（含 MarkdownV2 解析失败）不重试，也不降级为纯文本。
  */
 
 import { HttpError, InputFile } from "grammy";
@@ -28,7 +18,7 @@ import { MARKDOWN_V2_PARSE_MODE } from "../consts/telegramMarkdown";
 import { pickRandomImage } from "../infra/imageGallery";
 import { getAssetConfig } from "../config/assets";
 import { runTelegramAction } from "../infra/telegram/actions/core";
-import { toTelegramSendResult } from "../infra/telegram/actions/sendResult";
+import { markSelfSent } from "../infra/selfSentTracker";
 import { telegramErrorDetails } from "../infra/telegram/errors";
 import { bot } from "../infra/telegram/mainClient";
 import { TelegramSendQueueFullError } from "../infra/telegram/sendScheduler";
@@ -72,7 +62,7 @@ function classifyFailure(error: unknown): CronDeliveryOutcome {
  * @param message Telegram 已发出的消息
  */
 function recordSentMessage(chatId: number, message: Message): void {
-  toTelegramSendResult(chatId, message);
+  markSelfSent(chatId, message.message_id);
   if (message.photo !== undefined) {
     recordBotImage({ chatId, messageId: message.message_id, caption: message.caption ?? "", edited: false });
   }
@@ -198,10 +188,10 @@ async function fileInput(source: CronFileSource): Promise<string | InputFile | C
 }
 
 /**
- * 解析出的上传源是否其实是一个失败结果。
+ * 判断上传源解析返回值是否为投递失败或取消结果。
  *
  * @param value 待判定的上传源或投递结果
- * @returns 是否为投递失败/取消结果
+ * @returns 为 `CronDeliveryOutcome` 时返回 `true`
  */
 function isOutcome(value: string | InputFile | CronDeliveryOutcome): value is CronDeliveryOutcome {
   return typeof value === "object" && !(value instanceof InputFile);
@@ -335,12 +325,13 @@ export interface DeliverCronActionOptions {
 }
 
 /**
- * 向一个会话投递一个动作一次。`rand_image` 每次调用都重新抽取；抽不出或本地文件不可用
- * 按不可重试失败返回。`send_voice` 本轮首次投递时合成，之后复用；首次发送成功后改用 file_id。
- * `send_web_digest` 本轮首次投递时生成摘要，之后复用同一段 MarkdownV2 原文。
+ * 向目标会话单次投递一个定时动作：
+ * - 随机图片源（`source.kind === "random"`）每次调用重新抽取；抽不出或本地文件不可用按不可重试失败返回。
+ * - `send_voice` 本轮首次投递时合成语音，后续复用；首次发送成功后改用 `file_id` 发送。
+ * - `send_web_digest` 本轮首次投递时生成摘要，后续复用同一份 MarkdownV2 正文。
  *
  * @param options 定时动作投递上下文（含目标会话 `chatId`、动作 `action`、取消信号 `signal` 及本轮语音/摘要缓存）。
- * @returns 本次投递结果分类（`sent`、`aborted`、`transient` 或 `permanent`）。
+ * @returns 本次投递结果分类（`sent`、`aborted`、`retryable` 或 `permanent`）。
  */
 export async function deliverCronAction({
   chatId,

@@ -7,17 +7,20 @@ import { refuseIfConfigBroken } from "./configGate";
 import { runChatToggleCommand } from "./superAdminToggle";
 
 /**
- * 处理 /ad_detect enable|disable 指令：按群开关广告检测（见 ChatState.isAdDetectEnabled）。
- * 开启后本群带文字的消息经入群守卫线程送所配 provider 判定：仅引用内容首次命中时发送临时警告并删除警告前消息，
- * 直接内容/姓名命中或警告窗口内再次命中时写入永久黑名单、删除本群涉事消息并跨受管群执行封禁清理（见 antiRaid/adDetect.ts）。
- * 仅持有 isCanControllAdDetectPermission 的身份可用；
- * 超级管理员恒持有该权限（见 infra/identityPolicy/whitelist.ts），白名单身份可由 /permission 单独获权。
+ * 处理 `/ad_detect enable|disable` 指令：按群开关广告检测（`ChatState.isAdDetectEnabled`）。
  *
- * 开启前经 adDetectConfigReadiness 检查 config/dynamic/agent.json 的 agent.ad_detect 能力与
- * config/dynamic/ad_samples.json，不可用则拒绝开启；不检查机器人是否为本群管理员。
+ * - **检测与处置**：开启后，本群非豁免成员发出的文本/图注、隐藏链接、贴纸、自定义表情及非白名单引用内容
+ *   会交由 Anti-Raid Worker 依次执行贴纸包黑名单、自定义表情包黑名单与模型分类判定：
+ *   - 仅引用内容首次命中时，发送临时公开警告并删除警告前涉事消息；
+ *   - 命中黑名单、本人正文/姓名直接命中或警告窗口内再次命中时，删除本群涉事消息，并按
+ *     `config/dynamic/ad_detect.json` 的处罚配置执行全局拉黑跨群封禁、本群禁言/踢出/封禁或频道仅删消息
+ *     （见 `antiRaid/adDetect.ts` 与 `states/adPunishment.ts`）。
+ * - **权限要求**：仅持有 `isCanControllAdDetectPermission` 的身份可用；超级管理员恒持有该权限
+ *   （见 `infra/identityPolicy/whitelist.ts`），白名单身份可经 `/permission` 单独获授。
+ * - **配置与关闭清理**：开启前经 `adDetectConfigReadiness` 校验 `config/dynamic/agent.json` 的 `ad_detect`
+ *   能力与 `config/dynamic/ad_detect.json`（不要求机器人已是本群管理员）；关闭时经 `clearAdDetection`
+ *   尽力丢弃 Worker 内该群排队的待检消息（见 `runChatToggleCommand`）。
  *
- * 关闭时经 clearAdDetection 丢掉 Worker 里该群已排队的待检消息；清理是尽力而为，
- * 边界见 runChatToggleCommand。
  * @param ctx grammY 命令上下文。
  */
 export async function handleAdDetectCommand(ctx: CommandContext<Context>): Promise<void> {

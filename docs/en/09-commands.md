@@ -5,17 +5,17 @@
 </p>
 
 <p align="center">
-  <a href="content-table.md">📚 Developer Docs Home</a> · <a href="08-images-and-cron.md">← Prev: 08 Images and Scheduled Tasks</a> · <a href="10-performance.md">Next: 10 Performance Benchmark →</a>
+  <a href="content-table.md">📚 Developer Docs Home</a> · <a href="08-images-and-cron.md">← Prev: 08 Images and Scheduled Tasks</a> · <a href="10-mini-app.md">Next: 10 Mini App Setup →</a>
 </p>
 
 ---
 
-This page provides the complete command list, permission requirements, and execution behavior for end users. The root README contains only a brief overview; this document serves as the authoritative technical reference. Command implementations live in `packages/commands/`, and permission keys are defined in [`packages/types/identityPolicy.ts`](../../packages/types/identityPolicy.ts).
+This page is the complete reference for end-user commands, required permissions, and runtime behavior. The root README keeps only a brief overview; this document is the authoritative specification. Command implementations live in `packages/commands/`, and permission keys are defined in [`packages/types/identityPolicy.ts`](../../packages/types/identityPolicy.ts).
 
 ## 🎭 Copy Modes
 
-The repeat target is **globally unique across the entire bot instance**: a single bot instance can only imitate one target at any given time, and repetitions only take place inside the group where the command was initiated.
-Running `/copy stop` from any group immediately halts the active repeat state. When the originating group is disabled via `/init disable`, or if the bot is kicked or loses administrator permissions there, the repeat state terminates automatically, persists immediately to disk, and resets the bot avatar to its default in the background without posting in the group.
+- **Global singleton target**: A bot instance can imitate only **one target at a time** across the entire instance, and echoing occurs exclusively inside the group where `/copy` was started.
+- **Stopping and automatic teardown**: Running `/copy stop` from any group halts the active copy state immediately. If the originating group is disabled via `/init disable`, or if the bot leaves or loses administrator privileges there, the copy state stops automatically, persists to disk immediately, and resets the bot avatar silently in the background without posting a group notice.
 
 | Command | Behavior |
 | :---: | :--- |
@@ -28,49 +28,53 @@ Running `/copy stop` from any group immediately halts the active repeat state. W
 
 ### Sending and Transformation Mechanics
 
-The `/copy` command suite shares message transformation rules with the autonomous random echo engine:
-- **Text and captions**: Processed as plain strings. Messages containing links or `@usernames` undergo identical transformations. Plain text is resent, while links and `@mentions` are re-parsed by Telegram clients, preserving the original link preview settings.
-- **Entity styling stripped**: Rich formatting (bold, underline, inline URLs, spoilers, custom emojis) is discarded. Spoilers in the original message are emitted as cleartext.
-- **Rich media**: Photos, videos, documents, and stickers are duplicated server-side by Telegram; captions are replaced with transformed text without downloading files locally. Paid media cannot be duplicated; only text captions are forwarded.
-- **Pure non-text messages**: Polls, dice, locations, and contacts without text or files are forwarded verbatim.
-- **Command loop prevention**: If text before or after transformation matches a renderable slash command, the entire message is dropped.
+The `/copy` command family shares message transformation rules with autonomous random echoing:
+- **Text and captions**: Processed as plain strings, including messages with URLs or `@username` mentions. Plain text is resent while Telegram clients re-parse links and mentions, preserving the original link preview setting.
+- **Entity styling stripped**: Rich text entities (bold, underline, inline URLs, spoilers, custom emojis) are discarded; spoiler-masked text in the original message is sent as cleartext.
+- **Rich media**: Photos, videos, documents, and stickers are duplicated server-side by Telegram without downloading files locally, replacing any caption with the transformed text. Paid media cannot be duplicated: captioned paid media forwards only the text caption, and captionless paid media is ignored.
+- **Pure non-text messages**: Polls, dice, locations, and contacts without text or media files are forwarded verbatim.
+- **Command loop prevention**: If text before or after transformation contains a renderable slash command, the entire message is dropped.
 - **Length overflow protection**: If transformed text exceeds `TELEGRAM_MESSAGE_MAX_CHARS` or `TELEGRAM_CAPTION_MAX_CHARS`, the entire message is dropped.
 
 ### Target and Parameter Specification
 
-Specify targets by replying to a user's message or by passing an explicit `@username`:
-- **Syntax order**: Place the mode keyword before the target parameter, e.g. `/copy reverse @username` or `/copy nya @username`; use `/icon steal @username` to copy avatars only. `/copy stop` and `/icon reset` take no additional parameters.
-- **Username cache dependency**: Looking up users via `@username` requires that the bot has previously observed them speaking in the group and cached their profile. If a user modifies, deletes, or reassigns their username, historical cache mappings expire immediately. For destructive operations like `/block … enable`, prefer replying to target messages or supplying numerical IDs directly. When `/block`, `/mute`, `/white`, or a `/permission` change targets `@username`, the bot re-checks the target's current username before acting and refuses if it has changed or cannot be verified.
-- **Anonymous group administrators**: When an administrator speaks anonymously as the group, the message source represents the group itself. Copying that message targets the group, adopting its avatar and imitating the group identity; however, `/block` rejects blocking the current group identity.
-- **Global cooldown**: `/copy`, `/copy reverse`, `/copy nya`, `/icon steal`, and `/icon reset` share a global cooldown (`COPY_COOLDOWN_MS`). Only the configured superadmin (`SUPER_ADMIN_USER_ID`) is exempt; regular whitelisted users must respect cooldowns. `/copy stop` is never subject to cooldowns.
+Specify targets by replying to a message or passing an explicit `@username`:
+- **Syntax order**: Place the mode keyword before the target, e.g. `/copy reverse @username` or `/copy nya @username`; use `/icon steal @username` to copy only the avatar. `/copy stop` and `/icon reset` accept no extra arguments.
+- **Username cache dependency**:
+  - Resolving `@username` requires the bot to have previously observed that account speaking in a group and cached its identity. When a user changes, removes, or reassigns their username, stale cache entries are invalidated immediately.
+  - For destructive management commands such as `/block … enable`, prefer replying to the target's message or passing a numeric ID directly.
+  - When `/block`, `/mute`, `/white`, or `/permission` modifies access via `@username`, the bot re-verifies the target's live username before executing and aborts if it has changed or cannot be verified.
+- **Anonymous group administrators**: When an admin speaks anonymously as the group, the message source is the group itself. Copying that message adopts the group's avatar and imitates the group persona; `/block` refuses to block the current group identity.
+- **Global cooldown**: `/copy`, `/copy reverse`, `/copy nya`, `/icon steal`, and `/icon reset` share a global cooldown (`COPY_COOLDOWN_MS`). Only `SUPER_ADMIN_USER_ID` is exempt; whitelisted users still observe the cooldown. `/copy stop` is never rate-limited by cooldown.
 
 ---
 
 ## 🌐 Per-Group Translation
 
-Per-group translation operates independently of global repeat modes, avatars, and repeat cooldowns. Before use, an administrator with `isCanControllTranslatePermission` must enable it via `/translate enable` (disabled by default), and the deployment must have a valid `g-auth.json` configured.
-To translate another bot's messages, enable Bot-to-Bot Communication Mode for this bot in @BotFather; incoming messages remain protected by the [bot message rate limits](04-invariants.md) (see [01 Getting Started](01-getting-started.md)).
-Translations are processed in background FIFO queues per group without blocking standard message throughput. If pending translation messages in a single group accumulate to `TRANSLATE_CHAT_BACKLOG_MAX`, new messages are dropped until the queue drains.
+Per-group translation runs independently of global copy mode, avatars, and copy cooldowns:
+- **Prerequisites**: An operator with `isCanControllTranslatePermission` must run `/translate enable` in the group (disabled by default), and a valid `g-auth.json` must be configured.
+- **Translating other bots**: Enable Bot-to-Bot Communication Mode in @BotFather so this bot receives messages from other bots; incoming bot messages remain governed by [other-bot ingress rate limits](04-invariants.md) (see [01 Getting Started](01-getting-started.md)).
+- **Background FIFO queue**: Translations dispatch sequentially per group in the background without blocking normal message pipelines. Once pending messages in a group reach `TRANSLATE_CHAT_BACKLOG_MAX`, new messages are dropped until the queue drains.
 
 | Command | Behavior |
 | :--- | :--- |
 | `/translate ja` | Reply to a message to translate subsequent speech into Japanese |
-| `/translate cn @username` | Target a known username to translate speech into Simplified Chinese |
+| `/translate cn @username` | Target an observed username to translate speech into Simplified Chinese |
 | `/translate en` | Reply to a message to translate subsequent speech into American English |
 | `/translate uk` | Reply to a message to translate subsequent speech into Ukrainian |
 | `/translate ru` | Reply to a message to translate subsequent speech into Russian |
-| `/translate list` | Outputs the supported target languages as a JSON code block |
-| `/translate stop` | Stop all active translations in this group when invoked without arguments (keeps feature enabled) |
-| `/translate stop @username` or `/translate stop 123456789` | Stop translation for a specific target; replies and negative channel IDs are supported |
-| `/translate disable` | Clears all translation sessions in this group and turns off the feature (requires admin rights) |
+| `/translate list` | Display the supported target languages as a JSON code block |
+| `/translate stop` | Stop all active translations in this group when called without arguments (keeps the feature enabled) |
+| `/translate stop @username` or `/translate stop 123456789` | Stop translation for a specific target; also supports message replies and negative channel IDs |
+| `/translate disable` | Clear all translation sessions in this group and disable the feature (requires permission) |
 
 ### Session Capacity and Exclusion Rules
 
-- **Session limits**: Regular group members can start or stop translation sessions. Each group supports up to `TRANSLATE_CHAT_USER_LIMIT` distinct identities translating simultaneously, each choosing their own target language. Total managed groups are constrained by `STATE_MANAGED_CHAT_LIMIT`. New requests exceeding capacity are rejected without evicting active sessions; stop an existing session before changing languages.
-- **Parameter conflicts**: If a command replies to a message while also specifying a conflicting target argument, it is rejected rather than falling back to clearing the whole group.
-- **Mutual exclusion with copy**: `/copy stop` does not affect active translation sessions. When a user is simultaneously designated as both a copy target and a translation target, **translation takes priority** (no verbatim echoes, no media duplication, no reaction emojis); copying other users continues normally.
+- **Session quotas**: Any group member can start or stop translation sessions. Each group supports up to `TRANSLATE_CHAT_USER_LIMIT` distinct identities concurrently, each with its own target language, and total managed groups are bounded by `STATE_MANAGED_CHAT_LIMIT`. Requests beyond capacity are rejected without evicting existing sessions; stop the target's active session first before switching languages.
+- **Parameter conflict check**: Replying to a message while passing a conflicting target argument is rejected rather than falling back to stopping all sessions in the group.
+- **Priority over copy mode**: `/copy stop` does not affect active translation sessions. If the same identity is targeted by both copy and translation, **translation takes priority** (no verbatim echo, media copy, or reaction syncing); copying other targets continues unaffected.
 
-Running `/translate list` returns the supported language dictionary (`TRANSLATE_LANGUAGE_LABELS`, sent as a Telegram `pre` entity with `TRANSLATE_LIST_JSON_LANGUAGE` syntax highlighting and auto-deleted after `COMMAND_MESSAGE_AUTO_DELETE_MS`):
+Running `/translate list` outputs `TRANSLATE_LANGUAGE_LABELS` as a Telegram `pre` entity with `TRANSLATE_LIST_JSON_LANGUAGE` syntax highlighting (auto-deleted after `COMMAND_MESSAGE_AUTO_DELETE_MS`):
 
 ```json
 {
@@ -84,19 +88,19 @@ Running `/translate list` returns the supported language dictionary (`TRANSLATE_
 
 ### Language Regex and Dispatch Rules
 
-- **Pre-filtering checks**: Text and captions are evaluated as raw strings. If regular expressions determine that a message already belongs to the target language, or consists purely of digits, punctuation, or emojis, the external translation API is bypassed and no message is sent:
-  - **Japanese**: Must contain kana (`TRANSLATE_JAPANESE_EVIDENCE` / `TRANSLATE_JAPANESE_TEXT`).
-  - **Simplified Chinese**: Excludes traditional characters with simplified counterparts in Unicode Unihan (`TRANSLATE_CHINESE_EVIDENCE` / `TRANSLATE_CHINESE_TEXT`).
-  - **English**: Accepts ASCII alphabet letters (`TRANSLATE_ENGLISH_EVIDENCE` / `TRANSLATE_ENGLISH_TEXT`). American English calls the [Google Translation LLM](https://docs.cloud.google.com/translate/docs/languages#translation-llm) (`TRANSLATE_REGIONAL_MODEL`) supporting `en-US`.
-  - **Ukrainian**: Accepts Ukrainian-specific letters and apostrophes, excluding Russian `ёъыэ` (`TRANSLATE_UKRAINIAN_EVIDENCE` / `TRANSLATE_UKRAINIAN_TEXT`).
-  - **Russian**: Accepts `Ё/ё`, excluding Ukrainian-specific `єіїґ` (`TRANSLATE_RUSSIAN_EVIDENCE` / `TRANSLATE_RUSSIAN_TEXT`).
-  - *Note*: Shared CJK ideographs, unaccented Latin characters, and short Cyrillic phrases may carry ambiguities; regex pre-filtering does not perform semantic classification.
-- **Delivery format**: Translation emits only the translated result—it never echoes the original message or forwards media files. If translation fails, or if the translated text matches the source verbatim, nothing is sent.
-  - Translations are sent as plain text without rich formatting; if the original message contains URLs, link preview settings are preserved.
-  - Captioned photos, videos, audio, documents, or paid media have only their captions translated and sent as text; the underlying media is not copied.
-  - Non-text messages (stickers, media without captions, polls, locations) are not translated and do not fall back to copy mode.
-  - Translations exceeding `TELEGRAM_MESSAGE_MAX_CHARS` are dropped. Output preserves original forum topic IDs and filters out renderable slash commands. Command receipts auto-delete after `COMMAND_MESSAGE_AUTO_DELETE_MS`.
-- **Persistence and recovery**: Active sessions persist in the `translate` JSONB array within the group's `chat_states` SQLite row. Stopping one user cancels only their session, leaving in-flight tasks for others intact. Disabling translation or removing the bot from the group cleans up all sessions. Run `/bot_status` to inspect current translation counts and limits.
+- **Regex pre-filtering**: Text and captions are checked as plain strings. If regexes classify a message as already written in the target language—or consisting solely of digits, punctuation, or emojis—the translation API is skipped and nothing is sent:
+  - **Japanese**: Requires kana (`TRANSLATE_JAPANESE_EVIDENCE` / `TRANSLATE_JAPANESE_TEXT`).
+  - **Simplified Chinese**: Excludes traditional characters that have simplified variants in Unicode Unihan (`TRANSLATE_CHINESE_EVIDENCE` / `TRANSLATE_CHINESE_TEXT`).
+  - **English**: Accepts ASCII letters (`TRANSLATE_ENGLISH_EVIDENCE` / `TRANSLATE_ENGLISH_TEXT`). American English calls the [Google Translation LLM](https://docs.cloud.google.com/translate/docs/languages#translation-llm) (`TRANSLATE_REGIONAL_MODEL`) with `en-US`.
+  - **Ukrainian**: Accepts Ukrainian-specific letters and apostrophes while excluding Russian `ёъыэ` (`TRANSLATE_UKRAINIAN_EVIDENCE` / `TRANSLATE_UKRAINIAN_TEXT`).
+  - **Russian**: Accepts `Ё/ё` while excluding Ukrainian-specific `єіїґ` (`TRANSLATE_RUSSIAN_EVIDENCE` / `TRANSLATE_RUSSIAN_TEXT`).
+  - *Note*: Shared CJK characters, unaccented Latin words, and short Cyrillic phrases can be ambiguous; pre-filtering performs character-set matching rather than semantic language detection.
+- **Delivery format**: Only the translated text is sent—never the original text or media files. Nothing is sent if the API call fails or returns text identical to the input:
+  - Output is sent as plain text without rich formatting, preserving the source message's link preview setting when URLs are present.
+  - Captioned photos, videos, audio, documents, and paid media have only their captions translated and sent as plain text.
+  - Captionless media, stickers, polls, and locations are skipped without falling back to copy mode.
+  - Translations exceeding `TELEGRAM_MESSAGE_MAX_CHARS` are dropped. Output stays in the triggering forum topic (`message_thread_id`) and suppresses renderable slash commands; command notices auto-delete after `COMMAND_MESSAGE_AUTO_DELETE_MS`.
+- **Persistence and recovery**: Active sessions are stored in the `translate` JSONB column of the group's row in SQLite `chat_states`. Stopping one target cancels only that target without interrupting in-flight translations for others. Running `/translate disable` or removing the bot from the group clears all sessions for that group. `/bot_status` displays the active translation count and limit.
 
 ---
 
@@ -104,183 +108,204 @@ Running `/translate list` returns the supported language dictionary (`TRANSLATE_
 
 | Command | Permission | Description |
 | :--- | :---: | :--- |
-| `/copy`<br>`/copy reverse`<br>`/copy nya` | Group member | Start corresponding text and caption repeat mode |
-| `/copy stop` | Group member | Stop global repeat mode and reset the bot avatar |
-| `/icon steal` | Group member | Copy target avatar only |
-| `/icon reset` | Group member | Reset avatar to system default |
-| `/translate ja\|cn\|en\|uk\|ru [@username]`<br>`/translate list`<br>`/translate stop [@username/id]` | Group member | Select target language, list languages, or stop all / specific translation sessions |
+| `/copy`<br>`/copy reverse`<br>`/copy nya` | Group member | Start the corresponding text and caption copy mode |
+| `/copy stop` | Group member | Stop global copy mode and restore the default avatar |
+| `/icon steal` | Group member | Copy only the target's avatar |
+| `/icon reset` | Group member | Restore the bot's configured default avatar |
+| `/translate ja\|cn\|en\|uk\|ru [@username]`<br>`/translate list`<br>`/translate stop [@username/id]` | Group member | Start translation in a target language, list languages, or stop all / specific sessions |
 | `/translate enable\|disable` | `isCanControllTranslatePermission` | Enable or disable translation in this group (disabled by default) |
-| `/wed` | Group member | Randomly draw a group member as "partner" and display their avatar; supports confirm, reroll, and remove; requires `/init enable` |
-| `/h_image` | Group member | Post a uniformly random picture from the library (sent behind spoiler mask, permanently retained; failure notices auto-delete after `COMMAND_MESSAGE_AUTO_DELETE_MS`) |
-| `/h_image add` | `isCanAddHImage` | Reply to an image message to add it (and other photos in the album seen so far) to the library; summary notice auto-deletes after `COMMAND_MESSAGE_AUTO_DELETE_MS` |
-| `/info [@username\|id]` | Group member | Query target's nickname, username, numeric ID, and avatar (supports users, channels, bots, and the bot itself; notices auto-delete after `COMMAND_MESSAGE_AUTO_DELETE_MS`) |
-| `/<action word>` | Group member | Chinese action commands matching `CJK_ACTION_COMMAND_PATTERN` (e.g. `/咬`, `/揪住`), replying "caller 动作了 target!"; successful outcomes retained permanently |
-| `/quiet [<minutes>]` | Group member | Temporarily mute the bot's random banter and echoes (minutes clamped to `QUIET_MIN_MINUTES`..`QUIET_MAX_MINUTES`; defaults to `QUIET_DEFAULT_MINUTES`) |
-| `/unquiet` | Group member | Lift quiet mode early |
-| `/mute … <duration>`<br>`/unmute` | `isCanMute`<br>`isCanUnMute` | Mute or unmute members in a supergroup; targets support replies, `@username`, or numeric ID; durations support `m/h/d` units (clamped to `MUTE_MIN_DURATION_MS`..`MUTE_MAX_DURATION_MS`) |
-| `/gag … [<minutes>] [<tool>]`<br>`/ungag …` | `isCanGag` | Restrict user or channel to speak exclusively via the bot's inline entry point (minutes in `GAG_DURATION_MINUTES`, default `GAG_DEFAULT_DURATION_MINUTES`; tool defaults to `GAG_DEFAULT_TOOL`), or release restrictions early |
-| `/delete_message …`<br>`/delete_message stop …` | `SUPER_ADMIN_USER_ID` | Delete every message the target sends in this group from now on (earlier messages are untouched), or stop; accepts a reply, `@username`, user ID, or negative channel ID |
-| `/block … enable` | `isCanBlock` | Blacklist target: records in permanent SQLite blacklist and bans them across all managed supergroups (supports reply, `@username`, or positive user ID) |
-| `/block … disable` | `isCanUnBlock` | Unban target: removes from database and lifts bans across all managed supergroups (also accepts bare negative channel IDs; rejects the group itself) |
+| `/wed` | Group member | Draw a random group member as "partner" with their avatar; supports confirm, reroll, and remove; requires `/init enable` |
+| `/h_image` | Group member | Send a uniformly random image from the dedicated library (with spoiler mask, kept permanently; failure notices auto-delete after `COMMAND_MESSAGE_AUTO_DELETE_MS`) |
+| `/h_image add` | `isCanAddHImage` | Reply to an image message to add it (plus any received photos from the same album) to the library; summary auto-deletes after `COMMAND_MESSAGE_AUTO_DELETE_MS` |
+| `/info [@username\|id]` | Group member | Query display name, username, numeric ID, and avatar for a user, channel, bot, or this bot (auto-deletes after `COMMAND_MESSAGE_AUTO_DELETE_MS`) |
+| `/<action word>` | Group member | Chinese action command matching `CJK_ACTION_COMMAND_PATTERN` (e.g. `/咬`, `/揪住`), replying "caller 动作了 target!"; successful replies are kept permanently |
+| `/quiet [<minutes>]` | Group member | Pause autonomous AI banter and random echoes (`QUIET_MIN_MINUTES`..`QUIET_MAX_MINUTES`; defaults to `QUIET_DEFAULT_MINUTES`) |
+| `/unquiet` | Group member | End quiet mode early |
+| `/mute … <duration>`<br>`/unmute` | `isCanMute`<br>`isCanUnMute` | Temporarily mute or unmute a member in a supergroup via reply, `@username`, or numeric ID; duration accepts `m/h/d` (`MUTE_MIN_DURATION_MS`..`MUTE_MAX_DURATION_MS`) |
+| `/gag … [<minutes>] [<tool>]`<br>`/ungag …` | `isCanGag` | Restrict a user or channel to speak only via the bot's inline entry (`GAG_DURATION_MINUTES`, default `GAG_DEFAULT_DURATION_MINUTES`; tool defaults to `GAG_DEFAULT_TOOL`), or lift early |
+| `/delete_message …`<br>`/delete_message stop …` | `SUPER_ADMIN_USER_ID` | Delete every subsequent message sent by the target in this group (earlier messages are untouched), or stop; accepts reply, `@username`, user ID, or negative channel ID |
+| `/block … enable` | `isCanBlock` | Blacklist target: persist to SQLite blocklist and ban across all managed supergroups (accepts reply, `@username`, or positive user ID) |
+| `/block … disable` | `isCanUnBlock` | Unblock target: remove from SQLite blocklist and unban across all managed supergroups (also accepts bare negative channel IDs; rejects the group itself) |
 | `/ai_chat enable\|disable` | `isCanControllAIPermission` | Enable or disable AI chat in this group |
-| `/clear_context` | `isCanClearContext` | Clears AI memory for this group (resets verbatim buffer and summaries, nullifies database snapshot); invalidates in-flight replies |
-| `/mood query` | Group member | Check the current global AI mood (does not reroll; requires AI enabled and healthy model configuration) |
-| `/mood switch` | `isCanSwitchMood` | Immediately reroll global AI mood (applies to all groups) and broadcast the new mood name |
-| `/ad_detect enable\|disable` | `isCanControllAdDetectPermission` | Enable or disable smart ad detection in this group; violators are banned following `/block` rules and announced |
-| `/flood_control enable\|disable` | `isCanControllFloodControlPermission` | Enable or disable flood muting in this group (disabled by default) |
-| `/antiraid enable\|disable` | `isCanControllAntiRaidPermission` | Enable or disable join verification and anti-raid lockdown mode in this group (disabled by default) |
-| `/qa set` | `isCanControllQaPermission` | Open a Q&A entry form; the caller provides "问题:" and "回答:" across two messages to register a pair (capped at `CHAT_QA_MAX_PER_CHAT` per group; lengths capped at `CHAT_QA_QUESTION_MAX_CHARS` and `CHAT_QA_ANSWER_MAX_CHARS`) |
-| `/qa query`<br>`/qa query <question>` | Group member | List all custom Q&As in this group or query a specific question; answers previewed up to `QA_QUERY_ANSWER_PREVIEW_MAX_CHARS`, paginated at `QA_QUERY_PAGE_MAX_ENTRIES` per page (board retained; misses auto-delete after `COMMAND_MESSAGE_AUTO_DELETE_MS`) |
+| `/clear_context` | `isCanClearContext` | Clear AI context memory for this group (resets verbatim buffer and summaries, sets `chat_states.ai_context` to `NULL`, and invalidates in-flight replies) |
+| `/mood query` | Group member | View the active global AI mood without rerolling (requires AI chat enabled and valid AI configuration) |
+| `/mood switch` | `isCanSwitchMood` | Reroll the global AI mood immediately across all groups and announce the new mood |
+| `/ad_detect enable\|disable` | `isCanControllAdDetectPermission` | Enable or disable smart ad detection in this group; non-protected senders are muted, kicked, or banned per `ad_detect.json` and announced |
+| `/flood_control enable\|disable` | `isCanControllFloodControlPermission` | Enable or disable anti-flood muting in this group (disabled by default) |
+| `/antiraid enable\|disable` | `isCanControllAntiRaidPermission` | Enable or disable join verification and anti-raid private lockdown in this group (disabled by default) |
+| `/qa set` | `isCanControllQaPermission` | Open a Q&A entry form; submit `问题:` and `回答:` to register a pair (up to `CHAT_QA_MAX_PER_CHAT` per group; bounded by `CHAT_QA_QUESTION_MAX_CHARS` and `CHAT_QA_ANSWER_MAX_CHARS`) |
+| `/qa query`<br>`/qa query <question>` | Group member | List all custom Q&As or query one question; paginated at `QA_QUERY_PAGE_MAX_ENTRIES` per page with answers previewed to `QA_QUERY_ANSWER_PREVIEW_MAX_CHARS` (board kept; misses auto-delete after `COMMAND_MESSAGE_AUTO_DELETE_MS`) |
 | `/qa remove <question>` | `isCanControllQaPermission` | Delete a specific custom Q&A entry from this group |
-| `/permission query`<br>`/permission help` | User/channel | Query own, replied user's, or specified target's permissions, or list permission descriptions as JSON (boards retained permanently) |
-| `/permission …` | `SUPER_ADMIN_USER_ID` | Modify individual permissions for an existing whitelisted identity; `all` grants all permissions |
-| `/white … enable\|disable` | Add: `isCanWhiteOther`<br>Remove: `SUPER_ADMIN_USER_ID` | Add or remove whitelisted identities; delegated additions grant default permissions only; custom configurations require superadmin |
-| `/bot_status` | `isCanViewBotStatus` | View system metrics, model readiness, Telegram 429 queue depth, AI memory capacity, active gag count, translation count, and group flags |
-| `/init enable\|disable` | `SUPER_ADMIN_USER_ID` | Master toggle to enable or disable bot operation in the current group |
-| `/batch_kick <Nm\|Nh\|Nd>` | `SUPER_ADMIN_USER_ID` | Batch kick members who joined within the given window (`BATCH_KICK_MIN_DURATION_MS`..`BATCH_KICK_MAX_DURATION_MS`) from a supergroup (kicks only, does not blacklist) |
-| `/send <group_id>`<br>`/send finish` | `SUPER_ADMIN_USER_ID` (DM only) | Start or stop message relay from private chat to target group; supports sending speech bubbles via specific JSON code blocks |
+| `/permission query`<br>`/permission help` | User/channel | Query permissions for yourself, a replied message, or an explicit target, or list permission descriptions as JSON (boards kept permanently) |
+| `/permission …` | `SUPER_ADMIN_USER_ID` | Update individual permissions on a whitelisted identity; pass `all` to grant every permission |
+| `/white … enable\|disable` | Add: `isCanWhiteOther`<br>Remove: `SUPER_ADMIN_USER_ID` | Add or remove whitelisted identities; delegated additions grant default permissions only, while custom permission edits require superadmin |
+| `/bot_status` | `isCanViewBotStatus` | Inspect runtime metrics, model readiness, Telegram 429 queue depth, AI context saturation, active gags, active translations, bot admin rights, and group feature flags |
+| `/init enable\|disable` | `SUPER_ADMIN_USER_ID` | Master switch enabling or disabling bot management in the current group |
+| `/batch_kick <Nm\|Nh\|Nd>` | `SUPER_ADMIN_USER_ID` | Kick members who joined a supergroup within the specified lookback window (`BATCH_KICK_MIN_DURATION_MS`..`BATCH_KICK_MAX_DURATION_MS`) without blacklisting |
+| `/send <group_id>`<br>`/send finish` | `SUPER_ADMIN_USER_ID` (DM only) | Start or finish private-chat message relay to a managed group; supports synthesizing speech bubbles via a JSON code block |
 
 > [!IMPORTANT]
-> **Understanding the Permission Column**:
-> - Commands marked `isCanXxx` are assigned via the permission dictionary. The superadmin (`SUPER_ADMIN_USER_ID`) inherently possesses **all** permissions without needing an entry in the whitelist.
-> - Commands marked `SUPER_ADMIN_USER_ID` represent the **highest security boundary and can only be executed by the configured superadmin; they cannot be delegated via whitelists**.
+> **Reading the Permission Column**:
+> - Commands marked `isCanXxx` are controlled by whitelist permission flags. `SUPER_ADMIN_USER_ID` permanently holds **all** permission flags without needing a whitelist row.
+> - Commands marked `SUPER_ADMIN_USER_ID` form the **top-level security boundary: only the configured superadmin user ID can invoke them, and they can never be delegated via the whitelist**.
 
 ### Parameter and Target Resolution Rules
 
-- **Forum topic service messages**: Automated service messages generated when creating forum topics are treated as "no explicit reply". Commands can still target users via `@username` or numerical IDs. Comment replies inside linked channel discussion groups are treated as standard message replies.
-- **Permission pre-warming**: Commands modifying or querying access lists must complete in-memory permission pre-warming before execution. If warming fails, the bot outputs a temporary error notice and aborts, preventing unauthenticated actions.
-- **Command menus**: Commands with subcommands (`/copy`, `/qa`, `/mood`, `/icon`) are registered as single entries in the client menu, with syntax detailed in their description. Passing invalid or missing subcommands prints usage instructions.
-  - `/qa set`, `/mood query`, and `/mood switch` accept no additional arguments.
-  - `/qa query` lists all entries when omitting arguments; `/qa remove` requires the exact question text. Both commands strictly preserve internal whitespace and line breaks.
-- **Notice retention**: Non-functional feedback generated by in-group commands (validation errors, permission denials, usage hints, and operation receipts) automatically deletes after `COMMAND_MESSAGE_AUTO_DELETE_MS`.
-  - **Permanently retained exceptions**: Permission boards (`/permission help`, `/permission query`), Q&A boards (`/qa query`), direct Q&A answers, successful Chinese action command results, images from `/h_image`, messages from `cron.json`, and conversational content (echoes, translations, AI chat).
-  - **State-machine messages**: Join verification buttons, `/qa set` forms, `/wed` result cards, and gag restriction notices are managed by state machines or teardown paths rather than static timers.
-- **Case-insensitive subcommands**: Keywords such as `/copy stop|reverse|nya`, `/icon steal|reset`, `/qa set|remove|query`, `/translate <lang>|stop`, `/mood query|switch`, `/h_image add`, and `/delete_message stop` are case-insensitive, consistent with `/block`, `/white`, and `/init`. Target arguments and Q&A question texts retain their original casing.
-- **Button callback validation**: Numeric tokens in `callback_data` for verification, `/wed`, and `/qa query` pagination must strictly parse as canonical decimal integers (`QA_QUERY_PAGE_ARG_PATTERN` for 0-based page numbers, `VERIFY_ANSWER_ARG_PATTERN` for verification answer options, positive integers for IDs; rejecting signs, leading zeros, whitespace, decimals, and scientific notation). Invalid payloads are treated as expired buttons.
+- **Forum topic creation service messages**: Replying to the automatic service message generated when a forum topic is created counts as "no explicit message reply", allowing commands to resolve targets via `@username` or numeric ID. Comment replies on auto-forwarded linked-channel posts inside discussion groups work as normal replies.
+- **Permission pre-warming**: Any command that queries or mutates allowlists or blocklists requires in-memory identity policy pre-warming to succeed first. If pre-warming fails, the bot sends a short-lived error notice and aborts.
+- **Command menu entries**: Multi-subcommand commands (`/copy`, `/qa`, `/mood`, `/icon`) register as single menu entries whose descriptions list common subcommands. Missing or unknown subcommands return usage instructions:
+  - `/qa set`, `/mood query`, and `/mood switch` take no extra arguments.
+  - `/qa query` lists all entries when called without arguments; `/qa remove` requires the exact question text. Both preserve internal spaces and line breaks verbatim.
+- **Notice retention**: All non-functional in-group command notices (validation errors, permission denials, usage hints, and action receipts) auto-delete after `COMMAND_MESSAGE_AUTO_DELETE_MS`.
+  - **Permanently retained exceptions**: Permission boards (`/permission help`, `/permission query`), Q&A boards (`/qa query`), direct Q&A answers, successful Chinese action command outputs, `/h_image` photos, scheduled `cron.json` messages, and conversational outputs (echoes, translations, AI replies).
+  - **State-machine messages**: Join verification prompts, `/qa set` forms, `/wed` cards and buttons, and gag notices or speak entry prompts do not carry fixed timers; they are deleted by button interactions, state-machine transitions, or group teardown.
+- **Case-insensitive subcommands**: Subcommand keywords (`/copy stop|reverse|nya`, `/icon steal|reset`, `/qa set|remove|query`, `/translate <lang>|stop`, `/mood query|switch`, `/h_image add`, `/delete_message stop`) are case-insensitive, matching `/block`, `/white`, and `/init`. Target usernames, IDs, and Q&A texts preserve original casing.
+- **Strict callback validation**: Numeric tokens in `callback_data` for join verification, `/wed`, and `/qa query` pagination are parsed strictly as canonical decimal integers (`QA_QUERY_PAGE_ARG_PATTERN` for 0-based pages, `VERIFY_ANSWER_ARG_PATTERN` for verification options, positive integers for IDs—rejecting leading `+`, leading zeros, whitespace, decimals, and scientific notation). Malformed payloads reply as expired buttons and are ignored.
 
 ---
 
 ### Behavior Details
 
 #### 1. Persona and Notice Atmosphere
-- System personas are configured globally and cannot be toggled per group via commands.
-- The AI persona prompt defaults to `prompt/persona.md` at the project root; if absent, it falls back to the built-in teasing persona. Prompt tone for notices, buttons, menus, and inline fortunes follows the `atmosphere` setting in `config/static/bot.json` (`mesugaki` for teasing, `normal` for reserved). When omitted, custom personas default to `normal` (reserved tone), while the built-in persona defaults to `DEFAULT_BOT_ATMOSPHERE`.
-- Atmosphere settings are initialized at startup; modifications require a process restart.
-- At startup, the bot registers command menus for group chats only. No command menu is shown in private chat; private chat only responds to superadmin `/send` relay commands and (when `mini_app` is configured) attaches a `MenuButtonWebApp` (`App` button) in the superadmin's private chat as the Mini App entry point.
+- **Instance-wide scope**: Persona prompts apply across the entire bot instance and cannot be switched per group via commands.
+- **Persona vs. notice tone**:
+  - **AI persona**: Loads `prompt/persona.md` from the repository root if present; otherwise falls back to the built-in teasing persona.
+  - **Bot notices and menus**: Command notices, permission help, inline buttons, cron announcements, and inline fortunes follow `atmosphere` in `config/static/bot.json` (`mesugaki` = teasing, `normal` = restrained). When `atmosphere` is omitted, a custom `persona.md` defaults to `normal` while the built-in persona defaults to `DEFAULT_BOT_ATMOSPHERE`.
+  - **Mini App console**: Always uses the teasing (`mesugaki`) tone (including its permission descriptions), regardless of `atmosphere`.
+- **Startup initialization**: Both persona and atmosphere lock in at startup; changes require a service restart.
+- **Command menu scope**: Startup registers command menus for `all_group_chats` only and clears the default private-chat menu. Private chat responds only to superadmin `/send` relay commands and, when `mini_app` is configured, mounts `MenuButtonWebApp` (`App`) in the superadmin's private chat.
 
 #### 2. `/bot_status` Metric Collection
-- **Wording follows the notice style**: the labels of the CPU, uptime, memory, model capability, and Telegram outbound lines come from the current notice style's text table (`packages/consts/atmosphere/{plain,teasing}/notices.ts`). The restrained and teasing styles each have their own set; values and inclusion rules are the same.
-- **Model capability breakdown**: Lists only configured and ready capabilities in the format `capability: model name`. Model names omit namespace prefixes; xAI speech synthesis shows the configured voice name. Unconfigured capabilities (image generation, voice synthesis, web search) or unready modules are omitted. If no model capabilities are available, the entire section is omitted.
-- **Memory footprint**: Calls `Bun.unsafe.memoryFootprint()` to measure the physical resident memory (PSS on Linux) across the bot process and all Worker threads, proportionally distributing shared libraries. Percentages use container cgroup limits as denominator, or host RAM if unconstrained.
-- **AI context memory saturation**: Evaluates rolling verbatim memory (up to `VERBATIM_CONTEXT_MAX`) and summary rounds (up to `MAX_SUMMARY_ROUNDS`), returning a composite percentage weighted by `BOT_STATUS_HOT_MEMORY_WEIGHT` and `BOT_STATUS_COLD_MEMORY_WEIGHT`. This figure is periodically reported by the AI Worker via memory snapshots (`AI_SNAPSHOT_INTERVAL_MS`); the main thread reads the cached snapshot.
-- **Permissions and group state**: Outputs a JSON block listing the bot's current administrator privileges in the group, followed by a JSON block mapping Chinese capability names (`BOT_STATUS_FEATURE_LABELS`) to the active boolean states (`true` / `false`) of all group feature switches.
+- **Atmosphere-aware labels**: Row labels for CPU, uptime, memory, model capabilities, and Telegram outbound gates come from the active notice table (`packages/consts/atmosphere/{plain,teasing}/notices.ts`), sharing identical metrics and inclusion rules across both tones.
+- **Model capability list**: Displays only configured and ready capabilities as `capability: model_name` (stripping namespace prefixes before the last `/`, and showing the voice name for xAI TTS). Unconfigured optional capabilities (image generation, TTS, standalone web search) and unready AI chat or ad detection modules are omitted; if none are ready, the entire section is omitted.
+- **Memory footprint**: Calls `Bun.unsafe.memoryFootprint()` on demand to sample resident memory across the process and all Workers (PSS on Linux, proportionally splitting shared pages). Usage percentage divides by the container cgroup limit when present, or host physical RAM otherwise (displaying "unavailable" if unreadable).
+- **Group AI context saturation**: Computes usage ratios for rolling hot verbatim messages (`VERBATIM_CONTEXT_MAX`) and cold summary rounds (`MAX_SUMMARY_ROUNDS`), combined into a single percentage weighted by `BOT_STATUS_HOT_MEMORY_WEIGHT` and `BOT_STATUS_COLD_MEMORY_WEIGHT`. The AI Worker reports counts on its `AI_SNAPSHOT_INTERVAL_MS` snapshot cadence, and the main thread reads its read-only mirror.
+- **Permissions and feature switches**: Prints two JSON code blocks—one for the bot's current administrator rights in the group, and one mapping Chinese capability keys (`BOT_STATUS_FEATURE_LABELS`) to `true` / `false` for every group feature switch.
 
 #### 3. Action Commands and `/x`
-- When an action command succeeds, the bot replies in the format `caller action target`. Users with public Telegram usernames have their names hyperlinked to their profiles; targets are resolved via reply or `@username`.
-- Successful action replies are retained permanently. If targets are missing, parameters are invalid, or users tap the `/x` placeholder, notices auto-delete after `COMMAND_MESSAGE_AUTO_DELETE_MS`.
+- Successful action commands reply with `caller action target`, hyperlinking display names to public Telegram profiles when available; targets are resolved by reply or `@username`.
+- Successful action replies are kept permanently, whereas missing targets, invalid arguments, and `/x` placeholder taps auto-delete after `COMMAND_MESSAGE_AUTO_DELETE_MS`.
 
 > [!TIP]
-> **Chinese action commands require no prior registration**; any slash prefix matching `CJK_ACTION_COMMAND_PATTERN` (e.g. `/咬`, `/抱`, `/摸摸`) is handled directly:
-> - Action commands do not appear in client suggestion menus. The menu includes `/x` as an ASCII placeholder that replies with usage examples.
-> - Slash inputs not matching `CJK_ACTION_COMMAND_PATTERN` (e.g. `/咬咬咬`) fall through to standard message handling.
-> - A global sliding window limits execution frequency: across all groups and users, at most `CJK_ACTION_RATE_LIMIT_MAX_CALLS_PER_WINDOW` actions are processed per `CJK_ACTION_RATE_LIMIT_WINDOW_MS` window. Excess calls are silently dropped.
+> **Chinese action commands need no registration**—any slash word matching `CJK_ACTION_COMMAND_PATTERN` (such as `/咬`, `/抱`, `/摸摸`) works out of the box:
+> - Because Telegram's native menu accepts ASCII commands only, `/x` serves as the menu placeholder and replies with usage examples when tapped.
+> - Inputs exceeding `CJK_ACTION_COMMAND_PATTERN` length limits (e.g. `/咬咬咬`) are not parsed as action commands and pass through as ordinary chat messages.
+> - A global sliding-window limiter caps execution at `CJK_ACTION_RATE_LIMIT_MAX_CALLS_PER_WINDOW` calls per `CJK_ACTION_RATE_LIMIT_WINDOW_MS` across the entire instance, silently dropping excess calls.
 
 #### 4. Group Q&A: `/qa` Full Lifecycle
 - **Interactive form submission**:
-  - Sending `/qa set` opens an interactive submission session for the group (requires `isCanControllQaPermission`). Once open, it exclusively accepts subsequent inputs from the user who initiated the form (supports channel identities and anonymous admins).
-  - Inputs must begin with a line-start label from `QA_QUESTION_LABELS` (`问题:` / `问题：`) or `QA_ANSWER_LABELS` (`回答:` / `回答：` / `答案:` / `答案：`). They can be submitted across two separate messages or combined into one.
-  - Answers containing ```` ```json ```` code blocks are stored with literal fences and emitted with formatting during direct answers; fences count towards `CHAT_QA_ANSWER_MAX_CHARS`.
-  - The whole question, and the answer outside code blocks, must not contain slash text that would render as a clickable command (such as `/start` or `/etc/hosts`). Like an over-length field, it is not recorded; the form stays open and the receipt asks for a rewrite. Command examples inside code blocks are accepted.
-  - Claimed submission messages are deleted immediately without entering the regular pipeline, and the form card edits in place to reflect progress (truncating the answer preview with `QA_TRUNCATION_MARK` if the rendered prompt exceeds `TELEGRAM_MESSAGE_MAX_CHARS`, while storing the full answer in the database). Once both fields are received, the entry is committed to SQLite.
-- **Concurrency and lifecycle**:
-  - Each group supports at most one active form session at a time (up to `QA_FORM_SESSION_MAX` globally), expiring after `QA_FORM_SESSION_TTL_MS` of inactivity. Resubmitting an existing field overwrites previous content; sending `/qa set` again cancels the old session and starts fresh; submissions from other users while a form is active are rejected.
-  - When a group is disabled via `/init disable` or the bot leaves, all Q&A entries for that chat are deleted from SQLite. Revoking admin rights alone retains Q&A data.
-- **Board pagination and direct answers**:
-  - Run `/qa query` to inspect registered Q&A entries, paginated at `QA_QUERY_PAGE_MAX_ENTRIES` items per page with inline pagination buttons. Answers are truncated to `QA_QUERY_ANSWER_PREVIEW_MAX_CHARS` on the board, while **questions are never truncated**.
-  - **Direct verbatim matching**: When a user's message matches a registered question word-for-word (after stripping leading `@bot_username`), the bot replies immediately with the preset answer without AI processing or quiet-mode suppression. Semantically related but non-identical questions are retrieved and answered by the AI during conversation turns via `group_qa_query` and `group_qa_answer`.
+  - `/qa set` opens a form session for the group (requires `isCanControllQaPermission`) and binds the triggering forum topic (`message_thread_id`) in forum supergroups. Only subsequent messages from that same caller (including channel identities and anonymous admins) inside the same group and topic are claimed; messages in other topics are untouched.
+  - Submissions must start with a line-start prefix from `QA_QUESTION_LABELS` (`问题:` / `问题：`) or `QA_ANSWER_LABELS` (`回答:` / `回答：` / `答案:` / `答案：`), sent in either two messages or a single combined message.
+  - ```` ```json ```` code blocks inside answers are stored with literal fences and rendered on direct replies; the fences count toward `CHAT_QA_ANSWER_MAX_CHARS`.
+  - Neither the question nor text outside code blocks in the answer may contain slash tokens that Telegram renders as clickable commands (such as `/start` or `/etc/hosts`). Just like over-length inputs, offending fields are rejected while keeping the form open and prompting for a rewrite; slash commands inside code blocks are allowed.
+  - Claimed input messages are deleted immediately before entering the message pipeline, and the form message edits in place to show progress (truncating the rendered answer preview with `QA_TRUNCATION_MARK` if the card would exceed `TELEGRAM_MESSAGE_MAX_CHARS`, while saving the full answer to SQLite once both fields arrive).
+- **Concurrency and teardown**:
+  - At most one form session may be open per group (`QA_FORM_SESSION_MAX` globally), expiring after `QA_FORM_SESSION_TTL_MS` of idle time. Resending a field overwrites its draft value; re-running `/qa set` by the same caller replaces the previous form; `/qa set` from another user while a form is open is rejected.
+  - `/init disable` or bot departure deletes all Q&A rows for that group from SQLite; losing administrator privileges alone keeps stored Q&A entries intact.
+- **Board pagination and direct matching**:
+  - `/qa query` paginates entries at `QA_QUERY_PAGE_MAX_ENTRIES` per page with inline page buttons. Board previews truncate answers at `QA_QUERY_ANSWER_PREVIEW_MAX_CHARS`, while **questions are never truncated**.
+  - **Exact direct reply**: When a group message matches a stored question character-for-character (after stripping a leading `@bot_username`), the bot replies immediately with the preset answer—bypassing the AI model, consuming zero model quota, and ignoring quiet mode. Semantically similar phrasings are looked up by the AI during normal chat turns via `group_qa_query` and `group_qa_answer`.
 
 #### 5. Speech Restriction: `/gag`
-- **Session quotas and entry points**:
-  - The system supports up to `GAG_SESSION_MAX` active gag sessions globally across all groups (including starting and ending transitions). Multiple targets per group are allowed, but duplicate sessions for the same user are rejected.
-  - When restricting a regular user, the bot posts a public notice in the group and uses `ephemeral_message_parameters` to deliver an interactive "Speak" button visible only to that user. Channel identities receive a public message with the button.
-  - Clicking the button launches Telegram Inline Mode prefilled with `GAG_INLINE_QUERY_PREFIX<target_id>` (`gag:<target_id>`). When sent, the message carries hidden verification parameters. The bot verifies the target ID, group ID, and sender upon arrival, immediately deleting forged or cross-group messages.
-- **Dynamic text obfuscation**:
-  - Grapheme clusters are sampled: with probability `GAG_FILL_OPERATION_PROBABILITY`, the engine appends dots (`GAG_FILLER_MIN_DOTS` to `GAG_FILLER_MAX_DOTS`, with spaces inserted at `GAG_FILLER_GAP_SPACE_PROBABILITY`); otherwise, it substitutes the character with one from `GAG_REPLACEMENT_CHARACTERS`.
-  - Consecutive identical transformations are limited to `GAG_MAX_CONSECUTIVE_SAME_OPERATIONS` characters. Short messages enforce baseline disturbance per `GAG_MIN_OPERATION_TIERS`.
-- **Heartbeat and refresh**:
-  - Every `GAG_SPEAK_NOTICE_MESSAGE_INTERVAL` messages in the group, the bot sends a refreshed entry notice (tracked independently per session).
-  - User-specific entry notices refresh after `GAG_SPEAK_NOTICE_REFRESH_INTERVAL_MS`. If a restricted user stays silent for `GAG_SPEAK_NOTICE_IDLE_INTERVAL_MS`, their next message triggers an immediate replacement entry notice.
-- **Group teardown**: Running `/init disable` or revoking admin permissions terminates all gag sessions and deletes notices. If the bot is removed from the chat, session slots are freed immediately.
+- **Quotas and inline entry**:
+  - Up to `GAG_SESSION_MAX` gag sessions may exist globally (counting starting and ending transitions). A group can hold multiple restricted targets, with at most one active session per target identity.
+  - Restricting a regular user posts a public status card in the group plus a private "Speak" button visible only to that user via `ephemeral_message_parameters`. Channel identities receive a public status card with the button attached.
+  - Tapping the button opens Telegram Inline Mode prefilled with `GAG_INLINE_QUERY_PREFIX<target_id>` (`gag:<target_id>`). Sent inline messages embed a hidden verification link encoding the target and group ID; on arrival, the bot verifies target ID, group ID, and actual sender, immediately deleting forged or cross-group messages.
+- **Dynamic grapheme obfuscation**:
+  - Each grapheme cluster is sampled: with probability `GAG_FILL_OPERATION_PROBABILITY`, `GAG_FILLER_MIN_DOTS`..`GAG_FILLER_MAX_DOTS` dots are appended (inserting spaces between dots at probability `GAG_FILLER_GAP_SPACE_PROBABILITY`); otherwise, the grapheme is replaced uniformly from `GAG_REPLACEMENT_CHARACTERS`.
+  - Identical operations apply to at most `GAG_MAX_CONSECUTIVE_SAME_OPERATIONS` adjacent graphemes, and short inputs guarantee minimum perturbation counts via `GAG_MIN_OPERATION_TIERS`.
+- **Heartbeat and entry refresh**:
+  - Every `GAG_SPEAK_NOTICE_MESSAGE_INTERVAL` regular group messages triggers an entry refresh (counted independently per session).
+  - Personal entry prompts refresh on `GAG_SPEAK_NOTICE_REFRESH_INTERVAL_MS`. If a restricted user stays silent for `GAG_SPEAK_NOTICE_IDLE_INTERVAL_MS`, their next message triggers an immediate replacement prompt.
+- **Group teardown**: `/init disable` or losing administrator rights ends all gag sessions in that group and deletes active notices; if the bot has already left the group, session slots are released immediately without attempting message deletions.
 
 #### 6. Target Message Deletion: `/delete_message`
-- **Syntax**: `/delete_message <target>` starts deleting and `/delete_message stop <target>` stops. Targets accept a reply, `@username`, a numeric user ID, or a negative channel ID; `stop` is case-insensitive. Only the super administrator can run it, and the bot must hold the delete-messages right in the group. The bot itself, the current group identity (anonymous admins), and the super administrator cannot be targets.
-- **Scope**: Only messages the target sends in this group after the command are deleted; earlier messages are untouched. A message with `sender_chat` is matched by that channel identity, otherwise by `from`. The target's messages still pass join verification, ad detection, and flood counting first; they are then claimed and never reach gag, commands, AI, or copy, so commands sent by the target do not run.
-- **Bot targets**: The bot only receives another bot's messages after Bot-to-Bot Communication Mode is enabled in @BotFather. Messages from a deletion target are checked before the ingress throttle for other bots: they pass without counting toward `BOT_MESSAGE_ACTIVITY_LIMIT`, so every message of a target bot that keeps talking is deleted, while the same bot is still counted in groups where it is not a target.
-- **Queueing and deletion**: Each target message enqueues one entry into the main-thread in-memory deletion queue (at most `DELETE_MESSAGE_QUEUE_MAX` entries across all groups). A single consumer loop deletes them with `deleteMessages` through the unified Telegram outbound gate; entries from the same group that arrive back to back while a request is in flight form one batch of at most `TELEGRAM_DELETE_MESSAGES_BATCH_MAX`. Failed deletions are only written to the unified Telegram error log and are not retried. When the queue is full, new messages are still claimed but not enqueued; one warn line marks the overflow, and another summarizes the dropped count once the queue drains.
-- **Capacity and persistence**: Each group holds at most `DELETE_MESSAGE_CHAT_TARGET_MAX` targets at a time. Targets are stored as a list of user/channel IDs in the `deleteMessageTargets` JSONB field of the group's SQLite `chat_states` row and survive restarts. Both arming and `stop` reply only after the write is durable. `stop` only removes the target; entries already queued are still deleted. `/init disable`, the bot leaving the group, or the bot losing admin rights clears and persists the removal of every target in that group and drops the group's unsent entries. Startup is refused if a stored target is the group itself or the configured super administrator; the deletion queue itself is in memory only. On a normal shutdown the queue drains before the Telegram outbound gate closes; whatever remains past the budget is dropped with an error log. Start, stop, and rejection notices auto-delete after `COMMAND_MESSAGE_AUTO_DELETE_MS` like other command notices.
+- **Syntax and eligibility**: `/delete_message <target>` starts deletion and `/delete_message stop <target>` stops it (`stop` is case-insensitive). Targets accept a reply, `@username`, numeric user ID, or negative channel ID. Restricted to `SUPER_ADMIN_USER_ID`, and the bot must hold `can_delete_messages` in the group; the bot itself, the current group identity (anonymous admins), and `SUPER_ADMIN_USER_ID` are rejected.
+- **Intercept scope**: Deletes only new messages sent in the group after the command takes effect (earlier messages are untouched). Messages carrying `sender_chat` match by channel identity; others match by `from`. Target messages still pass through join verification, ad detection, and flood counting first, and are then claimed so they never reach gag, commands, AI chat, or copy mode.
+- **Targeting other bots**: Requires Bot-to-Bot Communication Mode enabled in @BotFather. Deletion-target checks run before the other-bot ingress rate limiter (`BOT_MESSAGE_ACTIVITY_LIMIT`) without incrementing its counter, ensuring every message from a targeted bot is deleted while non-targeted groups still rate-limit that bot normally.
+- **Queueing and batch deletion**:
+  - Each claimed message enqueues one item into the main-thread in-memory deletion queue (global cap `DELETE_MESSAGE_QUEUE_MAX`).
+  - A single consumer loop calls `deleteMessages` through the unified Telegram outbound gate, coalescing back-to-back messages from the same group while a request is in flight into batches of up to `TELEGRAM_DELETE_MESSAGES_BATCH_MAX`.
+  - Deletion API errors are logged via the unified Telegram error logger without retries. When the queue is full, new target messages are still claimed (blocking commands/AI/copy) without enqueueing—logging one warning on overflow and one summary of dropped count once the queue drains.
+- **Capacity, persistence, and shutdown**:
+  - Up to `DELETE_MESSAGE_CHAT_TARGET_MAX` targets per group, persisted in the `deleteMessageTargets` JSONB array of SQLite `chat_states` across restarts; both arming and `stop` reply only after disk persistence succeeds.
+  - `stop` removes only the target while keeping already-queued deletions; `/init disable`, bot departure, or losing admin rights clears and persists all targets for that group and drops unsent queue items for that group.
+  - Startup refuses to boot if persisted targets include the group itself or `SUPER_ADMIN_USER_ID`.
+  - On graceful shutdown, the in-memory queue drains before closing the Telegram outbound gate (dropping any remainder past the shutdown budget with an error log). All command notices auto-delete after `COMMAND_MESSAGE_AUTO_DELETE_MS`.
 
 #### 7. Blacklist: `/block`
-- **Command syntax**: Run `/block <target> enable` to blacklist, and `/block <target> disable` to unban. Targets can be specified via reply (including channel-identity messages), `@username`, numerical user ID, or bare negative channel ID (bare negative channel IDs are accepted for `disable` unban only).
-- **Scope of enforcement**: Blacklisted users are written to the authoritative SQLite table and banned across all active supergroups managed by the bot. When joining a new group or gaining admin permissions, the bot automatically sweeps and bans blacklisted members.
-- **Asynchronous batch processing**: Once the blacklist record is written to disk, cross-group bans execute concurrently in the background, followed by a summary report. Groups where the bot lacks ban permissions are skipped and counted as failures. Unbanning likewise removes the target from the list and confirms persistence first, then lifts bans across groups in the background and replies when done; groups with confirmed missing ban rights are skipped and counted as failures. Blacklisting, unbanning and ad disposals for the same target run one after another in arrival order.
-- **Deleted account pruning**: During member sweeps, if an account returns `PARTICIPANT_ID_INVALID` (deleted account) for `BLOCKLIST_PARTICIPANT_INVALID_LIMIT` consecutive attempts, the system automatically purges the deleted ID from the database.
+- **Syntax**: `/block <target> enable` blacklists a target; `/block <target> disable` unblocks them. Targets accept a reply (including channel-identity posts), `@username`, positive numeric user ID, or—for `disable` only—a bare negative channel ID.
+- **Enforcement scope**: Blacklisted IDs are persisted to the authoritative SQLite blocklist and banned across every managed supergroup. Whenever the bot joins a group or gains admin rights, it sweeps and bans any present blocklisted members automatically.
+- **Asynchronous cross-group execution**:
+  - **`enable`**: After SQLite persistence succeeds, cross-group bans run in the background and post a summary of succeeded vs. failed groups; groups where the bot is confirmed to lack ban privileges are skipped without API calls and counted as failures.
+  - **`disable`**: Removes the entry from SQLite first, lifts bans across managed groups in the background (skipping groups lacking ban rights as failures), and posts a completion receipt.
+  - **Per-target serialization**: Sequential `/block … enable`, `/block … disable`, and ad-detection disposals targeting the same identity execute strictly in arrival order.
+- **Deleted-account pruning**: During sweeps, if Telegram returns `PARTICIPANT_ID_INVALID` for `BLOCKLIST_PARTICIPANT_INVALID_LIMIT` consecutive checks on a target (and no group confirms an active ban), the ID is treated as a deleted account and purged from the SQLite blocklist automatically.
 
 #### 8. Ad Detection and Anti-Raid
-- **`/ad_detect` (Intelligent Ad Blocker)**: Messages from the same sender are aggregated, and batches are submitted to the ad classification model every `AD_DETECT_QUEUE_TICK_MS`. Violators are permanently blacklisted and kicked across all groups, with ban notices posted in the group (auto-deleted after `COMMAND_MESSAGE_AUTO_DELETE_MS`). Pure proxy URLs (`vless://`, `vmess://`, `trojan://`, `ss://`) without promotional text are not flagged as ads.
-- **`/flood_control` (Anti-Flood Protection)**: If a user sends `FLOOD_MESSAGE_LIMIT` messages within a sliding window of `FLOOD_WINDOW_MS`, they are temporarily muted for `FLOOD_MUTE_DURATION_MS` with an in-group warning (auto-deleted after `COMMAND_MESSAGE_AUTO_DELETE_MS`). Administrators (except bots) and channels are exempt; users with `isCanBypassFloodControl` bypass this check.
-- **`/antiraid` (Verification & Lockdown)**: When enabled, new members must pick the right answer to a three-option arithmetic question within `VERIFICATION_TIMEOUT_MS` (a wrong answer kicks immediately without a ban; bot members need an admin to vouch with "通过"); more than `ANTI_RAID_PER_MINUTE_LIMIT` joins within `JOIN_WINDOW_MS` trigger private lockdown protection (`LOCKDOWN_MS`). Disabling this cancels all pending verifications and deletes reminders. Ad detection and blacklists operate independently of this toggle.
-- **`/batch_kick` (Mass Kick Recent Joins)**: Superadmin only. Analyzes join logs to kick all members who joined within a specified timeframe (e.g. `30m`, `2h`, `1d`, bounded between `BATCH_KICK_MIN_DURATION_MS` and `BATCH_KICK_MAX_DURATION_MS`). Members are kicked without being blacklisted; whitelisted and already-blacklisted users are skipped. The bot replies with an acceptance receipt, executes kicks in the background, and posts a final report upon completion.
+- **`/ad_detect` (Smart Ad Detection)**:
+  - **Three-stage evaluation pipeline**: Rapid messages from the same sender (`chatId:senderId`) are bundled and drained every `AD_DETECT_QUEUE_TICK_MS` in strict order:
+    1. Sticker pack blacklist fast-path (`sticker_black_list`)
+    2. Custom emoji pack blacklist (`emoji_black_list`, queried via the main-thread unified Telegram outbound gate)
+    3. AI ad classification model (`agent.ad_detect` with `samples`)
+  - **Punishment and channel rule**: Any hit deletes the offending messages and applies `punishment` from `ad_detect.json` to non-protected senders—`mute` mutes in the current group (timed or permanent); `kick` removes from the group with no ban, a per-chat ban, or a global permanent blocklist ban matching `/block`. Channel identities have only their messages deleted under every setting except global blocklist ban. A group notice stating the reason and outcome auto-deletes after `COMMAND_MESSAGE_AUTO_DELETE_MS`.
+  - **Proxy link exemption**: Bare proxy node links (`vless://`, `vmess://`, `trojan://`, `ss://`) without recruitment or promotional copy are not flagged as ads.
+- **`/flood_control` (Anti-Flood Protection)**: Sending `FLOOD_MESSAGE_LIMIT` messages within a `FLOOD_WINDOW_MS` sliding window in a supergroup triggers an immediate `FLOOD_MUTE_DURATION_MS` mute and an auto-deleted group warning (`COMMAND_MESSAGE_AUTO_DELETE_MS`). Group admins (except bots), channel identities, and identities holding `isCanBypassFloodControl` are exempt.
+- **`/antiraid` (Join Verification & Lockdown)**: New members must answer a three-choice arithmetic challenge within `VERIFICATION_TIMEOUT_MS` (wrong answers kick immediately without banning; bot joins require an admin to tap "通过"). Exceeding `ANTI_RAID_PER_MINUTE_LIMIT` joins within `JOIN_WINDOW_MS` activates private lockdown for `LOCKDOWN_MS`. Disabling `/antiraid` cancels pending verifications and deletes active prompts immediately; ad detection, flood control, and blocklists remain unaffected.
+- **`/batch_kick` (Mass Kick Recent Joins)**:
+  - **Window and exclusions**: Superadmin only. Scans join logs to kick members who joined within the requested window (e.g. `30m`, `2h`, `1d`, bounded by `BATCH_KICK_MIN_DURATION_MS`..`BATCH_KICK_MAX_DURATION_MS`) without adding them to the blocklist; whitelisted and already-blocklisted identities are skipped.
+  - **Single-flight background execution**: Sends an immediate acceptance receipt, runs kicks asynchronously (at most one active batch per group), and posts a final summary. If the group undergoes `/init disable` (including disable-then-reenable), bot departure, or loss of admin rights during preflight or execution, the batch aborts silently without posting a summary.
 
 #### 9. Private Chat Relay and Voice Delegation: `/send`
-- Superadmins send `/send <group_id>` in private chat to initiate relay. The target group must already have `/init enable` turned on, and the bot validates chat reachability before forwarding subsequent direct messages to the target group.
-- **Voice delegation**: Send messages formatted as JSON code blocks:
+- Superadmins send `/send <group_id>` in private chat with the bot to open a relay session. The target group must have `/init enable` active; after verifying chat reachability, subsequent private messages are forwarded to that group until `/send finish`.
+- **Voice delegation**: Send the entire private message as a JSON code block to synthesize and post a voice bubble in the target group:
   ```json
   { "type": "tts", "tone": "gentle", "text": "text to speak" }
   ```
-  - Text length is capped at `VOICE_OPERATOR_TEXT_MAX_CHARS`, and tone description at `VOICE_TONE_MAX_CHARS` (UTF-16 code units).
-  - Audio is synthesized asynchronously in the background using `agent.tts` from `config/dynamic/agent.json`.
-  - Quotas are deducted from `agent.tts.daily_reserve_quota` (shared with cron, isolated from conversational AI quotas).
+  - `text` is capped at `VOICE_OPERATOR_TEXT_MAX_CHARS` and `tone` at `VOICE_TONE_MAX_CHARS` (measured in UTF-16 code units).
+  - Synthesis runs asynchronously in the background and requires a valid `agent.tts` section in `config/dynamic/agent.json`.
+  - Calls draw from `agent.tts.daily_reserve_quota` (shared with scheduled `send_voice` tasks and isolated from conversational AI daily quotas).
 
 > [!TIP]
-> **`/luck_challenge` is an Inline Mode feature, not a slash command**: Type `@bot_username [query]` in any chat window to draw a daily fortune. Requires enabling Inline Mode in @BotFather. This endpoint is protected by a sliding window: up to `RATE_LIMIT_MAX_CALLS_PER_WINDOW` queries per `RATE_LIMIT_WINDOW_MS` window (defined in `packages/consts/luckChallenge.ts`); excess queries receive a rate-limit placeholder result. If refreshing the day's fortune secret fails, the error is logged and an empty result is returned. Both answers let the client cache them for only `LUCK_INLINE_NO_DRAW_CACHE_SECONDS` seconds.
+> **`/luck_challenge` is an Inline Mode feature, not a slash command**: Type `@bot_username [wish]` in any chat after enabling Inline Mode in @BotFather to draw a daily fortune. A global sliding-window limiter caps responses at `RATE_LIMIT_MAX_CALLS_PER_WINDOW` per `RATE_LIMIT_WINDOW_MS` (`packages/consts/luckChallenge.ts`), returning a placeholder item when exceeded; if refreshing the daily fortune secret fails, an error is logged and an empty result is returned. Both fallback responses set client caching to `LUCK_INLINE_NO_DRAW_CACHE_SECONDS` seconds.
 
 ---
 
 ## 💍 Group Marriage: `/wed`
 
-In groups initialized with `/init enable`, members can send `/wed` (with no arguments) to draw a fellow member as their "partner" for the day. The bot replies with the selected member's avatar captioned "caller, 你的群友老婆是 member!", accompanied by interactive buttons. Button text reflects the active atmosphere: teasing (`mesugaki`) tone uses "移除", "娶老婆!", and "换一只" (updating to "已确认♡" once locked in); reserved (`normal`) tone uses "移除", "确认", and "更换" (updating to "已确认" once locked in).
+In `/init enable` groups, any member can run `/wed` (no arguments) to draw a fellow member as today's "partner". The bot replies with the chosen member's current avatar captioned `"caller, 你的群友老婆是 member!"` and interactive action buttons. Button labels follow `atmosphere`: teasing (`mesugaki`) renders `移除` / `娶老婆!` / `换一只` (locking to `已确认♡`), whereas restrained (`normal`) renders `移除` / `确认` / `更换` (locking to `已确认`).
 
 | Button | Behavior |
 | :--- | :--- |
-| **移除** | Deletes the result message and releases the session |
-| **娶老婆! / 确认** | Locks in the current choice, updating the button to "已确认♡" / "已确认"; rerolling remains available |
-| **换一只 / 更换** | Redraws a new candidate in the same card, updating avatar and caption while excluding the caller and current target |
+| **移除** | Deletes the result card and releases the session |
+| **娶老婆! / 确认** | Locks in the current draw, changing the middle button to `已确认♡` / `已确认` (rerolling stays available) |
+| **换一只 / 更换** | Redraws in place within the same message, excluding the caller and current target and restoring the confirm button |
 
 ### Core Mechanics
 
-- **Caller exclusivity**: Only the user who sent `/wed` can click the buttons. Clicking old buttons while a redraw is in progress does not affect the new target. Sending `/wed` again starts a new draw, deleting the previous card only after the new card arrives; if the new card fails to send, the old card is kept; if the old card fails to delete, it remains with deactivated buttons. Each user retains at most one active card per group.
-- **Candidate pool construction**:
-  - The bot maintains an in-memory **`Map<number, number>`** (member ID → entry time) candidate window for each group, with a capacity of `WED_MEMBER_LIMIT`.
-  - Only users who actively speak as **personal accounts** in the group are added (channels, anonymous admins, and service messages are excluded).
-  - A member outside the window is appended by entry time when they speak; members already in the window keep their entry time. A full window evicts the earliest entrant. Departure events remove members immediately.
-  - On the daily maintenance schedule (`DISK_IO_MAINTENANCE_CRON` in the configured timezone), background maintenance instructs the main thread to verify candidate presence sequentially via `getChatMember` at `WED_MEMBER_REVIEW_INTERVAL_MS` intervals (requires admin permissions); non-admin groups rely on leave service notices.
-- **Avatar retrieval and caching**:
-  - Upon selecting a candidate, the bot queries `getChat` and `getUserProfilePhotos` (up to `USER_PROFILE_PHOTOS_LIMIT`) concurrently, matching active avatars via `big_file_unique_id`.
-  - Matching avatars are forwarded directly using Telegram's cached `PhotoSize.file_id` without downloading or re-uploading bytes. Unmatched avatars fall back to downloading and uploading.
-- **Concurrency and capacity**:
-  - All draws and button clicks route through a dedicated main-thread scheduler: global concurrency is capped at `WED_MAX_CONCURRENT`, the waiting queue at `WED_MAX_PENDING` (FIFO), and each draw or delivery stage has a timeout of `WED_OPERATION_TIMEOUT_MS`.
-  - The candidate window persists as a JSON array of `{ id, enteredAt }` entries in entry order in `memory/wed/<chatId>.json`, written in batches by the Disk I/O Worker (see flush rules in [07 Operations](07-operations.md#data-root)).
-  - Each group retains the most recently delivered `WED_SESSION_LIMIT` results: when a new result is delivered, the earliest idle result slides out, leaving its photo in the group with buttons replying expired; failed draws or deliveries never evict existing results; only reaching the `STATE_MANAGED_CHAT_LIMIT` group limit rejects requests from new groups. Result cards do not have static auto-deletion timers; they are removed via buttons or during group teardown (results that slide out are no longer deleted by the bot).
+- **Caller exclusivity**: Only the caller who invoked `/wed` can use the card's buttons, and clicking stale buttons during an in-flight redraw never mutates the new target. Running `/wed` again draws a fresh card and deletes the previous card only after the new one is delivered (keeping the old card if sending fails, or leaving its buttons expired if deleting the old card fails). Each user holds at most one active card per group.
+- **Candidate sliding window**:
+  - Maintains a per-group in-memory **`Map<number, number>`** (`memberId -> enteredAt`) capped at `WED_MEMBER_LIMIT`.
+  - Records only users who speak publicly as **personal accounts** in initialized groups (ignoring channel personas, anonymous admins, and service notices).
+  - First-time speakers outside the window are appended at the tail; repeat messages from members already inside the window do not refresh `enteredAt`; full windows evict the earliest entrant; leave events evict the departing ID immediately.
+  - At daily maintenance (`DISK_IO_MAINTENANCE_CRON` in the configured timezone), the Disk I/O Worker notifies the main thread to re-verify window members one by one via `getChatMember` spaced by `WED_MEMBER_REVIEW_INTERVAL_MS` (where the bot holds admin rights; non-admin groups rely on leave service messages).
+- **Zero-download avatar reuse**:
+  - Queries `getChat` and `getUserProfilePhotos` (first `USER_PROFILE_PHOTOS_LIMIT` photos) concurrently and matches the current profile photo via `big_file_unique_id`.
+  - When matched, forwards directly using Telegram's existing `PhotoSize.file_id` without local download or upload; otherwise falls back to downloading and re-uploading the current chat photo.
+- **Concurrency, persistence, and retention**:
+  - All `/wed` commands and button callbacks share a main-thread scheduler capped at `WED_MAX_CONCURRENT` active tasks, `WED_MAX_PENDING` queued tasks (FIFO), and `WED_OPERATION_TIMEOUT_MS` per stage.
+  - Candidate windows flush in batches via the Disk I/O Worker to `memory/wed/<chatId>.json` as `{ id, enteredAt }` arrays ordered by entry (see flush conditions in [07 Operations](07-operations.md#data-root)).
+  - Each group tracks up to `WED_SESSION_LIMIT` delivered cards (sliding out the oldest idle card—whose photo stays in chat with expired buttons—only after a new card succeeds; failed draws never evict). Total managed groups are bounded by `STATE_MANAGED_CHAT_LIMIT`. Cards never carry fixed `COMMAND_MESSAGE_AUTO_DELETE_MS` timers and are deleted only via `移除`, card replacement, or group teardown.
 
 ---
 
 ## 🔎 Profiles: `/info`
 
-In initialized groups, members can query an identity's public profile via `/info`: reply to their message, or specify `/info @username`, `/info <user ID>`, or `/info <channel/group ID>`. Supports regular users, broadcast channels, other bots, and the bot itself.
+In `/init enable` groups, any member can inspect an identity's public profile by replying with `/info` or running `/info @username`, `/info <user ID>`, or `/info <channel/group ID>` (supporting users, channels, other bots, and this bot itself).
 
-- **Profile information**: Displays public display names (`first_name last_name` for users, title for channels/groups), usernames (noted if unset), and numeric IDs (tap to copy). If the target has a public avatar, it is attached; if not, this is noted.
-- **Live data sources**: Queries Telegram APIs live. Resolves group member profiles for users, chat info for channels/groups, and startup configurations for the bot itself. If live queries fail, cached identities are used; if even names cannot be resolved, the bot replies "not found". Avatar fetching reuses `/wed` logic; groups omit avatars by default.
-- **Lifecycles and queues**: Results and error notices auto-delete after `COMMAND_MESSAGE_AUTO_DELETE_MS`. Queries route through the shared deferred command executor, with an execution budget of `INFO_TASK_BUDGET_MS` per task; full queues reply "try again later". `/info` does not respond in private chat.
+- **Displayed fields**: Public display name (`first_name last_name` for users, title for channels/groups), username (explicitly noted when unset), copyable numeric ID, and current public avatar (explicitly noted when absent; group chats omit avatars).
+- **Live lookup with cache fallback**: Queries Telegram live on each call (`getChatMember` for users, `getChat` for channels/groups, local config for the bot itself), falling back to resolved identity cache metadata if the live request fails, or replying "not found" if neither name nor username is available. Avatar retrieval reuses `/wed` (`file_id` reuse for users, download-and-upload with `t.me` fallback for channels).
+- **Retention and execution budget**: Both profile cards and error notices auto-delete after `COMMAND_MESSAGE_AUTO_DELETE_MS`. Tasks run through the shared deferred command executor with a `INFO_TASK_BUDGET_MS` per-task budget (replying "try again later" when full). `/info` is ignored in private chat.
 
 ---
 
@@ -288,40 +313,40 @@ In initialized groups, members can query an identity's public profile via `/info
 
 ## 🖼️ Random Pictures: `/h_image`
 
-**Library setup**: The local library path is configured in `config/dynamic/assets.json` under `onlyPath.random_h_image_dir` (defaults to `RANDOM_H_IMAGE_DIR` relative to the data root).
+**Library path**: Configured in `config/dynamic/assets.json` under `onlyPath.random_h_image_dir` (defaults to `RANDOM_H_IMAGE_DIR` under the runtime data root).
 
-In initialized groups, sending `/h_image` (without arguments) picks a uniformly random image from the library and posts it to the group.
+In `/init enable` groups, `/h_image` (no arguments) selects a uniformly random image from the library and sends it to the group.
 
-- **Format filtering**: Includes regular files matching `RANDOM_IMAGE_EXTENSIONS` (`jpg`, `jpeg`, `png`, and `webp`) in the library root (ignoring hidden files, subfolders, and symlinks). Files exceeding `RANDOM_IMAGE_MAX_BYTES` are skipped, triggering a redraw. Adding or removing images via `/h_image add` or the Mini App gallery updates the in-memory caches immediately without restarts.
-- **Spoiler protection**: Drawn images always include Telegram spoiler masks (`has_spoiler`), appearing blurred until clicked.
-- **Retention policy**: Output pictures are functional content and **retained permanently**; syntax errors, empty libraries, or lookup failures auto-delete after `COMMAND_MESSAGE_AUTO_DELETE_MS`.
-- **Concurrency and rate limits**:
-  - Shared deferred executor limits: concurrency capped at `DEFERRED_COMMAND_MAX_CONCURRENT`, and pending queue at `DEFERRED_COMMAND_MAX_PENDING`.
-  - Sliding-window rate limit: combined with `/h_image add` and usage hints, up to `H_IMAGE_RATE_LIMIT_MAX_CALLS_PER_WINDOW` calls are accepted per `H_IMAGE_RATE_LIMIT_WINDOW_MS` window. Excess calls are silently dropped.
+- **File filtering**: Indexes only regular files in the library root whose extension matches `RANDOM_IMAGE_EXTENSIONS` (`jpg`, `jpeg`, `png`, `webp`), ignoring hidden files, subdirectories, and symlinks. Files exceeding `RANDOM_IMAGE_MAX_BYTES` are skipped and redrawn automatically. Additions and deletions via `/h_image add` or the Mini App gallery update the in-memory index immediately without restarting.
+- **Spoiler mask**: Sent photos always enable Telegram's spoiler overlay (`has_spoiler`), requiring a tap to reveal.
+- **Message retention**: Delivered photos are kept **permanently**; argument errors, empty-library notices, and failures auto-delete after `COMMAND_MESSAGE_AUTO_DELETE_MS`.
+- **Concurrency and rate limiting**:
+  - Uses the shared deferred command executor (`DEFERRED_COMMAND_MAX_CONCURRENT` active, `DEFERRED_COMMAND_MAX_PENDING` queued).
+  - Shares a global sliding-window limiter with `/h_image add` and usage replies: at most `H_IMAGE_RATE_LIMIT_MAX_CALLS_PER_WINDOW` calls per `H_IMAGE_RATE_LIMIT_WINDOW_MS` across the instance, silently dropping excess calls.
 
 ### Collecting Pictures: `/h_image add`
 
-Users with `isCanAddHImage` can reply to an image message with `/h_image add` to add images to the library.
+Users with `isCanAddHImage` can reply to an image message with `/h_image add` to import it into the dedicated library.
 
-- **Eligible inputs**: Native photos in the replied message (highest resolution selected), or uncompressed files matching `RANDOM_IMAGE_DOCUMENT_MIME_TYPES` (`image/jpeg`, `image/png`, or `image/webp`) sent as documents. If the message belongs to an album (Media Group), all received photos in that album are collected in batch (capped at `MEDIA_GROUP_ITEMS_MAX` items per album, with `MEDIA_GROUP_CACHE_MAX` albums in cache).
+- **Supported sources**: Native photos on the replied message (picking the highest resolution) and image documents matching `RANDOM_IMAGE_DOCUMENT_MIME_TYPES` (`image/jpeg`, `image/png`, `image/webp`). If the replied message belongs to a media group (album), all observed images from that album are imported together (up to `MEDIA_GROUP_ITEMS_MAX` per album across `MEDIA_GROUP_CACHE_MAX` cached albums).
 - **Content-addressed deduplication**:
-  - Filenames are strictly the **lowercase SHA-256 hash of the binary file** (`RANDOM_IMAGE_CONTENT_NAME_PATTERN`) with the extension mapped by `RANDOM_IMAGE_SAVE_EXTENSIONS` (e.g. `<hash>.jpg`).
-  - Deduplication happens after downloading: if an identical hash exists in the library, writing is skipped and marked as duplicate in the receipt.
-- **Dimension pre-checks**: Resolutions are verified against Telegram `sendPhoto` limits: width + height must not exceed `TELEGRAM_PHOTO_MAX_DIMENSION_SUM`, and aspect ratio must not exceed `TELEGRAM_PHOTO_MAX_ASPECT_RATIO`. Files exceeding limits, larger than `RANDOM_IMAGE_MAX_BYTES`, in unsupported formats, or timing out are marked as failures.
-- **Atomic file writes**: Images are written to temporary files prefixed with `RANDOM_IMAGE_TEMP_PREFIX` in the library directory and renamed atomically upon verification. Draws ignore dot-prefixed files.
-- **Batching and receipts**: Albums download in batches of `H_IMAGE_ADD_DOWNLOAD_BATCH_SIZE` concurrently. The overall task budget is `H_IMAGE_ADD_TASK_BUDGET_MS`; images exceeding this budget count as failures. Upon completion, a summary receipt reports new additions, pre-collection library size, duplicates, invalid dimensions, and download failures (auto-deleted after `COMMAND_MESSAGE_AUTO_DELETE_MS`).
+  - Saved filenames use the **lowercase SHA-256 hex digest of the raw image bytes** (`RANDOM_IMAGE_CONTENT_NAME_PATTERN`) plus the canonical extension sniffed from magic bytes via `RANDOM_IMAGE_SAVE_EXTENSIONS` (e.g. `<hash>.jpg`).
+  - If an identical hash already exists in the library after download, disk writes are skipped and counted as "already exists" in the summary.
+- **Dimension and size pre-checks**: Rejects images violating Telegram `sendPhoto` constraints (`width + height > TELEGRAM_PHOTO_MAX_DIMENSION_SUM` or aspect ratio `> TELEGRAM_PHOTO_MAX_ASPECT_RATIO`); files exceeding `RANDOM_IMAGE_MAX_BYTES`, using unsupported formats, or failing download count as failures.
+- **Atomic writes**: Writes to a sibling temporary file prefixed with `RANDOM_IMAGE_TEMP_PREFIX` first and atomically `rename`s it into place after verification (dot-prefixed temp files are ignored by random draws).
+- **Batched downloads and receipt**: Downloads candidates concurrently in pages of `H_IMAGE_ADD_DOWNLOAD_BATCH_SIZE` under an overall `H_IMAGE_ADD_TASK_BUDGET_MS` budget (marking unfinished items on timeout as failures), then posts a summary receipt (added count, previous library total, duplicates, invalid dimensions, and failures) that auto-deletes after `COMMAND_MESSAGE_AUTO_DELETE_MS`.
 
 ---
 
 ## ⏰ Scheduled Posts: `cron.json`
 
-Scheduled tasks are configured by administrators in `config/dynamic/cron.json` and support hot-reloading without group commands. For field definitions, see the [Configuration Guide](../../config_example/README/en.md#cronjson); for examples, see [08 Images and Scheduled Tasks](08-images-and-cron.md).
+Scheduled tasks are configured in `config/dynamic/cron.json` and hot-reloaded at runtime without chat commands. See the [Deployment Configuration Guide](../../config_example/README/en.md#cronjson) for schema details and [08 Images and Scheduled Tasks](08-images-and-cron.md) for practical examples.
 
-- **Flexible targeting**: Broadcasts text, photos, documents, voice bubbles, or web summaries to specific groups, all enabled groups, or all groups except an excluded list.
-- **Media and spoilers**: Fixed images can specify public URLs or local file paths in an array (up to `CRON_MAX_IMAGES`); multiple images assemble into an album with a caption on the first image. Random mode draws one image per trigger. The `is_blurred` flag toggles spoiler masks.
-- **Scheduled voice notes (`send_voice`)**: Synthesizes `content` into voice notes using optional `tone` hints. Requires valid `agent.tts` configuration in `agent.json`; invalid setups fail validation at startup or reload.
-- **AI web search summaries (`send_web_digest`)**: Searches web results for a brief `topic` and formats them into a MarkdownV2 summary following `instructions` (up to `max_items`). Prefers `agent.web_search`, falling back to text model search capabilities. If the model does not trigger an external search, `WEB_DIGEST_UNSEARCHED_WARNING` is prepended.
-- **Lifecycle and routing**: Scheduled messages are permanent functional messages; in supergroups with topics, they post to the General topic. One-off schedules and randomized delays are tracked in memory only; tasks scheduled during downtime are not backfilled upon restart.
+- **Target scopes**: Broadcast text, photo albums, documents, synthesized voice bubbles, or AI web digests to an explicit chat list, all enabled chats where the bot can speak, or all enabled chats minus an exclusion list.
+- **Images and spoiler control**: Fixed-image tasks accept arrays of public `url`s or local `path`s (up to `CRON_MAX_IMAGES`), sending multiple images as a Telegram album captioned on the first item; random-image tasks draw one image per trigger. `is_blurred` controls whether photos carry a spoiler mask.
+- **Scheduled voice (`send_voice`)**: Synthesizes `content` with an optional `tone` prompt into a voice bubble. Requires a valid `agent.tts` block in `agent.json` (validated strictly on startup and hot reload).
+- **AI web search digests (`send_web_digest`)**: Searches a concise `topic` and formats up to `max_items` bullet items in MarkdownV2 per `instructions`, preferring `agent.web_search` and falling back to `agent.text`'s built-in search. If the model produces output without invoking search, `WEB_DIGEST_UNSEARCHED_WARNING` is prepended.
+- **Retention and topic routing**: Scheduled posts are kept permanently and land in the General topic in forum supergroups. One-shot (`just_once`) tasks and randomized window timers live in memory only; triggers missed while the service is stopped are never replayed on restart.
 
 ---
 
@@ -329,44 +354,54 @@ Scheduled tasks are configured by administrators in `config/dynamic/cron.json` a
 
 ## 🖥️ Mini App Management Console: APIs and Permission Boundaries
 
-When the optional `mini_app` object is configured in `config/static/bot.json`, the system starts a local `Bun.serve` HTTP server (`packages/mini-app-api-server/` with frontend in `packages/mini-app-frontend/`) and attaches `MenuButtonWebApp` (`App` button) in the SuperAdmin's private chat. For field definitions, see the [Configuration Guide](../../config_example/README/en.md#botjson); for full setup and recommended Cloudflare Tunnel configuration, see [11 Mini App Setup and Recommended Configuration](11-mini-app.md).
+When `mini_app` is configured in `config/static/bot.json`, the bot starts a local `Bun.serve` HTTP server (`packages/mini-app-api-server/`, serving the frontend from `packages/mini-app-frontend/`) and attaches `MenuButtonWebApp` (`App`) in the SuperAdmin's private chat. See the [Deployment Configuration Guide](../../config_example/README/en.md#botjson) for field schemas and [10 Mini App Setup and Recommended Configuration](10-mini-app.md) for Cloudflare Tunnel setup.
 
 ### 1. Authentication and Security Boundaries
-- **SuperAdmin Exclusive (`SUPER_ADMIN_USER_ID`)**: Every business API is restricted exclusively to the configured SuperAdmin. Requests first pass `headerGuard` (same-origin and credential header shape checks) and `initData` (Telegram WebApp `initData` HMAC-SHA256 verification, 45-minute freshness check, and `user.id === SUPER_ADMIN_USER_ID`); all business APIs except `GET /api/auth/precheck`, `POST /api/auth/login`, and `POST /api/auth/logout` additionally require a valid 45-minute session token (`X-Mini-App-Session`). When a request carries an unexpired session token issued more than 5 minutes ago (`MINI_APP_SESSION_REFRESH_THRESHOLD_MS`), the server automatically rotates the token and extends `expiresAt` by 45 minutes (`MINI_APP_SESSION_TTL_MS`), returning the refreshed credentials via `X-Mini-App-Session` and `X-Mini-App-Session-Expires-At` response headers (and the `/api/auth/precheck` response body) while permitting the static WebApp `initData.auth_date` across active session renewals until the user stops accessing the console. After rotation the previous token stays valid for 5 minutes for concurrent in-flight requests; the server keeps at most `MINI_APP_SESSION_MAX` (8) sessions, each occupying a single slot, and evicts the session issued or refreshed earliest when full.
-- **First-Screen Credentials and Lockout**: Validates `mini_app.password` when no authenticator is bound; once Google Authenticator (TOTP) is bound in the console (`memory/mini-app-totp/totp.json`), login prioritizes the 6-digit TOTP code for the current 30-second time step. 3 consecutive failures lock out the SuperAdmin ID for 30 minutes and send a one-time private-chat alert with unlock time and source IP.
-- **Protected Gallery Preview Assets**: Gallery image reads (`GET|HEAD /api/gallery/file/:fileName`) authenticate via a deterministic `assetToken` issued only on login or active session resumption, supporting 7-day immutable caching and `ETag` 304 revalidation.
+- **Single-page entry and frontend bundle gate (`MINI_APP_REJECT_HTML_PATH` / `MINI_APP_PAGE_GATE_COOKIE_NAME`)**:
+  - Enforced by `packages/mini-app-api-server/auth/pageGate.ts` across single-page routes (`/`, `/index.html`, and `${basePath}` aliases) and bundled frontend chunks (`/chunk-*` matching `MINI_APP_BUNDLE_ASSET_ROUTE_PATTERN`).
+  - **Unauthorized SPA isolation**: Requests lacking a valid SuperAdmin `initData` header or `MINI_APP_PAGE_GATE_COOKIE_NAME` cookie (`HttpOnly; SameSite=Lax`, 45-minute `MINI_APP_PAGE_GATE_COOKIE_MAX_AGE_SECONDS`), or arriving during a 30-minute password lockout, never receive the SPA bundle—returning standalone `packages/mini-app-api-server/resource/reject.html` (zero external requests; on WebView cold launch it extracts local `initData`, calls `./api/auth/precheck` to obtain the gate cookie, and reloads once).
+  - **Frontend chunk protection**: Unauthorized `/chunk-*` requests return `401`/`403` JSON; authorized chunks carry `MINI_APP_BUNDLE_CACHE_CONTROL`, `CDN-Cache-Control: no-store`, and `Vary` (`MINI_APP_BUNDLE_VARY_HEADER_VALUE`).
+- **SuperAdmin exclusive (`SUPER_ADMIN_USER_ID`)**:
+  - Every API route runs synchronously through `authorizeMiniAppRequest` (`MiniAppAuthPolicy`): `headerGuard` validates same-origin headers and credential header shape, followed by HMAC-SHA256 verification of Telegram WebApp `initData`, the 45-minute freshness window, and `user.id === SUPER_ADMIN_USER_ID`.
+  - All business routes except `GET /api/auth/precheck`, `POST /api/auth/login`, and `POST /api/auth/logout` also require an active 45-minute session token (`X-Mini-App-Session`).
+  - **Sliding renewal**:
+    - When a valid session token is older than 5 minutes (`MINI_APP_SESSION_REFRESH_THRESHOLD_MS`), the server rotates the token and extends expiry by 45 minutes (`MINI_APP_SESSION_TTL_MS`) via `X-Mini-App-Session` and `X-Mini-App-Session-Expires-At` headers (plus `/api/auth/precheck`'s body), continuing to accept the static `initData.auth_date` while active.
+    - Previous tokens remain valid for a 5-minute concurrent grace window; at most `MINI_APP_SESSION_MAX` (8) sessions are kept, evicting the oldest slot when full.
+- **First-screen credentials and lockout**: Validates `mini_app.password` until Google Authenticator (TOTP) is bound (`memory/mini-app-totp/totp.json`), after which login requires the current 30-second 6-digit TOTP code. Three consecutive failures lock out `SUPER_ADMIN_USER_ID` for 30 minutes, clear all sessions and the gate cookie, and send a one-time private-chat alert with unlock time and source IP.
+- **Protected gallery previews**: `GET|HEAD /api/gallery/file/:fileName` authenticates via either a deterministic `assetToken` issued on login/session resumption (enabling 7-day immutable caching + `ETag` `304`) or SuperAdmin `initData` paired with an active `X-Mini-App-Session` token.
 
 ### 2. HTTP API Routes and Capabilities
 
 | Route | Method | Permission and Boundary Notes |
 | :--- | :---: | :--- |
-| `/api/auth/precheck`<br>`/api/auth/login`<br>`/api/auth/logout` | `GET`<br>`POST`<br>`POST` | Verifies `initData` signature and SuperAdmin identity, returns login mode (`password` or `totp`), resumes or auto-refreshes (when issued over 5 minutes ago) an active session, or issues a new 45-minute `sessionToken` and `assetToken`; logout revokes the session carried in the `X-Mini-App-Session` header (without refreshing the token, and succeeding even when the session is already gone) |
-| `/api/totp`<br>`/api/totp/setup`<br>`/api/totp/enable`<br>`/api/totp/delete` | `GET`/`DELETE`<br>`POST` | Queries, generates a pending secret & QR code, verifies a 6-digit code to enable, or deletes the Google Authenticator 2FA secret |
-| `/api/status`<br>`/api/mood`<br>`/api/mood/switch` | `GET`<br>`GET`<br>`POST` | Queries live system metrics (uptime, CPU average load, memory PSS, managed chat count, active sessions, AI capability readiness, Telegram outbound gate), and queries or redraws the global AI mood |
-| `/api/chats`<br>`/api/chats/:chatId` | `GET` | Lists `/init`-enabled managed chats, or queries a single chat's detail (feature switches, hot message count, quiet/lockdown remaining time, Bot admin permissions `botPermissions`, 1–24 hour rolling join counts `joinedCountsByHour`, and `/batch_kick` execution state) |
-| `/api/chats/:chatId/messages` | `GET` | Paginates and searches recent messages in the chat's in-memory hot 256 buffer |
-| `/api/chats/:chatId/feature` | `POST` | Toggles per-chat features (`init`, `aiChat`, `translation`, `adDetect`, `floodControl`, `antiRaid`, `proxySend`); disabling `init` executes runtime teardown and state purge in the same order as `/init disable`, disabling `antiRaid` returns `ANTI_RAID_DISABLED_TEARDOWN_FAILED` when the runtime teardown fails (the switch is already persisted, matching the `/antiraid disable` reply), and enabling `proxySend` shares the single-active-chat constraint with private `/send` |
-| `/api/chats/:chatId/batch-kick` | `POST` | Triggers `/batch_kick` for a `1..24` hour lookback window in a verified supergroup (reads `chatIsSupergroupById` first and falls back to `getChat` to populate the cache; basic groups are rejected with `notSupergroup` and `getChat` probe failures with `unavailable`); shares the `batchKickChats` single-flight lock and background executor with the `/batch_kick` command, recording completion summaries in `miniAppBatchKickCompletedByChat` |
-| `/api/chats/:chatId/targets` | `GET`<br>`POST` | Queries or mutates per-chat custom QA pairs (`setQa`/`removeQa`), delete-message targets (`addDeleteTarget`/`removeDeleteTarget`), and translate targets (`addTranslateTarget`/`removeTranslateTarget`) |
-| `/api/identities/whitelist`<br>`/api/identities/permission`<br>`/api/identities/blocklist` | `GET`/`POST`<br>`POST`<br>`GET`/`POST` | Paginates and searches allowlist/blocklist via `readIdentityPolicyEntries` cold reads (overlaying unacknowledged writes without polluting the main-thread hot policy LRU, while bidirectionally aligning display metadata with the main-thread `senderIdentity` cache), adds/removes entries, and updates fine-grained allowlist permissions or enables all (`enableAll`) |
-| `/api/picker/prepare`<br>`/api/picker/result` | `POST`<br>`GET` | Calls Telegram `savePreparedKeyboardButton` to prepare a native contact or channel picker session and polls `users_shared`/`chat_shared` import results (supporting `whitelist`, `blocklist`, `deleteMessage`, and `translate` target lists) |
-| `/api/gallery`<br>`/api/gallery/upload`<br>`/api/gallery/delete`<br>`/api/gallery/file/:fileName`<br>`/api/gallery/download/:fileName` | `GET`<br>`POST`<br>`POST`<br>`DELETE`<br>`GET`/`HEAD` | Paginates the dedicated image gallery, uploads raw image bytes (applying the same SHA-256 content-addressed deduplication and dimension pre-checks as `/h_image add`), or deletes/downloads original images |
+| `/`<br>`/index.html`<br>`/favicon.ico`<br>`/healthz` | `GET`/`HEAD` | `/` and `/index.html` enforce the SuperAdmin gate (serving on-demand materialized SPA HTML when authorized, or standalone `reject.html` when unauthorized/locked out); `/chunk-*` serves gated chunks with private revalidated caching; `/favicon.ico` serves the icon; `/healthz` returns `{ ok: true }` |
+| `/api/auth/precheck`<br>`/api/auth/login`<br>`/api/auth/logout` | `GET`<br>`POST`<br>`POST` | Verifies `initData` + SuperAdmin ID; returns login mode (`password`/`totp`), resumes/rotates (>5 min) an active session, or issues a 45-min `sessionToken` + `assetToken` (`200` `precheck`/`login` set/refresh `MINI_APP_PAGE_GATE_COOKIE_NAME`; rejected prechecks and lockouts clear it). `logout` revokes `X-Mini-App-Session` idempotently without refreshing |
+| `/api/totp`<br>`/api/totp/setup`<br>`/api/totp/enable`<br>`/api/totp/delete` | `GET`/`DELETE`<br>`POST` | Queries status, generates a pending secret + QR code, verifies a 6-digit code to enable, or deletes Google Authenticator 2FA; enabling, replacing, or deleting revokes all other active sessions besides the caller's session |
+| `/api/status`<br>`/api/mood`<br>`/api/mood/switch` | `GET`<br>`GET`<br>`POST` | Queries live runtime metrics (uptime, CPU load, memory PSS, managed chats, active sessions, AI capability readiness, Telegram outbound gate) and queries or rerolls the global AI mood |
+| `/api/chats`<br>`/api/chats/:chatId` | `GET` | Lists `/init`-enabled managed chats, or inspects a single chat (feature flags, hot message count, quiet/lockdown remaining time, `botPermissions`, 1–24h deduplicated join counts `joinedCountsByHour`, and `/batch_kick` state) |
+| `/api/chats/:chatId/messages` | `GET` | Paginates and keyword-searches recent messages in the chat's 256-entry in-memory hot buffer |
+| `/api/chats/:chatId/feature` | `POST` | Toggles per-chat switches (`init`, `aiChat`, `translation`, `adDetect`, `floodControl`, `antiRaid`, `proxySend`); disabling `init` runs teardown and purge in `/init disable` order, disabling `antiRaid` returns `ANTI_RAID_DISABLED_TEARDOWN_FAILED` if runtime teardown fails after persisting, and `proxySend` shares single-chat exclusivity with private `/send` |
+| `/api/chats/:chatId/batch-kick` | `POST` | Runs `/batch_kick` for a `1..24`h window in a verified supergroup (checks `chatIsSupergroupById` or probes `getChat`; rejects basic groups with `notSupergroup` and probe failures with `unavailable`); shares `batchKickChats`, `batchKickInFlightSeqByChat`, and the background executor with `/batch_kick`, storing completion reports in `miniAppBatchKickCompletedByChat` (cleared on data-purging teardowns, kept on `lostAuthority`) |
+| `/api/chats/:chatId/targets` | `GET`<br>`POST` | Queries or mutates per-chat custom Q&A pairs (`setQa`/`removeQa`), delete-message targets (`addDeleteTarget`/`removeDeleteTarget`), and translate targets (`addTranslateTarget`/`removeTranslateTarget`) |
+| `/api/identities/whitelist`<br>`/api/identities/permission`<br>`/api/identities/blocklist` | `GET`/`POST`<br>`POST`<br>`GET`/`POST` | Paginates (by `page`/`pageSize` or `afterId`/`limit` cursor) and searches (by name, username, or ID via `query`/`q`) allowlist/blocklist via `readIdentityPolicyEntries` cold reads (overlaying unacked writes without polluting the hot policy LRU and syncing display metadata with `senderIdentity`), adds/removes entries, and updates permissions or grants all (`enableAll`) |
+| `/api/picker/prepare`<br>`/api/picker/result` | `POST`<br>`GET` | Calls `savePreparedKeyboardButton` to prepare a native user/channel picker and polls `users_shared`/`chat_shared` imports (`whitelist`, `blocklist`, `deleteMessage`, `translate`; per-chat `deleteMessage` and `translate` verify `/init` first and return `CHAT_NOT_INITIALIZED` otherwise) |
+| `/api/gallery`<br>`/api/gallery/upload`<br>`/api/gallery/delete`<br>`/api/gallery/file/:fileName`<br>`/api/gallery/download/:fileName` | `GET`<br>`POST`<br>`POST`<br>`DELETE`<br>`GET`/`HEAD` | Paginates the dedicated image library, uploads raw binary images (sharing SHA-256 content addressing and dimension pre-checks with `/h_image add`), or deletes/downloads originals |
 
 ### 3. Conflict and Boundary Guards for Lists and Chat Targets
 - **Allowlist and Blocklist Addition Guards (shared by ID input and native picker)**:
-  - Strict mutual exclusivity: adding a blocklisted identity to the allowlist returns `IDENTITY_IN_BLOCKLIST`; adding an allowlisted identity to the blocklist returns `IDENTITY_IN_WHITELIST`.
-  - SuperAdmin exemption: attempting to add `SUPER_ADMIN_USER_ID` to the allowlist returns `SUPER_ADMIN_EXEMPT`; attempting to add to the blocklist returns `BLOCKLIST_SUPER_ADMIN_FORBIDDEN`.
-  - Self and managed-chat rejection: adding the Bot itself (`TARGET_SELF_FORBIDDEN`) or any `/init`-enabled managed group chat (`TARGET_CURRENT_CHAT_FORBIDDEN`) to the allowlist or blocklist is rejected.
-  - When a native picker import (`handleMiniAppSharedMessage`) adds zero entries and encounters non-duplicate rejections, it propagates the first specific boundary status code and rejected identity ID so the frontend displays the targeted warning notice.
+  - **Strict mutual exclusivity**: Adding a blocklisted identity to the allowlist returns `IDENTITY_IN_BLOCKLIST`; adding an allowlisted identity to the blocklist returns `IDENTITY_IN_WHITELIST`.
+  - **SuperAdmin exemption**: Adding `SUPER_ADMIN_USER_ID` to the allowlist returns `SUPER_ADMIN_EXEMPT`; adding to the blocklist returns `BLOCKLIST_SUPER_ADMIN_FORBIDDEN`.
+  - **Self and managed-chat rejection**: Adding the Bot itself (`TARGET_SELF_FORBIDDEN`) or any `/init`-enabled managed group (`TARGET_CURRENT_CHAT_FORBIDDEN`) is rejected.
+  - **Picker error propagation**: When a native picker import (`handleMiniAppSharedMessage`) adds zero entries and hits non-duplicate rejections, it surfaces the first specific boundary code and rejected ID for targeted UI warnings.
 - **Per-Chat QA, Delete-Message, and Translate Target Guards**:
-  - **QA pairs (`qa`)**: Non-empty question and answer bounded by `CHAT_QA_QUESTION_MAX_CHARS`, `CHAT_QA_ANSWER_MAX_CHARS`, and `CHAT_QA_MAX_PER_CHAT`; renderable `/command` strings are rejected in the question and outside `pre` code fences in the answer.
-  - **Delete-message targets (`deleteMessage`)**: Requires the Bot to hold `canDeleteMessages` in the chat (`DELETE_TARGET_MISSING_BOT_PERMISSION`); rejects `SUPER_ADMIN_USER_ID` (`DELETE_TARGET_SUPER_ADMIN_FORBIDDEN`), the Bot itself (`TARGET_SELF_FORBIDDEN`), and the current chat (`TARGET_CURRENT_CHAT_FORBIDDEN`); verifies user presence in the chat when online (`TARGET_NOT_IN_CHAT`); capped at `DELETE_MESSAGE_CHAT_TARGET_MAX`.
-  - **Translate targets (`translate`)**: Requires `g-auth.json` readiness and per-chat `isTranslationEnabled` (`TRANSLATE_FEATURE_DISABLED`); supports `ja`/`cn`/`en`/`uk`/`ru`; rejects the Bot itself and the current chat, verifies user presence when online, and enforces `TRANSLATE_CHAT_USER_LIMIT` (updating the language in place when the target already exists).
+  - **QA pairs (`qa`)**: Non-empty question and answer bounded by `CHAT_QA_QUESTION_MAX_CHARS`, `CHAT_QA_ANSWER_MAX_CHARS`, and `CHAT_QA_MAX_PER_CHAT`; renderable `/command` tokens are rejected in questions and outside `pre` code fences in answers.
+  - **Delete-message targets (`deleteMessage`)**: Requires `canDeleteMessages` (`DELETE_TARGET_MISSING_BOT_PERMISSION`); rejects `SUPER_ADMIN_USER_ID` (`DELETE_TARGET_SUPER_ADMIN_FORBIDDEN`), the Bot itself (`TARGET_SELF_FORBIDDEN`), and the current chat (`TARGET_CURRENT_CHAT_FORBIDDEN`); checks live chat membership when online (`TARGET_NOT_IN_CHAT`); capped at `DELETE_MESSAGE_CHAT_TARGET_MAX`.
+  - **Translate targets (`translate`)**: Requires `g-auth.json` readiness and per-chat `isTranslationEnabled` (`TRANSLATE_FEATURE_DISABLED`); accepts `ja`/`cn`/`en`/`uk`/`ru`; rejects the Bot itself and the current chat, checks live user membership when online, and enforces `TRANSLATE_CHAT_USER_LIMIT` (updating target language in place for existing targets).
 
 ---
 
 <div align="center">
 
-[← Prev: 08 Images and Scheduled Tasks](08-images-and-cron.md) · [📚 Developer Docs Home](content-table.md) · [⬆️ Back to Top](#09-command-and-behavior-reference) · [Next: 10 Performance Benchmark →](10-performance.md)
+[← Prev: 08 Images and Scheduled Tasks](08-images-and-cron.md) · [📚 Developer Docs Home](content-table.md) · [⬆️ Back to Top](#09-command-and-behavior-reference) · [Next: 10 Mini App Setup →](10-mini-app.md)
 
 </div>

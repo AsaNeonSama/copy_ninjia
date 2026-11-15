@@ -25,7 +25,7 @@ import type {
   MiniAppIdentityAddMode,
   MiniAppTranslateLanguage,
 } from "../types/miniApp";
-import { useMiniAppStore } from "./app";
+import { notifyMiniAppIfAuthError, useMiniAppStore } from "./app";
 import type { MiniAppUiStoreState } from "./app";
 import { createChatTargetsActions } from "./chatTargetsActions";
 
@@ -109,19 +109,19 @@ export interface MiniAppChatsStoreState {
   readonly toggleTargetsMenu: () => void;
   /** 关闭「目标与问答」下拉菜单。 */
   readonly closeTargetsMenu: () => void;
-  /** 打开指定类别的目标管理弹窗并拉取最新目标清单。 */
+  /** 打开指定类别的目标管理弹窗；当前群已持有缓存清单时静默校验更新，未缓存时进入加载骨架态。 */
   readonly openTargetsModal: (kind: MiniAppChatTargetKind) => void;
   /** 在已打开的目标管理弹窗内切换类别标签并收起问答编辑器及目标添加菜单。 */
   readonly switchTargetsModalTab: (kind: MiniAppChatTargetKind) => void;
   /** 关闭目标管理弹窗。 */
   readonly closeTargetsModal: () => void;
-  /** 拉取当前群的目标管理清单。 */
-  readonly loadChatTargets: () => Promise<void>;
+  /** 拉取当前群的目标管理清单；传 `silent = true` 时保留现有列表静默刷新，不置 `loadingTargets`。 */
+  readonly loadChatTargets: (silent?: boolean) => Promise<void>;
   /** 展开问答对的触发问题与自动回答编辑面板。 */
   readonly openQaEditor: () => void;
   /** 收起问答对编辑面板并清空输入框。 */
   readonly closeQaEditor: () => void;
-  /** 展开删发言目标或翻译目标的三选一添加面板。 */
+  /** 校验当前目标面板前置条件（缺权限或未开翻译时发出警告提示），展开三选一添加面板并收起翻译语言菜单。 */
   readonly openTargetAddMenu: () => void;
   /** 收起删发言目标或翻译目标的三选一添加面板与内联表单。 */
   readonly closeTargetAddMenu: () => void;
@@ -155,11 +155,17 @@ export interface MiniAppChatsStoreState {
   readonly submitTranslateTarget: () => Promise<void>;
   /** 弹出确认后移除指定 ID 的翻译目标。 */
   readonly removeTranslateTarget: (targetId: number) => Promise<void>;
-  /** 切换当前群的单项功能开关（关闭 `/init` 前先弹出确认，请求期间保持对应功能行最短骨架动画展示时长）；响应返回时用户已切到其他群则只回报结果，不改写当前视图（停在群列表且该群已移出时刷新列表）。 */
+  /**
+   * 切换当前群的单项功能开关（关闭 `/init` 前先弹出确认，请求期间保持对应功能行骨架屏最短展示时长）。
+   * 响应返回时若用户已切到其他群则仅提示结果、不改写当前详情；停在群列表且该群已移出时刷新列表。
+   */
   readonly toggleFeature: (feature: MiniAppFeatureKey, enabled: boolean) => Promise<void>;
   /** 更新 `/batch_kick` 回溯小时数（夹紧在 `1..24` 区间）。 */
   readonly setBatchKickHours: (hours: number) => void;
-  /** 按当前选中的回溯小时数确认并触发 `/batch_kick` 批量清理；响应返回时用户已切到其他群则只回报结果，不改写当前视图（停在群列表且该群已移出时刷新列表）。 */
+  /**
+   * 按当前选中的回溯小时数确认并触发 `/batch_kick` 批量清理。
+   * 响应返回时若用户已切到其他群则仅提示结果、不改写当前详情；停在群列表且该群已移出时刷新列表。
+   */
   readonly runBatchKick: () => Promise<void>;
   /** 在后台 `/batch_kick` 执行期间静默刷新当前群详情，检测服务端完成回调写入的结束状态。 */
   readonly pollRunningBatchKick: () => Promise<void>;
@@ -215,7 +221,8 @@ export function createChatsStore(): MiniAppChatsStore {
       };
 
       /**
-       * 以开关或批量清理接口回传的最新详情覆盖当前群详情，并作废仍在途的详情读取（`loadDetail`）：
+       * 以功能开关、目标增删或批量清理接口回传的最新详情覆盖当前群详情，并作废仍在途的详情读取
+       * （`loadDetail`、`refreshWindowJoinedCount`、`pollRunningBatchKick`）：
        * 更早发出、其后才返回的读取结果被丢弃。调用方须先确认用户仍停留在该群。
        * @param detail 变更接口回传的群详情。
        */
@@ -232,14 +239,23 @@ export function createChatsStore(): MiniAppChatsStore {
           }
           return;
         }
+        const detailEpoch: number = detailReqSeq;
         try {
           const detail: MiniAppChatDetail = await fetchMiniAppChatDetail(chatId);
           if (reqId !== windowJoinedReqSeq || get().selectedChatId !== chatId) {
             return;
           }
+          if (detailEpoch !== detailReqSeq) {
+            set({ loadingWindowJoined: false });
+            return;
+          }
           set({ chatDetail: detail, loadingWindowJoined: false });
         } catch (error: unknown) {
           if (reqId !== windowJoinedReqSeq || get().selectedChatId !== chatId) {
+            return;
+          }
+          if (detailEpoch !== detailReqSeq) {
+            set({ loadingWindowJoined: false });
             return;
           }
           set({ loadingWindowJoined: false });
@@ -288,18 +304,15 @@ export function createChatsStore(): MiniAppChatsStore {
             if (reqId !== listReqSeq) {
               return;
             }
-            set({ chats: items });
+            set({ chats: items, loadingList: false });
           } catch (error: unknown) {
             await waitMinimumLoadingDuration(startedAt);
             if (reqId !== listReqSeq) {
               return;
             }
+            set({ loadingList: false });
             const message: string = errorMessage(error);
             useMiniAppStore.getState().notify(message, "info", error);
-          } finally {
-            if (reqId === listReqSeq) {
-              set({ loadingList: false });
-            }
           }
         },
 
@@ -311,13 +324,13 @@ export function createChatsStore(): MiniAppChatsStore {
           try {
             const detail: MiniAppChatDetail = await fetchMiniAppChatDetail(chatId);
             await waitMinimumLoadingDuration(startedAt);
-            if (reqId !== detailReqSeq) {
+            if (reqId !== detailReqSeq || get().selectedChatId !== chatId) {
               return;
             }
             set({ chatDetail: detail });
           } catch (error: unknown) {
             await waitMinimumLoadingDuration(startedAt);
-            if (reqId !== detailReqSeq) {
+            if (reqId !== detailReqSeq || get().selectedChatId !== chatId) {
               return;
             }
             const message: string = errorMessage(error);
@@ -359,10 +372,12 @@ export function createChatsStore(): MiniAppChatsStore {
 
         closeDetail: (): void => {
           cancelWindowJoinedRefresh();
+          detailReqSeq += 1;
           targetsReqSeq += 1;
           set({
             selectedChatId: null,
             chatDetail: null,
+            loadingDetail: false,
             botPermsExpanded: false,
             loadingWindowJoined: false,
             targetsMenuOpen: false,
@@ -407,6 +422,7 @@ export function createChatsStore(): MiniAppChatsStore {
         ...createChatTargetsActions({
           set,
           get,
+          applyMutationDetail,
           nextTargetsReqSeq: (): number => {
             targetsReqSeq += 1;
             return targetsReqSeq;
@@ -431,8 +447,9 @@ export function createChatsStore(): MiniAppChatsStore {
           ) {
             return;
           }
+          cancelWindowJoinedRefresh();
           const startedAt: number = Date.now();
-          set({ togglingFeature: feature });
+          set({ togglingFeature: feature, loadingWindowJoined: false });
           try {
             const result: MiniAppFeatureToggleResult = await toggleMiniAppChatFeature(
               chatId,
@@ -449,9 +466,22 @@ export function createChatsStore(): MiniAppChatsStore {
                 void get().loadChatList();
               }
             } else if (result.removedFromList || result.detail === null) {
+              detailReqSeq += 1;
+              targetsReqSeq += 1;
               set({
                 selectedChatId: null,
                 chatDetail: null,
+                loadingDetail: false,
+                botPermsExpanded: false,
+                targetsMenuOpen: false,
+                activeTargetsModal: null,
+                chatTargets: null,
+                loadingTargets: false,
+                mutatingTargets: false,
+                qaEditorOpen: false,
+                targetAddMenuOpen: false,
+                targetIdFormOpen: false,
+                translateLangMenuOpen: false,
                 chats: [],
                 loadingList: true,
                 togglingFeature: null,
@@ -539,7 +569,25 @@ export function createChatsStore(): MiniAppChatsStore {
                 void get().loadChatList();
               }
             } else if (result.outcome === "notInitialized" || result.detail === null) {
-              set({ selectedChatId: null, chatDetail: null, chats: [], loadingList: true });
+              detailReqSeq += 1;
+              targetsReqSeq += 1;
+              set({
+                selectedChatId: null,
+                chatDetail: null,
+                loadingDetail: false,
+                botPermsExpanded: false,
+                targetsMenuOpen: false,
+                activeTargetsModal: null,
+                chatTargets: null,
+                loadingTargets: false,
+                mutatingTargets: false,
+                qaEditorOpen: false,
+                targetAddMenuOpen: false,
+                targetIdFormOpen: false,
+                translateLangMenuOpen: false,
+                chats: [],
+                loadingList: true,
+              });
               void get().loadChatList();
             } else {
               applyMutationDetail(result.detail);
@@ -565,11 +613,12 @@ export function createChatsStore(): MiniAppChatsStore {
           ) {
             return;
           }
+          const detailEpoch: number = detailReqSeq;
           try {
             const nextDetail: Readonly<MiniAppChatDetail> =
               await fetchMiniAppChatDetail(selectedChatId);
             const current: MiniAppChatsStoreState = get();
-            if (current.selectedChatId !== selectedChatId) return;
+            if (current.selectedChatId !== selectedChatId || detailEpoch !== detailReqSeq) return;
             const wasRunning: boolean = current.chatDetail?.batchKickRunning === true;
             set({ chatDetail: nextDetail });
             if (
@@ -585,8 +634,9 @@ export function createChatsStore(): MiniAppChatsStore {
                 "info"
               );
             }
-          } catch (_error: unknown) {
-            // 后台轮询遇瞬时异常时静默等待下一轮。
+          } catch (error: unknown) {
+            // 会话失效或锁定时立即通知根仓库锁定控制台，其余后台轮询瞬时异常静默等待下一轮。
+            notifyMiniAppIfAuthError(error);
           }
         },
 

@@ -38,11 +38,11 @@ function adoptLuckSecret(secret: LuckReceiptSecret): void {
 }
 
 /**
- * 收下一条当日已确认结果；达到 DAILY_LUCK_CACHE_MAX 时拒收（不淘汰既有条目）并只记一行日志
- * （见 consts/luckChallenge.ts）。被拒的 key 重新预览仍得到同一结果（派生是确定性的）。
+ * 将当日已确认的抽签结果写入日缓存；达到 `DAILY_LUCK_CACHE_MAX` 上限时拒收（不淘汰既有条目）并仅记录一次告警日志
+ * （见 `consts/luckChallenge.ts`）。被拒收的键再次预览时仍由确定性派生得到相同结果。
  * @param cacheKey 当日运势缓存键。
  * @param draw 抽签结果。
- * @returns 真的收下了为 true；撑满拒收为 false，调用方据此决定要不要落盘。
+ * @returns 成功写入日缓存时返回 true；缓存已满拒收时返回 false（调用方据此跳过落盘投递）。
  */
 function admitDailyLuckEntry(cacheKey: string, draw: LuckDraw): boolean {
   if (!dailyLuckCache.has(cacheKey) && dailyLuckCache.size >= DAILY_LUCK_CACHE_MAX) {
@@ -176,16 +176,16 @@ export function getOrDrawLuck(cacheKey: string): LuckDraw {
 }
 
 /**
- * chosen result 或有效签名把 pending 转正；重复确认幂等。
+ * 凭 `chosen_inline_result` 或有效签名回执将 pending 抽签转正落盘；重复确认幂等。
  *
- * pending 未命中时的重建派生（deriveLuckDraw 是确定性的）只在密钥同日时进行：
- * 进程重启后确认信号迟到时，重建结果与用户看到的一致。进程内跨过配置时区的零点后
- * （luckRuntimeState.daySwitchedInProcess），pending 未命中一律丢弃，除非调用方证明
- * 确认属于当天（签名回执验签，见 receipt.ts 的 confirmLuckDraw）；
- * chosen_inline_result 不带日期证明，跨天后丢弃。
+ * - **同日重建**：若进程重启后确认信号迟到导致 pending 未命中，只要进程内尚未跨过配置时区零点，
+ *   可直接按当日密钥确定性重算（`deriveLuckDraw`），结果与用户所见一致。
+ * - **跨零点保护**：进程内跨过零点（`luckRuntimeState.daySwitchedInProcess`）后，pending 未命中默认直接丢弃
+ *   （`chosen_inline_result` 不携带日期证明）；仅当调用方已通过当日 HMAC 回执验签（`confirmedForToday === true`，
+ *   见 `receipt.ts` 的 `confirmLuckDraw`）时才允许用当日密钥重建派生。
+ *
  * @param cacheKey 当日运势缓存键。
- * @param confirmedForToday 调用方已证明这次确认属于当天（签名回执验签通过），
- *   允许在跨天后仍走重建派生。
+ * @param confirmedForToday 调用方是否已通过当日签名回执验签，证明该确认属于当前自然日。
  */
 export function promotePendingDraw(cacheKey: string, confirmedForToday: boolean = false): void {
   const pending: LuckDraw | undefined = pendingLuckDraws.get(cacheKey);

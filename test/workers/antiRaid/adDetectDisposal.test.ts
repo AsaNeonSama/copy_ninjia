@@ -61,6 +61,8 @@ function bundle(): AdMessageBundle {
         directText: "加我",
         receivedAt: 1_000,
         withinReferencedWarning: false,
+        stickerSetName: undefined,
+        customEmojiIds: undefined,
         replyTo: "在吗",
         quote: undefined,
       },
@@ -71,6 +73,8 @@ function bundle(): AdMessageBundle {
         directText: "微信 xxx",
         receivedAt: 1_100,
         withinReferencedWarning: false,
+        stickerSetName: undefined,
+        customEmojiIds: undefined,
         quote: undefined,
         replyTo: undefined,
       },
@@ -127,6 +131,38 @@ describe("广告处置副作用", () => {
     expect(sendTemporaryMessageFromMain).not.toHaveBeenCalled();
   });
 
+  test("纯贴纸命中黑名单时样本正文回退到贴纸包名", async () => {
+    const events: AdDetectedEvent[] = [];
+    adDetectPublishHolder.current = (event: AdDetectedEvent): void => { events.push(event); };
+    const stickerBundle: AdMessageBundle = {
+      ...bundle(),
+      entries: [
+        {
+          messageId: 21,
+          seq: 1,
+          text: "",
+          directText: "",
+          receivedAt: 1_000,
+          withinReferencedWarning: false,
+          stickerSetName: "SpamStickerPack",
+          customEmojiIds: undefined,
+          quote: undefined,
+          replyTo: undefined,
+        },
+      ],
+    };
+
+    await disposeAdSender({
+      bundle: stickerBundle,
+      judged: stickerBundle.entries,
+      verdict: { isAd: true, reason: "sticker_black_list:SpamStickerPack" },
+    });
+
+    expect(events[0]?.messages).toEqual([
+      { messageId: 21, text: "SpamStickerPack", quote: undefined, replyTo: undefined },
+    ]);
+  });
+
   test("播报标签按冻结的元数据与本进程氛围现算：频道念标题，缺名字时按氛围兜底", async () => {
     const { atmosphereState } = await import("../../../packages/cache/workers/antiRaid/atmosphere");
     const events: AdDetectedEvent[] = [];
@@ -167,6 +203,8 @@ describe("广告处置副作用", () => {
         directText: "微信 xxx",
         receivedAt: 1_100,
         withinReferencedWarning: false,
+        stickerSetName: undefined,
+        customEmojiIds: undefined,
         quote: undefined,
         replyTo: undefined,
       },
@@ -177,6 +215,8 @@ describe("广告处置副作用", () => {
         directText: "带你上岸",
         receivedAt: 1_200,
         withinReferencedWarning: false,
+        stickerSetName: undefined,
+        customEmojiIds: undefined,
         quote: undefined,
         replyTo: undefined,
       },
@@ -318,6 +358,8 @@ describe("广告处置副作用", () => {
       // 本机时间早于发送回执也不影响 Telegram 群内的权威消息顺序。
       receivedAt: 1_400,
       withinReferencedWarning: true,
+      stickerSetName: undefined,
+      customEmojiIds: undefined,
       quote: undefined,
       replyTo: undefined,
     });

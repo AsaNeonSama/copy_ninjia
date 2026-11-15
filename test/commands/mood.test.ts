@@ -32,7 +32,7 @@ mock.module("../../packages/aiChat", () => ({
     requestType === "queryMood" ? queryAiMood() : switchAiMood(),
 }));
 mock.module("../../packages/infra/logger", () => ({ logger: loggerStub({ error: loggerError }) }));
-mock.module("../../packages/infra/storage/stateStore", () => ({
+mock.module("../../packages/infra/chatStateStorage", () => ({
   getChatState: (chatId: number): Record<string, unknown> => states.get(chatId) ?? {},
 }));
 

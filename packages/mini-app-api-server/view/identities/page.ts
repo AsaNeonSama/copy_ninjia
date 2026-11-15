@@ -93,7 +93,7 @@ async function collectAllIdentityIds(
     for (const id of sweep.ids) {
       allIds.push(id);
     }
-    if (sweep.done || sweep.nextCursor === null || sweep.ids.length === 0) {
+    if (sweep.done || sweep.nextCursor === null) {
       break;
     }
     cursor = sweep.nextCursor;

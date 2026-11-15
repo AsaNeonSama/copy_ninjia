@@ -1,4 +1,4 @@
-/** `memory/wed/<chatId>.json` 的严格解码与序列化；DiskIO 启动校验、落盘与冷迁移共用，不接触缓存。 */
+/** `memory/wed/<chatId>.json` 成员滑窗文件的严格解码与序列化（纯函数，不接触缓存）。 */
 import { WED_MEMBER_LIMIT } from "../consts/wed";
 import { invalidInput } from "./inputValidation";
 import { hasExactKeys, isPlainRecord } from "./record";

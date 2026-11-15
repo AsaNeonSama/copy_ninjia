@@ -11,7 +11,7 @@
  */
 
 import type { ChatFullInfo, ChatMember, ChatPermissions } from "grammy/types";
-import { getChatStateCache } from "../infra/storage/stateStore";
+import { getChatStateCache } from "../infra/chatStateStorage";
 import { runTelegramAction } from "../infra/telegram/actions/core";
 import { bot } from "../infra/telegram/mainClient";
 import { telegramSignal } from "../libs/telegramSignal";
@@ -143,7 +143,7 @@ export async function resolveCronGroupTargets(
   const chatIds: number[] = [];
   let skipped: number = 0;
   for (const chatId of candidates) {
-    if (schedule.cancelled || signal.aborted) break;
+    if (schedule.cancellation.signal.aborted || signal.aborted) break;
     if (await canSendIn(chatId, needs, signal)) chatIds.push(chatId);
     else skipped++;
   }

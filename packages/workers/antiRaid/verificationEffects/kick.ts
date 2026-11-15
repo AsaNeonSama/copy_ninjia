@@ -1,3 +1,7 @@
+/**
+ * 私密模式入群秒踢副作用（Anti-Raid Worker 侧）：
+ * 核验执行 token、机器人权限、群类型与成员在群状态后执行超级群「只踢不封」或普通群踢出，并在异常时安排退避重试（约束见 `docs/cn/04-invariants.md`）。
+ */
 import { verificationEntries } from "../../../cache/workers/antiRaid/verification";
 import { logger } from "../../../infra/logger";
 import {

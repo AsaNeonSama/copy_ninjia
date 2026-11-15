@@ -41,27 +41,20 @@ type BlockAdmission =
   };
 
 /**
- * `/block <目标> enable`：把目标写进持久化黑名单，并在所有机器人是管理员的群里
- * 同时封禁（直接 ban，不同于入群验证与反刷群的自动踢出）。封禁对还没加入的群同样
- * 生效；每群只发一次封禁请求，封禁前不查询目标是否在群，战报只报封禁成功与失败的
- * 群数。群清单来自 infra/blocklist/membership.ts 的 managedAdminChatIds（各群
- * ChatState.botPermissions.isAdministrator，见 infra/botAdmin.ts）；权限快照已确证
- * 缺「限制与封禁成员」的群不发请求，直接计为失败。机器人在发起命令的这个群里不是
- * 管理员时，本群不在清单内，其它受管群照常封禁，回复里说明本群没封；清单为空时只
- * 回执名单写入结果（blockNoManagedChat）。
+ * `/block <目标> enable`：将目标写入永久黑名单，并在所有受管管理员群同步执行封禁。
  *
- * 名单写入与落盘确认、跨群封禁与战报都在该身份的黑名单串行位里依次执行：串行位空闲时
- * 名单写入在本条 update 内完成，跨群封禁与战报交给延迟命令执行器的后台档，update runner
- * 不等各群的 Telegram 请求（见 ./blocklistFanOut.ts）。
+ * - **跨群封禁范围**：受管群清单取自 `infra/blocklist/membership.ts` 的 `managedAdminChatIds`
+ *   （按各群 `ChatState.botPermissions.isAdministrator` 筛选）。每群直接发起一次封禁请求（不预先探测是否在群）；
+ *   权限快照已确证缺少「限制与封禁成员」的群直接计入失败。若机器人在发起群不是管理员，其它受管群照常封禁并在回执中注明本群跳过；
+ *   无受管群时仅回执名单写入结果（`blockNoManagedChat`）。
+ * - **同身份串行与后台扇出**：名单写入与落盘确认、跨群封禁及战报均在该身份的黑名单串行位内按序执行。
+ *   串行位空闲时名单写入在当前 update 内完成，跨群封禁与战报交由延迟命令执行器后台档运行（见 `./blocklistFanOut.ts`）。
+ * - **持久化与入群秒踢**：黑名单先于跨群封禁写入（与封禁成败无关），由 Disk I/O Worker 持久化至
+ *   `database/storage.sqlite`（见 `infra/identityStorage.ts`）；此后目标出现在任何监听群的入群事件中均会被秒踢
+ *   （见 `antiRaid/blocklistGuard.ts`）。
+ * - **目标解析与权限**：仅持有 `isCanBlock` 的身份可用；目标支持回复消息、身份缓存中的 `@username` 或正整数裸用户 ID
+ *   （频道目标须经回复或用户名解析，随后调用 `banChatSenderChat` 封禁该频道身份）。权限与受保护目标边界见 `docs/cn/04-invariants.md`。
  *
- * 黑名单先于封禁写入，与封禁结果无关；之后这个 id 出现在任何监听群的入群更新里都会
- * 被秒踢（见 antiRaid/blocklistGuard.ts），名单由 DiskIO Worker 持久化到
- * database/storage.sqlite（见 infra/identityStorage.ts）。
- *
- * 目标支持回复消息、当前身份缓存中的用户名或裸用户 id；回复与参数同时给出时
- * 必须指向同一身份。裸 id 只接受正整数；频道目标由回复或用户名解析，随后走
- * banChatSenderChat 限制该频道身份的发言。仅限持有 isCanBlock 的用户或频道身份
- * 使用，权限与目标保护约束见 docs/cn/04-invariants.md。
  * @param ctx grammY 命令上下文。
  * @param targetArgument 去掉末位动作后的目标参数原文，可为空（此时只认回复目标）。
  */

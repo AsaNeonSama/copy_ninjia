@@ -1,8 +1,10 @@
 import { invalidInput } from "../../packages/libs/inputValidation";
 
-/** 冷迁移 CLI 的停机备份根与独立产物目录。 */
+/** 冷迁移 CLI 解析出的停机备份源目录与新建产物目录。 */
 export interface SourceOutputRoots {
+  /** `--source-root` 指定的停机备份根目录路径。 */
   readonly sourceRoot: string;
+  /** `--output-root` 指定的独立迁移产物目录路径。 */
   readonly outputRoot: string;
 }
 

@@ -1,3 +1,7 @@
+/**
+ * 业务 Worker（AI 闲聊与 Anti-Raid）共用的线程通信底座：挂载主线程代理的 Telegram 客户端、
+ * 初始化双工请求出口，并统一分流入站日志回执、双工响应与业务消息。
+ */
 import { acceptForwardedLogBatch } from "../infra/logger";
 import { installTelegramApi } from "../infra/telegram/client";
 import { workerTelegramApi } from "../infra/telegram/workerClient";

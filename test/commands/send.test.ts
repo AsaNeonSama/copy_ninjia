@@ -3,8 +3,8 @@ import { STATE_MANAGED_CHAT_LIMIT } from "../../packages/consts/storage";
 import { replyCommandNoticeVia } from "../helpers/common";
 
 /**
- * 替换 infra/telegram、infra/telegram/mainClient 与 infra/storage/stateStore：
- * stateStore 使用内存 Map 覆盖 handleSendCommand 用到的接口（getChatState、
+ * 替换 infra/telegram、infra/telegram/mainClient 与 infra/chatStateStorage：
+ * chatStateStorage 使用内存 Map 覆盖 handleSendCommand 用到的接口（getChatState、
  * getOrCreateChatState、getActiveProxySendTarget、disableChatStateSwitch、
  * persistChatState），getActiveProxySendTarget 按真实实现的扫描语义查找。
  */
@@ -22,7 +22,7 @@ mock.module("../../packages/infra/telegram/mainClient", () => ({
 
 const chatStates = new Map<number, Record<string, unknown>>();
 const saveStateInBackgroundMock = mock((..._args: unknown[]): void => {});
-mock.module("../../packages/infra/storage/stateStore", () => ({
+mock.module("../../packages/infra/chatStateStorage", () => ({
   getChatState: (chatId: number): Record<string, unknown> => chatStates.get(chatId) ?? {},
   // 按「State 已经管满」建模：真实的 getOrCreateChatState 在 chat_states 已达
   // STATE_MANAGED_CHAT_LIMIT 时，为未知群新建状态会抛容量错（见 infra/chatStateStorage.ts 的 assertChatStateCapacity）；

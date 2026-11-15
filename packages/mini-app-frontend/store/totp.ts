@@ -75,7 +75,7 @@ export function createTotpStore(): MiniAppTotpStore {
             if (reqId !== requestSeq) {
               return;
             }
-            set({ totpStatus: next });
+            set({ totpStatus: next, loadingStatus: false });
             useMiniAppStore
               .getState()
               .setAuthMode(next.enabled ? "totp" : "password");
@@ -84,11 +84,8 @@ export function createTotpStore(): MiniAppTotpStore {
             if (reqId !== requestSeq) {
               return;
             }
+            set({ loadingStatus: false });
             useMiniAppStore.getState().notify(errorMessage(error), "info", error);
-          } finally {
-            if (reqId === requestSeq) {
-              set({ loadingStatus: false });
-            }
           }
         },
 

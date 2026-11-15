@@ -1,3 +1,7 @@
+/**
+ * AI 闲聊入站媒体接入流水线：记录相册参考图、将媒体消息写入滚动记忆（白名单贴纸目录命中时同步落字，
+ * 其余媒体先写占位并在后台识图/转写后原位回填），并在需要回复时同步衔接准入编排。
+ */
 import { composeMediaText, sanitizeInline } from "../../libs/text";
 import { displaySpeakerName } from "../../aiChat/ai/utils/chatTranscript";
 import { getCatalogEntry } from "../../aiChat/ai/stickers/catalog";

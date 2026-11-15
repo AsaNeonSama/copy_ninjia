@@ -45,6 +45,7 @@ export interface DiskIORequestChannel<TResult> {
   readonly label: string;
   /** 回执缺少载荷时的错误文案。 */
   readonly missingPayload: string;
+  /** 通道关联的请求等待表与序号计数器。 */
   readonly table: WorkerRequestTable<DiskIORequestOutcome<TResult>>;
 }
 
@@ -124,10 +125,15 @@ interface DiskIORuntime {
 
 /**
  * 主线程 Disk I/O Worker 宿主运行态：
- * - initDiskIO 填充 Worker 与配置，terminateDiskIO 结算等待者、清理队列与定时器并恢复默认值。
- * - operationQueue 保存单批在途业务与查询消息（容量上限 maxPendingBusinessMessages + DISK_OPERATION_CONTROL_RESERVE、字节上限 DISK_OPERATION_MAX_RETAINED_BYTES），收到批次 ACK 后释放；Worker 崩溃重建期间业务消息转入 pendingBusinessMessages 按原序重放，查询由宿主拒绝。
- * - diagnosticQueue 保存单批在途诊断与日志消息（容量上限 DISK_DIAGNOSTIC_MAX_PENDING_MESSAGES、字节上限 DISK_DIAGNOSTIC_MAX_SERIALIZED_BYTES），ACK 后排空，Worker 重建时原批重发；满额越界累加 diagnosticDroppedMessages 与 diagnosticDroppedSerializedBytes 并在恢复空间后追加汇总日志；diagnosticDrainWaiters 在并发 flush 时登记并在 ACK、超时、放弃自愈或 terminateDiskIO 时结算清空。
- * - respawnListeners、replyListeners、giveUpListeners 由各模块初始化时登记，Worker 重建时保留，进程重启后重新注册。
+ * - 生命周期：`initDiskIO` 填充 Worker 与配置，`terminateDiskIO` 结算等待者、清理队列与定时器并恢复默认值。
+ * - 业务队列：`operationQueue` 保存单批在途业务与查询消息（条数上限 `maxPendingBusinessMessages + DISK_OPERATION_CONTROL_RESERVE`、
+ *   字节上限 `DISK_OPERATION_MAX_RETAINED_BYTES`），收到批次 ACK 后释放；Worker 崩溃重建期间业务消息转入
+ *   `pendingBusinessMessages` 按原序重放，查询由宿主直接拒绝。
+ * - 诊断队列：`diagnosticQueue` 保存单批在途诊断与日志消息（条数上限 `DISK_DIAGNOSTIC_MAX_PENDING_MESSAGES`、字节上限
+ *   `DISK_DIAGNOSTIC_MAX_SERIALIZED_BYTES`），ACK 后排空，Worker 重建时原批重发；满额越界累加 `diagnosticDroppedMessages`
+ *   与 `diagnosticDroppedSerializedBytes`，恢复空间后追加汇总日志；`diagnosticDrainWaiters` 在并发 flush 时登记，
+ *   在 ACK、超时、放弃自愈或 `terminateDiskIO` 时结算清空。
+ * - 监听器：`respawnListeners`、`replyListeners`、`giveUpListeners` 由各模块初始化时登记，Worker 重建时保留，进程重启后重新注册。
  */
 export const diskIORuntime: DiskIORuntime = {
   worker: null,

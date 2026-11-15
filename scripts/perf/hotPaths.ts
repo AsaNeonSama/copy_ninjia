@@ -105,11 +105,10 @@ function readProcessPeakRssKb(): number {
 }
 
 /**
- * 读取当前进程的实时堆用量、RSS 与历史峰值 RSS。
+ * 读取当前进程的实时堆用量、RSS 与进程峰值 RSS。
  * @returns 当前时刻的实时内存快照。
  */
 function snapshotLiveMemory(): LiveMemorySnapshot {
-  // 三次读取都经 readInterruptibleMemory 包装。
   const processMemory: NodeJS.MemoryUsage = readInterruptibleMemory(process.memoryUsage);
   const jscMemory: ReturnType<typeof jscMemoryUsage> =
     readInterruptibleMemory(jscMemoryUsage);
@@ -272,8 +271,7 @@ async function runBenchmark(
     scenario.prepare?.();
   }
   /**
-   * 本场景是否同步：由预热的返回值判定，选择采样驱动；`Scenario.run` 的
-   * 同步/异步是场景的固定属性，正式采样不再探测。
+   * 本场景是否同步：由预热返回值确定；`Scenario.run` 的同步或异步形态固定，正式采样直接按此标志分派驱动。
    */
   let scenarioIsSynchronous: boolean = true;
   let checksum: number = 0;

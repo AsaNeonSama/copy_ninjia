@@ -17,7 +17,7 @@ import { storageRowSource } from "../database/validation/storageRows";
 import { chatAtmosphere } from "../infra/atmosphere";
 import { botChatPermissionsIn } from "../infra/botAdmin";
 import { registerChatTeardown } from "../infra/chatTeardownRegistry";
-import { getChatStateCache, persistChatState } from "../infra/storage/stateStore";
+import { getChatStateCache, persistChatState } from "../infra/chatStateStorage";
 import { replyCommandNotice } from "../infra/telegram";
 import { describeBotPermissionGap } from "../libs/botPermissionGap";
 import type { AtmosphereTexts } from "../types/atmosphere";

@@ -1,3 +1,8 @@
+/**
+ * 文字与各媒体 handler 共用的 AI Worker 记录载荷构造模块：
+ * 统一填充发言人身份与回复引用，并保持三个构造函数的公共字段顺序一致（稳定 hidden class）。
+ */
+
 import type {
   AiRecordMediaMessage,
   AiRecordMessage,
@@ -5,15 +10,7 @@ import type {
 import type { AiSpeakerSnapshot } from "../../types/aiChat/speaker";
 import type { MessageTriggerContext, RandomMediaTrigger } from "../../types/auto";
 
-/**
- * 文字与各媒体 handler 共用的 Worker 记录载荷构造边界，集中保持身份和回复
- * 关系一致。
- *
- * builder 直接产出完整消息，不创建公共字段投影，也不让调用点用对象展开重建
- * 同构载荷。options 字面量不逃逸，字段按固定顺序一次写齐。
- *
- * 字段顺序即 hidden class 顺序，三个 builder 的公共段保持一致。
- */
+/** 构造常规文字记录载荷的参数。 */
 export interface BuildAiRecordMessageParams {
   /** 消息触发上下文 */
   context: MessageTriggerContext;

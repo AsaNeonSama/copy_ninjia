@@ -1,4 +1,4 @@
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { chatStates } from "../schema/chatState";
 import { blocklistEntries, permissionList } from "../schema/identityPolicy";
 import { jsonbTextProjection } from "../schema/jsonb";
@@ -17,7 +17,7 @@ function idInPlaceholderList(column: SQLiteColumn): SQL {
 }
 
 /**
- * 为指定数据库连接预编译名单批量读取、临时广告免检批量读取与群状态主键读取语句。
+ * 为指定数据库连接预编译名单批量/单行读取、临时广告免检批量/单行读取与群状态主键读取语句。
  * @param database 共享存储数据库连接。
  * @returns 绑定到该连接的预编译读取语句句柄集合。
  */
@@ -28,13 +28,26 @@ export function prepareStorageDatabaseReader(database: StorageDatabase): Storage
       .from(permissionList)
       .where(idInPlaceholderList(permissionList.id))
       .prepare(),
+    whitelistPolicyById: database
+      .select({ id: permissionList.id, data: jsonbTextProjection(permissionList.data) })
+      .from(permissionList)
+      .where(eq(permissionList.id, sql.placeholder("id")))
+      .prepare(),
     blocklistPolicies: database
       .select({ id: blocklistEntries.id, data: jsonbTextProjection(blocklistEntries.data) })
       .from(blocklistEntries)
       .where(idInPlaceholderList(blocklistEntries.id))
       .prepare(),
+    blocklistPolicyById: database
+      .select({ id: blocklistEntries.id, data: jsonbTextProjection(blocklistEntries.data) })
+      .from(blocklistEntries)
+      .where(eq(blocklistEntries.id, sql.placeholder("id")))
+      .prepare(),
     temporaryAdBypassActivities: database.select().from(temporaryAdBypassEntries)
       .where(idInPlaceholderList(temporaryAdBypassEntries.id))
+      .prepare(),
+    temporaryAdBypassActivityById: database.select().from(temporaryAdBypassEntries)
+      .where(eq(temporaryAdBypassEntries.id, sql.placeholder("id")))
       .prepare(),
     chatStateIds: database.select({ chatId: chatStates.chatId }).from(chatStates).prepare(),
   };

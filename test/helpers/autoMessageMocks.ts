@@ -1,13 +1,8 @@
 /**
- * `auto/message` 消息流水线测试共用的模块桩、可调旋钮与逐用例复位。
+ * `auto/message` 消息流水线测试共用的模块替身、群状态旋钮与逐用例复位。
  *
- * 这一族用例（身份传递、贴纸回复、语音转写……）驱动的都是同一个
- * `handleIncomingMessageMiddleware`，要把同一批模块挡在外面：Telegram 出站、群状态、
- * 群标题记录、发送者缓存、AI Worker 投递、自发消息判定。统一安装完整边界；桩面随生产模块一起维护。
- *
- * 形态照 `test/helpers/adDetectQueueHarness.ts`：import 期登记 `mock.module`，
- * 必须在被测生产模块之前 import（各用例文件用顶层 `await import` 拿生产
- * 模块，天然满足）。差异通过导出的 mock 与旋钮配置。
+ * 统一替身 `handleIncomingMessageMiddleware` 的外部依赖（Telegram 出站、群状态、群标题记录、
+ * 发送者缓存、AI Worker 投递与自发消息判定）；须在动态导入被测生产模块之前静态导入本模块。
  */
 
 import { mock } from "bun:test";
@@ -60,11 +55,13 @@ mock.module("../../packages/infra/telegram", () => ({
   logApiError: (): void => {},
 }));
 mock.module("../../packages/infra/storage/stateStore", () => ({
-  clearChatStateField: (): boolean => false,
-  disableChatStateSwitch: (): boolean => false,
   activeCopyTargetIdIn: (): number | undefined => autoMessageCopyState.targetId,
   persistGlobalState: async (): Promise<void> => {},
   activeCopyModeIn: (): undefined => undefined,
+}));
+mock.module("../../packages/infra/chatStateStorage", () => ({
+  clearChatStateField: (): boolean => false,
+  disableChatStateSwitch: (): boolean => false,
   getActiveProxySendTarget: (): undefined => undefined,
   getChatState: (chatId: number): Record<string, unknown> => ({
     translate: autoMessageTranslateSessions.get(chatId),
@@ -100,7 +97,7 @@ mock.module("../../packages/infra/selfSentTracker", () => ({
   waitForBotOwnMessage: waitForBotOwnMessageMock,
 }));
 
-/** 逐用例复位：清空调用记录，带默认实现的替身 mockReset 后装回（连同没消费完的 *Once 一起清掉），旋钮拨回缺省。 */
+/** 逐用例复位调用记录、替身默认实现与群状态旋钮。 */
 export function resetAutoMessageMocks(): void {
   recordChatMessageMock.mockClear();
   recordChatMediaMock.mockClear();

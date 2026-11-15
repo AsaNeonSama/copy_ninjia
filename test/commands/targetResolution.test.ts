@@ -1,5 +1,5 @@
 import { TRANSLATE_TARGET_TEXTS } from "../../packages/consts/atmosphere/teasing/translate";
-import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import type { CachedUser } from "../../packages/types/chatState";
 import type { CommandTargetMessages } from "../../packages/types/commands";
 import { replyCommandNoticeVia } from "../helpers/common";
@@ -32,6 +32,9 @@ mock.module("../../packages/commands/liveTargetIdentity", () => ({ readLiveTarge
 const { resolveCommandTarget } = await import("../../packages/commands/targetResolution");
 const identityStorage = await import("../../packages/infra/identityStorage");
 const prefetchIdentityPolicies = spyOn(identityStorage, "prefetchIdentityPolicies");
+afterAll((): void => {
+  prefetchIdentityPolicies.mockRestore();
+});
 const { IDENTITY_POLICY_UNAVAILABLE_TEXT } = await import("../../packages/consts/atmosphere/teasing/commands");
 const { NOTICE_TEXTS } = await import("../../packages/consts/atmosphere/teasing/notices");
 const { INVALID_USERNAME_ECHO_MAX_CHARS, TELEGRAM_USERNAME_MIN_LENGTH, TELEGRAM_USERNAME_MAX_LENGTH } = await import("../../packages/consts/commands");

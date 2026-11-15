@@ -46,7 +46,7 @@ interface CapabilityDetailContentProps {
 }
 
 /**
- * 判断折叠面板内部明细列表的前后属性是否等价，使展开/收起切换第 1 帧完全跳过内部条目 VDOM 调和。
+ * 比较折叠面板内部明细列表的前后属性（仅核对翻译字典、情绪状态、回调与子系统快照，忽略外层展开态变化）。
  *
  * @param prev 上一次渲染的属性
  * @param next 本次渲染的属性
@@ -163,7 +163,7 @@ const CapabilityDetailContent: React.MemoExoticComponent<
 > = memo(CapabilityDetailContentView, areCapabilityDetailContentPropsEqual);
 
 /**
- * 判断单个子系统折叠项组件的前后属性是否等价，避免 3 秒轮询或兄弟面板展开时触发重渲染与动画打断。
+ * 比较单个子系统折叠项的前后属性（按展开状态、翻译字典、情绪状态、回调引用与子系统快照深度相等跳过重渲染）。
  *
  * @param prev 上一次渲染的属性
  * @param next 本次渲染的属性

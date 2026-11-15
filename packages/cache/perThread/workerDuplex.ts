@@ -4,13 +4,21 @@ import type { WorkerDuplexOutbound } from "../../types/workerDuplex";
 
 /** 单个跨线程双工请求的等待者记录。 */
 export interface WorkerDuplexWaiter {
+  /** 请求成功完成时的决议回调。 */
   readonly resolve: (value: unknown) => void;
+  /** 请求失败或取消时的拒绝回调。 */
   readonly reject: (reason?: unknown) => void;
+  /** 调用方传入的取消信号。 */
   readonly signal: AbortSignal | undefined;
+  /** 绑定在 `signal` 上的取消监听回调引用，结算时用于移除监听。 */
   readonly abortListener: (() => void) | undefined;
 }
 
-/** 当前 Worker isolate 尚未收到主线程回执的请求等待表（requestId -> WorkerDuplexWaiter）：发出请求时登记，收到回执、signal 中止或 resetWorkerDuplex 时结算并删除；容量受各 Worker 业务并发上限与主线程 Telegram 总闸约束，不淘汰，Worker 重建后从空表开始。 */
+/**
+ * 当前 Worker isolate 尚未收到主线程回执的请求等待表（`requestId` -> `WorkerDuplexWaiter`）：
+ * - 填充与清理：发出请求时登记，收到回执、`signal` 中止或 `resetWorkerDuplex` 时结算并删除；
+ * - 容量与重建：受各 Worker 业务并发上限与主线程 Telegram 总闸约束，不淘汰，Worker 重建后从空表开始。
+ */
 export const workerDuplexWaiters: Map<number, WorkerDuplexWaiter> = new Map();
 
 /** 当前 Worker isolate 的双工请求单调递增编号发号器：每次发出请求时自增，resetWorkerDuplex 不归零，Worker 重建后从零开始；单例标量。 */

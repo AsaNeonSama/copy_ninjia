@@ -1,7 +1,7 @@
 import { miniAppActiveUrlPartsHolder } from "../../cache/main/miniApp";
 import { getBotMiniAppConfig } from "../../config/bot";
 import type { BotMiniAppConfig } from "../../types/config";
-import type { MiniAppPublicUrlParts } from "../../types/miniApp";
+import type { MiniAppPublicUrlParts } from "../../types/miniApp/server";
 
 /** `normalizeRoutePathname` 的返回结果。 */
 export interface NormalizedRoutePath {
@@ -40,9 +40,10 @@ export function configuredBasePathname(): string {
 }
 
 /**
- * 将请求路径按 `mini_app.url` 配置的子路径前缀剥离为内部标准路径（同时兼容反向代理保留前缀或剥离前缀两种转发模式，覆盖公开页面、打包入口静态资源与业务 API）。
+ * 按 `mini_app.url` 配置的子路径前缀将请求路径归一化为内部路由路径：
+ * 请求路径恰为无末尾斜杠的 `${basePath}` 时给出 `308` 补斜杠目标，带 `${basePath}/` 前缀时剥离前缀，无前缀时保持原路径（兼容保留前缀与剥离前缀两种反代转发模式）。
  * @param rawPathname 原始 `url.pathname`。
- * @returns 归一化后的内部路由路径，或需重定向补齐末尾斜杠的指示。
+ * @returns 归一化后的内部路由路径，以及可选的补斜杠重定向目标。
  */
 export function normalizeRoutePathname(rawPathname: string): NormalizedRoutePath {
   const basePath: string = configuredBasePathname();

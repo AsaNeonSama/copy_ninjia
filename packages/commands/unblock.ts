@@ -38,16 +38,15 @@ async function removeFromBlocklist(targetUser: CachedUser): Promise<UnblockListO
 }
 
 /**
- * `/block <目标> disable`：移除持久化黑名单身份，并解除已知管理群中的群级封禁。
- * 由 commands/block.ts 的 handleBlockCommand 按末位动作分派，只认 isCanUnBlock。
+ * `/block <目标> disable`：移除持久化黑名单身份，并在所有受管管理员群同步解除封禁
+ * （由 `commands/block.ts` 的 `handleBlockCommand` 按末位动作分派，仅认 `isCanUnBlock`）。
  *
- * 移出名单并等待持久化结果、跨群解封与回执都在该身份的黑名单串行位里依次执行：串行位
- * 空闲时名单解除在本条 update 内完成，跨群解封与回执交给延迟命令执行器的后台档，update
- * runner 不等各群的 Telegram 请求（见 ./blocklistFanOut.ts）。持久化失败仍继续解封，并在
- * 回执中附加警告。revision/ACK 与崩溃重放约束见 docs/cn/04-invariants.md。
+ * - **同身份串行与后台扇出**：移出名单并等待落盘确认、跨群解封与回执均在该身份的黑名单串行位内依次执行。
+ *   串行位空闲时名单移除在当前 update 内完成，跨群解封与回执交由延迟命令执行器后台档运行（见 `./blocklistFanOut.ts`）。
+ *   落盘确认失败时仍继续跨群解封并在回执中附带警告；revision/ACK 与崩溃重放约束见 `docs/cn/04-invariants.md`。
+ * - **目标解析**：支持回复消息、`@username`、正整数裸用户 ID 或负数频道 ID（裸 ID 不要求命中身份缓存；
+ *   同时给出回复与参数时须指向同一身份）。
  *
- * 目标支持回复、用户名、用户 id 或频道的负数 id；回复与参数同时存在时必须
- * 指向同一身份。裸 id 不要求命中缓存；`/block enable` 不接受裸负数 id。
  * @param ctx grammY 命令上下文。
  * @param targetArgument 去掉末位动作后的目标参数原文，可为空（此时只认回复目标）。
  */

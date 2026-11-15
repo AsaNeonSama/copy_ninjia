@@ -1,3 +1,4 @@
+/** 仓库编码规范、JSDoc、缓存归属、Promise.all 与 spyOn 恢复综合门禁测试。 */
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";

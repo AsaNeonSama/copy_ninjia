@@ -1,7 +1,11 @@
+/**
+ * `bun test` 全局预加载入口：先经 `preloadEnv.ts` 隔离数据根与配置目录，再将测试部署配置、
+ * 内置人设与时区接管进当前 isolate 的缓存 holder，初始化空 SQLite 库并在结束时清理临时目录。
+ */
+
 import { afterAll } from "bun:test";
 import { chmodSync, mkdirSync, rmSync } from "node:fs";
-// 必须排在下面那条生产 import 之前：它负责在 consts/paths 求值之前注入两个
-// 根目录与 TMPDIR（见 test/preloadEnv.ts 的说明）。
+// 必须排在所有生产模块导入之前，以便先完成路径环境变量注入（见 test/preloadEnv.ts）。
 import {
   PREVIOUS_CONFIG_ROOT,
   PREVIOUS_DATA_ROOT,
@@ -20,7 +24,7 @@ import {
   parseAdDetectAgentConfig,
   parseAgentDeploymentConfig,
 } from "../packages/config/agent";
-import { adoptAdSampleConfig, parseAdSampleConfig } from "../packages/config/adSamples";
+import { adoptAdDetectConfig, parseAdDetectConfig } from "../packages/config/adDetectConfig";
 import { adoptMoodConfig, parseMoodConfig } from "../packages/config/mood";
 import { adoptPersona } from "../packages/config/persona";
 import { parseBotConfig } from "../packages/config/botInput";
@@ -43,7 +47,7 @@ import {
 import {
   DATABASE_DIR,
   IDENTITY_DATABASE_PATH,
-  AD_SAMPLES_CONFIG_PATH,
+  AD_DETECT_CONFIG_PATH,
   AGENT_CONFIG_PATH,
   CRON_CONFIG_PATH,
   BOT_CONFIG_PATH,
@@ -59,20 +63,14 @@ import { storageMetadataRows } from "../packages/database/interact/initializatio
 import { createStorageDatabase } from "../packages/database/interact/migration";
 import type { StorageDatabase } from "../packages/types/storageDatabase";
 
-// 部署配置快照只由主线程读盘：真实进程里主线程解析后，再经 AI Worker 的
-// init/configReload 与 Anti-Raid Worker 的 agentConfig 消息投递给两条业务
-// 线程（见 packages/config/agent.ts 的边界说明）。测试 isolate 收不到那两条
-// 消息，这里把同一份 config_example/dynamic/agent.json adopt 进本 isolate 的
-// holder，等价于「快照已经送到」。临时副本里的凭据是测试专用值；需要验证
-// 「没配」的用例自行把 holder 置空。
-// 顶层 await：Bun 的 preload 会等本模块的续体跑完再开始跑测试文件；
-// preloadEnv.ts 必须同步，理由见那一份的头注。
+// 生产进程由主线程读盘并经消息投递配置快照（见 packages/config/agent.ts）；测试 isolate 直接把
+// 临时副本里的测试配置接管进各 holder，需要覆盖「未配置」分支的用例自行把对应 holder 置空。
 const agentDocument = JSON.parse(
   await Bun.file(AGENT_CONFIG_PATH).text()
 ) as { agent: Record<string, unknown> };
 adoptAgentDeploymentConfig(parseAgentDeploymentConfig(agentDocument.agent));
 adoptAdDetectAgentConfig(parseAdDetectAgentConfig(agentDocument.agent.ad_detect));
-adoptAdSampleConfig(parseAdSampleConfig(JSON.parse(await Bun.file(AD_SAMPLES_CONFIG_PATH).text())));
+adoptAdDetectConfig(parseAdDetectConfig(JSON.parse(await Bun.file(AD_DETECT_CONFIG_PATH).text())));
 adoptMoodConfig(parseMoodConfig(JSON.parse(await Bun.file(MOOD_CONFIG_PATH).text())));
 adoptStickerConfig(parseStickerConfig(JSON.parse(await Bun.file(STICKERS_CONFIG_PATH).text())));
 // 人设与本进程通知风格成对接管：内置人设加 Bot 显式语气，缺省时使用默认风格。

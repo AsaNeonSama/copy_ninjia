@@ -1,3 +1,6 @@
+/**
+ * 入群日志的启动只读扫描、保留窗口计算与群级日志清理（Disk I/O Worker 侧）。
+ */
 import { durableUnlinkSync } from "../../libs/atomicFile";
 import { bestEffortUnlink, listOptionalDirectory } from "../../libs/fileAccess";
 import {
@@ -37,7 +40,7 @@ import {
 export interface ValidatedJoinLogFile {
   /** 文件原始 UTF-8 文本内容。 */
   readonly content: string;
-  /** 解析并校验通过的用户 ID 键到入群记录映射。 */
+  /** 解析并校验通过的 `<joinedAt>:<userId>` 规范键到入群记录映射。 */
   readonly parsed: Record<string, JoinLogRecord>;
 }
 

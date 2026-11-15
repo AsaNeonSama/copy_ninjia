@@ -1,3 +1,7 @@
+/**
+ * 脏键集合快照批量落盘辅助模块（Disk I/O Worker 侧）。
+ */
+
 /** 遍历脏键集合并将对应缓存快照落盘的参数。 */
 export interface FlushDirtyEntriesParams<K, V> {
   /** 待落盘的脏键集合（写成功或缓存已不存在时原地摘除）。 */

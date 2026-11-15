@@ -1,6 +1,7 @@
 import type { Context } from "grammy";
 import type { CopyableReaction } from "../types/telegram";
-import { activeCopyTargetIdIn, getChatState } from "../infra/storage/stateStore";
+import { activeCopyTargetIdIn } from "../infra/storage/stateStore";
+import { getChatState } from "../infra/chatStateStorage";
 import { setMessageReactions } from "../infra/telegram";
 import { logger } from "../infra/logger";
 import type { MessageReactionUpdated } from "grammy/types";
@@ -8,14 +9,9 @@ import { TELEGRAM_DATE_UNIT_MS } from "../consts/telegram";
 import { activeTranslateStateIn } from "../translate/message";
 
 /**
- * 处理 message_reaction 更新：把复制目标的表情回应（普通 emoji 和自定义
- * emoji 都支持）同步到同一条消息上；目标移除了自己的回应时也会跟着清除。
- * 与复读一致，只在发起 /copy 的那个群里同步（判定统一走 activeCopyTargetIdIn）；
- * 复制目标同时是本群生效的翻译目标时只做翻译，不同步反应（口径同
- * auto/message/index.ts 的翻译优先）。
- * 本 update 等待 Telegram 动作结算后才返回；严格串行的 acknowledged runner
- * 在此之前不会读取或确认下一条 update。429 由主线程 reaction 类别独立退避，
- * 网络与 5xx 由统一 Telegram 动作边界记录并结束本次同步。
+ * 处理 `message_reaction` 更新，将本群 `/copy` 目标的表情回应（普通 emoji 与自定义 emoji）同步到同一条消息：
+ * - 仅在发起 `/copy` 的群内生效（经 `activeCopyTargetIdIn` 判定）；若该目标同时处于生效的翻译会话中，则遵循翻译优先规则跳过回应同步。
+ * - 目标移除自身回应时同步清空机器人回应；本条 update 等待 Telegram 请求结算后才返回，429 由主线程 `reaction` 类别独立退避。
  *
  * @param ctx grammY 上下文
  */

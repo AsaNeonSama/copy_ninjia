@@ -23,31 +23,37 @@
   - If recovery for a chat is already active with the identical `phase` and `intentId`, `startEmergencyLockdownRecovery` returns immediately. If a different intent is detected, it aborts the old recovery process and restarts anew.
 
 - **Abandoning the Mirror When the Chat No Longer Exists**:
-  - With teardown reason `gone`, the Anti-Raid Worker abandons the chat's lockdown through the `chatGone` event: it deletes the state, clears the restore and retry timers, and only reports `unlock`, without calling Telegram. The main thread clears the `lockdown` mirror on `unlock` and persists it in the background; any earlier in-flight `lockdown` report arrives first and `unlock` last, so the mirror ends up empty. If the main thread has already taken over emergency lockdown recovery for that chat, `abandonEmergencyLockdownRecovery` synchronously cancels the recovery task and clears the `lockdown` mirror.
-  - Late permission-call results after the abandonment hit an empty state and do not advance it; `departed` and every other reason still take the persist-first restore path.
+  - When teardown runs with reason `gone`, the Anti-Raid Worker abandons the chat's private-mode lockdown via `chatGone`: it deletes the state, cancels the restore and retry timers, and reports `unlock` without calling Telegram.
+  - On receiving `unlock`, the main thread clears the `lockdown` mirror and persists the removal in the background; any earlier in-flight `lockdown` report arrives before `unlock`, leaving the mirror empty.
+  - If the main thread has already taken over emergency lockdown recovery for that chat, `abandonEmergencyLockdownRecovery` synchronously cancels the recovery task and clears the `lockdown` mirror.
+  - Late permission-call results arriving after abandonment hit an empty state and do not advance it. Every other teardown reason (including `departed`) still follows the persist-first restore path.
+
 - **Mirror Validation & Optional Fields**:
-  - Active lockdown mirrors must contain `phase` and a positive integer `intentId`. `announcementMessageId` is present if and only if `announced` is `true`.
-  - Verification challenge snapshots must include `phase` and `trackedMessageTimes` (at most `ANTI_RAID_PER_MINUTE_LIMIT` entries).
-  - `reminderMessageId`, `replyReminderMessageId`, and `announcementMessageId` are optional; in `kickPending`, both reminder IDs must be absent.
-  - In the `pending` phase, `replyReminderRequested`, `reminderSuperseded`, and whether `welcomeAnchorMessageId` is set are all true or all false; every other phase holds an empty `trackedMessageTimes`, no `invitedBy`, `replyReminderRequested: false`, no `welcomeAnchorMessageId`, and `reminderSuperseded: true`. The `expelling` `expelReason` accepts only `timeout`, `flood`, and `wrongAnswer`, and its notice and confirmation flags (`successNoticeSent`, `failureNoticeSent`, `unconfirmedNoticeSent`, `removalConfirmed`) accept only absence or `true`.
-  - Any other missing or unrecognized fields are rejected by strict validation and must be migrated offline; production read paths retain no backward-compatibility fallback logic.
+  - Active lockdown mirrors must contain `phase` and a positive integer `intentId`; `announcementMessageId` is present if and only if `announced === true`.
+  - Verification challenge snapshots must include `phase` and `trackedMessageTimes` (at most `ANTI_RAID_PER_MINUTE_LIMIT` entries). Optional `reminderMessageId`, `replyReminderMessageId`, and `announcementMessageId` simply indicate whether each message has been sent or observed; in `kickPending`, both reminder IDs must be absent.
+  - Reply-reminder fields are cross-checked against `phase`:
+    - In `pending`, `replyReminderRequested`, `reminderSuperseded`, and the presence of `welcomeAnchorMessageId` must be either all `true` or all `false`.
+    - In every other phase, `trackedMessageTimes` must be empty, `invitedBy` and `welcomeAnchorMessageId` must be absent, `replyReminderRequested` must be `false`, and `reminderSuperseded` must be `true`.
+    - In `expelling`, `expelReason` accepts only `timeout`, `flood`, or `wrongAnswer`, and the four notice/confirmation flags (`successNoticeSent`, `failureNoticeSent`, `unconfirmedNoticeSent`, `removalConfirmed`) accept only absence or `true`.
+  - Any other missing or unrecognized fields fail strict startup decoding and must be repaired offline; production read paths retain no backward-compatibility fallbacks.
 
 - **Independent Terminal Notice Flags**:
-  - `successNoticeSent`: Records that the success report was delivered.
-  - `failureNoticeSent`: Records an unsuccessful kick attempt or missing `can_restrict_members` permission.
-  - `unconfirmedNoticeSent`: Records unconfirmed chat membership or invalid chat type.
-  - The main thread automatically deletes all three notice types after `COMMAND_MESSAGE_AUTO_DELETE_MS`.
-  - Each flag independently prevents duplicate notices across Worker restarts or process reboots. Flags are written through state machine events (`expelNoticeSent`, `removalConfirmed`) and apply only to an entry that is still the current terminal state once the notice `await` finishes; setting a flag issues a new revision that terminal retry loops await.
+  - Three terminal notice flags are persisted independently:
+    - `successNoticeSent`: Kick and disposal report delivered.
+    - `failureNoticeSent`: Kick failed or `can_restrict_members` permission missing.
+    - `unconfirmedNoticeSent`: Chat membership or chat type could not be confirmed.
+  - Once sent, all three notice types are scheduled for automatic deletion after `COMMAND_MESSAGE_AUTO_DELETE_MS` by the main thread.
+  - Each flag independently suppresses duplicate notices across Worker rebuilds or process restarts. Flags are written via state machine events (`expelNoticeSent`, `removalConfirmed`), apply only if the entry is still the active terminal state after the notice `await` resolves, and issue a new revision that terminal retry loops await.
 
 - **Kick Confirmation & Report Atomicity**:
-  - **A successful kick whose success report failed to send must not be marked settled.**
-  - `removalConfirmed` is written to the snapshot before backing off and retrying. When the subsequent probe reports that the user is not in the chat, the bot treats the expulsion as completed and dispatches the success report.
+  - **A successful kick whose report failed to send must never be marked settled.**
+  - `removalConfirmed` is persisted to the snapshot before backing off and retrying. When the next membership probe confirms the user has left the chat, the bot attributes the removal to itself and retries sending the success report.
   - `removalConfirmed` is persisted only when sending the report fails.
 
-- **Short-Circuiting Without Ban Rights**:
-  - When `botCanRestrictIn` is `false`, the cycle exits early only if both `failureNoticeSent` and `cleanupSettled` are `true` and the removal is not yet confirmed (`removalConfirmed` is not `true`); each such cycle sends a single membership probe, settles if the member has left, and otherwise keeps backing off. An entry whose removal is confirmed takes the regular terminal path, which also sends a single membership probe and sends the success report once the member is gone.
-  - Lockdown instant kicks (`kickPending`) also probe membership first when the ban permission is missing: a departed member settles and its record is released; a present member is logged and backed off without a kick request.
-  - Once `cleanupSettled` is `true`, subsequent retries on the same terminal entry skip `deleteVerificationMessages` directly. While `cleanupSettled` is `false`, the disposal cycle continues: the kick is bypassed by `canRestrict`, the report is bypassed by `failureNoticeSent`, and message deletions are bypassed when `can_delete_messages` is absent. Only pending deletions that can still execute are retried.
-  - `cleanupSettled` lives on the Worker runtime entry (`VerificationEntry`), while `executionStarted` lives on the terminal state object and changes only through state machine events. Both are **in-memory Worker-local idempotency gates that are never written to disk snapshots** and restart from their initial values when the entry or state is replaced.
+- **Short-Circuiting Without Ban Rights (`cleanupSettled`)**:
+  - When `botCanRestrictIn === false`, early short-circuiting requires `failureNoticeSent === true`, `cleanupSettled === true`, and unconfirmed removal (`removalConfirmed !== true`). Even then, each cycle sends a single membership probe — settling once the member leaves, or continuing to back off while present. Entries with `removalConfirmed === true` take the regular terminal path, also probing membership once and sending the pending success report once the member is gone.
+  - Lockdown instant kicks (`kickPending`) likewise probe membership first when ban rights are missing: departed members settle and release their record, whereas present members log and back off without issuing a kick request.
+  - Once `cleanupSettled === true`, subsequent retries on the same terminal entry skip `deleteVerificationMessages`. While `cleanupSettled === false`, the disposal cycle continues so all remaining executable deletions still run (with the kick gated by `canRestrict`, the report gated by `failureNoticeSent`, and message deletions gated by `can_delete_messages`).
+  - `cleanupSettled` lives on the Worker runtime entry (`VerificationEntry`), while `executionStarted` lives on the terminal state object and mutates only via state machine events. Both are **Worker-local in-memory idempotency flags that are never persisted to disk snapshots** and reset whenever the entry or state is replaced.
 
 <p align="right"><a href="04-invariants.md#quick-navigation">↑ Back to quick navigation</a></p>

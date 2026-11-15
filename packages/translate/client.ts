@@ -51,17 +51,9 @@ function ensureTranslateGeneration(expectedGeneration: number): void {
 }
 
 /**
- * gRPC 客户端惰性构造：首次真实翻译时才构造，模块导入无副作用（客户端构造会注册退避 timer）。
- *
- * **SDK 本身也是动态 import 的**，不能写成顶层 `import`：本模块经翻译消息处理与
- * lifecycleDependencies 挂在启动路径上，只有真实请求翻译时才加载 gRPC 模块图。
- * 类型侧仍是顶层 `import type`。
- *
- * 生命周期钩子（initTranslate/quiesceTranslate/closeTranslate/drainTranslate）
- * 只碰 translateRuntime 上的标志与已有实例，不需要 SDK。
- *
- * `await import(...)` 期间 `closeTranslate` 可能把 client 置空并推进 generation；
- * await 之后先复核 generation，不属于当前 owner 就直接抛，不构造客户端。
+ * 惰性获取当前世代的 Google Cloud Translation v3 客户端：
+ * 首次真实翻译请求到达时才动态加载 `@google-cloud/translate` 并构造 gRPC 客户端；模块导入与生命周期钩子均不触发 SDK 加载或注册退避定时器。
+ * 动态导入完成后先复核 `expectedGeneration`，若期间 `closeTranslate` 已推进世代则直接抛错，不在旧世代上构造客户端。
  * @param expectedGeneration 发起请求时捕获的翻译运行时世代号。
  * @returns 当前世代复用的 Google Cloud Translation v3 客户端实例。
  */
@@ -71,7 +63,7 @@ async function getTranslateClient(expectedGeneration: number): Promise<GoogleTra
   if (credentials === null) throw new Error("Google Translation credentials were not configured at startup");
   const { v3 }: { v3: TranslateSdkV3 } = await import("@google-cloud/translate");
   ensureTranslateGeneration(expectedGeneration);
-  // 并发首次翻译可能都走到这里；`??=` 保证只有先到的那个实例被留下。
+  // 并发首次请求同时到达时只保留最先构造出的实例。
   translateRuntime.client ??= new v3.TranslationServiceClient({
     credentials,
   });
@@ -91,8 +83,7 @@ async function getTranslateParent(expectedGeneration: number): Promise<string> {
       TRANSLATE_REQUEST_TIMEOUT_MS,
       "Google Translation project lookup"
     );
-    // drain 超时后 close 可能早于 getProjectId 的迟到回执；不允许旧
-    // owner 重写 parent，更不允许它在下一步重新惰性创建客户端。
+    // 复核世代号，拦截 closeTranslate 之后的迟到回执。
     ensureTranslateGeneration(expectedGeneration);
     translateParentCache.parent = `projects/${projectId}/locations/global`;
   }
@@ -111,8 +102,6 @@ async function runTranslation(text: string, language: TranslateLanguage, expecte
   try {
     const parent: string = await getTranslateParent(expectedGeneration);
     ensureTranslateGeneration(expectedGeneration);
-    // translateText 是重载签名，ReturnType 只会取到回调那一版，因此直接写出
-    // 元组首项的 proto 响应类型。
     const [response]: [
       protos.google.cloud.translation.v3.ITranslateTextResponse,
       protos.google.cloud.translation.v3.ITranslateTextRequest | undefined,
@@ -124,7 +113,6 @@ async function runTranslation(text: string, language: TranslateLanguage, expecte
       targetLanguageCode: TRANSLATE_LANGUAGE_CODES[language],
       model: language === "en" ? `${parent}/models/${TRANSLATE_REGIONAL_MODEL}` : undefined,
     }, { timeout: TRANSLATE_REQUEST_TIMEOUT_MS });
-    // 空字符串和 null/undefined 同样按失败返回 null。
     const translated: string | null | undefined = response.translations?.[0]?.translatedText;
     return translated ? translated : null;
   } catch (error: unknown) {

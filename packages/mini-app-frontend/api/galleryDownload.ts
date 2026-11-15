@@ -17,7 +17,8 @@ import {
 } from "./request";
 
 /**
- * 构造交给 Telegram 原生下载器直连的 `GET ./api/gallery/download/:fileName` 图库单张图片附件下载 URL（原生下载器无法附加请求头，凭据经查询参数携带：受保护资源令牌或 `initData`，以及 45 分钟 `session` 会话令牌）。
+ * 构造供 Telegram 原生下载器直连的 `GET ./api/gallery/download/:fileName` 附件下载 URL。
+ * 原生下载器不携带自定义请求头，双层鉴权凭据改由查询参数传递：受保护资源令牌 `token`（或回退 `initData`）与 45 分钟会话令牌 `session`。
  * @param fileName 图库图片文件名
  * @returns 带完整双层鉴权查询参数的下载 URL
  */

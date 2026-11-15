@@ -58,6 +58,7 @@ const CANNED_TELEGRAM_RESULTS: Readonly<Record<string, (payload: Record<string, 
       can_manage_chat: true,
     };
   },
+  getCustomEmojiStickers: (): readonly unknown[] => [],
   getStickerSet: (): unknown => ({ stickers: [] }),
   restrictChatMember: (): true => true,
   sendChatAction: (): true => true,
@@ -150,7 +151,7 @@ export function installCannedTelegramOutbound(): void {
     return Promise.resolve({ ok: true, result: canned(payload) } as never);
   };
   bot.api.config.use(answer);
-  // 业务动作走线程能力面而不是 bot.api，两条路径都铺罐头；同一张罐头表喂两边。
+  // 业务动作经线程能力面调用，与 bot.api 共用同一张罐头应答表。
   const capability: Record<string, (...args: readonly unknown[]) => Promise<unknown>> = {};
   for (const [method, canned] of Object.entries(CANNED_TELEGRAM_RESULTS)) {
     capability[method] = (...args: readonly unknown[]): Promise<unknown> => {

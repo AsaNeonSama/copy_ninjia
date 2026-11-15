@@ -87,7 +87,7 @@ mock.module("../../packages/infra/botAdmin", () => ({
 mock.module("../../packages/infra/logger", () => ({
   logger: loggerStub({ error: loggerError }),
 }));
-mock.module("../../packages/infra/storage/stateStore", () => ({
+mock.module("../../packages/infra/chatStateStorage", () => ({
   getChatState: (): Record<string, never> => ({}), getChatStateCache: () => chatStates }));
 mock.module("../../packages/commands/targetResolution", () => ({ resolveCommandTarget }));
 const handleBlockDisable = mock(async (_ctx: unknown, _targetArgument: string): Promise<void> => {});

@@ -1,3 +1,7 @@
+/**
+ * `raceAbort` 子进程夹具：验证已中止信号下的共享任务在同步或微任务后 reject 时不会触发 `unhandledRejection`。
+ */
+
 import { raceAbort } from "../../packages/libs/abortSignal";
 
 let unhandled: number = 0;

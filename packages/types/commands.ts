@@ -46,8 +46,8 @@ export interface ToggleCommandTexts {
   readonly enabled: string;
   /** 由开变关。 */
   readonly disabled: string;
-  /** 本来就开着，本次没有改变状态。 */
+  /** 调用前已处于开启状态时的幂等回执。 */
   readonly alreadyEnabled: string;
-  /** 本来就关着，本次没有改变状态。 */
+  /** 调用前已处于关闭状态时的幂等回执。 */
   readonly alreadyDisabled: string;
 }

@@ -1,10 +1,10 @@
 import { afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, readdirSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import {
   adDetectAgentConfigCache,
   agentDeploymentConfigCache,
-  defaultAdSampleConfigCache,
+  defaultAdDetectConfigCache,
   defaultMoodConfigCache,
   defaultStickerConfigCache,
 } from "../../packages/cache/perThread/config";
@@ -17,10 +17,12 @@ import {
   DEFAULT_ASSET_CONFIG,
   RANDOM_H_IMAGE_DIR_FIELD,
 } from "../../packages/consts/ui/assets";
+import { LEGACY_AD_SAMPLES_CONFIG_NAME } from "../../packages/consts/antiRaid/adDetect";
 import {
-  AD_SAMPLES_CONFIG_PATH,
+  AD_DETECT_CONFIG_PATH,
   AGENT_CONFIG_PATH,
   ASSETS_CONFIG_PATH,
+  DYNAMIC_CONFIG_DIR,
   RUNTIME_DATA_ROOT,
   CRON_CONFIG_PATH,
   MOOD_CONFIG_PATH,
@@ -29,7 +31,7 @@ import {
 import type { CronConfig } from "../../packages/types/cron";
 import type {
   AdDetectAgentConfig,
-  AdSampleConfig,
+  AdDetectConfig,
   AgentDeploymentConfig,
   HotDeploymentConfigChanges,
   MoodConfig,
@@ -39,7 +41,7 @@ import type {
 /** 测试 preload 已把 config_example 副本解析进 holder；每条用例结束后还原文件与 holder。 */
 interface Baseline {
   readonly files: ReadonlyMap<string, string>;
-  readonly adSamples: AdSampleConfig | null;
+  readonly adDetectConfig: AdDetectConfig | null;
   readonly adDetect: AdDetectAgentConfig | null;
   readonly agent: AgentDeploymentConfig | null;
   readonly mood: MoodConfig | null;
@@ -48,7 +50,7 @@ interface Baseline {
 }
 
 const HOT_PATHS: readonly string[] = [
-  AD_SAMPLES_CONFIG_PATH,
+  AD_DETECT_CONFIG_PATH,
   AGENT_CONFIG_PATH,
   MOOD_CONFIG_PATH,
   STICKERS_CONFIG_PATH,
@@ -62,7 +64,7 @@ beforeAll(async (): Promise<void> => {
   for (const path of HOT_PATHS) files.set(path, await Bun.file(path).text());
   baseline = {
     files,
-    adSamples: defaultAdSampleConfigCache.current,
+    adDetectConfig: defaultAdDetectConfigCache.current,
     adDetect: adDetectAgentConfigCache.current,
     agent: agentDeploymentConfigCache.current,
     mood: defaultMoodConfigCache.current,
@@ -73,7 +75,7 @@ beforeAll(async (): Promise<void> => {
 
 afterEach(async (): Promise<void> => {
   for (const [path, text] of baseline.files) await Bun.write(path, text);
-  defaultAdSampleConfigCache.current = baseline.adSamples;
+  defaultAdDetectConfigCache.current = baseline.adDetectConfig;
   adDetectAgentConfigCache.current = baseline.adDetect;
   agentDeploymentConfigCache.current = baseline.agent;
   defaultMoodConfigCache.current = baseline.mood;
@@ -102,7 +104,7 @@ describe("config/dynamic/ 热重载判定", () => {
       assets: false,
       adDetect: false,
       aiAgent: false,
-      adSamples: false,
+      adDetectConfig: false,
       mood: false,
       stickers: false,
       cron: false,
@@ -113,6 +115,41 @@ describe("config/dynamic/ 热重载判定", () => {
     expect(defaultMoodConfigCache.current).toBe(baseline.mood);
     expect(agentDeploymentConfigCache.current).toBe(baseline.agent);
     expect(adDetectAgentConfigCache.current).toBe(baseline.adDetect);
+  });
+
+  test("dynamic/ 存在未迁移 ad_samples.json 或多余条目时整轮拒绝，不替换任何 holder", async () => {
+    const legacyPath: string = join(DYNAMIC_CONFIG_DIR, LEGACY_AD_SAMPLES_CONFIG_NAME);
+    const swapPath: string = join(DYNAMIC_CONFIG_DIR, ".stickers.json.swp");
+    const candidateGallery: string = join(RUNTIME_DATA_ROOT, "reload-skipped-gallery");
+    rmSync(candidateGallery, { recursive: true, force: true });
+    await Bun.write(legacyPath, "{}");
+    await Bun.write(swapPath, "swap");
+    await writeJson(STICKERS_CONFIG_PATH, { packs: ["NewPack_1"] });
+    await writeJson(ASSETS_CONFIG_PATH, { [ASSET_ONLY_PATH_GROUP]: { random_h_image_dir: "./reload-skipped-gallery" } });
+    try {
+      const changes: HotDeploymentConfigChanges = await reload();
+      expect(changes.assets).toBe(false);
+      expect(changes.adDetect).toBe(false);
+      expect(changes.aiAgent).toBe(false);
+      expect(changes.adDetectConfig).toBe(false);
+      expect(changes.mood).toBe(false);
+      expect(changes.stickers).toBe(false);
+      expect(changes.cron).toBe(false);
+      expect(changes.reloadedPaths).toEqual([]);
+      expect(changes.removedPaths).toEqual([]);
+      expect(changes.rejections).toHaveLength(2);
+      expect(changes.rejections[0]).toContain(`${swapPath}: $ must be absent (only `);
+      expect(changes.rejections[1]).toBe(
+        `${legacyPath}: $ must be absent after manual migration to ${basename(AD_DETECT_CONFIG_PATH)}.`
+      );
+      expect(defaultStickerConfigCache.current).toBe(baseline.stickers);
+      expect(assetConfigCache.current).toBe(DEFAULT_ASSET_CONFIG);
+      expect(await Bun.file(candidateGallery).exists()).toBe(false);
+    } finally {
+      rmSync(legacyPath, { force: true });
+      rmSync(swapPath, { force: true });
+      rmSync(candidateGallery, { recursive: true, force: true });
+    }
   });
 
   test("合法变更整体替换对应 holder，其余 holder 身份不变", async () => {
@@ -131,20 +168,24 @@ describe("config/dynamic/ 热重载判定", () => {
     expect(changes.mood).toBe(true);
     expect(changes.aiAgent).toBe(false);
     expect(changes.adDetect).toBe(false);
-    expect(changes.adSamples).toBe(false);
+    expect(changes.adDetectConfig).toBe(false);
     expect(changes.reloadedPaths).toEqual([MOOD_CONFIG_PATH, STICKERS_CONFIG_PATH]);
     expect(defaultStickerConfigCache.current).toEqual({ packs: ["NewPack_1", "MikuCat4"] });
     expect(defaultMoodConfigCache.current?.moods.map((mood) => mood.name)).toEqual(["平静", "开心"]);
-    expect(defaultAdSampleConfigCache.current).toBe(baseline.adSamples);
+    expect(defaultAdDetectConfigCache.current).toBe(baseline.adDetectConfig);
     expect(agentDeploymentConfigCache.current).toBe(baseline.agent);
   });
 
   test("广告示例规范化后相同视为未变化", async () => {
-    const samples: readonly string[] = baseline.adSamples ?? [];
-    await writeJson(AD_SAMPLES_CONFIG_PATH, samples.map((sample: string): string => `  ${sample}\n`));
+    const samples: readonly string[] = baseline.adDetectConfig?.samples ?? [];
+    await writeJson(AD_DETECT_CONFIG_PATH, {
+      samples: samples.map((sample: string): string => `  ${sample}\n`),
+      sticker_black_list: [...(baseline.adDetectConfig?.stickerBlackList ?? [])],
+      emoji_black_list: [...(baseline.adDetectConfig?.emojiBlackList ?? [])],
+    });
     const changes: HotDeploymentConfigChanges = await reload();
-    expect(changes.adSamples).toBe(false);
-    expect(defaultAdSampleConfigCache.current).toBe(baseline.adSamples);
+    expect(changes.adDetectConfig).toBe(false);
+    expect(defaultAdDetectConfigCache.current).toBe(baseline.adDetectConfig);
   });
 
   test("agent.json 两段分别判定变化", async () => {
@@ -171,19 +212,19 @@ describe("config/dynamic/ 热重载判定", () => {
 
   test("严格解析失败的变更整份拒绝，holder 保留上一份快照", async () => {
     await writeJson(STICKERS_CONFIG_PATH, { packs: ["NewPack_1", "bad name"] });
-    await Bun.write(AD_SAMPLES_CONFIG_PATH, "[");
+    await Bun.write(AD_DETECT_CONFIG_PATH, "[");
 
     const changes: HotDeploymentConfigChanges = await reload();
 
     expect(changes.stickers).toBe(false);
-    expect(changes.adSamples).toBe(false);
+    expect(changes.adDetectConfig).toBe(false);
     expect(changes.reloadedPaths).toEqual([]);
     expect(changes.rejections).toEqual([
-      `${AD_SAMPLES_CONFIG_PATH}: $ must be a readable valid JSON document.`,
+      `${AD_DETECT_CONFIG_PATH}: $ must be a readable valid JSON document.`,
       `${STICKERS_CONFIG_PATH}: $.packs[1] must be a valid Telegram sticker pack short name.`,
     ]);
     expect(defaultStickerConfigCache.current).toBe(baseline.stickers);
-    expect(defaultAdSampleConfigCache.current).toBe(baseline.adSamples);
+    expect(defaultAdDetectConfigCache.current).toBe(baseline.adDetectConfig);
   });
 
   test("agent.json 的非法字段整份拒绝，诊断不回显凭据", async () => {

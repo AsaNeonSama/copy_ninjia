@@ -1,10 +1,13 @@
 import type {
   MiniAppChatTargetsMutationAction,
   MiniAppFeatureKey,
+  MiniAppTranslateLanguage,
+} from "../types/miniApp/chats";
+import type {
   MiniAppPickerSubjectKind,
   MiniAppPickerTargetList,
-  MiniAppTranslateLanguage,
-} from "../types/miniApp";
+} from "../types/miniApp/identities";
+import type { MiniAppAuthPolicy } from "../types/miniApp/server";
 import { exhaustiveList } from "./exhaustiveList";
 import { MINUTE_MS } from "./time";
 
@@ -16,13 +19,13 @@ export const MINI_APP_DEFAULT_HOST: string = "127.0.0.1";
 
 /**
  * `mini_app.port` 允许的最小 TCP 端口号。
- * 不变量：正整数下界为 1。所属模块：`packages/config/botInput.ts`。
+ * 不变量：正整数下界为 1。所属模块：`packages/config/botInput.ts` 与 `packages/mini-app-api-server/libs/request.ts`。
  */
 export const MINI_APP_PORT_MIN: number = 1;
 
 /**
  * `mini_app.port` 允许的最大 TCP 端口号。
- * 不变量：16 位无符号端口上界 65535。所属模块：`packages/config/botInput.ts`。
+ * 不变量：16 位无符号端口上界 65535。所属模块：`packages/config/botInput.ts` 与 `packages/mini-app-api-server/libs/request.ts`。
  */
 export const MINI_APP_PORT_MAX: number = 65_535;
 
@@ -33,7 +36,7 @@ export const MINI_APP_PORT_MAX: number = 65_535;
 export const MINI_APP_WEB_APP_DATA_SECRET_SEED: string = "WebAppData";
 
 /**
- * Telegram WebApp `initData` 中 `auth_date` 允许的最大有效秒数（45 分钟，与密码认证会话窗口对齐）。
+ * Telegram WebApp `initData` 中 `auth_date` 允许的最大有效秒数（与二次认证会话窗口对齐）。
  * 不变量：正整数秒数，超出视为过期凭据拒绝访问。所属模块：`packages/libs/miniAppAuth.ts`。
  */
 export const MINI_APP_AUTH_MAX_AGE_SECONDS: number = 2_700;
@@ -46,13 +49,16 @@ export const MINI_APP_AUTH_CLOCK_SKEW_SECONDS: number = 300;
 
 /**
  * 十六进制 SHA-256 摘要字符串（固定 64 位十六进制字符）的匹配规则。
- * 不变量：不带全局标志 `g`，供 `verifyMiniAppInitData` 及会话令牌格式核验无状态复用。所属模块：`packages/libs/miniAppAuth.ts`、`packages/mini-app-api-server/auth/session.ts` 与 `packages/mini-app-api-server/middleware/sessionToken.ts`。
+ * 不变量：不带全局标志 `g`，供 `verifyMiniAppInitData` 及会话令牌格式核验无状态复用。
+ * 所属模块：`packages/libs/miniAppAuth.ts`、`packages/mini-app-api-server/auth/session.ts`
+ * 与 `packages/mini-app-api-server/middleware/sessionToken.ts`。
  */
 export const MINI_APP_SHA256_HEX_PATTERN: RegExp = /^[0-9a-f]{64}$/i;
 
 /**
- * 十进制正整数时间戳的匹配规则。
- * 不变量：不带全局标志 `g`，供 `verifyMiniAppInitData` 无状态复用。所属模块：`packages/libs/miniAppAuth.ts`。
+ * 十进制正整数时间戳与端口号的匹配规则。
+ * 不变量：不带全局标志 `g`，供 `verifyMiniAppInitData` 与客户端 IP 可选端口校验无状态复用。
+ * 所属模块：`packages/libs/miniAppAuth.ts` 与 `packages/mini-app-api-server/libs/request.ts`。
  */
 export const MINI_APP_POSITIVE_INTEGER_PATTERN: RegExp = /^[1-9]\d*$/;
 
@@ -64,55 +70,63 @@ export const MINI_APP_SIGNED_INTEGER_PATTERN: RegExp = /^-?\d+$/u;
 
 /**
  * IPv4 字面量主机名的匹配规则（用于拦截 `Host` 请求头回显源站 IP 字面量）。
- * 不变量：不带全局标志 `g`，供 `accessErrorResponse` 无状态复用。所属模块：`packages/mini-app-api-server/libs/response.ts`。
+ * 不变量：不带全局标志 `g`，供 `buildMiniAppAccessDiagnostics` 无状态复用。所属模块：`packages/mini-app-api-server/libs/response.ts`。
  */
 export const MINI_APP_IPV4_HOST_PATTERN: RegExp = /^(?:\d{1,3}\.){3}\d{1,3}$/u;
 
 /**
  * Mini App API 请求携带 Telegram WebApp `initData` 原始查询串的 HTTP 请求头名（小写）。
- * 不变量：所有 `/api/*` 鉴权统一读取该请求头。所属模块：`packages/mini-app-api-server/libs/request.ts` 与 `packages/mini-app-api-server/middleware/headerGuard.ts`。
+ * 不变量：所有 `/api/*` 鉴权统一读取该请求头。
+ * 所属模块：`packages/mini-app-api-server/middleware/headerGuard.ts` 与 `packages/mini-app-api-server/middleware/initData.ts`。
  */
 export const MINI_APP_INIT_DATA_HEADER: string = "x-telegram-init-data";
 
 /**
- * Mini App 密码认证通过后签发的会话令牌 HTTP 请求头名（小写）。
- * 不变量：除 `/api/auth/precheck` 与 `/api/auth/login` 外，所有业务 `/api/*` 接口均要求携带有效会话令牌。所属模块：`packages/mini-app-api-server/libs/request.ts` 与 `packages/mini-app-api-server/auth/session.ts`。
+ * Mini App 二次认证（访问密码或 6 位 TOTP 动态码）通过后签发的会话令牌 HTTP 请求头名（小写）。
+ * 不变量：除 `/api/auth/precheck`、`/api/auth/login` 与受路径白名单豁免的公共资源接口外，
+ * 业务 `/api/*` 接口均要求携带有效会话令牌。
+ * 所属模块：`packages/mini-app-api-server/libs/request.ts` 与 `packages/mini-app-api-server/auth/session.ts`。
  */
 export const MINI_APP_SESSION_HEADER: string = "x-mini-app-session";
 
 /**
  * Mini App 会话令牌自动刷新时下发新到期毫秒时间戳的 HTTP 响应头名（小写）。
- * 不变量：当有效会话距离签发已超过 `MINI_APP_SESSION_REFRESH_THRESHOLD_MS` 时随刷新后的 `X-Mini-App-Session` 一并下发。所属模块：`packages/mini-app-api-server/auth/session.ts`。
+ * 不变量：有效会话距签发已超过 `MINI_APP_SESSION_REFRESH_THRESHOLD_MS` 时随刷新后的 `X-Mini-App-Session` 一并下发。
+ * 所属模块：`packages/mini-app-api-server/auth/session.ts`。
  */
 export const MINI_APP_SESSION_EXPIRES_AT_HEADER: string =
   "x-mini-app-session-expires-at";
 
 /**
- * Mini App 访问密码认证会话的有效期毫秒数（45 分钟）。
- * 不变量：到期后必须重新输入密码完成认证。所属模块：`packages/mini-app-api-server/auth/session.ts` 与 `packages/mini-app-api-server/handlers/auth.ts`。
+ * Mini App 二次认证会话的有效期毫秒数。
+ * 不变量：到期后必须重新完成二次认证（6 位 TOTP 动态码或访问密码）。
+ * 所属模块：`packages/mini-app-api-server/auth/session.ts` 与 `packages/mini-app-api-server/handlers/auth.ts`。
  */
 export const MINI_APP_SESSION_TTL_MS: number = 45 * MINUTE_MS;
 
 /**
- * Mini App 会话令牌触发自动刷新与续期的已签发时长阈值毫秒数，同时也是刷新后上一轮旧令牌（`previousToken`）的并发宽限期（5 分钟）。
- * 不变量：正整数毫秒数，小于 `MINI_APP_SESSION_TTL_MS`；携带有效会话令牌访问服务端且距签发时刻超过 5 分钟时自动签发新令牌并顺延有效期，旧令牌在刷新后的 5 分钟内仍可通过核验。所属模块：`packages/mini-app-api-server/auth/session.ts`。
+ * Mini App 会话令牌触发自动续期的已签发时长阈值，同时作为刷新后上一轮旧令牌（`previousToken`）的并发宽限期。
+ * 不变量：正整数毫秒数且小于 `MINI_APP_SESSION_TTL_MS`；携带有效会话令牌访问服务端且距签发超过该阈值时
+ * 自动签发新令牌并顺延有效期，旧令牌在宽限期内仍可通过核验。
+ * 所属模块：`packages/mini-app-api-server/auth/session.ts`。
  */
 export const MINI_APP_SESSION_REFRESH_THRESHOLD_MS: number = 5 * MINUTE_MS;
 
 /**
- * 超级管理员 ID 连续输错 Mini App 访问密码或动态口令允许的最大次数（3 次机会）。
- * 不变量：正整数，连续失败达到该次数后立即锁定该超级管理员 ID 30 分钟。所属模块：`packages/mini-app-api-server/handlers/auth.ts` 与 `packages/mini-app-api-server/auth/totpStorage.ts`。
+ * 超级管理员 ID 连续输错 Mini App 访问密码或动态口令允许的最大次数。
+ * 不变量：正整数，连续失败达到该次数后立即按 `MINI_APP_PASSWORD_LOCKOUT_MS` 锁定该超级管理员 ID。
+ * 所属模块：`packages/mini-app-api-server/handlers/auth.ts` 与 `packages/mini-app-api-server/auth/totpStorage.ts`。
  */
 export const MINI_APP_PASSWORD_MAX_ATTEMPTS: number = 3;
 
 /**
- * 超级管理员 ID 连续输错 Mini App 访问密码达上限后的禁止访问锁定时长毫秒数（30 分钟）。
+ * 超级管理员 ID 连续输错 Mini App 二次认证凭据（访问密码或动态口令）达上限后的禁止访问锁定时长毫秒数。
  * 不变量：锁定期内该超级管理员 ID 的一切预检、登录与 API 访问一律拒绝。所属模块：`packages/mini-app-api-server/handlers/auth.ts`。
  */
 export const MINI_APP_PASSWORD_LOCKOUT_MS: number = 30 * MINUTE_MS;
 
 /**
- * 主线程同时保留的 Mini App 已认证密码会话数量上限。
+ * 主线程同时保留的 Mini App 已认证会话数量上限。
  * 不变量：有界 FIFO 淘汰，超出时移除最早会话。所属模块：`packages/cache/main/miniApp.ts`。
  */
 export const MINI_APP_SESSION_MAX: number = 8;
@@ -132,49 +146,111 @@ export const MINI_APP_PASSWORD_AT_LEAST_SIX_DIGITS_PATTERN: RegExp =
 
 /**
  * Telegram WebApp `initData` 原始查询串允许的最大字符长度（4096 字符）。
- * 不变量：正整数上界，超出该长度的异常载荷在进入 `URLSearchParams` 解析与 HMAC 计算前直接按快路径拒绝。所属模块：`packages/libs/miniAppAuth.ts` 与 `packages/mini-app-api-server/middleware/headerGuard.ts`。
+ * 不变量：正整数上界，超出该长度的载荷在进入 `URLSearchParams` 解析与 HMAC 计算前直接按快路径拒绝。
+ * 所属模块：`packages/libs/miniAppAuth.ts` 与 `packages/mini-app-api-server/middleware/headerGuard.ts`。
  */
 export const MINI_APP_MAX_INIT_DATA_LENGTH: number = 4_096;
 
 /**
  * 控制字符（Unicode `Cc` 分类，含 `0x00..0x1F` 与 `0x7F`）的匹配规则。
- * 不变量：不带全局标志 `g`，用于在鉴权快路径拦截含控制字符的畸形凭据头。所属模块：`packages/libs/miniAppAuth.ts` 与 `packages/mini-app-api-server/middleware/headerGuard.ts`。
+ * 不变量：不带全局标志 `g`，用于在鉴权快路径拦截含控制字符的畸形凭据头。
+ * 所属模块：`packages/libs/miniAppAuth.ts` 与 `packages/mini-app-api-server/middleware/headerGuard.ts`。
  */
 export const MINI_APP_CONTROL_CHARS_PATTERN: RegExp = /\p{Cc}/u;
 
 /**
  * `Authorization: tma <initData>` 请求头的认证方案前缀（小写含尾空格）。
- * 不变量：与 `X-Telegram-Init-Data` 互为备选传递方式。所属模块：`packages/mini-app-api-server/libs/request.ts` 与 `packages/mini-app-api-server/middleware/headerGuard.ts`。
+ * 不变量：与 `X-Telegram-Init-Data` 互为备选传递方式。所属模块：`packages/mini-app-api-server/middleware/headerGuard.ts`。
  */
 export const MINI_APP_TMA_AUTH_PREFIX: string = "tma ";
 
 /**
  * Mini App 响应禁止 Cloudflare Tunnel 边缘节点与浏览器缓存的 `Cache-Control` 取值。
- * 不变量：所有动态页面与业务 JSON API 响应均带上此防缓存头。所属模块：`packages/mini-app-api-server/libs/response.ts`。
+ * 不变量：所有动态页面与业务 JSON API 响应均带上此缓存控制头。所属模块：`packages/mini-app-api-server/libs/response.ts`。
  */
 export const MINI_APP_NO_STORE_CACHE_CONTROL: string =
   "no-store, no-cache, must-revalidate, max-age=0";
 
 /**
- * Mini App 受保护图库图片与 SVG 资源在通过鉴权后允许 Telegram WebView 客户端与 Cloudflare CDN 边缘节点持久化缓存 7 天的 `Cache-Control` 取值。
- * 不变量：仅用于已通过鉴权中间件核验的 `200 OK` / `304 Not Modified` 图片、SVG 与图标资源响应；未通过鉴权的 `401`/`403` 响应固定使用 `no-store`。所属模块：`packages/mini-app-api-server/libs/response.ts`。
+ * Mini App 受保护图库图片与 SVG 资源在通过鉴权后下发的 `Cache-Control` 取值（7 天持久化缓存）。
+ * 不变量：仅用于已通过鉴权中间件核验的 `200 OK` / `304 Not Modified` 图片、SVG 与图标资源响应；
+ * 未通过鉴权的 `401`/`403` 响应固定使用 `no-store`。所属模块：`packages/mini-app-api-server/libs/response.ts`。
  */
 export const MINI_APP_ASSET_CACHE_CONTROL: string =
   "public, max-age=604800, s-maxage=604800, immutable";
 
 /**
+ * Mini App 单页入口通过超级管理员门禁校验后签发的 `HttpOnly` 门禁 Cookie 名称。
+ * 不变量：仅携带合法超级管理员 `initData` 预检或登录成功后通过 `Set-Cookie` 下发，锁定或校验失败时清除。
+ * 所属模块：`packages/mini-app-api-server/auth/pageGate.ts`。
+ */
+export const MINI_APP_PAGE_GATE_COOKIE_NAME: string = "copy_ninja_mini_app_gate";
+
+/**
+ * 派生 Mini App 单页门禁令牌（`<issuedAtMs>.<hmacHex>`）HMAC-SHA256 签名密钥的域分离种子字符串。
+ * 不变量：恒为 `"CopyNinjaMiniAppPageGateV1"`，与 `WebAppData` 及 `assetToken` 派生密钥严格域分离。
+ * 所属模块：`packages/libs/miniAppAuth.ts`。
+ */
+export const MINI_APP_PAGE_GATE_SECRET_SEED: string =
+  "CopyNinjaMiniAppPageGateV1";
+
+/**
+ * Mini App 单页门禁令牌（`<issuedAtMs>.<hmacHex>`）计算 HMAC-SHA256 时的消息前缀。
+ * 不变量：恒为 `"mini-app-page-gate:"`，后接 `${SUPER_ADMIN_USER_ID}:${issuedAtMs}`，
+ * 以 `deriveMiniAppPageGateSecretKey(BOT_TOKEN)` 派生的密钥签名。所属模块：`packages/libs/miniAppAuth.ts`。
+ */
+export const MINI_APP_PAGE_GATE_PAYLOAD_PREFIX: string = "mini-app-page-gate:";
+
+/**
+ * Mini App 单页门禁令牌校验签发时间戳时允许的未来时钟偏移容差毫秒数（60 秒）。
+ * 不变量：非负整数毫秒数，签发时间超出当前时刻加该容差时拒绝通过。所属模块：`packages/libs/miniAppAuth.ts`。
+ */
+export const MINI_APP_PAGE_GATE_CLOCK_SKEW_MS: number = MINUTE_MS;
+
+/**
+ * Mini App 单页门禁 Cookie 的 `Max-Age` 有效期秒数（与 `MINI_APP_SESSION_TTL_MS` 对齐）。
+ * 不变量：正整数秒数，清除门禁 Cookie 时固定改发 `Max-Age=0`。所属模块：`packages/mini-app-api-server/auth/pageGate.ts`。
+ */
+export const MINI_APP_PAGE_GATE_COOKIE_MAX_AGE_SECONDS: number = 2_700;
+
+/**
+ * Mini App 已通过超级管理员门禁校验后返回前端打包产物（`/chunk-*.js`、`/chunk-*.css` 等）的私有协商缓存头取值。
+ * 不变量：禁止公共代理与 CDN 缓存前端完整包（配合 `CDN-Cache-Control: no-store`），
+ * 浏览器每次重用前须向源站以 `If-None-Match` 复核门禁与锁定状态。所属模块：`packages/mini-app-api-server/libs/response.ts`。
+ */
+export const MINI_APP_BUNDLE_CACHE_CONTROL: string =
+  "private, no-cache, must-revalidate";
+
+/**
+ * Mini App 前端打包产物响应的 `Vary` 头取值。
+ * 不变量：按门禁 Cookie 与 `initData` 凭据请求头隔离缓存副本。所属模块：`packages/mini-app-api-server/libs/response.ts`。
+ */
+export const MINI_APP_BUNDLE_VARY_HEADER_VALUE: string =
+  "Cookie, X-Telegram-Init-Data, Authorization";
+
+/**
+ * Mini App 前端打包产物候选根路径的匹配规则（单层文件名加打包静态资源扩展名）。
+ * 不变量：不带全局标志 `g`，供兜底路由匹配单层打包静态资源路径。所属模块：`packages/mini-app-api-server/routes/page.ts`。
+ */
+export const MINI_APP_BUNDLE_ASSET_ROUTE_PATTERN: RegExp =
+  /^\/[^/]+\.(?:js|css|ico|svg|png|webp|woff2?)$/iu;
+
+/**
  * 派生 Mini App 受保护静态/图库资源稳定鉴权令牌（`assetToken`）的 HMAC-SHA256 种子字符串。
- * 不变量：由 `BOT_TOKEN` 与 `SUPER_ADMIN_USER_ID` 确定性派生，仅在通过第二层认证（或恢复未过期的 45 分钟解锁会话）后下发，使解锁后重开 Mini App 的图片/SVG URL 保持稳定以命中 WebView 与 CDN 缓存。所属模块：`packages/libs/miniAppAuth.ts`。
+ * 不变量：由 `BOT_TOKEN` 与 `SUPER_ADMIN_USER_ID` 确定性派生，仅在通过第二层认证（或恢复未过期的解锁会话）后下发，
+ * 同一部署凭据下对同一资源保持确定性取值。所属模块：`packages/libs/miniAppAuth.ts`。
  */
 export const MINI_APP_ASSET_TOKEN_SECRET_SEED: string =
   "CopyNinjaMiniAppAssetTokenV1";
 
 /**
  * Mini App 响应的 `Content-Security-Policy` 安全策略头取值。
- * 不变量：仅允许同源脚本、`https://telegram.org` 官方脚本与 `index.html` 内置的首屏 `lang`/`title` 语言初始化脚本哈希，彻底封死外联 XSS 与页面嵌套。所属模块：`packages/mini-app-api-server/libs/response.ts`。
+ * 不变量：仅允许同源脚本、`https://telegram.org` 官方脚本以及 `index.html` 首屏语言初始化脚本与独立
+ * `reject.html` 门禁引导/诊断脚本的静态 SHA-256 哈希，拒绝外联脚本与跨文档嵌套。
+ * 所属模块：`packages/mini-app-api-server/libs/response.ts`。
  */
 export const MINI_APP_CSP_HEADER_VALUE: string =
-  "default-src 'self'; script-src 'self' https://telegram.org 'sha256-QWTSQdDnyTbsLW0pe3w3OntSBjLiStumg3aS49sZVGo='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
+  "default-src 'self'; script-src 'self' https://telegram.org 'sha256-QWTSQdDnyTbsLW0pe3w3OntSBjLiStumg3aS49sZVGo=' 'sha256-jQdGYCrapsott8wuOCCx+SLkEEwqzQ0ptWHRtERw5Tg='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 
 /**
  * Mini App 响应的 `X-Frame-Options` 安全头取值。
@@ -202,7 +278,8 @@ export const MINI_APP_GALLERY_DEFAULT_PAGE_SIZE: number = 10;
 
 /**
  * 图库分页接口单页允许的最大图片张数（20 张）。
- * 不变量：等于前端 `packages/mini-app-frontend/consts/miniApp.ts` 中 `MINI_APP_GALLERY_PAGE_SIZE_OPTIONS` 的最大档位，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-api-server/view/gallery.ts`。
+ * 不变量：等于前端 `packages/mini-app-frontend/consts/miniApp.ts` 中 `MINI_APP_GALLERY_PAGE_SIZE_OPTIONS` 的最大档位，
+ * 由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-api-server/view/gallery.ts`。
  */
 export const MINI_APP_GALLERY_MAX_PAGE_SIZE: number = 20;
 
@@ -222,14 +299,15 @@ export const MINI_APP_GALLERY_DOWNLOAD_ROUTE_PATTERN: RegExp =
 
 /**
  * 受保护图片与矢量图路径后缀的匹配规则（让携带图片后缀的未知路径先经受保护资源鉴权中间件链再返回 404，不含公开 `/favicon.ico`）。
- * 不变量：不带全局标志 `g`，大小写不敏感匹配常见图片与矢量图扩展名。所属模块：`packages/mini-app-api-server/server/register.ts`。
+ * 不变量：不带全局标志 `g`，大小写不敏感匹配常见图片与矢量图扩展名。
+ * 所属模块：`packages/mini-app-api-server/server/register.ts` 与 `packages/mini-app-api-server/routes/page.ts`。
  */
 export const MINI_APP_PROTECTED_ASSET_EXT_PATTERN: RegExp =
   /\.(?:svg|png|jpe?g|webp|gif|avif)$/iu;
 
 /**
  * 图库允许通过 HTTP 读取的单张图片安全文件名匹配规则（非点号开头、仅含字母数字与 `._-`、以受支持图片扩展名结尾）。
- * 不变量：不含路径分隔符或空字符，防止目录穿越。所属模块：`packages/mini-app-api-server/view/gallery.ts`。
+ * 不变量：拒绝含路径分隔符或空字符的文件名。所属模块：`packages/mini-app-api-server/view/gallery.ts`。
  */
 export const MINI_APP_GALLERY_SAFE_FILE_NAME_PATTERN: RegExp =
   /^[A-Za-z0-9][A-Za-z0-9._-]*\.(?:jpg|jpeg|png|webp)$/iu;
@@ -242,7 +320,8 @@ export const MINI_APP_MESSAGES_DEFAULT_PAGE_SIZE: number = 10;
 
 /**
  * 群热发言记录接口单页允许的最大条数（20 条）。
- * 不变量：等于前端 `packages/mini-app-frontend/consts/miniApp.ts` 中 `MINI_APP_MESSAGES_PAGE_SIZE_OPTIONS` 的最大档位，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-api-server/view/messages.ts`。
+ * 不变量：等于前端 `packages/mini-app-frontend/consts/miniApp.ts` 中 `MINI_APP_MESSAGES_PAGE_SIZE_OPTIONS` 的最大档位，
+ * 由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-api-server/view/messages.ts`。
  */
 export const MINI_APP_MESSAGES_MAX_PAGE_SIZE: number = 20;
 
@@ -254,7 +333,9 @@ export const MINI_APP_IDENTITY_DEFAULT_PAGE_SIZE: number = 10;
 
 /**
  * 白名单与黑名单列表接口单页允许的最大条数（20 条）。
- * 不变量：不超过 `BLOCKLIST_SWEEP_PAGE_SIZE`，等于前端 `packages/mini-app-frontend/consts/miniApp.ts` 中 `MINI_APP_IDENTITY_PAGE_SIZE_OPTIONS` 的最大档位，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-api-server/view/identities/page.ts`。
+ * 不变量：不超过 `BLOCKLIST_SWEEP_PAGE_SIZE`，等于前端 `packages/mini-app-frontend/consts/miniApp.ts` 中
+ * `MINI_APP_IDENTITY_PAGE_SIZE_OPTIONS` 的最大档位，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。
+ * 所属模块：`packages/mini-app-api-server/view/identities/page.ts`。
  */
 export const MINI_APP_IDENTITY_MAX_PAGE_SIZE: number = 20;
 
@@ -339,7 +420,9 @@ export const MINI_APP_BATCH_KICK_MAX_HOURS: number = 24;
 
 /**
  * Mini App 群内追着翻目标支持的目标语言闭集。
- * 不变量：与 `MiniAppTranslateLanguage` 及 `TranslateLanguage` 联合类型一一对应。所属模块：`packages/mini-app-api-server/handlers/chats.ts`、`packages/mini-app-api-server/handlers/identities.ts` 与 `packages/mini-app-api-server/view/chats/targets.ts`。
+ * 不变量：与 `MiniAppTranslateLanguage` 及 `TranslateLanguage` 联合类型一一对应。
+ * 所属模块：`packages/mini-app-api-server/handlers/chats.ts`、`packages/mini-app-api-server/handlers/identities.ts`
+ * 与 `packages/mini-app-api-server/view/chats/targets.ts`。
  */
 export const MINI_APP_TRANSLATE_LANGUAGES: readonly MiniAppTranslateLanguage[] =
   exhaustiveList<MiniAppTranslateLanguage>()([
@@ -363,3 +446,57 @@ export const MINI_APP_CHAT_TARGETS_MUTATION_ACTIONS: readonly MiniAppChatTargets
     "addTranslateTarget",
     "removeTranslateTarget",
   ]);
+
+/**
+ * Mini App 未授权独立拒绝页（`reject.html`）中用于一次性预切分模板的唯一起始标签字面量。
+ * 不变量：模板内必须且仅出现一次 `<body>`，预切分保留 `<body` 前缀与 `>` 后缀。所属模块：`packages/mini-app-api-server/handlers/page.ts`。
+ */
+export const MINI_APP_REJECT_HTML_BODY_TAG: string = "<body>";
+
+/**
+ * 首屏预检、登录与登出路由的鉴权策略配置（仅校验请求头快路径、Telegram WebApp 签名、超管 ID 与登录失败锁定，不要求二次认证会话）。
+ * 不变量：供 `packages/mini-app-api-server/routes/auth.ts` 声明路由策略，登出路径不因先验会话自动续期。
+ * 所属模块：`packages/mini-app-api-server/middleware/pipeline.ts`。
+ */
+export const MINI_APP_INIT_DATA_AUTH_POLICY: Readonly<MiniAppAuthPolicy> = {
+  allowQueryAuth: false,
+  allowVerifiedAssetTokenBypass: false,
+  requireSession: false,
+};
+
+/**
+ * 受保护图库图片资源的专属鉴权策略配置：
+ * - 请求头快路径拦截跨站与直接导航；
+ * - 校验 Telegram WebApp 超管签名或登录后派发的资源令牌；
+ * - 未带资源令牌或显式携带会话令牌时校验二次认证会话。
+ * 不变量：允许查询参数凭据与已验资源令牌免会话放行，供 `packages/mini-app-api-server/routes/gallery.ts`
+ * 与 `packages/mini-app-api-server/server/register.ts` 使用。所属模块：`packages/mini-app-api-server/middleware/pipeline.ts`。
+ */
+export const MINI_APP_PROTECTED_ASSET_AUTH_POLICY: Readonly<MiniAppAuthPolicy> = {
+  allowQueryAuth: true,
+  allowVerifiedAssetTokenBypass: true,
+  requireSession: true,
+};
+
+/**
+ * 业务 JSON 与写操作 API 的完整双层鉴权策略配置（请求头快路径 + Telegram WebApp 超管签名 + 二次认证会话）。
+ * 不变量：不接受 URL 查询参数凭据；供各 API 路由表与 `packages/mini-app-api-server/server/register.ts` 使用。
+ * 所属模块：`packages/mini-app-api-server/middleware/pipeline.ts`。
+ */
+export const MINI_APP_API_AUTH_POLICY: Readonly<MiniAppAuthPolicy> = {
+  allowQueryAuth: false,
+  allowVerifiedAssetTokenBypass: false,
+  requireSession: true,
+};
+
+/**
+ * 图库原图附件下载路由的完整双层鉴权策略配置（请求头快路径 + Telegram WebApp 超管签名或资源令牌 + 二次认证会话，
+ * 允许 GET/HEAD 查询参数传凭据）。
+ * 不变量：仅携带 `?token=` 时不豁免二次认证会话，必须同时携带有效会话凭据；供 `packages/mini-app-api-server/routes/gallery.ts` 使用。
+ * 所属模块：`packages/mini-app-api-server/middleware/pipeline.ts`。
+ */
+export const MINI_APP_GALLERY_DOWNLOAD_AUTH_POLICY: Readonly<MiniAppAuthPolicy> = {
+  allowQueryAuth: true,
+  allowVerifiedAssetTokenBypass: false,
+  requireSession: true,
+};

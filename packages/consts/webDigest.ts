@@ -1,4 +1,7 @@
-/** cron `send_web_digest` 联网摘要（libs/webDigest.ts、libs/webDigestMarkdown.ts、config/cronAction.ts、consts/aiChat/prompts/webDigest.ts）的格式常量。 */
+/**
+ * cron `send_web_digest` 联网摘要的格式常量
+ * （libs/webDigest.ts、libs/webDigestMarkdown.ts、config/cronAction.ts、consts/aiChat/prompts/webDigest.ts）。
+ */
 
 import type { WebDigestLanguage } from "../types/webDigest";
 import { exhaustiveList } from "./exhaustiveList";

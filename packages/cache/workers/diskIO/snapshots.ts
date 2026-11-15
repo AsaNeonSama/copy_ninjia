@@ -7,13 +7,22 @@ import type {
 
 /**
  * 群 ID 到已受理最新 AI 记忆 revision 的水位线映射：
- * - 填充：hydrateAiMemoryCache 按磁盘现存快照初始化为零值，运行期由 markAiMemoryDirty 与 markAiMemoryDeleted 推进；
- * - 清理与容量：收到 forgetAiMemory 消息（forgetAiMemoryChat）、hydrateAiMemoryCache 或 resetAiMemoryCache 时移除；容量与活跃群数同阶，Worker 重建后由 hydrate 与主线程 onDiskIORespawn 重放恢复。
+ * - 填充：`hydrateAiMemoryCache` 按磁盘现存快照初始化为零值，运行期由 `markAiMemoryDirty` 与 `markAiMemoryDeleted` 推进；
+ * - 清理与容量：收到 `forgetAiMemory` 消息（`forgetAiMemoryChat`）、`hydrateAiMemoryCache` 或 `resetAiMemoryCache` 时移除；
+ *   容量与活跃群数同阶，Worker 重建后由 hydrate 与主线程 `onDiskIORespawn` 重放恢复。
  */
 export const aiMemoryRevisions: Map<number, number> = new Map();
-/** 群 ID 到最新 revision 对应操作类型（upsert 或 delete）的映射：与 aiMemoryRevisions 成对写入，在 forgetAiMemoryChat、hydrateAiMemoryCache 或 resetAiMemoryCache 时同步移除；容量与活跃群数同阶，Worker 重建后由 hydrate 与主线程重放恢复。 */
+/**
+ * 群 ID 到最新 revision 对应操作类型（`upsert` 或 `delete`）的映射：
+ * 与 `aiMemoryRevisions` 成对写入，在 `forgetAiMemoryChat`、`hydrateAiMemoryCache` 或 `resetAiMemoryCache` 时同步移除；
+ * 容量与活跃群数同阶，Worker 重建后由 hydrate 与主线程重放恢复。
+ */
 export const aiMemoryOperations: Map<number, "upsert" | "delete"> = new Map();
-/** 需要在下次 SQLite 事务提交后发送即时持久化回执的群 ID 集合：purge 后首份新快照入队时登记，事务提交结算（settleAiContextPersisted）、markAiMemoryDeleted 或 resetAiMemoryCache 时移除；容量上限为受管群数，Worker 重建后从空集开始。 */
+/**
+ * 需要在下次 SQLite 事务提交后发送即时持久化回执的群 ID 集合：
+ * purge 后首份新快照入队时登记，事务提交结算（`settleAiContextPersisted`）、`markAiMemoryDeleted` 或 `resetAiMemoryCache` 时移除；
+ * 容量上限为受管群数，Worker 重建后从空集开始。
+ */
 export const aiMemoryImmediateChats: Set<number> = new Set();
 
 /** AI 记忆删除 durable 回执发送回调单例：Disk I/O Worker 启动时注入，isolate 销毁时释放；单例函数。 */

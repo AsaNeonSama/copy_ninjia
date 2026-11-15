@@ -19,16 +19,16 @@ import type { BotConfig } from "../../packages/types/config";
 import type * as Readiness from "../../packages/config/readiness";
 export { bootstrapStorageDatabase } from "../../packages/database/interact/initialization";
 
-/** 完成问卷和新库初始化后才加载启动总闸。 */
+/** 动态加载并执行启动总闸 `validateExistingDeploymentInputs`，统一核验配置目录与持久化状态。 */
 export async function validateExistingDeploymentInputs(): Promise<void> {
   const readiness: typeof Readiness = await import("../../packages/config/readiness");
   await readiness.validateExistingDeploymentInputs();
 }
 
 /**
- * 安装前按启动恢复同一口径只读校验全局状态与 Mini App TOTP 持久化文件：旧位置的状态文件
- * （`LEGACY_STATE_FILE_PATHS`）存在，或 `memory/global/state.json`、`memory/mini-app-totp/totp.json`
- * 不是当前格式时拒绝。
+ * 安装前按启动恢复同一口径只读校验全局状态与 Mini App TOTP 持久化文件：
+ * - 数据根仍残留旧路径状态文件（`LEGACY_STATE_FILE_PATHS`）时拒绝；
+ * - `memory/global/state.json` 或已存在的 `memory/mini-app-totp/totp.json` 不符合当前格式时拒绝。
  */
 export async function assertStateFilesMigrated(): Promise<void> {
   await loadCurrentGlobalState(new StateStore());
@@ -36,13 +36,13 @@ export async function assertStateFilesMigrated(): Promise<void> {
 }
 
 /**
- * 安装前按启动恢复同一口径只读校验 memory/wed：任一群文件不是当前 `{ id, enteredAt }` 滑窗格式
- * （例如仍是未经 migrate:wed-member-window 的成员 ID 数组）时拒绝，不改写文件。
+ * 安装前按启动恢复同一口径只读校验 `memory/wed/`：任一群文件不是当前 `{ id, enteredAt }` 滑窗格式
+ * （例如仍是成员 ID 数组）时直接拒绝，不改写原文件。
  */
 export { inspectWedMemberFiles as assertWedMemberFilesMigrated } from "../../packages/workers/diskIO/wedMemberFiles";
 
 /**
- * 只读读出已有共享数据库的 metadata，并先确认 schema 版本是当前版本。
+ * 只读读取共享数据库的 `storage_metadata` 表，并核对 `schema-version` 等于 `IDENTITY_DATABASE_SCHEMA_VERSION`。
  *
  * @param database 已只读打开的共享存储数据库
  * @returns 数据库 `storage_metadata` 表行列表
@@ -57,8 +57,8 @@ function readCurrentStorageMetadata(database: StorageDatabase): readonly StoredS
 }
 
 /**
- * 安装前只读核对已有共享数据库的 schema 版本：不是当前版本时拒绝，不改写数据库。库不存在时由
- * 建库步骤创建；完整校验留给启动恢复。
+ * 安装前只读核对既有共享数据库的 schema 版本：数据库文件不存在时直接跳过（交由后续建库步骤初始化）；
+ * 已存在但版本不匹配时拒绝，不改写数据库。
  */
 export async function assertStorageDatabaseMigrated(): Promise<void> {
   if (!await Bun.file(IDENTITY_DATABASE_PATH).exists()) return;
@@ -71,8 +71,8 @@ export async function assertStorageDatabaseMigrated(): Promise<void> {
 }
 
 /**
- * 配置写定后、注册服务前只读核对已有共享数据库绑定的时区：time-zone 标记必须等于 bot.json
- * 的规范化时区，与启动闸同一口径；不改写数据库。
+ * 配置写定后、注册服务前只读核对共享数据库绑定的时区：`storage_metadata` 中的 `time-zone`
+ * 必须等于 `bot.json` 的规范化时区，不改写数据库。
  *
  * @param timeZone `bot.json` 解析出的规范化 IANA 时区名称
  */

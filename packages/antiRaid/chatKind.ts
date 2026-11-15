@@ -8,7 +8,7 @@
  */
 
 import { chatIsSupergroupById } from "../cache/main/antiRaid/chatKind";
-import { getChatState } from "../infra/storage/stateStore";
+import { getChatState } from "../infra/chatStateStorage";
 import { postAntiRaid } from "./workerBridge/controller";
 import type { Chat } from "grammy/types";
 

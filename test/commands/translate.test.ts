@@ -64,6 +64,9 @@ mock.module("../../packages/config/readiness", () => ({
   translateConfigReadiness: () => configured ? { ok: true } : { ok: false, failure: { file: "g-auth.json", reason: "Invalid g-auth.json" } },
 }));
 mock.module("../../packages/infra/storage/stateStore", () => ({
+  getGlobalCopyState: () => globalCopy,
+}));
+mock.module("../../packages/infra/chatStateStorage", () => ({
   getChatState: (chatId: number): TestChatState => chatStates.get(chatId) ?? createTestChatState(),
   getChatStateCache: (): ReadonlyMap<number, TestChatState> => chatStates,
   getOrCreateChatState: chatStateFor,
@@ -73,7 +76,6 @@ mock.module("../../packages/infra/storage/stateStore", () => ({
     (current as Record<keyof TestChatState, unknown>)[key] = false;
     return true;
   },
-  getGlobalCopyState: () => globalCopy,
   persistChatState,
 }));
 mock.module("../../packages/commands/targetResolution", () => ({ resolveCommandTarget }));

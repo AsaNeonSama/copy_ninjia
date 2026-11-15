@@ -226,7 +226,7 @@ describe("共享存储库的启动 schema 闸", () => {
   });
 
   test("8.0.0 之前 dev 构建留下的 text + jsonb 两步基础谱系拒绝启动", () => {
-    // 夹具字面量：被压缩前的两条历史 migration（文本初始建表与文本转 JSONB），表结构与当前基础相同。
+    // 夹具字面量：伪造表结构相同但不属于当前受支持谱系的两步迁移记录。
     withDatabase((database: StorageDatabase): void => {
       database.$client.run("UPDATE __drizzle_migrations SET hash = ?1 WHERE created_at = ?2;", [
         "be64993ef4059e0fff1491bdbacc67ee9bb6b6d8097842036c7903c8c4aed93a", 20_260_811_000_000,

@@ -1,3 +1,7 @@
+/**
+ * 应用生命周期（`ApplicationLifecycle`）测试共用的依赖替身、调用顺序记录器与逐用例复位夹具。
+ */
+
 import { afterEach, beforeEach, mock } from "bun:test";
 import { ApplicationLifecycle } from "../../packages/app/lifecycle";
 import { drainAvatarUpdates as realDrainAvatarUpdates } from "../../packages/copy/avatarQueue";

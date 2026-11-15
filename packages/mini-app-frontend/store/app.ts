@@ -3,11 +3,10 @@ import type { UseBoundStore, StoreApi } from "zustand";
 import { loginMiniAppWithPassword } from "../api/authLogin";
 import { logoutMiniAppSession } from "../api/authLogout";
 import { precheckMiniAppAccess } from "../api/authPrecheck";
+import { isMiniAppAuthErrorMessage } from "../api/request";
 import {
   MINI_APP_DARK_BG_COLOR,
   MINI_APP_DARK_HEADER_COLOR,
-  MINI_APP_DEFAULT_ACCENT_COLOR,
-  MINI_APP_DEFAULT_ACCENT_TEXT_COLOR,
   MINI_APP_INITIAL_THEME,
   MINI_APP_LIGHT_BG_COLOR,
   MINI_APP_LIGHT_HEADER_COLOR,
@@ -52,6 +51,8 @@ export interface MiniAppConfirmModalState {
   readonly message: string;
   /** 确认按钮色调（默认 `"danger"`）。 */
   readonly tone: "danger" | "primary";
+  /** 递增的确认请求序号（驱动连续确认请求重新挂载节点播放进入动画）。 */
+  readonly requestSeq: number;
   /** 内部 Promise 结算回调。 */
   readonly resolve: (accepted: boolean) => void;
 }
@@ -75,6 +76,8 @@ export interface MiniAppUiStoreState {
   readonly statusReady: boolean;
   readonly toastText: string;
   readonly toastTone: MiniAppToastTone;
+  /** 递增的 Toast 展示序号（驱动连续提示重新挂载节点播放进入动画）。 */
+  readonly toastSeq: number;
   readonly confirmModal: Readonly<MiniAppConfirmModalState> | null;
   /** 密码 / TOTP 门禁输入框当前值。 */
   readonly passwordInput: string;
@@ -102,9 +105,8 @@ export interface MiniAppUiStoreState {
   /** 更新门禁输入框（TOTP 模式由调用方先过滤为最多 6 位数字）。 */
   readonly setPasswordInput: (value: string) => void;
   /**
-   * 展示一条自动消失的 Toast（`MINI_APP_TOAST_DURATION_MS` 后清除，重复调用重新计时）；
-   * 服务端英文状态码自动按当前语言映射为对应提示文案，文本含 `[PASSWORD_REQUIRED]` 时改为按会话过期锁定控制台，
-   * 含 `[PASSWORD_LOCKED]` 时清除本地会话并回到 `checking` 重新预检进入拦截页。
+   * 展示一条自动消失的 Toast（`MINI_APP_TOAST_DURATION_MS` 后清除，重复调用重新计时），服务端状态码按当前语言映射为本地化文案。
+   * 文本含 `[PASSWORD_REQUIRED]` 时改为按会话过期锁定控制台；含 `[PASSWORD_LOCKED]` 时清除本地会话并回到 `checking` 重新预检进入拦截页。
    */
   readonly notify: (
     message: string,
@@ -112,16 +114,19 @@ export interface MiniAppUiStoreState {
     metaSource?: unknown
   ) => void;
   /**
-   * 锁定控制台：清除会话到期计时器与本地会话令牌，以取消结算待确认弹窗，收起侧栏与语言菜单，
-   * 回到密码门禁并把原因同时写入门禁错误与警告 Toast。
+   * 锁定控制台：清除会话到期计时器与本地会话令牌，按取消结算待确认弹窗，收起侧栏与语言菜单，
+   * 退回登录门禁（`gateState = "password"`，按当前 `authMode` 展示密码或 TOTP 表单），并将非空原因写入门禁错误与警告 Toast。
    */
   readonly lockSession: (reason: string) => void;
   /**
-   * 手动锁定（顶栏「锁定」按钮）：先以当前会话令牌通知服务端吊销会话（不等待结果，失败忽略），
-   * 再按 `lockSession` 清除本地凭据并回到密码门禁。会话到期与服务端判定会话失效时只走 `lockSession`。
+   * 手动锁定（顶栏「锁定」按钮）：异步通知服务端吊销当前会话令牌（忽略网络失败），
+   * 随后调用 `lockSession` 清除本地凭据并退回登录门禁。会话自然到期或服务端判定失效时仅走 `lockSession`。
    */
   readonly logout: (reason: string) => void;
-  /** 门禁 `checking` 阶段：预检 SuperAdmin 签名与持久化会话，按结果进入 `denied`、`password` 或 `unlocked`。 */
+  /**
+   * 门禁 `checking` 阶段：预检 SuperAdmin 签名与持久化会话，按结果进入 `denied`、`password` 或 `unlocked`。
+   * 预检有响应时本地令牌的保留与清除由 `precheckMiniAppAccess` 统一负责；请求本身抛错时在此清除本地凭据。
+   */
   readonly runAccessPrecheck: () => Promise<void>;
   /** 校验并提交门禁输入的访问密码或 6 位 TOTP 动态码，成功后解锁并按会话到期时刻安排自动锁定。 */
   readonly submitCredential: () => Promise<void>;
@@ -130,42 +135,20 @@ export interface MiniAppUiStoreState {
 }
 
 /**
- * 解析当前生效的 Mini App 主题主色调：若 Telegram 宿主在 `themeParams` 中注入了主题色（优先读取
- * `button_color`，次选 `link_color`），则以 Telegram 注入色为准；未注入时回退为自带默认粉色
- * `MINI_APP_DEFAULT_ACCENT_COLOR`。
- *
- * @param webApp 可选的 Telegram WebApp 宿主实例
- * @returns 生效的主题主色调颜色串
- */
-export function resolveMiniAppAccentColor(
-  webApp?: Readonly<TelegramWebApp>
-): string {
-  const buttonColor: string = webApp?.themeParams?.button_color?.trim() ?? "";
-  if (buttonColor.length > 0) return buttonColor;
-  const linkColor: string = webApp?.themeParams?.link_color?.trim() ?? "";
-  if (linkColor.length > 0) return linkColor;
-  return MINI_APP_DEFAULT_ACCENT_COLOR;
-}
-
-/**
- * 将当前主题模式与主题色同步至根节点 `data-theme` 属性、CSS 自定义属性及 Telegram WebApp 宿主背景色：
- * 若 Telegram 注入了 `themeParams` 主题色则优先同步注入色，未注入时回退为自带默认粉色 `MINI_APP_DEFAULT_ACCENT_COLOR`。
+ * 将当前主题模式同步至根节点 `data-theme` 属性及 Telegram WebApp 宿主顶栏与页面背景色；
+ * 单项宿主色彩接口抛错时在各自调用边界吞掉异常，不影响本地主题属性与另一项宿主色彩同步。
  *
  * @param theme 目标主题模式
  */
 export function applyMiniAppThemeToDocument(theme: MiniAppThemeMode): void {
-  const normalizedTheme: MiniAppThemeMode = MINI_APP_THEME_MODES.includes(theme) ? theme : MINI_APP_INITIAL_THEME;
+  const normalizedTheme: MiniAppThemeMode = MINI_APP_THEME_MODES.includes(theme)
+    ? theme
+    : MINI_APP_INITIAL_THEME;
   const tgWindow: TelegramWindow = globalThis;
   const docEl: NonNullable<TelegramWindow["document"]>["documentElement"] =
     tgWindow.document?.documentElement;
   docEl?.setAttribute?.("data-theme", normalizedTheme);
   const webApp: Readonly<TelegramWebApp> | undefined = tgWindow.Telegram?.WebApp;
-  const accentColor: string = resolveMiniAppAccentColor(webApp);
-  const accentTextColor: string =
-    webApp?.themeParams?.button_text_color?.trim() ||
-    MINI_APP_DEFAULT_ACCENT_TEXT_COLOR;
-  docEl?.style?.setProperty?.("--default-accent-color", accentColor);
-  docEl?.style?.setProperty?.("--default-accent-text-color", accentTextColor);
   const bgHex: string =
     normalizedTheme === "light" ? MINI_APP_LIGHT_BG_COLOR : MINI_APP_DARK_BG_COLOR;
   const headerHex: string =
@@ -174,9 +157,13 @@ export function applyMiniAppThemeToDocument(theme: MiniAppThemeMode): void {
       : MINI_APP_DARK_HEADER_COLOR;
   try {
     webApp?.setHeaderColor?.(headerHex);
+  } catch (_error: unknown) {
+    // 宿主顶栏色同步失败时静默忽略。
+  }
+  try {
     webApp?.setBackgroundColor?.(bgHex);
   } catch (_error: unknown) {
-    // 忽略低版本客户端不支持颜色设置 API 的异常。
+    // 宿主背景色同步失败时静默忽略。
   }
 }
 
@@ -197,6 +184,24 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
       store.getInitialState = get;
       let toastTimer: ReturnType<typeof setTimeout> | null = null;
       let sessionTimer: ReturnType<typeof setTimeout> | null = null;
+      let confirmRequestSeq: number = 0;
+
+      const clearToastTimer = (): void => {
+        if (toastTimer !== null) {
+          clearTimeout(toastTimer);
+          toastTimer = null;
+        }
+      };
+
+      const scheduleToastDismiss = (): void => {
+        clearToastTimer();
+        const timer: ReturnType<typeof setTimeout> = setTimeout((): void => {
+          toastTimer = null;
+          set({ toastText: "", toastTone: "info" });
+        }, MINI_APP_TOAST_DURATION_MS);
+        timer?.unref?.();
+        toastTimer = timer;
+      };
 
       const clearSessionTimer = (): void => {
         if (sessionTimer !== null) {
@@ -209,16 +214,13 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
         clearSessionTimer();
         clearMiniAppAssetToken();
         clearMiniAppSessionToken();
-        const current: Readonly<MiniAppConfirmModalState> | null = get().confirmModal;
-        if (current !== null) {
-          current.resolve(false);
-        }
+        get().resolveConfirm(false);
       };
 
       const scheduleSessionExpiry = (expiresAt: number): void => {
         clearSessionTimer();
         const remainingMs: number = Math.max(1_000, expiresAt - Date.now());
-        sessionTimer = setTimeout((): void => {
+        const timer: ReturnType<typeof setTimeout> = setTimeout((): void => {
           const latestExpiresAt: number = readMiniAppSessionExpiresAt();
           if (latestExpiresAt > Date.now() && latestExpiresAt > expiresAt) {
             set({ sessionExpiresAt: latestExpiresAt });
@@ -229,6 +231,8 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
             getMiniAppTranslations(get().language).sessionExpiredToast
           );
         }, remainingMs);
+        timer?.unref?.();
+        sessionTimer = timer;
       };
 
       return {
@@ -244,6 +248,7 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
         statusReady: false,
         toastText: "",
         toastTone: "info",
+        toastSeq: 0,
         confirmModal: null,
         passwordInput: "",
         passwordBusy: false,
@@ -295,10 +300,15 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
         },
 
         showToast: (text: string, tone: MiniAppToastTone = "info"): void => {
-          set({ toastText: text, toastTone: tone });
+          set((state: MiniAppUiStoreState): Partial<MiniAppUiStoreState> => ({
+            toastText: text,
+            toastTone: tone,
+            toastSeq: text.length > 0 ? state.toastSeq + 1 : state.toastSeq,
+          }));
         },
 
         clearToast: (): void => {
+          clearToastTimer();
           set({ toastText: "", toastTone: "info" });
         },
 
@@ -310,11 +320,14 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
           if (prev !== null) {
             prev.resolve(false);
           }
+          confirmRequestSeq += 1;
+          const requestSeq: number = confirmRequestSeq;
           return new Promise<boolean>((resolve: (accepted: boolean) => void): void => {
             set({
               confirmModal: {
                 message,
                 tone,
+                requestSeq,
                 resolve,
               },
             });
@@ -346,6 +359,7 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
             extractServerNoticeParams(metaSource)
           );
           if (message.includes("[PASSWORD_LOCKED]")) {
+            clearToastTimer();
             clearActiveSessionState();
             set({
               gateState: "checking",
@@ -363,13 +377,11 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
             return;
           }
           get().showToast(localized, tone);
-          if (toastTimer !== null) {
-            clearTimeout(toastTimer);
+          if (localized.length > 0) {
+            scheduleToastDismiss();
+          } else {
+            clearToastTimer();
           }
-          toastTimer = setTimeout((): void => {
-            get().clearToast();
-            toastTimer = null;
-          }, MINI_APP_TOAST_DURATION_MS);
         },
 
         lockSession: (reason: string): void => {
@@ -377,7 +389,7 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
           const localizedReason: string = getMiniAppTranslations(
             get().language
           ).serverNotice(reason);
-          set({
+          set((state: MiniAppUiStoreState): Partial<MiniAppUiStoreState> => ({
             passwordInput: "",
             passwordError: localizedReason,
             sessionExpiresAt: 0,
@@ -388,7 +400,14 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
             gateState: "password",
             toastText: localizedReason,
             toastTone: "warning",
-          });
+            toastSeq:
+              localizedReason.length > 0 ? state.toastSeq + 1 : state.toastSeq,
+          }));
+          if (localizedReason.length > 0) {
+            scheduleToastDismiss();
+          } else {
+            clearToastTimer();
+          }
         },
 
         logout: (reason: string): void => {
@@ -403,8 +422,6 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
           try {
             const result: MiniAppPrecheckResult = await precheckMiniAppAccess();
             if (!result.ok) {
-              clearMiniAppAssetToken();
-              clearMiniAppSessionToken();
               set({ deniedDiag: result.diagnostics, gateState: "denied" });
               return;
             }
@@ -422,8 +439,6 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
               set({ sessionExpiresAt: result.sessionExpiresAt, gateState: "unlocked" });
               return;
             }
-            clearMiniAppAssetToken();
-            clearMiniAppSessionToken();
             set({ gateState: "password" });
           } catch (error: unknown) {
             clearMiniAppAssetToken();
@@ -486,10 +501,7 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
         },
 
         clearTimers: (): void => {
-          if (toastTimer !== null) {
-            clearTimeout(toastTimer);
-            toastTimer = null;
-          }
+          clearToastTimer();
           clearSessionTimer();
         },
       };
@@ -520,9 +532,22 @@ export function resetMiniAppStoreForTest(): void {
     statusReady: false,
     toastText: "",
     toastTone: "info",
+    toastSeq: 0,
     confirmModal: null,
     passwordInput: "",
     passwordBusy: false,
     passwordError: null,
   });
+}
+
+/**
+ * 后台静默查询或轮询捕获异常时，若命中 `[PASSWORD_REQUIRED]` 或 `[PASSWORD_LOCKED]` 鉴权失效前缀则立即通知根仓库锁定控制台，其余瞬时异常静默忽略。
+ *
+ * @param error 捕获到的异常对象
+ */
+export function notifyMiniAppIfAuthError(error: unknown): void {
+  const rawMessage: string = errorMessage(error);
+  if (isMiniAppAuthErrorMessage(rawMessage)) {
+    useMiniAppStore.getState().notify(rawMessage, "info", error);
+  }
 }

@@ -3,7 +3,7 @@ import { MINI_APP_FEATURE_KEYS } from "../../consts/miniApp";
 import type { MiniAppFeatureKey } from "../../types/miniApp";
 
 /**
- * 渲染受管群详细状态与功能开关面板的专属三卡片骨架（群状态诊断卡 + 进群统计与批量清理卡 + 7 项带拨杆胶囊的功能开关行）。
+ * 渲染受管群详细状态与功能开关面板的三卡片骨架屏（群概览卡片、入群统计卡片与 7 项功能开关行占位）。
  *
  * @returns React 节点
  */
@@ -20,7 +20,7 @@ export function ChatDetailSkeleton(): React.JSX.Element {
       </div>
       <div className="card">
         <div className="skeleton-line skeleton-section-bar" />
-        <div className="skeleton-line skeleton-perm-banner" style={{ marginBottom: "8px" }} />
+        <div className="skeleton-line skeleton-perm-banner skeleton-perm-banner-spaced" />
         <div className="skeleton-line skeleton-perm-banner" />
       </div>
       <div className="card">

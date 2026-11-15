@@ -1,3 +1,8 @@
+/**
+ * 各群名称追踪与持久化（`ChatState.title`，随 SQLite `chat_states` 落盘）：
+ * 启动时通过 `refreshAllChatTitles` 全量刷新并收尾确证不可达的群，运行期随群消息通过 `recordChatTitleFromChat` 原地更新。
+ */
+
 import type { Chat, ChatFullInfo } from "grammy/types";
 import { sleepUnlessAborted } from "../libs/sleep";
 import { telegramSignal } from "../libs/telegramSignal";
@@ -10,7 +15,7 @@ import {
   getChatState,
   getOrCreateChatState,
   saveChatStateInBackground,
-} from "./storage/stateStore";
+} from "./chatStateStorage";
 import { chatTitleRefreshRuntime } from "../cache/main/chatTitle";
 import {
   CHAT_ABSENCE_CONFIRM_ATTEMPTS,
@@ -21,11 +26,6 @@ import { runBoundedSettledBatch } from "../libs/boundedSettledBatch";
 import type { BoundedBatchExecution } from "../libs/boundedSettledBatch";
 import type { ChatState } from "../types/chatState";
 import type { ChatDepartureReason } from "../types/chatTeardown";
-
-/**
- * 各群名称追踪与持久化（`ChatState.title`，随 SQLite `chat_states` 落盘）：
- * 启动时通过 `refreshAllChatTitles` 全量刷新并收尾确证不可达的群，运行期随群消息通过 `recordChatTitleFromChat` 原地更新。
- */
 
 /**
  * 将确证的群名称写入已启用 `/init` 的内存 `ChatState`；未启用或名称未变时返回 false。

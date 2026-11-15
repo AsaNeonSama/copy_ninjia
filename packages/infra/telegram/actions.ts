@@ -54,6 +54,7 @@ export {
   banChatSenderChat,
   banChatSenderChatWithOutcome,
   kickChatMemberWithOutcome,
+  muteChatMemberPermanentlyWithOutcome,
   muteChatMemberWithOutcome,
   unbanChatMemberIfBanned,
   unbanChatSenderChat,
@@ -64,6 +65,7 @@ export type {
   KickChatMemberOutcome,
   MuteChatMemberOutcome,
   MuteChatMemberParams,
+  MuteChatMemberPermanentlyParams,
   UnmuteChatMemberOutcome,
   UnmuteChatMemberParams,
 } from "./actions/moderation";

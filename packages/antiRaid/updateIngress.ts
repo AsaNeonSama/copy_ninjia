@@ -1,3 +1,7 @@
+/**
+ * Anti-Raid 的 Telegram 更新主线程入口：接管 `chat_member` 变更、群消息前置门禁（黑名单拦截、
+ * 入群/离群服务消息、广告与刷屏候选、待验证发言及频道评论区线索）以及入群验证按钮回调。
+ */
 import { chatAtmosphere } from "../infra/atmosphere";
 import type { Context } from "grammy";
 import type {
@@ -26,7 +30,7 @@ import { isAdminStatus, isPresentMember } from "../libs/chatMember";
 import { hasUserMessageContent } from "../users/messageContent";
 import { isActiveVerificationUser } from "../cache/main/antiRaid/verificationMirror";
 import { adCandidatePostRejected } from "../cache/main/antiRaid/proxy";
-import { getChatState } from "../infra/storage/stateStore";
+import { getChatState } from "../infra/chatStateStorage";
 import { updateNow } from "../infra/updateContext";
 import { adDetectionSenderId, buildAdCandidate } from "./adCandidate";
 import { visibleSenderChat } from "../users/visibleSender";
@@ -307,6 +311,7 @@ function ingestAdmittedMessage(
   }
 
   const userId: number | undefined = message.from?.id;
+  // 关联频道讨论串里的评论可能早于入群事件到达，需一并送往 Worker 记录免验证评论线索（见 workers/antiRaid/recentComments.ts）。
   const isCommentThreadReply: boolean =
     message.message_thread_id !== undefined &&
     message.is_topic_message !== true;

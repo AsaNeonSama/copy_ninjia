@@ -212,7 +212,7 @@ export function deleteMessageWithOutcome(
 }
 
 /**
- * 删除一条消息，已删除或消息本来就不存在均视为已结清。
+ * 删除一条消息，已删除或消息已不存在均视为已结清。
  * @param chatId 目标聊天 ID。
  * @param messageId 待删除的消息 ID。
  * @param api 执行单条消息删除的 Telegram API 接口。
@@ -225,7 +225,6 @@ export async function deleteMessage(
 ): Promise<boolean> {
   const outcome: DeleteMessageOutcome =
     await deleteMessageWithOutcome(chatId, messageId, api);
-  // 「消息已经不在了」对只看成败的调用方就是成功。
   return isMessageDeletionSettled(outcome);
 }
 

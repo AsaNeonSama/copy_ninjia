@@ -1,5 +1,7 @@
 import { Fragment, memo, useEffect } from "react";
 import type React from "react";
+import { useStore } from "zustand";
+import { useShallow } from "zustand/react/shallow";
 import { CollapseGrid } from "../components/animations/CollapseGrid";
 import { ChatFeatureListCard } from "../components/ChatFeatureListCard";
 import { ChatJoinCleanCard } from "../components/ChatJoinCleanCard";
@@ -18,7 +20,7 @@ import {
 } from "../consts/miniApp";
 import { getMiniAppTranslations } from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
-import { useComponentStore } from "../libs/componentStore";
+import { useComponentStoreApi } from "../libs/componentStore";
 import { truncateDisplayText } from "../libs/formatters";
 import {
   ArrowLeftSvgIcon,
@@ -30,14 +32,14 @@ import {
 import { useMiniAppStore } from "../store/app";
 import type { MiniAppUiStoreState } from "../store/app";
 import { createChatsStore } from "../store/chats";
-import type { MiniAppChatsStoreState } from "../store/chats";
+import type { MiniAppChatsStore, MiniAppChatsStoreState } from "../store/chats";
 import type {
   MiniAppChatDetail,
   MiniAppChatSummary,
   MiniAppLanguage,
 } from "../types/miniApp";
 
-/** `BotPermTagGrid` 已授予 Bot 权限标签网格的属性参数（与 `botPermsExpanded` 隔离，展开/收起切换时不重排标签）。 */
+/** `BotPermTagGrid` 已授予 Bot 权限标签网格的属性参数（与 `botPermsExpanded` 隔离，按标签数组与翻译字典浅比较跳过重渲染）。 */
 interface BotPermTagGridProps {
   /** 已授予的 Bot 权限标识数组。 */
   readonly grantedLabels: readonly string[];
@@ -172,17 +174,97 @@ function ChatOverviewCardView({
 const ChatOverviewCard: React.MemoExoticComponent<typeof ChatOverviewCardView> =
   memo(ChatOverviewCardView);
 
+/** `ChatsPage` 组件属性。 */
+export interface ChatsPageProps {
+  /** 可选的状态仓库工厂（默认 `createChatsStore`）。 */
+  readonly storeFactory?: () => MiniAppChatsStore;
+}
+
+/** `ChatsPage` 主视图订阅的受管群列表与详情状态切片（不含目标弹窗内部草稿与批量清理滑块输入）。 */
+type ChatsPageViewSlice = Pick<
+  MiniAppChatsStoreState,
+  | "chats"
+  | "loadingList"
+  | "selectedChatId"
+  | "chatDetail"
+  | "loadingDetail"
+  | "botPermsExpanded"
+  | "togglingFeature"
+  | "targetsMenuOpen"
+  | "chatTargets"
+  | "viewingMessages"
+  | "chatPage"
+  | "chatPageSize"
+  | "loadChatList"
+  | "selectChat"
+  | "closeDetail"
+  | "openMessages"
+  | "closeMessages"
+  | "toggleBotPerms"
+  | "toggleTargetsMenu"
+  | "closeTargetsMenu"
+  | "openTargetsModal"
+  | "toggleFeature"
+  | "pollRunningBatchKick"
+  | "cancelPendingRefresh"
+  | "setChatPage"
+  | "setChatPageSize"
+>;
+
 /**
- * 已启用 `/init` 的群列表、群详细状态、进群统计与批量清理及功能开关页面（含热 256 条发言记录跳转）。
+ * 从受管群状态仓库提取 `ChatsPage` 主视图所需字段。
  *
+ * @param state 受管群完整状态快照
+ * @returns `ChatsPage` 主视图切片
+ */
+function selectChatsPageViewState(
+  state: MiniAppChatsStoreState
+): ChatsPageViewSlice {
+  return {
+    chats: state.chats,
+    loadingList: state.loadingList,
+    selectedChatId: state.selectedChatId,
+    chatDetail: state.chatDetail,
+    loadingDetail: state.loadingDetail,
+    botPermsExpanded: state.botPermsExpanded,
+    togglingFeature: state.togglingFeature,
+    targetsMenuOpen: state.targetsMenuOpen,
+    chatTargets: state.chatTargets,
+    viewingMessages: state.viewingMessages,
+    chatPage: state.chatPage,
+    chatPageSize: state.chatPageSize,
+    loadChatList: state.loadChatList,
+    selectChat: state.selectChat,
+    closeDetail: state.closeDetail,
+    openMessages: state.openMessages,
+    closeMessages: state.closeMessages,
+    toggleBotPerms: state.toggleBotPerms,
+    toggleTargetsMenu: state.toggleTargetsMenu,
+    closeTargetsMenu: state.closeTargetsMenu,
+    openTargetsModal: state.openTargetsModal,
+    toggleFeature: state.toggleFeature,
+    pollRunningBatchKick: state.pollRunningBatchKick,
+    cancelPendingRefresh: state.cancelPendingRefresh,
+    setChatPage: state.setChatPage,
+    setChatPageSize: state.setChatPageSize,
+  };
+}
+
+/**
+ * 受管群管理页面：展示已启用 `/init` 的群列表、单群详细状态、进群统计与批量清理、功能开关及热 256 条发言记录。
+ * 群内「目标与问答」弹窗与页面主体同级常驻挂载于顶层 `<Fragment>` 下，离开详情页时保留退场过渡。
+ *
+ * @param props 组件属性
  * @returns React 节点
  */
-export function ChatsPage(): React.JSX.Element {
+export function ChatsPage({
+  storeFactory = createChatsStore,
+}: ChatsPageProps): React.JSX.Element {
   const language: MiniAppLanguage = useMiniAppStore(
     (state: MiniAppUiStoreState): MiniAppLanguage => state.language
   );
   const t: Readonly<MiniAppTranslations> = getMiniAppTranslations(language);
-  const storeState: MiniAppChatsStoreState = useComponentStore(createChatsStore);
+  const store: MiniAppChatsStore = useComponentStoreApi(storeFactory);
   const {
     chats,
     loadingList,
@@ -210,7 +292,7 @@ export function ChatsPage(): React.JSX.Element {
     cancelPendingRefresh,
     setChatPage,
     setChatPageSize,
-  }: MiniAppChatsStoreState = storeState;
+  }: ChatsPageViewSlice = useStore(store, useShallow(selectChatsPageViewState));
 
   useEffect((): (() => void) => {
     void loadChatList();
@@ -232,17 +314,16 @@ export function ChatsPage(): React.JSX.Element {
     };
   }, [selectedChatId, viewingMessages, batchKickRunning, pollRunningBatchKick]);
 
+  let pageContent: React.JSX.Element;
   if (selectedChatId !== null && viewingMessages) {
-    return (
+    pageContent = (
       <MessagesView
         chatId={selectedChatId}
         onBack={closeMessages}
       />
     );
-  }
-
-  if (selectedChatId !== null) {
-    return (
+  } else if (selectedChatId !== null) {
+    pageContent = (
       <section className="animate-fade-in">
         <div className="toolbar chat-detail-toolbar">
           <button
@@ -288,7 +369,7 @@ export function ChatsPage(): React.JSX.Element {
                 onToggleBotPerms={toggleBotPerms}
               />
 
-              <ChatJoinCleanCard chatDetail={chatDetail} state={storeState} />
+              <ChatJoinCleanCard chatDetail={chatDetail} store={store} />
 
               <ChatFeatureListCard
                 chatDetail={chatDetail}
@@ -300,75 +381,81 @@ export function ChatsPage(): React.JSX.Element {
             </Fragment>
           )
           : null}
-        <ChatTargetsModal state={storeState} />
+      </section>
+    );
+  } else {
+    const totalChats: number = chats.length;
+    const totalChatPages: number = Math.max(1, Math.ceil(totalChats / chatPageSize));
+    const safeChatPage: number = Math.min(totalChatPages, Math.max(1, chatPage));
+    const pagedChats: readonly Readonly<MiniAppChatSummary>[] = chats.slice(
+      (safeChatPage - 1) * chatPageSize,
+      safeChatPage * chatPageSize
+    );
+
+    pageContent = (
+      <section className="animate-fade-in">
+        <div className="toolbar">
+          <span className="toolbar-hint">
+            <span className="toolbar-icon-badge">
+              <ChatsSvgIcon size={16} />
+            </span>
+            <span>{t.chats.sectionTitle(totalChats)}</span>
+          </span>
+          <button
+            type="button"
+            className="btn icon-btn"
+            disabled={loadingList}
+            onClick={(): void => {
+              void loadChatList();
+            }}
+          >
+            <RefreshSvgIcon size={14} className={loadingList ? "spin-icon" : ""} />
+            <span>{t.chats.refreshButton}</span>
+          </button>
+        </div>
+
+        <div className="card identity-list-card">
+          {loadingList
+            ? (
+              <LoadingBox>
+                <ListSkeletonRows count={MINI_APP_CHATS_DEFAULT_PAGE_SIZE} />
+              </LoadingBox>
+            )
+            : null}
+
+          {!loadingList && chats.length === 0
+            ? <div className="empty">{t.chats.emptyChatsHint}</div>
+            : null}
+
+          {!loadingList && chats.length > 0
+            ? (
+              <ManagedChatList
+                chats={pagedChats}
+                t={t}
+                onSelectChat={selectChat}
+              />
+            )
+            : null}
+
+          <PaginationBar
+            page={safeChatPage}
+            totalPages={totalChatPages}
+            total={totalChats}
+            pageSize={chatPageSize}
+            pageSizeOptions={MINI_APP_CHATS_PAGE_SIZE_OPTIONS}
+            disabled={loadingList}
+            onPageChange={setChatPage}
+            onPageSizeChange={setChatPageSize}
+          />
+        </div>
       </section>
     );
   }
 
-  const totalChats: number = chats.length;
-  const totalChatPages: number = Math.max(1, Math.ceil(totalChats / chatPageSize));
-  const safeChatPage: number = Math.min(totalChatPages, Math.max(1, chatPage));
-  const pagedChats: readonly Readonly<MiniAppChatSummary>[] = chats.slice(
-    (safeChatPage - 1) * chatPageSize,
-    safeChatPage * chatPageSize
-  );
-
   return (
-    <section className="animate-fade-in">
-      <div className="toolbar">
-        <span className="toolbar-hint">
-          <span className="toolbar-icon-badge">
-            <ChatsSvgIcon size={16} />
-          </span>
-          <span>{t.chats.sectionTitle(totalChats)}</span>
-        </span>
-        <button
-          type="button"
-          className="btn icon-btn"
-          disabled={loadingList}
-          onClick={(): void => {
-            void loadChatList();
-          }}
-        >
-          <RefreshSvgIcon size={14} className={loadingList ? "spin-icon" : ""} />
-          <span>{t.chats.refreshButton}</span>
-        </button>
-      </div>
-
-      <div className="card identity-list-card">
-        {loadingList
-          ? (
-            <LoadingBox>
-              <ListSkeletonRows count={MINI_APP_CHATS_DEFAULT_PAGE_SIZE} />
-            </LoadingBox>
-          )
-          : null}
-
-        {!loadingList && chats.length === 0
-          ? <div className="empty">{t.chats.emptyChatsHint}</div>
-          : null}
-
-        {!loadingList && chats.length > 0
-          ? (
-            <ManagedChatList
-              chats={pagedChats}
-              t={t}
-              onSelectChat={selectChat}
-            />
-          )
-          : null}
-
-        <PaginationBar
-          page={safeChatPage}
-          totalPages={totalChatPages}
-          total={totalChats}
-          pageSize={chatPageSize}
-          pageSizeOptions={MINI_APP_CHATS_PAGE_SIZE_OPTIONS}
-          disabled={loadingList}
-          onPageChange={setChatPage}
-          onPageSizeChange={setChatPageSize}
-        />
-      </div>
-    </section>
+    <Fragment>
+      {pageContent}
+      <ChatTargetsModal store={store} />
+    </Fragment>
   );
 }

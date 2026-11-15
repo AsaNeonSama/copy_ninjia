@@ -1,3 +1,7 @@
+import type { AdBlockScope } from "../../types/config";
+import type { AdPunishmentAction } from "../../types/states/adPunishment";
+import { exhaustiveList } from "../exhaustiveList";
+
 /**
  * 广告检测（Google / OpenAI / Anthropic 协议）的调参常量与模型可见提示词。
  * 判定流水线在入群守卫线程里执行，见 workers/antiRaid/adDetect/。
@@ -24,7 +28,8 @@ export const AD_DETECT_JUDGED_RETENTION_WINDOW_MS: number = 90_000;
 
 /**
  * 引用、回复或转发非白名单广告第一次命中后的升级窗口；窗口内再次命中才沿用
- * 直接广告的永久拉黑路径。所属模块：workers/antiRaid/adDetect/referencePolicy.ts 与 workers/antiRaid/adDetect/verdict.ts。
+ * 直接广告的处罚路径（按 ad_detect.json 的处罚设置）。
+ * 所属模块：states/adReferenceWarning.ts、workers/antiRaid/adDetect/referencePolicy.ts 与 workers/antiRaid/adDetect/verdict.ts。
  */
 export const AD_REFERENCE_WARNING_WINDOW_MS: number = 300_000;
 
@@ -72,7 +77,8 @@ export const AD_DETECT_LINK_URL_MAX_CHARS: number = 256;
 export const AD_DETECT_MAX_OUTPUT_TOKENS: number = 16_384;
 
 /**
- * 广告判定请求的采样温度（供 AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS 空正文重采样）。
+ * 广告检测请求的采样温度（供 AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS 空正文重采样；
+ * 仅 OpenAI 兼容传输将该字段写入请求体，Anthropic 与 Google 传输省略以沿用默认采样行为）。
  */
 export const AD_DETECT_TEMPERATURE: number = 0.5;
 
@@ -124,14 +130,84 @@ export const AD_DETECT_JSON_SCHEMA: Readonly<{
   additionalProperties: false,
 };
 
-/** config/dynamic/ad_samples.json 允许的最大条数。 */
+/** config/dynamic/ad_detect.json 顶层必须精确具备的字段名列表。所属模块：config/adDetectConfig.ts。 */
+export const AD_DETECT_CONFIG_KEYS: readonly string[] = [
+  "punishment",
+  "samples",
+  "sticker_black_list",
+  "emoji_black_list",
+];
+
+/** config/dynamic/ 下禁止存在的旧广告配置文件名，出现时拒绝启动；所属模块：config/layout.ts。 */
+export const LEGACY_AD_SAMPLES_CONFIG_NAME: string = "ad_samples.json";
+
+/**
+ * ad_detect.json 的 `punishment` 允许出现的字段名：`mute` 与 `kick` 互斥，必须恰好出现其一。
+ * 所属模块：config/adDetectConfig.ts。
+ */
+export const AD_PUNISHMENT_KEYS: readonly string[] = ["mute", "kick"];
+
+/**
+ * `punishment.mute` 允许出现的字段名：`permanent` 必填；`duration` 在 permanent 为 false 时必填、
+ * 为 true 时必须缺省。所属模块：config/adDetectConfig.ts。
+ */
+export const AD_PUNISHMENT_MUTE_KEYS: readonly string[] = ["permanent", "duration"];
+
+/**
+ * `punishment.kick` 允许出现的字段名：`block` 必填；`block_scope` 在 block 为 true 时必填、
+ * 为 false 时必须缺省。所属模块：config/adDetectConfig.ts。
+ */
+export const AD_PUNISHMENT_KICK_KEYS: readonly string[] = ["block", "block_scope"];
+
+/** `punishment.kick.block_scope` 的全部合法取值。所属模块：config/adDetectConfig.ts。 */
+export const AD_BLOCK_SCOPES: readonly AdBlockScope[] = exhaustiveList<AdBlockScope>()([
+  "chat",
+  "global",
+]);
+
+/** config/dynamic/ad_detect.json 的 samples 允许的最大条数。 */
 export const MAX_CONFIGURED_AD_SAMPLES: number = 500;
+
+/** config/dynamic/ad_detect.json 的 sticker_black_list 与 emoji_black_list 各自允许的最大条数。所属模块：config/adDetectConfig.ts。 */
+export const MAX_CONFIGURED_AD_BLACKLIST_PACKS: number = 500;
+
+/**
+ * 自定义表情 ID -> 所属表情包 short name 的 LRU 缓存容量；按表情 ID 计数，同一表情包的多个表情各占一条。
+ * 所属模块：cache/workers/antiRaid/adDetect.ts。
+ */
+export const AD_DETECT_CUSTOM_EMOJI_SET_CACHE_MAX: number = 4_096;
+
+/**
+ * 一轮表情黑名单核对里 getCustomEmojiStickers 失败后还能立即再试的总次数，各批共用；4xx 拒绝不重试，
+ * 预算用尽、被拒或进入停机即放弃本轮表情核对。所属模块：workers/antiRaid/adDetect/verdict.ts。
+ */
+export const AD_DETECT_CUSTOM_EMOJI_QUERY_MAX_RETRIES: number = 3;
 
 /** 单条广告示例允许的最大字符数。 */
 export const AD_SAMPLE_MAX_CHARS: number = 1_024;
 
 /** 判定理由在日志与播报里的最大展示字符数。 */
 export const AD_DETECT_REASON_MAX_CHARS: number = 80;
+
+/**
+ * 贴纸包黑名单命中时的判定理由；包名来自已校验的 sticker_black_list（不超过 64 字符），
+ * 全文不超过 AD_DETECT_REASON_MAX_CHARS。所属模块：workers/antiRaid/adDetect/verdict.ts。
+ * @param pack 命中的贴纸包 short name。
+ * @returns 写进日志、播报与命中样本的判定理由。
+ */
+export function adStickerBlacklistReason(pack: string): string {
+  return `命中贴纸黑名单 (${pack})`;
+}
+
+/**
+ * 自定义表情包黑名单命中时的判定理由；包名来自已校验的 emoji_black_list（不超过 64 字符），
+ * 全文不超过 AD_DETECT_REASON_MAX_CHARS。所属模块：workers/antiRaid/adDetect/verdict.ts。
+ * @param pack 命中的自定义表情包 short name。
+ * @returns 写进日志、播报与命中样本的判定理由。
+ */
+export function adEmojiBlacklistReason(pack: string): string {
+  return `命中表情黑名单 (${pack})`;
+}
 
 /**
  * 随每条消息一起送检并写入命中样本的「被引用段」与「被回复原文」各自的最大字符数
@@ -146,7 +222,7 @@ export const AD_SAMPLE_CONTEXT_MAX_CHARS: number = 200;
 const AD_DETECT_FACT_LABEL: string = "【系统事实】";
 
 /**
- * 广告判定器的系统提示词（题材示例由 buildAdDetectInstructions 从 config/dynamic/ad_samples.json 拼入；
+ * 广告判定器的系统提示词（题材示例由 buildAdDetectInstructions 从 config/dynamic/ad_detect.json 拼入；
  * 请求带 `response_format: json_object`，提示词须包含「JSON」字样）。
  */
 const AD_DETECT_SYSTEM_PROMPT: string =
@@ -211,7 +287,7 @@ const AD_DETECT_ESTABLISHED_FACT: string =
 /**
  * 拼出判定规则与部署示例段（不含系统事实），各家传输共用、逐字相同。示例为空时
  * 不追加示例段。
- * @param samples 已校验的部署者广告示例（config/dynamic/ad_samples.json）。
+ * @param samples 已校验的部署者广告示例（config/dynamic/ad_detect.json）。
  * @returns 完整的广告检测系统提示词文本。
  */
 export function buildAdDetectInstructions(samples: readonly string[]): string {
@@ -231,3 +307,15 @@ export function adDetectFact(justJoined: boolean): string {
 
 /** 广告检测没有可消费条目时复用的只读空列表。 */
 export const EMPTY_AD_CANDIDATE_ENTRIES: readonly [] = [];
+
+/** 广告命中后写入永久黑名单并在全部受管群封禁的无参动作常量（只读单例）。所属模块：states/adPunishment.ts。 */
+export const AD_PUNISHMENT_BLOCK_GLOBAL: Readonly<AdPunishmentAction> = { kind: "blockGlobal" };
+
+/** 频道身份无法禁言或移出时仅删除消息的无参动作常量（只读单例）。所属模块：states/adPunishment.ts。 */
+export const AD_PUNISHMENT_DELETE_ONLY: Readonly<AdPunishmentAction> = { kind: "deleteOnly" };
+
+/** 广告命中后仅在触发群封禁的无参动作常量（只读单例）。所属模块：states/adPunishment.ts。 */
+export const AD_PUNISHMENT_BAN_CHAT: Readonly<AdPunishmentAction> = { kind: "banChat" };
+
+/** 广告命中后仅移出触发群而不封禁的无参动作常量（只读单例）。所属模块：states/adPunishment.ts。 */
+export const AD_PUNISHMENT_KICK: Readonly<AdPunishmentAction> = { kind: "kick" };

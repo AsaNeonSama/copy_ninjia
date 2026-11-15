@@ -13,6 +13,7 @@ import {
   AD_DETECT_MAX_LINK_URLS,
   AD_SAMPLE_CONTEXT_MAX_CHARS,
 } from "../consts/antiRaid/adDetect";
+import { TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS } from "../consts/telegram";
 import { isUserBlocked } from "../infra/blocklist/membership";
 import { isIdentityPolicyCached } from "../infra/identityStorage";
 import { inlineResultSourceOf } from "../infra/inlineResultSources";
@@ -56,6 +57,28 @@ function collectHiddenLinkUrls(
     urls.push(url);
   }
   return urls;
+}
+
+/**
+ * 提取消息或图注实体中的自定义表情 ID（custom_emoji 实体），去重并限制在
+ * TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS 条以内。
+ *
+ * @param entities 消息或图注附带的实体列表
+ * @returns 去重后的 custom_emoji_id 列表；无自定义表情实体时返回 undefined
+ */
+function collectCustomEmojiIds(
+  entities: readonly MessageEntity[] | undefined
+): string[] | undefined {
+  if (entities === undefined) return undefined;
+  let ids: string[] | undefined;
+  for (const entity of entities) {
+    if ((ids?.length ?? 0) >= TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS) break;
+    if (entity.type !== "custom_emoji") continue;
+    if (ids?.includes(entity.custom_emoji_id) === true) continue;
+    ids ??= [];
+    ids.push(entity.custom_emoji_id);
+  }
+  return ids;
 }
 
 /**
@@ -199,14 +222,22 @@ export function buildAdCandidate(
   const text: string = sanitizeInline(
     inlineSource ?? message.text ?? message.caption ?? ""
   );
-  const linkUrls: string[] | undefined = selfInlineResult
+  const entities: readonly MessageEntity[] | undefined = selfInlineResult
     ? undefined
-    : collectHiddenLinkUrls(
-      text,
-      message.entities ?? message.caption_entities
-    );
+    : (message.entities ?? message.caption_entities);
+  const linkUrls: string[] | undefined = collectHiddenLinkUrls(text, entities);
+  const stickerSetName: string | undefined = selfInlineResult
+    ? undefined
+    : message.sticker?.set_name;
+  const customEmojiIds: string[] | undefined = collectCustomEmojiIds(entities);
   const sampleContext: AdSampleContext | undefined = buildSampleContext(message, now);
-  if (text.length === 0 && linkUrls === undefined && sampleContext === undefined) return undefined;
+  if (
+    text.length === 0 &&
+    linkUrls === undefined &&
+    stickerSetName === undefined &&
+    customEmojiIds === undefined &&
+    sampleContext === undefined
+  ) return undefined;
 
   return {
     type: "adCandidate",
@@ -223,6 +254,8 @@ export function buildAdCandidate(
     blocked,
     justJoined: isActiveVerificationUser(chatId, senderId),
     linkUrls,
+    stickerSetName,
+    customEmojiIds,
     sampleQuote: sampleContext?.quote,
     sampleReplyTo: sampleContext?.replyTo,
   };

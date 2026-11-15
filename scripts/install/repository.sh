@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # 由目标工作树 install.sh 按顺序 source；共享其严格模式、日志函数与安装上下文。
 
-# 这棵工作树自己是不是一个 git 仓库根：不只看 `.git` 是否存在，落在别的仓库子目录里
-# 的不算；两边都取物理路径再比。
+# 判断给定目录本身是否为独立 Git 仓库根（两侧均解析物理路径，落在外层仓库子目录内时返回非零）。
 is_git_repository_root() {
   local target="" toplevel=""
   target="$(cd -- "$1" 2>/dev/null && pwd -P)" || return 1
@@ -40,17 +39,13 @@ ensure_git_repository() {
     return 0
   fi
 
-  # 逐个 tag 比对内容认版本，不按版本号推断：对上了才把 HEAD 指过去，此后
-  # `git status` 干净，更新是一次普通的 fetch + checkout。
-  #
-  # 比对只用 `read-tree`（只读 tag 自带的对象）与 `diff-index`（只比该 tag 跟踪的
-  # 文件、无视未跟踪文件），不把 config/、memory/、database/ 等部署数据写进对象库。
+  # 逐个已发布 tag 用 read-tree + diff-index 比对受跟踪文件内容：
+  # 仅读取 tag 树对象并对比受跟踪文件，忽略 config/、memory/、database/ 等未跟踪部署数据。
   local candidate="" matched="" head_commit=""
   while IFS= read -r candidate; do
     [ -n "$candidate" ] || continue
     git read-tree "${candidate}^{tree}" 2>/dev/null || continue
-    # 先刷新 stat 信息：read-tree 之后索引对每个文件都是 stat-dirty，
-    # `diff-index --quiet` 在刷新后比对。
+    # read-tree 后先刷新索引 stat 缓存，再由 diff-index 比对工作树内容。
     git update-index -q --refresh >/dev/null 2>&1 || true
     if git diff-index --quiet "${candidate}^{tree}" --; then
       matched="$candidate"
@@ -58,19 +53,15 @@ ensure_git_repository() {
     fi
   done < <(git tag --list)
 
-  # 索引此刻留着最后一个候选 tag 的内容；两个分支都要复位索引（未对上用
-  # `read-tree --empty`，对上用 `reset --mixed`）。
+  # 退出循环时索引仍保留最后一个候选 tag 的树：未匹配时清空索引，匹配时将 HEAD 与索引对齐到该 tag。
   if [ -z "$matched" ]; then
-    # 对不上任何已发布 tag：改过，或不是发布包。建好仓库，HEAD 不指向任何版本，
-    # 由部署方自行选择。
     git read-tree --empty >/dev/null 2>&1 || true
     warn "工作树与任何已发布 tag 都对不上（改过，或不是发布包）。"
     warn "仓库与 origin/tags 已就绪，但 HEAD 未指向任何版本；核对后自行 git checkout <tag>。"
     return 0
   fi
 
-  # 对上了：HEAD 指到该 tag 并让索引跟上，得到与 `clone --branch <tag>` 相同的
-  # detached 状态；这些命令都不写工作树文件。
+  # 将 HEAD 以 detached 状态指向匹配的 tag commit 并同步索引，全程不改写工作树文件。
   head_commit="$(git rev-parse --verify "${matched}^{commit}" 2>/dev/null)" || head_commit=""
   if [ -z "$head_commit" ] ||
     ! git update-ref --no-deref HEAD "$head_commit" ||

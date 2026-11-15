@@ -1,3 +1,7 @@
+/**
+ * `superviseWorker` 测试专用的轻量 Worker 入口：支持回显消息与按指令主动崩溃。
+ */
+
 export type SupervisedWorkerFixtureCommand =
   | { type: "crash" }
   | { type: "echo"; value: string };

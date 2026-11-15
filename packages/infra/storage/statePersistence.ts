@@ -69,8 +69,8 @@ interface PersistenceWaiter {
 }
 
 /**
- * 旧位置（LEGACY_STATE_FILE_PATHS）的 state.json 与备份副本任一存在即拒绝，只有叶子路径
- * 不存在才放行；由 loadCurrentGlobalState 在解码 memory/global/state.json 之前调用。
+ * 断言 `LEGACY_STATE_FILE_PATHS` 中的叶子路径全部不存在，任一存在即抛出配置校验错误；
+ * 由 `loadCurrentGlobalState` 在解码 `memory/global/state.json` 之前调用。
  */
 async function assertLegacyStateFilesAbsent(): Promise<void> {
   for (const path of LEGACY_STATE_FILE_PATHS) {
@@ -187,10 +187,10 @@ export class StateStore {
   }
 
   /**
-   * 读取并严格解码状态文件。文件真正不存在时返回 null（从未写过）；存在但不可读、
+   * 读取并严格解码状态文件。文件不存在时返回 null（从未写过）；存在但不可读、
    * 不是普通文件或解码失败时原样保留并抛出，见 docs/cn/04-invariants.md。
    *
-   * @returns 解码后的全局状态；文件真正不存在时返回 `null`。
+   * @returns 解码后的全局状态；文件不存在时返回 `null`。
    */
   async load(): Promise<DecodedGlobalState | null> {
     const content: string | null = await this.readText(this.stateFilePath);
@@ -215,9 +215,8 @@ export class StateStore {
     }
     let json: string;
     try {
-      json = JSON.stringify(schema, null, 2);
-      // 写出前用启动期同一严格 codec 再解码一次，磁盘只接收可被再次加载的值。
-      decodeGlobalStateFile(JSON.parse(json), this.stateFilePath);
+      // 写出前用启动期同一严格 codec 先解码校验，磁盘只接收可被再次加载的值。
+      json = JSON.stringify(decodeGlobalStateFile(schema, this.stateFilePath), null, 2);
     } catch (error: unknown) {
       const reason: Error = toError(error);
       return Promise.reject(reason);
@@ -424,9 +423,9 @@ export class StateStore {
 }
 
 /**
- * 启动恢复（stateStore.ts 的 loadState）与安装器共用的只读全局状态闸：先拒绝旧位置的状态
- * 文件，再经 store 按当前 schema 严格解码 memory/global/state.json。不写盘；文件真正缺失时
- * 返回 null，未迁移或非法的内容按 StateStore.load 的口径抛出。
+ * 启动恢复（stateStore.ts 的 loadState）与安装器共用的只读全局状态闸：先拒绝 `LEGACY_STATE_FILE_PATHS`
+ * 中的残留状态文件，再经 store 按当前 schema 严格解码 memory/global/state.json。不写盘；文件缺失时
+ * 返回 null，非法内容按 StateStore.load 的口径抛出。
  *
  * @param store 全局状态持久化存储实例。
  * @returns 解码后的全局状态；状态文件不存在时返回 `null`。

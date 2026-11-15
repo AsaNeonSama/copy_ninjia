@@ -14,10 +14,10 @@ import { reportOpenAiChatUsage } from "../../../../infra/aiCacheUsage";
 import { diagnosticWithDetails, finishDetailsJson } from "../../../../aiChat/ai/utils/finishDetails";
 import { getAdDetectAgentConfig } from "../../../../config/agent";
 import {
-  AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS,
   AD_DETECT_OPENAI_REQUEST_MAX_RETRIES,
   AD_DETECT_OPENAI_REQUEST_TIMEOUT_MS,
 } from "../../../../consts/antiRaid/adDetect";
+import { requestAdDetectJsonWithRetry } from "./emptyBodyRetry";
 import { OPENAI_API_BASE_URL, OPENAI_SDK_LOG_LEVEL } from "../../../../consts/aiChat/openai";
 import type { AdDetectAgentConfig } from "../../../../types/config";
 import type { AdDetectJsonRequestParams } from "../../../../types/antiRaid/adDetect";
@@ -112,16 +112,16 @@ async function attemptOpenAiAdDetectJson({
 export async function requestOpenAiAdDetectJson(
   params: AdDetectJsonRequestParams
 ): Promise<string | null> {
-  for (let attempt: number = 1; attempt <= AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS; attempt++) {
-    const result: OpenAiAdDetectAttempt | null = await attemptOpenAiAdDetectJson(params);
-    if (result === null) return null;
-    if (result.finishReason !== "length" && result.body.trim().length > 0) return result.body;
-    if (attempt < AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS) continue;
-    logger.error(
-      `${params.errorLabel} produced no usable body in ${attempt} attempt(s) ` +
-      `(${diagnosticWithDetails(`finish_reason=${result.finishReason ?? "?"}`, result.finishDetails)}, ` +
-      `hasPartialText=${result.body.length > 0}, reasoning_tokens=${result.reasoningTokens}, max_tokens=${params.maxOutputTokens}).`
-    );
-  }
-  return null;
+  return requestAdDetectJsonWithRetry<OpenAiAdDetectAttempt>({
+    attemptRequest: (): Promise<OpenAiAdDetectAttempt | null> => attemptOpenAiAdDetectJson(params),
+    extractUsableBody: (result: OpenAiAdDetectAttempt): string | null =>
+      result.finishReason !== "length" && result.body.trim().length > 0 ? result.body : null,
+    logExhausted: (result: OpenAiAdDetectAttempt, attempts: number): void => {
+      logger.error(
+        `${params.errorLabel} produced no usable body in ${attempts} attempt(s) ` +
+        `(${diagnosticWithDetails(`finish_reason=${result.finishReason ?? "?"}`, result.finishDetails)}, ` +
+        `hasPartialText=${result.body.length > 0}, reasoning_tokens=${result.reasoningTokens}, max_tokens=${params.maxOutputTokens}).`
+      );
+    },
+  });
 }

@@ -1,3 +1,7 @@
+/**
+ * 入群验证运行态与修订号（`revision`）容量准入（Anti-Raid Worker 侧）：
+ * 在新入群键创建状态前核验容量上限，满额时锁住新键并向主线程单次上报致命容量事件（约束见 `docs/cn/04-invariants.md`）。
+ */
 import {
   canAdmitVerificationRevision,
   verificationEntries,

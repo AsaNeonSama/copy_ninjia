@@ -56,8 +56,8 @@ export type CopyMode = "reverse" | "nya";
  */
 export interface ChatState {
   /**
-   * /quiet 静默期的截止时间戳（ms）。在此之前机器人不主动刷存在感（AI 随机
-   * 插话、随机复读等）；被动触发（回复/@机器人）和指令不受影响。
+   * /quiet 静默期的截止时间戳（ms）。静默期内机器人不发起主动交互（AI 随机
+   * 插话、随机复读等）；被动触发（回复/@机器人）与命令不受影响。
    */
   quietUntil?: number;
   /** 当前生效的反刷群锁定；未锁定时无此字段。 */
@@ -76,7 +76,7 @@ export interface ChatState {
    */
   isTranslationEnabled: boolean;
   /**
-   * 本群是否启用广告检测（消息串经配置的 provider 判定，命中即按 /block 处置）。
+   * 本群是否启用广告检测（贴纸/表情集黑名单与模型消息串判定，命中后按 ad_detect.json 的 punishment 配置处置）。
    * 缺省视为禁用，需通过 /ad_detect enable 显式开启（仅持有
    * isCanControllAdDetectPermission 的身份可用，超级管理员恒持有，见
    * commands/adDetect.ts）。
@@ -147,7 +147,7 @@ export interface ChatState {
 
 /**
  * ChatState 上取值为布尔的群功能开关字段名。按群开关命令与 Mini App 经 infra/chatFeatureSwitch.ts 的
- * applyChatFeatureSwitch 读写；关闭开关经 infra/storage/stateStore.ts 的
+ * applyChatFeatureSwitch 读写；关闭开关经 infra/chatStateStorage.ts 的
  * disableChatStateSwitch；`/bot_status` 的功能块按 consts/botStatus.ts 的
  * BOT_STATUS_FEATURE_KEYS 逐项列出。
  */
@@ -199,11 +199,11 @@ export interface GlobalState {
 }
 
 /**
- * 全局状态 `copy` 块解码后的形态，与运行期的 `GlobalCopyState` 分开维护
- * （后者是主线程可变持有者，初始只有 `copiedUser: null`，目标、模式与群 id 由
- * adoptCopyTarget 一次写齐）。判别联合强制「copiedUser 为 null ⟺ 没有
- * copyMode/copyChatId；copiedUser 非空 ⟺ copyChatId 是合法负数群 id」这条配对，
- * 由解码器（libs/stateFileCodec.ts 的 globalCopy）保证成立。
+ * 全局状态 `copy` 块解码后的形态，与运行期可变持有者 `GlobalCopyState` 分开维护
+ * （后者初始只有 `copiedUser: null`，目标、模式与群 ID 由 adoptCopyTarget 一次写齐）。
+ * 判别联合表达解码不变量（由 libs/stateFileCodec.ts 的 globalCopy 保证）：
+ * - `copiedUser` 为 null 时不含 `copyMode` 与 `copyChatId`；
+ * - `copiedUser` 非空时 `copyChatId` 为合法负数群 ID。
  */
 export type DecodedGlobalCopyState =
   | Readonly<{

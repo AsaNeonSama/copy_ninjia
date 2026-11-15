@@ -197,12 +197,12 @@ describe("cron 调度", () => {
     cronConfigCache.current = [task(), task({ name: "other", chatTargets: { kind: "list", chatIds: [-2002] } })];
     reconcileCronSchedule();
     expect(runtime().schedules.get("daily")).toBe(kept);
-    expect(changed.cancelled).toBe(true);
+    expect(changed.cancellation.signal.aborted).toBe(true);
     expect(runtime().schedules.get("other")).not.toBe(changed);
 
     cronConfigCache.current = [task({ name: "other", chatTargets: { kind: "list", chatIds: [-2002] } })];
     reconcileCronSchedule();
-    expect(kept.cancelled).toBe(true);
+    expect(kept.cancellation.signal.aborted).toBe(true);
     expect([...runtime().schedules.keys()]).toEqual(["other"]);
   });
 
@@ -220,7 +220,7 @@ describe("cron 调度", () => {
     await advance(MINUTE_MS * 2);
     expect(rounds).toEqual(["daily"]);
     reconcileCronSchedule();
-    expect(runtime().schedules.get("daily")!.cancelled).toBe(true);
+    expect(runtime().schedules.get("daily")!.cancellation.signal.aborted).toBe(true);
 
     expect(await drainCronScheduler(0)).toBe("timedOut");
     expect(runtime().controller.signal.aborted).toBe(true);
@@ -249,7 +249,7 @@ describe("cron 调度", () => {
     expect(previous.runs.size).toBe(0);
     startCronScheduler();
     expect(runtime()).not.toBe(previous);
-    expect(previousSchedule.cancelled).toBe(true);
+    expect(previousSchedule.cancellation.signal.aborted).toBe(true);
     expect(previous.controller.signal.aborted).toBe(true);
     expect(runtime().schedules.has("daily")).toBe(true);
   });

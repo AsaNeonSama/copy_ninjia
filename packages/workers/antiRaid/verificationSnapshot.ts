@@ -1,3 +1,6 @@
+/**
+ * 入群验证跨线程持久化快照投影（Anti-Raid Worker 侧）：将 `pending` 与各终态运行态投影为结构化克隆传输快照。
+ */
 import { verificationGeneration } from
   "../../cache/workers/antiRaid/verification";
 import type {
@@ -39,12 +42,10 @@ interface VerificationSnapshotParams {
 }
 
 /**
- * 将当前持久化阶段投影成跨线程严格快照。快照只交给随即的 postMessage（结构化克隆同步完成后即丢弃），
- * 因此 trackedMessageTimes 直接引用状态里的数组，不复制；调用方不得留存返回值。
+ * 将当前持久化阶段投影为跨线程严格快照：
+ * - 返回值仅供随即执行的 `postMessage` 结构化克隆使用，克隆同步完成后即丢弃，因此 `trackedMessageTimes` 直接引用原数组，调用方不得留存返回值；
+ * - 各阶段共有字段在 `base` 中统一构造，非 `pending` 阶段展开 `base` 后仅覆盖 `phase` 与本阶段专有字段，确保可选共有字段在所有阶段完整保留。
  *
- * 各阶段共有的字段只在 `base` 里列一次；非 pending 阶段一律 `...base` 展开后只覆盖 `phase`
- * 与本阶段专有字段。不得按阶段改写成各自完整列出共有字段的对象字面量：共有字段多为可选，
- * 某个阶段漏写时类型检查不报错，该阶段的快照会静默缺字段。
  * @param params 验证快照投影参数。
  * @returns 供跨线程传输的验证持久化快照对象。
  */

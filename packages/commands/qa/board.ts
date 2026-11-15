@@ -76,10 +76,9 @@ export function buildQaBoardPages(entries: readonly QaEntry[], atmosphere: Atmos
 }
 
 /**
- * 翻页条；只有一页时返回 undefined，看板就是一条干净的消息。
+ * 构造看板翻页内联键盘；总页数不超过 1 页时返回 `undefined`（单页看板不附带翻页栏）。
  *
- * 首页不给「上一页」，末页不给「下一页」；中间是页码指示按钮（QA_QUERY_PAGE_NOOP_DATA），
- * 点击不做任何事。
+ * 首页省略「上一页」，末页省略「下一页」；中间为不可交互的页码指示按钮（`QA_QUERY_PAGE_NOOP_DATA`）。
  * @param page 当前页索引（0 起）。
  * @param total 总页数。
  * @param atmosphere 语气词表。

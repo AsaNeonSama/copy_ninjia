@@ -113,9 +113,11 @@ async function setQa(ctx: CommandContext<Context>): Promise<void> {
     return;
   }
 
+  const messageThreadId: number | undefined = forumTopicThreadId(ctx.msg);
   const session: QaFormSession | null = openQaFormSession({
     chatId,
     openedById,
+    messageThreadId,
     onDiscard: discardQaForm,
   });
   if (session === null) {
@@ -127,7 +129,7 @@ async function setQa(ctx: CommandContext<Context>): Promise<void> {
       chatId,
       text: renderQaFormPrompt(undefined, undefined, chatAtmosphere()),
       replyToMessageId: messageId,
-      messageThreadId: forumTopicThreadId(ctx.msg),
+      messageThreadId,
       // 拿到 id 的同步时点就登记，已发消息的删除责任不依赖返回值。
       onSent: (formMessageId: number): void => {
         session.formMessageId = formMessageId;
@@ -167,6 +169,7 @@ async function settleQaForm(session: QaFormSession, q: string, a: string): Promi
         chatId,
         text: error instanceof ChatQaCapacityError ? chatAtmosphere().QA_COMMAND_TEXTS.full : chatAtmosphere().QA_COMMAND_TEXTS.persistFailed,
         replyToMessageId: formMessageId,
+        messageThreadId: session.messageThreadId,
       });
       return;
     }
@@ -174,6 +177,7 @@ async function settleQaForm(session: QaFormSession, q: string, a: string): Promi
       chatId,
       text: outcome === "replaced" ? chatAtmosphere().QA_COMMAND_TEXTS.replaced : chatAtmosphere().QA_COMMAND_TEXTS.created,
       replyToMessageId: formMessageId,
+      messageThreadId: session.messageThreadId,
     });
   } finally {
     discardQaForm(session);
@@ -214,8 +218,9 @@ async function claimQaFormDelivery(claiming: Promise<QaFormIngressResult | null>
     await sendCommandMessage({
       chatId,
       text: chatAtmosphere().QA_COMMAND_TEXTS[claimed.rejection],
-      // 回复到表单上，回执与表单同话题。
+      // 回复到表单上，并显式沿用表单所在话题。
       replyToMessageId: session.formMessageId,
+      messageThreadId: session.messageThreadId,
     });
     return true;
   }
@@ -233,6 +238,7 @@ async function claimQaFormDelivery(claiming: Promise<QaFormIngressResult | null>
         ? chatAtmosphere().QA_COMMAND_TEXTS.questionSaved
         : chatAtmosphere().QA_COMMAND_TEXTS.answerSaved,
       replyToMessageId: session.formMessageId,
+      messageThreadId: session.messageThreadId,
     });
     return true;
   }

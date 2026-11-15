@@ -2,7 +2,10 @@ import {
   miniAppActiveConfigHolder,
   miniAppActiveUrlPartsHolder,
   miniAppAuthSessions,
+  miniAppBundledAssetsHolder,
+  miniAppBundledAssetsPromiseHolder,
   miniAppPasswordGuardHolder,
+  miniAppRejectHtmlHolder,
   miniAppServerHolder,
 } from "../../cache/main/miniApp";
 import { getBotMiniAppConfig } from "../../config/bot";
@@ -52,13 +55,16 @@ export function startMiniAppServer(
 }
 
 /**
- * 停止 Mini App `Bun.serve` 源站服务并清理会话与预备选择器缓存。
+ * 停止 Mini App `Bun.serve` 源站服务并清理会话、按需物化前端产物快照、独立拒绝页模板与预备选择器缓存。
  */
 export async function stopMiniAppServer(): Promise<void> {
   const server: ReturnType<typeof Bun.serve> | null = miniAppServerHolder.current;
   miniAppServerHolder.current = null;
   miniAppActiveConfigHolder.current = null;
   miniAppActiveUrlPartsHolder.current = null;
+  miniAppBundledAssetsHolder.current = null;
+  miniAppBundledAssetsPromiseHolder.current = null;
+  miniAppRejectHtmlHolder.current = null;
   miniAppAuthSessions.clear();
   miniAppPasswordGuardHolder.current = null;
   resetMiniAppPickerState();

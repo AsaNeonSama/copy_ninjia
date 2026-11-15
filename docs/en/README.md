@@ -43,8 +43,8 @@
 <p align="center">
   <a href="#-pure-ai-development"><img src="https://img.shields.io/badge/Code-100%25_AI--written-e91e63?style=flat-square" alt="100% AI-written"></a>
   <a href="#-pure-ai-development"><img src="https://img.shields.io/badge/Audits-Claude_/_Gemini_/_Grok-6d4aff?style=flat-square" alt="Audited"></a>
-  <a href="05-dev-workflow.md"><img src="https://img.shields.io/badge/Tests-7001_Passed-2ea44f?style=flat-square" alt="Tests"></a>
-  <a href="05-dev-workflow.md"><img src="https://img.shields.io/badge/Coverage-98.13%25-2ea44f?style=flat-square" alt="Coverage"></a>
+  <a href="05-dev-workflow.md"><img src="https://img.shields.io/badge/Tests-7200_Passed-2ea44f?style=flat-square" alt="Tests"></a>
+  <a href="05-dev-workflow.md"><img src="https://img.shields.io/badge/Coverage-97.58%25-2ea44f?style=flat-square" alt="Coverage"></a>
   <a href="../../LICENSES/LICENSE"><img src="https://img.shields.io/badge/License-MIT-007ec6?style=flat-square" alt="License: MIT"></a>
 </p>
 
@@ -109,11 +109,11 @@ From commit-by-commit human/AI co-review to repeated full-repository audits and 
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="../../public/coverage_dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="../../public/coverage_light.svg">
-    <img alt="bun run test:coverage — 7001 tests passed, 588 test files, 456,453 expect() calls, 97.57% function coverage, 98.13% line coverage" src="../../public/coverage_light.svg" width="780">
+    <img alt="bun run test:coverage — 7200 tests passed, 605 test files, 463,493 expect() calls, 96.85% function coverage, 97.58% line coverage" src="../../public/coverage_light.svg" width="780">
   </picture>
 </p>
 
-Benchmark figures (cold/hot paths · total throughput and I/O · end-to-end chain latency) live in **[📊 10 Performance Benchmark](10-performance.md)**.
+Benchmark figures (cold/hot paths · total throughput and I/O · end-to-end chain latency) live in **[📊 11 Performance Benchmark](11-performance.md)**.
 
 <p align="right"><sub><a href="#copy-ninjia">⬆️ Back to top</a></sub></p>
 
@@ -159,7 +159,7 @@ Benchmark figures (cold/hot paths · total throughput and I/O · end-to-end chai
 </td>
 <td align="left" valign="top" width="33%">
   <p><b>💒 Partner Lottery</b><br>
-  <sub>Randomly draws a partner from active group members who have spoken, displaying their avatar with an interactive card.</sub></p>
+  <sub>Randomly draws a partner from recently active group members and displays their avatar on an interactive card.</sub></p>
 </td>
 </tr>
 <tr>
@@ -173,7 +173,7 @@ Benchmark figures (cold/hot paths · total throughput and I/O · end-to-end chai
 </td>
 <td align="left" valign="top" width="33%">
   <p><b>📮 Smart Ad Detection</b><br>
-  <sub>Evaluates concatenated message streams with an AI classifier, instantly purging detected spam and banning the sender.</sub></p>
+  <sub>Evaluates concatenated message streams with an AI classifier, instantly purging detected spam and punishing the sender with a configurable mute, kick, or ban.</sub></p>
 </td>
 </tr>
 <tr>
@@ -201,17 +201,17 @@ Benchmark figures (cold/hot paths · total throughput and I/O · end-to-end chai
 </td>
 <td align="left" valign="top" width="33%">
   <p><b>🎨 Personas &amp; Notice Styles</b><br>
-  <sub>Built-in playful teasing persona, easily replaced with custom Markdown prompts; system notice style is independently configurable.</sub></p>
+  <sub>Ships with a playful teasing persona replaceable via <code>prompt/persona.md</code>; system notice tone is configured independently.</sub></p>
 </td>
 </tr>
 <tr>
 <td align="left" valign="top" width="33%">
   <p><b>🤐 Speech Restriction (/gag)</b><br>
-  <sub>Restricts targets from typing directly in group chat, routing them through an interactive button that applies playful text distortions.</sub></p>
+  <sub>Blocks targets from typing directly in group chat, routing them through an interactive button that applies playful text distortions.</sub></p>
 </td>
 <td align="left" valign="top" width="33%">
   <p><b>🫧 Natural Chinese Actions</b><br>
-  <sub>Responds to Chinese action commands (e.g. /咬, /贴贴) without requiring pre-registration in menus.</sub></p>
+  <sub>Handles Chinese action commands (e.g. /咬, /贴贴 via <code>CJK_ACTION_COMMAND_PATTERN</code>) without pre-registering menu entries.</sub></p>
 </td>
 <td align="left" valign="top" width="33%">
   <p><b>🌊 Flood Control</b><br>
@@ -243,7 +243,7 @@ Benchmark figures (cold/hot paths · total throughput and I/O · end-to-end chai
 | Claude | 90%± |
 
 > [!TIP]
-> The lower cache hit rate for Google models stems from mutual exclusion between explicit and implicit caching, as well as unpredictable server-side implicit cache expiration. If cache hit rates are a primary concern, consider other models; however, Gemini models deliver the best conversational results.
+> Gemini's lower cache hit rate stems from mutual exclusion between explicit and implicit caching and unpredictable server-side implicit cache expiration. Choose OpenAI or Claude when cache hit rate is the priority, or Gemini when conversational quality matters most.
 
 ### Voice, images, and memory
 
@@ -257,7 +257,7 @@ Benchmark figures (cold/hot paths · total throughput and I/O · end-to-end chai
 <tbody>
   <tr>
     <td><nobr>🎙️ <b>AI Voice Generation</b></nobr></td>
-    <td>Supports configurable voice and tone modifiers; capped at <code>MAX_VOICES_PER_REPLY</code> per turn, with a line limit of <code>VOICE_TEXT_MAX_CHARS</code> (UTF-16 code units); automatically persisted to conversational memory upon delivery.</td>
+    <td>Supports configurable voice and per-line tone modifiers; capped at <code>MAX_VOICES_PER_REPLY</code> per turn and <code>VOICE_TEXT_MAX_CHARS</code> (UTF-16 code units) per line, and saved to conversational memory after delivery.</td>
   </tr>
   <tr>
     <td><nobr>📢 <b>Admin & Scheduled Voice</b></nobr></td>
@@ -265,14 +265,19 @@ Benchmark figures (cold/hot paths · total throughput and I/O · end-to-end chai
   </tr>
   <tr>
     <td><nobr>🖼️ <b>Multimodal Memory</b></nobr></td>
-    <td>AI-generated images record their actual visuals in context; group drawings from <code>/wed</code>, <code>/h_image</code>, and scheduled tasks record placeholders until a user explicitly replies to them.</td>
+    <td>AI-generated images record their actual visuals in context; group images from <code>/wed</code>, <code>/h_image</code>, and scheduled tasks record placeholders and run vision analysis only when a member replies to them.</td>
   </tr>
 </tbody>
 </table>
 
-- **TTS Configuration**: Configured under `agent.tts` in `config/dynamic/agent.json` (supports native Google, OpenAI-compatible `audio/speech`, and xAI Grok `/tts`; Google supports a custom `base_url` for third-party gateways). Optional `bot_language` (`en` / `zh` / `ja`, default `TTS_DEFAULT_BOT_LANGUAGE`) sets the language of AI voice lines; placing `prompt/voice_tool.md` in the project root overrides the entire `send_voice` tool instruction (takes effect after a restart; see [`prompt_example/voice_tool.md`](../../prompt_example/voice_tool.md)). The AI reply pipeline automatically appends target language guidance based on `bot_language`; `style` is shared with `/send` and cron and describes only the acoustic timbre. When changing `bot_language`, remember to align `style` and `voice_tool.md` accordingly.
-- **Quota Isolation**: The daily quota `daily_limit` (default `TTS_DEFAULT_DAILY_LIMIT`) reserves `daily_reserve_quota` (default `TTS_DEFAULT_DAILY_RESERVE_QUOTA`) exclusively for `/send` and scheduled cron tasks, leaving the remainder for spontaneous AI chatter; both pools track counts independently. The tracking window (`TTS_USAGE_WINDOW_MS`) begins on the first request and resets both counters upon window expiry.
-- **Memory Ingestion Boundaries**: Messages forwarded via `/send` and scheduled cron tasks are excluded from AI conversation context. Automatic image logging requires AI chat to be enabled in the group and not suppressed by active copying mode. See [12 FAQ](12-faq.md).
+- **TTS Configuration**: Configured under `agent.tts` in `config/dynamic/agent.json`:
+  - **Providers**: Supports native Google, OpenAI-compatible `audio/speech`, and xAI Grok `/tts` (Google also accepts a custom `base_url` for reverse proxies or gateways).
+  - **Voice Line Language**: Optional `bot_language` (`TTS_BOT_LANGUAGES`: `en` | `zh` | `ja`, default `TTS_DEFAULT_BOT_LANGUAGE`) sets the spoken language for AI voice lines and automatically appends language guidance during AI speech synthesis.
+  - **Prompt & Style Alignment**: Placing `prompt/voice_tool.md` in the project root replaces the entire `send_voice` tool description after a restart (see [`prompt_example/voice_tool.md`](../../prompt_example/voice_tool.md)). Because `style` is shared with `/send` and cron tasks, keep `style` focused on vocal timbre and update both `style` and `voice_tool.md` when changing `bot_language`.
+- **Quota Isolation**:
+  - `daily_limit` (default `TTS_DEFAULT_DAILY_LIMIT`) reserves `daily_reserve_quota` (default `TTS_DEFAULT_DAILY_RESERVE_QUOTA`) exclusively for `/send` and scheduled cron tasks, leaving `daily_limit - daily_reserve_quota` for spontaneous AI replies.
+  - Both pools count independently without borrowing from each other. Each rolling window (`TTS_USAGE_WINDOW_MS`) starts on the first request and resets both counters on the first request after expiry.
+- **Memory Ingestion Boundaries**: Messages relayed via `/send` and scheduled cron tasks are excluded from AI conversation context. Automatic group-image logging runs only when AI chat is enabled in the group and copying mode is inactive. See [12 FAQ](12-faq.md).
 
 For comprehensive behavioral contracts, configuration parameters, and invariants for every feature, explore the **[📚 Developer Documentation](content-table.md)**.
 
@@ -282,11 +287,14 @@ For comprehensive behavioral contracts, configuration parameters, and invariants
 
 Commands are organized into three clear authorization tiers:
 
-- **Group Members**: Basic chat features such as copying, translation, actions, `/info`, `/wed`, and `/h_image` are open to all group participants.
-- **Identity Permissions (`isCanXxx`)**: Administrative commands including `/bot_status`, `/mute` / `/unmute`, `/gag`, `/block`, `/h_image add`, and feature switches, granted individually via fine-grained permission rules.
-- **Super Administrator (`SUPER_ADMIN_USER_ID`)**: Strict hard boundaries restricted exclusively to the configured owner ID: `/init` group onboarding, `/permission` grants, `/white disable` member removal, `/batch_kick` mass removal of recent joins, `/delete_message` deletion of a target's new messages, and private `/send` relays and the Mini App Management Console opened via the bottom-left `App` menu button (`MenuButtonWebApp`). Allowlisted users with `isCanWhiteOther` may use `/white enable` to add members, but can only assign default baseline permissions.
+- **Group Members**: Everyday chat features — copying, per-group translation, Chinese action commands, `/info`, `/wed`, and `/h_image` — are available to all group participants.
+- **Identity Permissions (`isCanXxx`)**: Group management and operational commands — `/bot_status`, `/mute` / `/unmute`, `/gag`, `/block`, `/h_image add`, and feature switches — granted per identity via fine-grained permission keys.
+- **Super Administrator (`SUPER_ADMIN_USER_ID`)**: Exclusive owner-only operations:
+  - Group onboarding (`/init`), permission grants (`/permission`), allowlist removal (`/white disable`), recent-join batch removal (`/batch_kick`), and automatic deletion of a target's new messages (`/delete_message`).
+  - Private-chat `/send` relays and the Mini App Management Console launched from the bottom-left `App` menu button (`MenuButtonWebApp`).
+  - Allowlisted identities holding `isCanWhiteOther` may run `/white enable` to add members, assigning default baseline permissions only.
 
-Image library and cron task configuration and usage are documented in [08 Images and Scheduled Tasks](08-images-and-cron.md); Mini App setup and the recommended Cloudflare Tunnel configuration are documented in [11 Mini App Setup and Recommended Configuration](11-mini-app.md); offline cold migration steps live in the [Operations Manual](07-operations.md).
+See [08 Image Library and Scheduled Tasks](08-images-and-cron.md) for image curation and cron configuration, [10 Mini App Setup and Recommended Configuration](10-mini-app.md) for Mini App and Cloudflare Tunnel setup, and [07 Operations and Troubleshooting](07-operations.md) for offline cold migrations.
 
 The full command reference and permission matrix are documented in **[📖 09 Command and Behaviour Reference](09-commands.md)**.
 
@@ -415,14 +423,14 @@ Comprehensive architecture overviews, module maps, authoritative runtime invaria
     <td align="center"><nobr><a href="09-commands.md">📖 09 Commands</a></nobr></td>
   </tr>
   <tr>
-    <td><nobr>📊 <b>Read the numbers</b></nobr></td>
-    <td>Release benchmark for cold/hot paths, total throughput and I/O, and end-to-end chain latency</td>
-    <td align="center"><nobr><a href="10-performance.md">📖 10 Performance</a></nobr></td>
-  </tr>
-  <tr>
     <td><nobr>🖥️ <b>Mini App Console</b></nobr></td>
     <td><code>mini_app</code> setup, recommended Cloudflare Tunnel configuration, two-tier auth, and TOTP binding</td>
-    <td align="center"><nobr><a href="11-mini-app.md">📖 11 Mini App Setup</a></nobr></td>
+    <td align="center"><nobr><a href="10-mini-app.md">📖 10 Mini App Setup</a></nobr></td>
+  </tr>
+  <tr>
+    <td><nobr>📊 <b>Read the numbers</b></nobr></td>
+    <td>Release benchmark for cold/hot paths, total throughput and I/O, and end-to-end chain latency</td>
+    <td align="center"><nobr><a href="11-performance.md">📖 11 Performance</a></nobr></td>
   </tr>
   <tr>
     <td><nobr>❓ <b>Bot not replying</b></nobr></td>
@@ -480,8 +488,11 @@ Comprehensive architecture overviews, module maps, authoritative runtime invaria
 There is no need to configure `/setcommands` manually in BotFather: the bot automatically registers its command menu at startup using its configured notice style (standard menu applies when notice style is omitted and a custom persona is deployed). Menus are shown only in group chats; private chats accept only the super administrator's `/send` command and do not display a general command menu.
 
 > [!WARNING]
-> **Bot-to-Bot Communication Mode Details**:
-> When enabled, this bot can receive ordinary messages from other bots in groups where it is an administrator or has privacy mode disabled. Incoming messages from other bots pass through a global ingress rate-limiter: the first `BOT_MESSAGE_ACTIVITY_LIMIT` messages from each bot during continuous activity enter business handlers, and subsequent messages are silently ignored. The count resets after `BOT_MESSAGE_ACTIVITY_TTL_MS` of inactivity. At most `BOT_MESSAGE_ACTIVITY_MAX_ENTRIES` other bots are tracked; when full, messages from newly observed bots are ignored. The bot's own messages and messages from a `/delete_message` target in the chat are neither counted nor blocked by this gate (the latter are all deleted). See [dispatch invariants](04-invariants.md).
+> **Bot-to-Bot Communication Mode**:
+> - When enabled, this bot receives ordinary messages from other bots in groups where it is an administrator or where group privacy mode is disabled.
+> - Inbound messages from other bots pass through a global ingress rate limiter: the first `BOT_MESSAGE_ACTIVITY_LIMIT` messages from a continuously active bot reach business handlers, and further messages drop silently until `BOT_MESSAGE_ACTIVITY_TTL_MS` of inactivity resets that bot's counter.
+> - At most `BOT_MESSAGE_ACTIVITY_MAX_ENTRIES` external bots are tracked simultaneously; while the table is full, messages from newly seen bots are ignored.
+> - Messages sent by this bot itself and messages from a `/delete_message` target in the group bypass this counter (all messages from a `/delete_message` target are still deleted). See [04 Authoritative Runtime Invariants](04-invariants.md).
 
 ### Administrator Rights in the Group
 
@@ -501,7 +512,7 @@ Promote the bot to a group administrator and grant permissions based on required
   </tr>
   <tr>
     <td><nobr>🚫 <b>Restrict & Ban Members</b></nobr></td>
-    <td>Kicking unverified members, Anti-Raid private mode lockdown, <code>/block enable|disable</code>, <code>/mute</code> / <code>/unmute</code>, <code>/batch_kick</code>, flood muting, and ad bans.</td>
+    <td>Kicking unverified members, Anti-Raid private mode lockdown, <code>/block enable|disable</code>, <code>/mute</code> / <code>/unmute</code>, <code>/batch_kick</code>, flood muting, and ad punishments (mute, kick, or ban).</td>
   </tr>
 </tbody>
 </table>

@@ -131,7 +131,8 @@ export function handleExpelNoticeSent(
 }
 
 /**
- * 踢人确认成功但成功播报没发出：记下 removalConfirmed；只作用于当前 expelling 终态，已记过时不重发快照。
+ * 成员移出已确认但成功播报尚未发出时置位 `removalConfirmed`。
+ * 仅作用于当前 `expelling` 终态；已置位时不重复触发快照写入。
  * @param state 当前成员的验证状态，未记录时为 undefined。
  * @returns 首次确认移出时携带 snapshotChanged 的转移结果。
  */
@@ -165,9 +166,9 @@ export function handleKickRetry(
 }
 
 /**
- * 私密模式踢人请求的执行门。kickRequestSent：请求即将同步发出，此后到达的豁免无法再撤销
- * 这次调用（见 ./join.ts 的 joinExempt）；kickRequestFailed：请求返回但没有结算，重新允许
- * 权威豁免替换 token，本轮尝试仍在进行，effectStarted 保持置位。只作用于发起这次踢人的那个状态对象。
+ * 更新私密模式踢人请求的本地执行门（仅当 `state === event.attemptState` 时生效）：
+ * - `kickRequestSent`：请求即将发出，置位 `executionStarted`，后续到达的豁免不再撤销本次踢人（见 `./join.ts` 的 `joinExempt`）；
+ * - `kickRequestFailed`：请求失败且尚未结算，复位 `executionStarted` 以允许权威豁免替换状态对象，`effectStarted` 保持置位。
  * @param state 当前成员的验证状态，未记录时为 undefined。
  * @param event 踢人请求发出或失败事件载荷。
  * @returns 更新 executionStarted 后的状态转移结果。
@@ -182,9 +183,9 @@ export function handleKickRequest(
 }
 
 /**
- * 本轮终态动作没有结算、解释器即将排一次退避重试：复位 Worker 本地执行门，让到点的
- * kickRetry / terminalPersisted 能重新发出动作，也让权威豁免可以替换 token。只作用于发起
- * 这一轮的那个状态对象；门不持久化，快照不变。
+ * 本轮终态动作未结算且即将排期退避重试时，复位 Worker 本地执行门（`effectStarted` / `executionStarted`），
+ * 使后续 `kickRetry` 或 `terminalPersisted` 可再次派发动作，并允许权威豁免替换状态对象。
+ * 仅对发起本轮尝试的同一状态对象生效；本地执行门不进入持久化快照。
  * @param state 当前成员的验证状态，未记录时为 undefined。
  * @param attemptState 发起本轮终态尝试时的状态对象引用。
  * @returns 复位本地执行门后的状态转移结果。

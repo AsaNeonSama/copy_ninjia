@@ -19,11 +19,12 @@ done
 > [!CAUTION]
 > 既存のファイルを上書きするコピーコマンドを使用しないでください。また、`config_example/` をデプロイ設定のバックアップとして扱わないでください。`config/` には機密情報が含まれるため、サービスアカウントのみに読み取り権限を付与することを推奨します。
 
-`config/` は設定の反映方法に応じて厳格に 2 つのサブディレクトリに分かれています：
-- `config/static/`：`bot.json`、`g-auth.json`。変更後は**サービスの再起動が必要**です。
-- `config/dynamic/`：`assets.json`、`ad_samples.json`、`agent.json`、`mood.json`、`stickers.json`、`cron.json`。稼働中の変更は自動的にホットリロードされます。
-
-`config/dynamic/` ディレクトリは必ず存在させてください（空でも構いません）。設定ファイルが `config/` 直下に置かれていたり、誤ったサブディレクトリに置かれている場合は起動を拒否します。ホワイトリスト、ブラックリスト、およびグループ状態は `database/storage.sqlite` に保存されるため、設定ファイルではありません。
+`config/` は設定の反映方法に応じて厳格な 3 階層ディレクトリホワイトリストを適用します（`config/` 直下は `static/` と `dynamic/` の 2 サブディレクトリのみ許可）：
+- `config/static/`：`bot.json`、`g-auth.json` のみ許可。変更後は**サービスの再起動が必要**です。
+- `config/dynamic/`：`assets.json`、`ad_detect.json`、`agent.json`、`mood.json`、`stickers.json`、`cron.json` のみ許可。稼働中の変更は自動的にホットリロードされます。
+- `config/dynamic/` は既存ディレクトリである必要があります（空でも構いません）。ディレクトリパスが非ディレクトリで占有されている場合、またはいずれかの階層に未宣言エントリ（誤配置や `telegram.json`・`ad_samples.json` などの旧設定ファイル、隠し／スワップ／バックアップファイル、余分なサブディレクトリ、リンク切れシンボリックリンクを含む）が存在する場合は起動を拒否します。
+- ホットリロード中に `config/dynamic/` にホワイトリスト外のエントリが存在する場合は当該ラウンド全体を拒否し、適用済みのスナップショットを維持します。
+- ホワイトリスト、ブラックリスト、およびグループ状態は実行時データルートの `database/storage.sqlite` に保存され、デプロイ設定ファイルではありません。
 
 すべての JSON ファイルに対して厳格なスキーマ検証が行われます。未知のフィールド、誤字、型の不一致、不正な列挙値、範囲外の値がある場合、起動時またはホットリロード時に即座に拒否され、**自動修復や無視は一切行われません**。
 
@@ -44,7 +45,7 @@ done
   <tr>
     <td><code>static/bot.json</code></td>
     <td><nobr>静的（再起動が必要）</nobr></td>
-    <td>Telegram Bot Token、唯一のスーパー管理者、既定の口調とタイムゾーン</td>
+    <td>Telegram Bot Token、唯一のスーパー管理者、既定の口調、タイムゾーン、任意の Mini App コンソール</td>
     <td><b>起動を拒否（致命的エラー）</b></td>
   </tr>
   <tr>
@@ -66,9 +67,9 @@ done
     <td>AI 雑談が停止（起動は成功）</td>
   </tr>
   <tr>
-    <td><code>dynamic/ad_samples.json</code></td>
+    <td><code>dynamic/ad_detect.json</code></td>
     <td><nobr>動的（ホットリロード）</nobr></td>
-    <td>広告分類判定用の正例リファレンスサンプル</td>
+    <td>広告の処罰設定、広告分類用の正例サンプルおよびステッカー／絵文字パックブラックリスト</td>
     <td>広告検出が停止（起動は成功）</td>
   </tr>
   <tr>
@@ -93,7 +94,7 @@ done
 </table>
 
 > [!NOTE]
-> AI 人設は既定で組み込みのメスガキ風人設を使用します。プロジェクトルートにバージョン管理外の `prompt/persona.md` を配置することで上書きできます。AI `send_voice` のツール説明も `prompt/voice_tool.md` で全体を置き換えられ、いずれも再起動後に反映されます。例は [`prompt_example/persona.md`](../../prompt_example/persona.md) と [`prompt_example/voice_tool.md`](../../prompt_example/voice_tool.md) を参照してください。全グループの通知とメニューは明示した `atmosphere` を優先し、省略時はカスタム人設なら通常、内蔵人設ならメスガキ風を使います。
+> AI ペルソナは既定で組み込みのメスガキ風ペルソナを使用します。プロジェクトルートにバージョン管理外の `prompt/persona.md` を配置することで上書きできます。AI `send_voice` のツール説明も `prompt/voice_tool.md` で全体を置き換えられ、いずれも再起動後に反映されます。例は [`prompt_example/persona.md`](../../prompt_example/persona.md) と [`prompt_example/voice_tool.md`](../../prompt_example/voice_tool.md) を参照してください。全グループの通知とメニューは明示した `atmosphere` を優先し、省略時はカスタムペルソナなら通常、組み込みペルソナならメスガキ風を使います。
 
 ---
 
@@ -104,7 +105,7 @@ Bot は `config/dynamic/` ディレクトリを常時監視しています。デ
 1. **ホット置換**：検証に合格し設定に変更がある場合、即時にスナップショットを更新して各 Worker に配信します。
 2. **検証失敗時のフェイルセーフ**：検証に失敗した場合、変更全体が拒否されます。エラー箇所（ファイルパス、フィールドパス、期待される形式）をログに記録し、システムは直前の有効な設定をそのまま維持します。
 3. **機能連動**：
-   - `ad_samples.json` や `agent.json` の `ad_detect` を追加・削除すると、広告検出が即時に有効化・無効化されます。
+   - `ad_detect.json` や `agent.json` の `ad_detect` を追加・削除すると、広告検出が即時に有効化・無効化されます。
    - `agent.json` の対話中核能力（`AGENT_AI_CHAT_REQUIRED_CAPABILITIES`：`text` / `summary` / `media`）や `mood.json` / `stickers.json` を追加・削除すると、AI 雑談が自動的に起動・停止します。
    - 任意のツール能力（`image`、`tts`、`web_search`）の変更は即座に反映されます。
 4. **設定ファイル間の依存関係検証**：
@@ -144,13 +145,13 @@ Bot は `config/dynamic/` ディレクトリを常時監視しています。デ
 | --- | --- | --- | --- | --- |
 | `bot_token` | `string` | **必須** | 非空文字列、`TELEGRAM_BOT_TOKEN_PLACEHOLDER` 不可 | BotFather が発行した Telegram Bot API Token。最も重要な資格情報 |
 | `super_admin_user_id` | `number` | **必須** | 正の安全な整数（`> 0`） | 唯一のスーパー管理者の Telegram ユーザー数値 ID（@ユーザー名ではありません）。全権限を本質的に保持します |
-| `atmosphere` | `string` | 任意 | `"mesugaki"` または `"normal"`。前後の空白を除いて厳格に検証。省略時はカスタム人設の有無で選択 | システム通知と操作レシートの文体。明示設定を優先（`mesugaki` はメスガキ風、`normal` は通常）。省略時は `prompt/persona.md` があれば通常、なければメスガキ風。AI 人設は変更しない |
+| `atmosphere` | `string` | 任意 | `"mesugaki"` または `"normal"`。前後の空白を除いて厳格に検証。省略時はカスタムペルソナの有無で選択 | システム通知と操作レシートの文体。明示設定を優先（`mesugaki` はメスガキ風、`normal` は通常）。省略時は `prompt/persona.md` があれば通常、なければメスガキ風。AI ペルソナは変更しない |
 | `time_zone` | `string` | 任意 | IANA 名、既定 `DEFAULT_BOT_TIME_ZONE`。前後の空白を除いて厳格に検証 | 運勢、ログ、広告の発言累計、AI の時刻、日次保守、タイムゾーンを省略した cron の既定暦タイムゾーン。`TOKYO_TIME_ZONE`（省略時を含む）の場合だけ東京天気ツールを登録。不正値は起動拒否。データルートは作成時にこのタイムゾーンへ固定され、以後の変更は起動時に拒否されます（[07 運用とトラブルシューティング](../../docs/ja/07-operations.md#暦タイムゾーン) を参照） |
-| `mini_app` | `object` | 任意 | `url`、`port`、`host`、`password` のみを許可する厳格なオブジェクト。省略時はローカル HTTP サーバーやルートを起動せず、個人チャットの `MenuButtonWebApp` も登録しない。`config_example/` から手動でコピーして Mini App を使用しない場合はこのセクションを削除するか `password` を実際のパスワードに置き換えること（プレースホルダーのままでは起動を拒否） | SuperAdmin 専用 Telegram Mini App 管理コンソール（Dashboard）設定。完全な設定手順と Cloudflare Tunnel 推奨構成は [11 Mini App の設定方法と推奨構成](../../docs/ja/11-mini-app.md) を参照 |
+| `mini_app` | `object` | 任意 | `url`、`port`、`host`、`password` のみを許可する厳格なオブジェクト。省略時はローカル HTTP サーバーやルートを起動せず、個人チャットの `MenuButtonWebApp` も登録しない。`config_example/` から手動でコピーして Mini App を使用しない場合はこのセクションを削除するか `password` を実際のパスワードに置き換えること（プレースホルダーのままでは起動を拒否） | SuperAdmin 専用 Telegram Mini App 管理コンソール（Dashboard）設定。完全な設定手順と Cloudflare Tunnel 推奨構成は [10 Mini App の設定方法と推奨構成](../../docs/ja/10-mini-app.md) を参照 |
 | `mini_app.url` | `string` | `mini_app` 指定時は**必須** | 有効な `https://` URL。サブパスプレフィックス（例：`https://example.com/sub`）に対応し、パスプレフィックスを保持または除去するリバースプロキシの双方と互換 | Telegram WebApp クライアントが読み込む公開 HTTPS エンドポイント URL |
 | `mini_app.port` | `number` | `mini_app` 指定時は**必須** | `MINI_APP_PORT_MIN`–`MINI_APP_PORT_MAX`（`1`–`65535`）の安全な整数、サンプル設定は `3000` | ローカル `Bun.serve` HTTP 待受ポート |
 | `mini_app.host` | `string` | 任意 | 非空文字列、既定 `MINI_APP_DEFAULT_HOST`（`"127.0.0.1"`） | ローカル `Bun.serve` HTTP 待受アドレス |
-| `mini_app.password` | `string` | `mini_app` 指定時は**必須** | 6 桁以上の数字（`0-9`）を含む非空文字列（プレースホルダー `MINI_APP_PASSWORD_PLACEHOLDER` 不可）。未指定や不正値の場合は起動を拒否 | Mini App 初回画面のアクセスパスワード（`initData` と認証セッションはいずれも 45 分間有効、3 回連続で誤入力するとスーパー管理者 ID を 30 分間ロック、コンソールで Google Authenticator TOTP をバインドした場合はログイン時に 6 桁コードが優先） |
+| `mini_app.password` | `string` | `mini_app` 指定時は**必須** | 6 桁以上の数字（`0-9`）を含む非空文字列（プレースホルダー `MINI_APP_PASSWORD_PLACEHOLDER` 不可）。未指定や不正値の場合は起動を拒否 | Mini App 初回画面のアクセスパスワード（`initData` と認証セッションはいずれも 45 分間有効、3 回連続で誤入力するとスーパー管理者 ID を 30 分間ロック。コンソールで Google Authenticator TOTP をバインドするとログインは 6 桁コード検証に切り替わり、解除するとパスワード認証に戻る） |
 
 ---
 
@@ -296,7 +297,7 @@ Bot は `config/dynamic/` ディレクトリを常時監視しています。デ
 | `pathOrUrl` | `bot_default_avatar` | `string` | ローカル画像・MP4 ファイルパス、または絶対 HTTP/HTTPS URL、既定 `BOT_DEFAULT_AVATAR_URL` | `/icon reset` および `/copy stop` でアバターを復元する際に使用する素材。JPEG/PNG（`≤ BOT_PROFILE_PHOTO_MAX_BYTES`）は静止アバター、MP4（`≤ BOT_PROFILE_ANIMATION_MAX_BYTES`、映像は一辺 `≤ BOT_PROFILE_ANIMATION_MAX_SIDE` の正方形）は動くアバターとして設定。ローカルファイルは読み込み時、URL は復元時に検証（ダウンロードのタイムアウトは `DEFAULT_AVATAR_FETCH_TIMEOUT_MS`） |
 | `onlyUrl` | `fortune_thumbnail_url` | `string` | 絶対 HTTPS URL、既定 `FORTUNE_THUMBNAIL_URL` | 「未卜先知（運勢）」インライン結果カードのサムネイル画像 URL |
 | `onlyUrl` | `probability_thumbnail_url` | `string` | 絶対 HTTPS URL、既定 `PROBABILITY_THUMBNAIL_URL` | 「確率論」インライン結果カードのサムネイル画像 URL |
-| `onlyUrl` | `gag_thumbnail_url` | `string` | 絶対 HTTPS URL、既定 `GAG_THUMBNAIL_URL` | 口球発言インライン結果カードのサムネイル画像 URL |
+| `onlyUrl` | `gag_thumbnail_url` | `string` | 絶対 HTTPS URL、既定 `GAG_THUMBNAIL_URL` | gag 発言インライン結果カードのサムネイル画像 URL |
 
 ---
 
@@ -451,26 +452,68 @@ Bot は `config/dynamic/` ディレクトリを常時監視しています。デ
 
 ---
 
-## `ad_samples.json`
+## `ad_detect.json`
 
-動的設定ファイル（パス：`config/dynamic/ad_samples.json`）。最上位はプレーンテキスト文字列の配列であり、広告分類モデルの正例リファレンスとして機能します。
+動的設定ファイル（パス：`config/dynamic/ad_detect.json`）。最上位は `punishment` オブジェクトと `samples`、`sticker_black_list`、`emoji_black_list` の 3 つの配列をちょうど持つ JSON オブジェクトです：
+- **設定内容**：広告判定後の処罰設定、広告分類モデルの正例リファレンス、ステッカーパックブラックリスト、カスタム絵文字パックブラックリストを定義します。
+- **判定順序**：「ステッカーパックブラックリスト高速経路 -> カスタム絵文字パックブラックリスト -> AI テキスト判定」の順で実行され、いずれかのブラックリストに一致した場合は AI 判定をスキップします。
+- **処置手順**：どの経路で広告と判定されても、まず該当メッセージを削除し、続いて `punishment` に従って処罰し、発生グループに `COMMAND_MESSAGE_AUTO_DELETE_MS` 後に自動削除される通知を投稿します。
 
 ### 設定例
 
 ```json
-[
-  "博彩平台首充送58，提款秒到，无视风控，联系 @xxxxxx",
-  "招聘日结兼职，手机就能做，日入三百起，加微信 xxxxxx",
-  "长期收u出u，价格美丽，秒结，飞机 @xxxxxx",
-  "出售TG老号 白号 API号 协议号，价格优惠，私聊"
-]
+{
+  "punishment": {
+    "kick": {
+      "block": true,
+      "block_scope": "global"
+    }
+  },
+  "samples": [
+    "博彩平台首充送58，提款秒到，无视风控，联系 @xxxxxx",
+    "招聘日结兼职，手机就能做，日入三百起，加微信 xxxxxx",
+    "长期收u出u，价格美丽，秒结，飞机 @xxxxxx",
+    "出售TG老号 白号 API号 协议号，价格优惠，私聊"
+  ],
+  "sticker_black_list": [
+    "SpamStickerPack_by_example_bot"
+  ],
+  "emoji_black_list": [
+    "SpamEmojiPack_by_example_bot"
+  ]
+}
 ```
+
+### 処罰設定
+
+`punishment` の `mute` と `kick` は互いに排他で、どちらか一方だけを書きます。両方書いた場合も、どちらも書かない場合も拒否されます。
+
+| 設定 | 一般ユーザー | チャンネル身分（`sender_chat`） |
+| --- | --- | --- |
+| `mute` | 発生グループでミュート：`permanent` が `true` なら無期限、それ以外は `duration` の間ミュートし、期限が来ると Telegram が自動解除 | メッセージ削除のみ |
+| `kick`、`block: false` | BAN なしのキック：発生グループから外し、再入室は可能 | メッセージ削除のみ |
+| `kick`、`block_scope: "chat"` | 発生グループだけで BAN してメッセージを撤回し、恒久ブラックリストには登録しない | メッセージ削除のみ |
+| `kick`、`block_scope: "global"` | 恒久ブラックリスト（`/block` と同じリスト）に登録し、全管理対象グループで BAN | 同左 |
+
+- ミュート・BAN なしのキック・該当グループのみの BAN は発生グループだけに作用し、永続 outbox には書き込みません。停止時の排出がタイムアウトした場合やプロセス再起動時は、未完了の要求をそのまま放棄します。要求が成功しなかった場合、通知で Bot の権限確認を管理者に促します。
+- 該当グループのみの BAN は Bot の恒久ブラックリストに入らないため `/unblock` では解除できず、Telegram のグループ管理画面で解除します。無期限ミュートは `/unmute` で解除します。
+- BAN なしのキックの前に対象がまだグループにいることを確認し、グループ種別や在室状態が確認できない場合は外す要求を送りません。
+- 処罰設定はホットリロードに従い、処置のたびに現在の設定を読みます。ファイルが削除された場合、処理中の命中はメッセージ削除のみで処罰しません。
 
 ### フィールド説明
 
-| 構造 | 型 | 必須/任意 | 制約および値の範囲 | 説明 |
+| フィールド名 | 型 | 必須/任意 | 制約および値の範囲 | 説明 |
 | --- | --- | --- | --- | --- |
-| 最上位配列 | `string[]` | **必須** | 配列長 `0 〜 MAX_CONFIGURED_AD_SAMPLES`、重複不可 | 広告正例サンプル文字列配列。各サンプルは連続する空白を 1 つのスペースにまとめ前後の空白を除いた後に非空かつ `≤ AD_SAMPLE_MAX_CHARS` 文字で、重複判定もこの正規化結果で行います。`provider: "google"` の場合、Gemini 明示的コンテキストキャッシュが自動構築され、残りの存続時間が `GEMINI_CONTEXT_CACHE_RENEW_BEFORE_MS` を下回るとバックグラウンドで延長されます |
+| `punishment` | `object` | **必須** | `mute`、`kick` の 2 キーのみで、ちょうど一方だけ | 広告と判定された後（ブラックリスト一致を含む）の処罰設定。上の表を参照 |
+| `punishment.mute` | `object` | `kick` と二者択一 | `permanent`、`duration` の 2 キーのみ | ミュート設定 |
+| `punishment.mute.permanent` | `boolean` | **必須** | — | `true` で無期限ミュート |
+| `punishment.mute.duration` | `string` | `permanent` が `false` のとき必須、`true` のときは省略必須 | `数字+m/h/d`（例：`"30m"`、`"12h"`、`"7d"`）。前後の空白を除いて `MUTE_MIN_DURATION_MS 〜 MUTE_MAX_DURATION_MS` に収まること。範囲外は拒否 | ミュート時間 |
+| `punishment.kick` | `object` | `mute` と二者択一 | `block`、`block_scope` の 2 キーのみ | キック設定 |
+| `punishment.kick.block` | `boolean` | **必須** | — | `false` で BAN なしのキック、`true` で `block_scope` に従って BAN |
+| `punishment.kick.block_scope` | `string` | `block` が `true` のとき必須、`false` のときは省略必須 | 前後の空白を除いて `"chat"` または `"global"`（`AD_BLOCK_SCOPES`） | `"chat"` は発生グループだけで BAN、`"global"` は恒久ブラックリストに登録して全管理対象グループで BAN |
+| `samples` | `string[]` | **必須** | 配列長 `0 〜 MAX_CONFIGURED_AD_SAMPLES`、重複不可 | 広告正例サンプル文字列配列。各サンプルは連続する空白を 1 つのスペースにまとめ前後の空白を除いた後に非空かつ `≤ AD_SAMPLE_MAX_CHARS` 文字で、重複判定もこの正規化結果で行います。`provider: "google"` の場合、Gemini 明示的コンテキストキャッシュが自動構築され、残りの存続時間が `GEMINI_CONTEXT_CACHE_RENEW_BEFORE_MS` を下回るとバックグラウンドで延長されます |
+| `sticker_black_list` | `string[]` | **必須** | 配列長 `0 〜 MAX_CONFIGURED_AD_BLACKLIST_PACKS`、要素は前後の空白を除いて `STICKER_PACK_NAME_PATTERN` に一致し重複不可 | ステッカーパック short name ブラックリスト（`https://t.me/addstickers/<short_name>` の末尾部分）。免除対象外の送信者がこのリストに含まれるパックのステッカーを送信した場合、後続の判定をスキップして `punishment` に従って処罰します |
+| `emoji_black_list` | `string[]` | **必須** | 配列長 `0 〜 MAX_CONFIGURED_AD_BLACKLIST_PACKS`、要素は前後の空白を除いて `STICKER_PACK_NAME_PATTERN` に一致し重複不可 | カスタム絵文字パック short name ブラックリスト（`https://t.me/addemoji/<short_name>` の末尾部分）。免除対象外の送信者のメッセージに `custom_emoji` エンティティが含まれる場合、メインスレッドの統一 Telegram 送信境界経由で所属パックを照会し、一致した場合は AI 判定をスキップして `punishment` に従って処罰します |
 
 ---
 

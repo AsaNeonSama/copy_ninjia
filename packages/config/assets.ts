@@ -1,22 +1,25 @@
 /**
- * config/dynamic/assets.json 的严格解析：顶层只有 `onlyPath`、`pathOrUrl` 与 `onlyUrl` 分组。
- *
+ * `config/dynamic/assets.json` 的严格解析与主线程快照管理（缓存见 `cache/main/assets.ts`）：
  * - `onlyPath`：`random_h_image_dir`，随机图库的本机目录。
- * - `pathOrUrl`：`bot_default_avatar`，机器人默认头像的本机文件或本进程下载的 http(s) 直链。
- * - `onlyUrl`：inline 结果缩略图直链，由 Telegram 拉取，只收绝对 https URL。
+ * - `pathOrUrl`：`bot_default_avatar`，机器人默认头像的本机文件或 `http(s)` 直链。
+ * - `onlyUrl`：inline 结果缩略图直链（由 Telegram 拉取，仅接受绝对 `https` URL）。
  *
- * 本机路径只收绝对路径或 `./`、`../` 开头的相对路径，相对路径按运行时数据根解析。
- * 文件、各分组与组内字段都可选，缺省按「从没设过」取 consts/ui/assets.ts 的内置常量；分组或字段
- * 存在但非法、出现未知分组或组外字段、顶层或分组不是对象时整份拒绝，报错只含文件路径、字段路径与
- * 期望形态。parseAssetConfig 只做形态与路径的词法判定，不做 I/O；loadAssetConfig 在读盘后再核对默认
- * 头像的本机文件（见 verifyDefaultAvatarFile）。启动总闸（config/readiness.ts）在文件存在时
- * 解析并接管；config/dynamic/ 热重载经 config/reload.ts 整体替换。快照只在主线程（cache/main/assets.ts）。
+ * 校验与生命周期规则：
+ * - 本机路径仅接受绝对路径或 `./`、`../` 开头的相对路径（按运行时数据根解析）。
+ * - 整份文件、各分组与组内字段均可选，缺省时回退到 `consts/ui/assets.ts` 的内置常量；存在未知键或非法值时整份拒绝。
+ * - `parseAssetConfig` 仅执行形态与词法校验；`loadAssetConfig` 读盘后进一步核对本机默认头像文件（`verifyDefaultAvatarFile`）。
+ * - 启动总闸（`config/readiness.ts`）在文件存在时加载接管，热重载由 `config/reload.ts` 整体替换快照。
  */
 
 import type { BunFile } from "bun";
 import { isAbsolute, resolve } from "node:path";
 import { assetConfigCache } from "../cache/main/assets";
+import {
+  HTTP_OR_HTTPS_CONFIG_URL_POLICY,
+  HTTPS_CONFIG_URL_POLICY,
+} from "../consts/configUrl";
 import { ASSETS_CONFIG_PATH, RUNTIME_DATA_ROOT } from "../consts/paths";
+import { parseConfigUrl } from "./urlPolicy";
 import { DEFAULT_AVATAR_EXPECTED_FORM, DEFAULT_AVATAR_MAX_READ_BYTES } from "../consts/telegram";
 import {
   ASSET_CONFIG_GROUPS,
@@ -95,10 +98,10 @@ function trimmedField(group: AssetGroup, key: string): string | undefined {
  * @returns 归一化后的 URL href；非合法 http(s) URL 时返回 null。
  */
 function assetUrlHref(text: string, allowHttp: boolean): string | null {
-  const parsed: URL | null = URL.parse(text);
-  if (parsed === null) return null;
-  if (parsed.protocol !== "https:" && !(allowHttp && parsed.protocol === "http:")) return null;
-  return parsed.href;
+  return parseConfigUrl(
+    text,
+    allowHttp ? HTTP_OR_HTTPS_CONFIG_URL_POLICY : HTTPS_CONFIG_URL_POLICY
+  )?.href ?? null;
 }
 
 /**

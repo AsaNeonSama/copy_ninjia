@@ -4,7 +4,7 @@
  */
 
 import { formatLocalTime } from "../../libs/time";
-import { getChatStateCache } from "../storage/stateStore";
+import { getChatStateCache } from "../chatStateStorage";
 import { isManagedAdminChat } from "./sweepEligibility";
 import { logger } from "../logger";
 import { forgetUserBlocklistRemovals } from "./outbox";
@@ -105,10 +105,10 @@ export async function confirmBlocklistPersisted(
 }
 
 /**
- * 从黑名单移除指定身份并同步裁剪待踢 outbox 中的关联任务；原本不在名单中时返回 false。
+ * 从黑名单移除指定身份并同步裁剪待踢 outbox 中的关联任务；调用前不在名单中时返回 `false`。
  *
  * @param userId 待解除拉黑的用户或频道身份 ID。
- * @returns 原本在黑名单中且已入队删除时返回 `true`，原本不在名单中时返回 `false`。
+ * @returns 调用前在黑名单中且已入队删除时返回 `true`，不在名单中时返回 `false`。
  */
 export function unblockUser(userId: number): boolean {
   if (cachedBlocklistEntry(userId) === undefined) return false;

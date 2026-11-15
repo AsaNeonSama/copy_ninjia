@@ -129,7 +129,7 @@ export interface ExpellingState {
    */
   executionStarted: boolean;
   /**
-   * 「想踢却踢不动」（缺 can_restrict_members）这条告警已发送。
+   * 因缺少 can_restrict_members 权限未能踢出成员的告警已发送。
    *
    * 与 unconfirmedNoticeSent 各自独立记录，两条告警互不占用名额。随快照持久化，
    * Worker 重生/进程重启后不重发；发出去的那条消息本身走统一临时发送边界，到期自删
@@ -282,7 +282,7 @@ export interface ReminderLandedEvent {
   now: number;
 }
 
-/** 驱逐播报的三类：成功处置、踢不动、没能确认；各对应 ExpellingState 的一个持久标记。 */
+/** 驱逐播报的三类：成功处置、缺权限踢出失败、成员状态未确认；各对应 ExpellingState 的一个持久标记。 */
 export type ExpelNoticeKind = "success" | "failure" | "unconfirmed";
 
 /** 驱动入群验证状态机（packages/states/verification.ts）转移的输入事件联合。 */
@@ -290,10 +290,10 @@ export type VerificationEvent =
   | JoinEvent
   | { type: "left" }
   /**
-   * 本群的入群守卫被 `/antiraid disable` 关掉了（见 commands/antiRaid.ts）。
+   * 本群的入群守卫被 `/antiraid disable` 关闭（见 commands/antiRaid.ts）。
    *
-   * 与 `left` 的区别：`left` 是这个成员离开了群，验证自然作废；本事件是功能本身被关掉，
-   * 每一种状态都就地收摊，包括已经落盘、正等着执行的各终态，不再踢人。
+   * 与 `left` 的区别：`left` 是单个成员离群、其验证作废；本事件是功能关闭，
+   * 每一种状态都立即终止并清理运行态（含已落盘待执行的各终态），不再执行踢人。
    */
   | { type: "guardDisabled" }
   | TrackedMessageEvent

@@ -31,7 +31,7 @@ export interface SetWhitelistPermissionParams {
   value: boolean;
 }
 
-/** /permission 持久化的结果；changed=false 表示最终值原本就是该值。 */
+/** /permission 持久化的结果；changed=false 表示权限值在调用前已为目标值。 */
 export interface SetWhitelistPermissionResult {
   /** 权限值是否实际发生变化并触发持久化写入。 */
   changed: boolean;
@@ -62,9 +62,9 @@ export interface SetWhitelistMembershipResult {
 
 /** 连续合格日晋升为永久广告免检时的 write-through 结果。 */
 export interface PromoteAdBypassWhitelistResult {
-  /** 是否实际新建了永久白名单记录（原本已在白名单中时为 `false`）。 */
+  /** 是否实际新建了永久白名单记录（调用前已在白名单中时为 `false`）。 */
   readonly changed: boolean;
-  /** 写入消息是否已被 Disk I/O Worker 立即接受（原本已在白名单中时恒为 `true`）。 */
+  /** 写入消息是否已被 Disk I/O Worker 立即接受（调用前已在白名单中时恒为 `true`）。 */
   readonly queued: boolean;
 }
 
@@ -152,7 +152,7 @@ export function hasPermanentWhitelistPermission(
 }
 
 /**
- * 发布一条白名单最终值，并确认它真的交到了 Disk I/O Worker 手上。
+ * 发布一条白名单最终值，并确认已被 Disk I/O Worker 接收。
  *
  * `queueIdentityPolicyWrite` 返回 false 表示 postDiskIO 拒收（见
  * infra/identityStorage/write.ts）。拒收时在这里抛出，由 commands/permission.ts、
@@ -173,7 +173,7 @@ function publishWhitelistEntry(
 
 /**
  * 已有白名单身份的权限修改骨架：查条目、判幂等、克隆、投递走同一条路径。
- * mutate 返回 null 表示「本来就是这样」，此时不产生任何数据库写入。
+ * mutate 返回 null 表示无需变更，此时不产生任何数据库写入。
  *
  * @param id 目标白名单身份 ID。
  * @param mutate 根据当前权限计算新权限的纯变换函数；无需变更时返回 `null`。
@@ -191,7 +191,6 @@ function updateWhitelistPermissions(
   if (permissions === null) {
     return { changed: false, permissions: existing.permissions };
   }
-  // meta 沿用既有值。
   publishWhitelistEntry(id, { permissions, meta: existing.meta });
   return { changed: true, permissions };
 }
@@ -218,7 +217,7 @@ export function setWhitelistPermission({
  * 把已有白名单身份的全部权限设为 true；幂等命中不产生数据库写入。
  *
  * @param id 目标白名单身份 ID。
- * @returns 权限变更结果（全部原本即为 `true` 时 `changed` 为 `false`）。
+ * @returns 权限变更结果（调用前全部已为 `true` 时 `changed` 为 `false`）。
  */
 export function enableAllWhitelistPermissions(
   id: number

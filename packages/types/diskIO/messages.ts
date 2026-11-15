@@ -47,10 +47,12 @@ export interface LogEnvelope extends LogMessage {
   id: string;
 }
 
-/** 主线程 -> diskIOWorker：覆盖式写入某群的 AI 记忆快照。snapshot 是
- * AiMemorySnapshot 序列化后的 JSON 文本（源头一次 stringify、全程字符串
- * 流转，见 types/aiChat/protocol.ts 的 AiMemoryEvent.snapshot），落盘端校验后原样排入共享
- * SQLite 事务缓冲（`chat_states.ai_context`）。 */
+/**
+ * 主线程 -> diskIOWorker：覆盖式写入某群的 AI 记忆快照。
+ * snapshot 为 AiMemorySnapshot 序列化后的 JSON 文本（源头一次 stringify、全程字符串流转，
+ * 见 types/aiChat/protocol.ts 的 AiMemoryEvent.snapshot），落盘端校验后原样排入共享
+ * SQLite 事务缓冲（`chat_states.ai_context`）。
+ */
 export interface AiMemoryDiskMessage {
   type: "aiMemory";
   chatId: number;
@@ -82,8 +84,10 @@ export interface AiMemoryForgetDiskMessage {
   chatId: number;
 }
 
-/** 主线程 -> diskIOWorker：覆盖式写入某个白名单贴纸包的目录快照。snapshot
- * 是 StickerCatalogSnapshot 序列化后的 JSON 文本，机制同 AiMemoryDiskMessage。 */
+/**
+ * 主线程 -> diskIOWorker：覆盖式写入某个白名单贴纸包的目录快照。
+ * snapshot 为 StickerCatalogSnapshot 序列化后的 JSON 文本，机制同 AiMemoryDiskMessage。
+ */
 export interface StickerCatalogDiskMessage {
   type: "stickerCatalog";
   pack: string;
@@ -119,14 +123,17 @@ export interface LuckDrawDiskMessage {
   type: "luckDraw";
   /** 抽签发生时刻的配置时区的日期（YYYY-MM-DD），由主线程算好带过来，见 commands/luckChallenge/cache.ts。 */
   day: string;
-  /** 缓存 key："<userId>" 或 "<userId>:<text 的 sha256 十六进制摘要>"，与
-   *  dailyLuckCache 的 key 一致（原文本不直接进 key，见
-   *  commands/luckChallenge/key.ts 的 luckCacheKey 注释）。 */
+  /**
+   * 缓存 key：`<userId>` 或 `<userId>:<text 的 sha256 十六进制摘要>`，与
+   * dailyLuckCache 的 key 一致（原文本不直接进入 key，见 commands/luckChallenge/key.ts 的 luckCacheKey）。
+   */
   key: string;
   /** LuckTier.label；加载时按 LUCK_TIERS 反查还原 tier（见 commands/luckChallenge/cache.ts）。 */
   label: string;
-  /** 该次抽签在 tier.fortunePercentRange 内取得的行大运具体数值（%，两位小数）。
-   * 无法从 label 反查，随 label 一起落盘，见 LuckDrawRecord。 */
+  /**
+   * 本次抽签在 tier.fortunePercentRange 内取得的行大运具体数值（%，两位小数）；
+   * 无法从 label 反查，随 label 一同落盘（见 LuckDrawRecord）。
+   */
   fortunePercent: number;
 }
 
@@ -255,7 +262,7 @@ export interface JoinLogDiskMessage {
   chatId: number;
   userId: number;
   joinedAt: number;
-  /** joinedAt 对应的配置时区的日期，避免 Worker 重新解释事件时区。 */
+  /** joinedAt 在配置时区下的自然日（YYYY-MM-DD），由主线程计算后传入。 */
   day: string;
 }
 
@@ -336,11 +343,11 @@ export interface LoadRequest {
 /**
  * 主线程 -> diskIOWorker：恢复缓冲重放窗口的开合标记。
  *
- * 一条共享 SQLite 写消息被拒收，在两种到达方式下的处理不同：正常在线投递的那条
- * 由 Worker 记下领域拒收标记，调用方自己的领域屏障（如 infra/chatStateStorage.ts 的
- * persistChatState）拿到失败回执，update 不被确认、由 Telegram 重投；恢复缓冲重放的
- * 那条没有调用方再 flush，对应的 update 已被放行。Worker 无法区分两者，由主线程在重放
- * 前后各发一条标记圈出区间，区间内的拒收走 stopWorkerAfterLoadFailure 的统一 fatal 停机。
+ * 共享 SQLite 写消息被拒收时按到达路径区分处置：
+ * - 常规在线投递：Worker 记录领域拒收标记，调用方在领域屏障（如 infra/chatStateStorage.ts 的
+ *   persistChatState）收到失败回执，update 不确认并留待 Telegram 重投；
+ * - 恢复缓冲重放：原调用方已结束且对应 update 已放行；主线程在重放前后发送本标记圈出窗口，
+ *   窗口内的拒收直接走 stopWorkerAfterLoadFailure 触发 fatal 停机。
  */
 export interface RecoveryReplayRequest {
   type: "recoveryReplay";

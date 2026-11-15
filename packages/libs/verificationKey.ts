@@ -40,7 +40,6 @@ function isCanonicalDecimalInteger(part: string): boolean {
   if (length === 0) return false;
   if (part === "0") return true;
   let index: number = 0;
-  // 0x2d 为 `-`，0x30–0x39 为 `0`–`9`。
   if (part.charCodeAt(0) === 0x2d) {
     if (length === 1) return false;
     index = 1;

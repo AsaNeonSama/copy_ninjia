@@ -1,3 +1,4 @@
+/** 热路径门禁校准记录的 Bun 版本与运行环境一致性检查测试。 */
 import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";

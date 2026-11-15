@@ -1,17 +1,17 @@
 /**
  * Mini App 原生选择器写入群目标（追着删、追着翻）的预备拒绝与导入归类，以及权限、选择器路由的参数校验。
  */
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import type { Message } from "grammy/types";
+import type { MiniAppTranslateLanguage } from "../../packages/types/miniApp/chats";
 import type {
   MiniAppPickerResultEvent,
   MiniAppPickerSubjectKind,
   MiniAppPickerTargetList,
-  MiniAppTranslateLanguage,
-} from "../../packages/types/miniApp";
+} from "../../packages/types/miniApp/identities";
 import { botPermissions } from "../helpers/botPermissions";
 import {
-  buildSignedTestInitData,
+  buildSuperAdminHeaders,
   installMiniAppTestDiskIOMock,
   resetMiniAppTestDiskIOState,
 } from "../helpers/miniAppInitData";
@@ -22,12 +22,8 @@ const { resetChatStateCache } = await import("../../packages/cache/main/chatStat
 const { translateConfigReadinessCache } = await import("../../packages/cache/main/configReadiness");
 const { miniAppAuthSessions } = await import("../../packages/cache/main/miniApp");
 const { BOT_TOKEN, SUPER_ADMIN_USER_ID } = await import("../../packages/config/bot");
-const {
-  MINI_APP_INIT_DATA_HEADER,
-  MINI_APP_SESSION_HEADER,
-} = await import("../../packages/consts/miniApp");
 const { getChatState, getOrCreateChatState } = await import(
-  "../../packages/infra/storage/stateStore"
+  "../../packages/infra/chatStateStorage"
 );
 const {
   handleMiniAppSharedMessage,
@@ -36,6 +32,7 @@ const {
   stopMiniAppServer,
 } = await import("../../packages/mini-app-api-server");
 const { dispatchMiniAppTestRequest } = await import("../helpers/miniAppRequest");
+const { bot } = await import("../../packages/infra/telegram/mainClient");
 
 /** 夹具群 ID。 */
 const CHAT_ID: number = -1_009_500_001;
@@ -45,16 +42,12 @@ const CHAT_ID: number = -1_009_500_001;
  * @returns 请求头。
  */
 function superAdminHeaders(): Record<string, string> {
-  const initData: string = buildSignedTestInitData({
+  return buildSuperAdminHeaders({
     botToken: BOT_TOKEN,
-    authDate: Math.floor(Date.now() / 1000),
-    user: { id: SUPER_ADMIN_USER_ID, first_name: "SuperAdmin" },
+    superAdminUserId: SUPER_ADMIN_USER_ID,
+    sessionToken: issueMiniAppAuthSession().token,
+    contentType: "application/json",
   });
-  return {
-    [MINI_APP_INIT_DATA_HEADER]: initData,
-    [MINI_APP_SESSION_HEADER]: issueMiniAppAuthSession().token,
-    "Content-Type": "application/json",
-  };
 }
 
 /**
@@ -226,6 +219,39 @@ describe("Mini App 选择器写入群目标", () => {
     const channelId: number = await preparePicker("blocklist", "channel");
     expect((await handleMiniAppSharedMessage(chatShared(channelId, -1_009_500_099)))?.addedIds)
       .toEqual([-1_009_500_099]);
+  });
+
+  test("未接管群预备追着删与追着翻都返回 CHAT_NOT_INITIALIZED，且不查机器人权限", async () => {
+    const getChatMemberSpy = spyOn(bot.api, "getChatMember");
+    try {
+      const uninitializedChatId: number = CHAT_ID - 1;
+      getOrCreateChatState(uninitializedChatId).isInitEnabled = false;
+      expect(await prepareMiniAppPicker({
+        targetList: "deleteMessage",
+        subjectKind: "users",
+        chatId: uninitializedChatId,
+      })).toEqual({ ok: false, message: "CHAT_NOT_INITIALIZED" });
+      expect(getChatMemberSpy).not.toHaveBeenCalled();
+
+      // 即便缓存了管理员权限与开启追着翻，只要未接管同样在进入分支前拒绝。
+      const preseeded = getOrCreateChatState(CHAT_ID);
+      preseeded.isInitEnabled = false;
+      preseeded.botPermissions = botPermissions({ canDeleteMessages: true });
+      preseeded.isTranslationEnabled = true;
+      expect(await prepareMiniAppPicker({
+        targetList: "deleteMessage",
+        subjectKind: "users",
+        chatId: CHAT_ID,
+      })).toEqual({ ok: false, message: "CHAT_NOT_INITIALIZED" });
+      expect(await prepareMiniAppPicker({
+        targetList: "translate",
+        subjectKind: "users",
+        chatId: CHAT_ID,
+      })).toEqual({ ok: false, message: "CHAT_NOT_INITIALIZED" });
+      expect(getChatMemberSpy).not.toHaveBeenCalled();
+    } finally {
+      getChatMemberSpy.mockRestore();
+    }
   });
 });
 

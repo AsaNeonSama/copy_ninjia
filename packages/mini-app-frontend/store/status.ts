@@ -2,6 +2,7 @@ import { createStore } from "zustand";
 import type { StoreApi } from "zustand";
 import { fetchMiniAppMood } from "../api/mood";
 import { switchMiniAppMood } from "../api/moodSwitch";
+import { isMiniAppAuthErrorMessage } from "../api/request";
 import { fetchMiniAppStatus } from "../api/status";
 import {
   MINI_APP_STATUS_POLL_INTERVAL_MS,
@@ -16,7 +17,7 @@ import type {
   MiniAppMoodView,
   MiniAppStatusView,
 } from "../types/miniApp";
-import { useMiniAppStore } from "./app";
+import { notifyMiniAppIfAuthError, useMiniAppStore } from "./app";
 
 /** `StatusPage` 实时状态看板的状态与动作接口。 */
 export interface MiniAppStatusStoreState {
@@ -35,10 +36,13 @@ export interface MiniAppStatusStoreState {
   /** 是否正在请求切换全局 AI 情绪。 */
   readonly switchingMood: boolean;
 
-  /** 查询当前全局情绪；异常不影响主状态看板。 */
+  /**
+   * 查询当前全局 AI 情绪（只采纳最后一次情绪查询或切换的结果；异常不影响主状态看板）。
+   * 首次加载或手动刷新的状态请求仍在途时先暂存结果，待状态结算时一并提交；其余时机直接写入。
+   */
   readonly loadMood: () => Promise<void>;
   /**
-   * 拉取状态快照；只采纳最后一次发起的请求结果，成功时通知根 store 状态已就绪。
+   * 拉取状态快照；只采纳最后一次发起的请求结果，成功时通知根 store 状态已就绪，并在结算时合并提交暂存情绪与加载标志。
    * 手动刷新（`showErrorToast`）或首次加载时保证骨架屏最短展示时长，手动刷新同时重查情绪并以 Toast 报错。
    * 成功取得的快照若落在 `toggleCapability` 开启的暂缓时段内，等该时段结束后再写入。
    */
@@ -50,9 +54,11 @@ export interface MiniAppStatusStoreState {
   readonly startPolling: () => void;
   /** 停止轮询并注销前台状态订阅；在途请求结算后不再排期。 */
   readonly stopPolling: () => void;
-  /** 切换指定子系统折叠面板的展开状态，并从此刻起开启 `MINI_APP_STATUS_SNAPSHOT_HOLD_AFTER_TOGGLE_MS` 的快照暂缓时段（连续切换时以最后一次为准）。 */
+  /**
+   * 切换指定子系统折叠面板的展开状态，并开启 `MINI_APP_STATUS_SNAPSHOT_HOLD_AFTER_TOGGLE_MS` 的快照暂缓窗口（连续切换以最后一次为准）。
+   */
   readonly toggleCapability: (capKey: string) => void;
-  /** 重抽全局 AI 情绪并以 Toast 回报结果。 */
+  /** 重抽全局 AI 情绪并以 Toast 回报结果；切换成功后推进情绪序号以作废更早发起的在途情绪查询。 */
   readonly switchMood: () => Promise<void>;
 }
 
@@ -72,6 +78,10 @@ export function createStatusStore(): MiniAppStatusStore {
     ): MiniAppStatusStoreState => {
       let hasSnapshot: boolean = false;
       let requestSeq: number = 0;
+      let moodReqSeq: number = 0;
+      let skeletonLoadReqId: number = 0;
+      let hasPendingMood: boolean = false;
+      let pendingMood: string | null = null;
       let pollGeneration: number = 0;
       let pollTimer: ReturnType<typeof setTimeout> | null = null;
       let pollInFlight: boolean = false;
@@ -128,15 +138,25 @@ export function createStatusStore(): MiniAppStatusStore {
         switchingMood: false,
 
         loadMood: async (): Promise<void> => {
+          const reqId: number = ++moodReqSeq;
           try {
             const moodView: MiniAppMoodView = await fetchMiniAppMood();
-            if (moodView.available && moodView.currentMood !== null) {
-              set({ currentMood: moodView.currentMood });
-            } else {
-              set({ currentMood: null });
+            if (reqId !== moodReqSeq) {
+              return;
             }
-          } catch (_error: unknown) {
-            // 情绪查询异常不阻塞主状态看板
+            const nextMood: string | null =
+              moodView.available && moodView.currentMood !== null
+                ? moodView.currentMood
+                : null;
+            if (skeletonLoadReqId !== 0) {
+              pendingMood = nextMood;
+              hasPendingMood = true;
+              return;
+            }
+            set({ currentMood: nextMood });
+          } catch (error: unknown) {
+            // 会话失效或锁定时立即通知根仓库锁定控制台，其余情绪查询异常不阻塞主状态看板。
+            notifyMiniAppIfAuthError(error);
           }
         },
 
@@ -144,6 +164,9 @@ export function createStatusStore(): MiniAppStatusStore {
           const reqId: number = ++requestSeq;
           const startedAt: number = Date.now();
           const shouldWaitMin: boolean = showErrorToast || !hasSnapshot;
+          if (shouldWaitMin) {
+            skeletonLoadReqId = reqId;
+          }
           if (showErrorToast) {
             set({ refreshing: true });
             void get().loadMood();
@@ -158,7 +181,16 @@ export function createStatusStore(): MiniAppStatusStore {
               return;
             }
             hasSnapshot = true;
-            set({ status: next, errorText: null });
+            skeletonLoadReqId = 0;
+            const nextMood: string | null = hasPendingMood ? pendingMood : get().currentMood;
+            hasPendingMood = false;
+            set({
+              status: next,
+              currentMood: nextMood,
+              errorText: null,
+              loading: false,
+              refreshing: false,
+            });
             useMiniAppStore.getState().setStatusReady(true);
           } catch (error: unknown) {
             if (shouldWaitMin) {
@@ -167,17 +199,21 @@ export function createStatusStore(): MiniAppStatusStore {
             if (reqId !== requestSeq) {
               return;
             }
+            skeletonLoadReqId = 0;
             const rawMessage: string = errorMessage(error);
             const localized: string = getMiniAppTranslations(
               useMiniAppStore.getState().language
             ).serverNotice(rawMessage, extractServerNoticeParams(error));
-            set({ errorText: localized });
-            if (showErrorToast) {
+            const nextMood: string | null = hasPendingMood ? pendingMood : get().currentMood;
+            hasPendingMood = false;
+            set({
+              currentMood: nextMood,
+              errorText: localized,
+              loading: false,
+              refreshing: false,
+            });
+            if (showErrorToast || isMiniAppAuthErrorMessage(rawMessage)) {
               useMiniAppStore.getState().notify(rawMessage, "info", error);
-            }
-          } finally {
-            if (reqId === requestSeq) {
-              set({ loading: false, refreshing: false });
             }
           }
         },
@@ -210,8 +246,14 @@ export function createStatusStore(): MiniAppStatusStore {
           set({ switchingMood: true });
           try {
             const result: MiniAppMoodMutationResult = await switchMiniAppMood();
+            const switchSeq: number =
+              result.ok && result.currentMood !== null ? ++moodReqSeq : -1;
+            if (switchSeq !== -1) {
+              hasPendingMood = false;
+            }
             await waitMinimumLoadingDuration(startedAt);
-            if (result.ok && result.currentMood !== null) {
+            if (result.ok && result.currentMood !== null && switchSeq === moodReqSeq) {
+              hasPendingMood = false;
               set({ currentMood: result.currentMood, switchingMood: false });
             } else {
               set({ switchingMood: false });
@@ -222,10 +264,6 @@ export function createStatusStore(): MiniAppStatusStore {
             set({ switchingMood: false });
             const message: string = errorMessage(error);
             useMiniAppStore.getState().notify(message, "info", error);
-          } finally {
-            if (get().switchingMood) {
-              set({ switchingMood: false });
-            }
           }
         },
       };

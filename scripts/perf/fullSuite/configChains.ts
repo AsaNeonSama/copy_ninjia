@@ -267,6 +267,10 @@ export function createConfigChain(
     case "ad-detect-command":
     case "ai-reply-command":
     case "cron-send-voice":
-    case "mini-app-api-request": return undefined;
+    case "mini-app-api-request":
+    case "mini-app-reject-page":
+    case "mini-app-page-gate-allow":
+    case "mini-app-auth-login":
+    case "mini-app-gallery-asset": return undefined;
   }
 }

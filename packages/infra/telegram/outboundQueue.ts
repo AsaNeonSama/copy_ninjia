@@ -53,7 +53,7 @@ export function enqueueRetryJob(job: TelegramOutboundJob): boolean {
 /**
  * 从侵入式 FIFO 中按双向指针摘掉指定等待任务。
  * @param job 待摘除的出站任务。
- * @returns 任务原本在退避队列中并成功摘除时返回 true，否则返回 false。
+ * @returns 任务在退避队列中并成功摘除时返回 true，否则返回 false。
  */
 export function removeRetryJob(job: TelegramOutboundJob): boolean {
   if (job.state !== "retryQueued") return false;

@@ -27,9 +27,9 @@ import {
   getMediaInputProbe,
   getMediaInputState,
   isMediaInputProbeCoolingDown,
-  recordMediaInputResult,
   setMediaInputProbe,
 } from "../../cache/workers/aiChat/mediaInputSupport";
+import { recordMediaInputResult } from "./mediaInputSupport";
 import { isMediaInputClosed } from "../../states/mediaInputSupport";
 import { ANIMATION_DESCRIPTION_PROMPT, IMAGE_DESCRIPTION_PROMPT, STICKER_DESCRIPTION_PROMPT } from "../../consts/aiChat/prompts/media";
 import type { MediaKind, VisionImage } from "../../types/media";

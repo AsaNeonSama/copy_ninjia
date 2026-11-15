@@ -67,19 +67,14 @@ export interface ResolveCommandTargetParams {
    */
   acceptChatId?: boolean;
   /**
-   * 目标的黑白名单预热失败时是否拒绝执行（缺省不拒绝）。
-   *
-   * 预热失败时主线程 LRU 仍是冷的，isWhitelisted、isUserBlocked 等同步判定按
-   * fail-closed 读成「不在名单」，名单写入也要求先预热（见
-   * infra/identityStorage/read.ts 的 prefetchIdentityPolicies）。依赖这些判定做保护或
-   * 破坏性决策的命令（`/block … enable`、`/block … disable`、`/mute`、`/white`、`/permission` 修改
-   * 路径）必须开启：此时发送 IDENTITY_POLICY_UNAVAILABLE_TEXT 并返回 undefined。
-   * 不读名单做决策的命令保持缺省，预热结果不影响目标解析。
-   *
-   * 同一批命令经 @username 指定目标时，执行前还按 id 现查目标当前的用户名（见
-   * ./liveTargetIdentity.ts）：别名表只记最近一次观察到的发言者，改名或换绑后可能仍指向
-   * 前任持有人。用户名一致才放行；不一致发送 usernameTargetChanged，现查失败发送
-   * usernameTargetUnverified，都返回 undefined。现查结果写回身份缓存。
+   * 目标的黑白名单预热失败时是否拒绝执行（缺省为 `false`）：
+   * - **名单预热门禁**：预热失败时主线程 LRU 未就绪，`isWhitelisted`、`isUserBlocked` 等同步判定均按 fail-closed
+   *   返回「不在名单」，且名单写入要求先预热（见 `infra/identityStorage/read.ts` 的 `prefetchIdentityPolicies`）。
+   *   依赖名单结论执行保护或破坏性操作的命令（`/block`、`/mute`、`/white`、`/permission` 修改分支）必须开启：
+   *   预热失败时发送 `IDENTITY_POLICY_UNAVAILABLE_TEXT` 并返回 `undefined`。
+   * - **`@username` 实时身份复核**：开启本项且经 `@username` 别名指定目标时，执行前还会按 ID 向 Telegram 现查当前用户名
+   *   （见 `./liveTargetIdentity.ts`）并回写身份缓存：用户名一致才放行，已变更则发送 `usernameTargetChanged`，
+   *   查询失败则发送 `usernameTargetUnverified`（均返回 `undefined`）。
    */
   requireIdentityPolicies?: boolean;
   /**

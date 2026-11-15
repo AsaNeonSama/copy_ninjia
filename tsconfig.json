@@ -27,6 +27,14 @@
     "noUnusedParameters": true,
     "noPropertyAccessFromIndexSignature": false
   },
-  "include": ["index.ts", "packages/**/*.ts", "packages/**/*.tsx", "scripts/**/*.ts", "test/**/*.ts"],
+  "include": [
+    "index.ts",
+    "packages/**/*.ts",
+    "packages/**/*.tsx",
+    "scripts/**/*.ts",
+    "scripts/**/*.tsx",
+    "test/**/*.ts",
+    "test/**/*.tsx"
+  ],
   "exclude": ["node_modules", "dist", "coverage"]
 }

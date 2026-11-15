@@ -1,3 +1,4 @@
+/** `scripts/install/runtime.sh` 与 `runtime.ts` 的 Bun 版本核验及配置承载逻辑测试。 */
 import { afterEach, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { STATIC_CONFIG_DIR_NAME } from "../../packages/consts/configLayout";

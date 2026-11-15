@@ -12,7 +12,7 @@ import {
 import { getAgentDeploymentConfig } from "../../config/agent";
 import { logger } from "../../infra/logger";
 import { warnAiUsageUnavailable } from "../../infra/aiCacheUsage";
-import { raceAbortOrThrow, signalWithTimeout } from "../../libs/abortSignal";
+import { runWithTimeoutSignal } from "../../libs/abortSignal";
 import { readSpeechBody, speechFromDecoded, speechRequestFailed } from "../ai/utils/speechPayload";
 import { composeSpeechStyle } from "../ai/utils/speechStyle";
 import { getOpenAiClient } from "./client";
@@ -36,30 +36,30 @@ async function synthesizeAudioSpeech(
   tts: OpenAiAgentTtsCapabilityConfig,
   { text, languageStyle, tone, signal }: AiSpeechRequest
 ): Promise<SynthesizedSpeech | null> {
-  const requestSignal: AbortSignal = signalWithTimeout(signal, OPENAI_SPEECH_REQUEST_TIMEOUT_MS);
   let decoded: SynthesizedSpeechDecodeResult;
   try {
-    requestSignal.throwIfAborted();
-    const response: Response = await raceAbortOrThrow(
-      getOpenAiClient("tts").audio.speech.create(
-        {
-          model: tts.model,
-          voice: tts.voice,
-          input: text,
-          instructions: composeSpeechStyle(tts.style, languageStyle, tone),
-          response_format: OPENAI_SPEECH_RESPONSE_FORMAT,
-        },
-        {
-          signal: requestSignal,
-          timeout: OPENAI_SPEECH_REQUEST_TIMEOUT_MS,
-          maxRetries: OPENAI_SPEECH_REQUEST_ATTEMPTS - 1,
-        }
-      ).then((response: Response): Response => {
-        warnAiUsageUnavailable("tts", "openai", "missing");
-        return response;
-      }),
-      requestSignal
-    );
+    const response: Response = await runWithTimeoutSignal({
+      signal,
+      timeoutMs: OPENAI_SPEECH_REQUEST_TIMEOUT_MS,
+      run: (requestSignal: AbortSignal): Promise<Response> =>
+        getOpenAiClient("tts").audio.speech.create(
+          {
+            model: tts.model,
+            voice: tts.voice,
+            input: text,
+            instructions: composeSpeechStyle(tts.style, languageStyle, tone),
+            response_format: OPENAI_SPEECH_RESPONSE_FORMAT,
+          },
+          {
+            signal: requestSignal,
+            timeout: OPENAI_SPEECH_REQUEST_TIMEOUT_MS,
+            maxRetries: OPENAI_SPEECH_REQUEST_ATTEMPTS - 1,
+          }
+        ).then((response: Response): Response => {
+          warnAiUsageUnavailable("tts", "openai", "missing");
+          return response;
+        }),
+    });
     decoded = await readSpeechBody(response, OGG_OPUS_MIME_TYPE);
   } catch (error: unknown) {
     return speechRequestFailed(OPENAI_SPEECH_ERROR_LABEL, signal, error);

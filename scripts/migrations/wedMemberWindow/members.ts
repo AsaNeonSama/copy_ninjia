@@ -6,9 +6,9 @@ import { invalidInput } from "../../../packages/libs/inputValidation";
 export const WED_MEMBER_WINDOW_SOURCE_LIMIT: number = 150_000;
 
 /**
- * 源格式的一份文件：按进入顺序排列、互不重复的正安全整数成员 ID 数组。
+ * 校验并提取源格式单群文件内容：按进入顺序排列、互不重复的正安全整数成员 ID 数组。
  * @param parsed JSON.parse 产出的原始值。
- * @param path 用于报错定位的相对文件路径。
+ * @param path 用于报错定位的文件路径。
  * @returns 校验通过的正安全整数成员 ID 数组。
  */
 export function parseWedMemberSourceFile(parsed: unknown, path: string): readonly number[] {

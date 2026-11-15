@@ -42,7 +42,7 @@ const { resetPendingMessageDeletions } = await import("../../packages/infra/tele
 const { wedAvatarProbes, wedChats } = await import("../../packages/cache/main/wed");
 const { getOrCreateWedChat } = await import("../../packages/commands/wed/chats");
 const { observeWedMembers } = await import("../../packages/commands/wed/members");
-const { getChatState, getOrCreateChatState } = await import("../../packages/infra/storage/stateStore");
+const { getChatState, getOrCreateChatState } = await import("../../packages/infra/chatStateStorage");
 const { handleWedCommand, handleWedCallback, teardownWedInChat } = await import("../../packages/commands/wed");
 const { WED_BUTTON_TEXTS, WED_TEXTS } = await import("../../packages/consts/atmosphere/teasing/wed");
 const { WED_DRAW_TRANSIENT_LIMIT, WED_MEMBER_LIMIT, WED_OPERATION_TIMEOUT_MS, WED_SESSION_LIMIT } = await import("../../packages/consts/wed");
@@ -711,6 +711,7 @@ describe("/wed 图片和按钮交互", () => {
     await handleWedCommand(command());
     expect(photo).not.toHaveBeenCalled();
     expect(notice.mock.calls.at(-1)![1]).toBe(WED_TEXTS.failed);
+    expect(notice.mock.calls.at(-1)![2]?.message_thread_id).toBe(77);
     expect(wedChats.get(chat.id)!.sessions.size).toBe(0);
   });
 
@@ -787,6 +788,7 @@ describe("/wed 图片和按钮交互", () => {
     expect(avatar).toHaveBeenCalledTimes(1);
     expect(edit).not.toHaveBeenCalled();
     expect(notice.mock.calls.at(-1)![1]).toBe(WED_TEXTS.failed);
+    expect(notice.mock.calls.at(-1)![2]?.message_thread_id).toBe(77);
     expect(wedChats.get(chat.id)!.sessions.get(1)!.targetId).toBe(2);
     expect(wedChats.get(chat.id)!.sessions.get(1)!.busy).toBeFalse();
   });
@@ -802,6 +804,7 @@ describe("/wed 图片和按钮交互", () => {
     await handleWedCallback(callback("change"));
     expect(edit).not.toHaveBeenCalled();
     expect(notice.mock.calls.at(-1)![1]).toBe(WED_TEXTS.failed);
+    expect(notice.mock.calls.at(-1)![2]?.message_thread_id).toBe(77);
     expect(wedChats.get(chat.id)!.sessions.get(1)!.targetId).toBe(2);
   });
 

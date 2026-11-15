@@ -9,6 +9,7 @@ import {
   compactVerificationDay,
   inspectVerificationDay,
   maintainVerificationDay,
+  removeOldVerificationDays,
 } from "../../../packages/workers/diskIO/verificationRecovery";
 import {
   flushVerificationChanges,
@@ -415,6 +416,22 @@ describe("pending verification daily append JSON", () => {
     // 时钟走到那天时它自己就是当天文件，照常恢复出来——留着不会常驻。
     resetVerificationPersistenceCache();
     expect((await recoverVerificationDay(DAY_FUTURE, dir)).has("-1001:44")).toBeTrue();
+  });
+
+  test("运行期清理按字典序处理形如日期但非公历日期的文件：早于今天的删除，晚于今天的保留并告警", async () => {
+    const priorLike: string = join(dir, "2026-02-30.json");
+    const futureLike: string = join(dir, "2026-13-40.json");
+    await Bun.write(priorLike, "{}");
+    await Bun.write(futureLike, "{}");
+    const consoleError = spyOn(console, "error").mockImplementation((): void => {});
+    try {
+      await removeOldVerificationDays(DAY_ONE, dir);
+      expect(await Bun.file(priorLike).exists()).toBeFalse();
+      expect(await Bun.file(futureLike).exists()).toBeTrue();
+      expect(String(consoleError.mock.calls[0]?.[0])).toContain("kept 1 verification day file(s)");
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 
   test("没有旧日可迁移时同样不删未来日文件", async () => {

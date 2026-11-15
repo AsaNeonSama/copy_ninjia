@@ -5,7 +5,7 @@ import { resetWedMemberStates, wedMemberStates } from "../../../packages/cache/m
 import { WED_MEMBER_LIMIT } from "../../../packages/consts/wed";
 import { STATE_MANAGED_CHAT_LIMIT } from "../../../packages/consts/storage";
 import { observeWedMembers } from "../../../packages/commands/wed/members";
-import { getChatState, getOrCreateChatState } from "../../../packages/infra/storage/stateStore";
+import { getChatState, getOrCreateChatState } from "../../../packages/infra/chatStateStorage";
 import { bot } from "../../../packages/infra/telegram/mainClient";
 import { BENCHMARK_BOT_INFO, BENCHMARK_CHAT_ID, BENCHMARK_SENDER_ID } from "./fixtures";
 import type { Scenario } from "./types";

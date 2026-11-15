@@ -1,18 +1,13 @@
 /**
- * 每条 update 的前置链：运势回执 → 初始化网关 → 群升级迁移 → 身份预热 → 私聊中转 →
- * Anti-Raid / `/delete_message` 目标 / gag / `/qa set` 四条认领型 ingress → 命令外闸 → 中文动作外闸 →
- * 消息兜底 → 非消息 update 路由。
+ * 每条 Telegram update 的固定前置续接链：
+ * 运势回执 → 初始化网关 → 群升级迁移 → `/wed` 成员观察与身份预热 → Mini App 选择器回执 →
+ * 私聊中转 → 四条认领型入口（Anti-Raid、`/delete_message` 目标、gag、`/qa set`） →
+ * 斜杠命令外闸 → 中文动作命令外闸 → 消息兜底 → 非消息 update 路由。
  *
- * 约束（跨模块部分见 docs/cn/04-invariants.md 的「线程与状态归属」）：
- * - 整条链只经 app/registerHandlers.ts 的一个 `bot.use` 登记，update_id 记账与 bot 发言外闸
- *   在那一层完成后进入本链；新增前置段必须按顺序插进下面的续接函数，不得另开 `bot.use` / `bot.on`。
- * - 各段按固定顺序同步调用下一段，只有真碰到 I/O（预热冷身份、认领型 ingress 返回 Promise、
- *   命令与消息处理器）才返回 Promise；同步路径不分配 Promise 或闭包。
- * - 斜杠命令、中文动作与非消息 update 仍由 grammY Composer 路由（registerHandlers 建好后经
- *   UpdatePreambleRoutes 传入），未被认领时调用外层 next 恰好一次。
- * - 群状态快照只在一个同步段内有效：初始化网关处读一次，以 chatState 参数沿同步续接传下去；
- *   每个 Promise 恢复点（身份预热、认领型 ingress、命令与中文动作 Composer 的 next）都重读现值，
- *   不沿用等待前的对象（等待期间别的 update 可能关闭 `/init` 或收尾本群）。
+ * 局部不变量（跨模块约束见 `docs/cn/04-invariants.md`）：
+ * - 单点挂载：整条链仅由 `app/registerHandlers.ts` 经单个 `bot.use` 接入，新增前置步骤必须按顺序插入本模块续接函数。
+ * - 同步直通：常态同步路径直接传递返回值，仅在发生冷身份预热、异步认领或进入下游处理器时才返回 Promise。
+ * - 群状态时效：本群 `ChatState` 在初始化网关处读取一次并沿同步续接传递；每次跨过 Promise 恢复点后均调用 `chatStateOf` 重读现值。
  */
 
 import { matchFilter } from "grammy";
@@ -31,7 +26,7 @@ import { completeChatDeparture } from "../infra/botAdmin";
 import { observeWedMemberDeparture, observeWedMembers } from "../commands/wed/members";
 import { SLASH_CHAR_CODE } from "../consts/commands";
 import { logger } from "../infra/logger";
-import { getChatState } from "../infra/storage/stateStore";
+import { getChatState } from "../infra/chatStateStorage";
 import { DEFAULT_CHAT_STATE } from "../libs/chatState";
 import { handleMiniAppSharedMessage } from "../mini-app-api-server/picker/sharedMessage";
 import { isIdentityPolicyCached, prefetchIdentityPolicies } from "../infra/identityStorage";
@@ -78,14 +73,13 @@ function appendColdIdentityId(
 }
 
 /**
- * 本条 update 可见的全部身份里尚未缓存的那些：发送者或频道马甲（纯频道帖取频道本身）、被回复者及其
- * 频道马甲、转发来源、被回复消息的转发来源、外部回复来源、新成员、离群成员与 chat_member 的目标。
- * 全热时返回 null，不分配数组。
+ * 收集本条 update 涉及但尚未命中主线程策略缓存的身份 ID：
+ * 覆盖发送者或频道马甲（纯频道帖取频道自身）、被回复者及其马甲、消息与被回复消息的转发来源、
+ * 外部回复来源、新入群成员、退群成员以及 `chat_member` 目标成员。全部已缓存时返回 `null`。
  * @param ctx 当前 grammY 更新上下文。
  * @returns 尚未缓存的身份 ID 数组；全部命中缓存或无可见身份时返回 `null`。
  */
 export function collectColdIdentityIds(ctx: Context): number[] | null {
-  // `ctx.msg` 与它的 `reply_to_message` 在本段里多次读取，先各取一次。
   const message: Message | undefined = ctx.msg;
   const repliedTo: Message | undefined = message?.reply_to_message;
   let ids: number[] | null = null;
@@ -93,9 +87,7 @@ export function collectColdIdentityIds(ctx: Context): number[] | null {
   if (message?.sender_chat !== undefined) {
     ids = appendColdIdentityId(ids, message.sender_chat.id);
   } else {
-    // 纯频道帖没有 from 也没有 sender_chat：频道自己就是 ctx.chat，
-    // users/visibleSender.ts、commands/commandActor.ts 与 infra/updateGate.ts
-    // 按这个 id 解析行为主体。`ctx.chat` 只在这条分支读取。
+    // 纯频道帖无 from 与 sender_chat，行为主体即频道自身（ctx.chat.id）。
     const chat: Chat | undefined = ctx.chat;
     if (chat?.type === "channel") ids = appendColdIdentityId(ids, chat.id);
   }
@@ -249,9 +241,10 @@ export function createUpdatePreamble({
   }
 
   /**
-   * 私聊命令已在初始化网关后由 `shouldPassPrivateCommandGate` 统一收口；活动中的 `/send` 中转会话
-   * 只把非命令消息直接短路到自动消息流水线。随后执行 Anti-Raid 消息入口（覆盖待验证成员消息拦截、
-   * 刷屏计数与广告检测投递），位于命令处理器之前。
+   * 身份预热后的分流与第一道认领入口：
+   * 1. Mini App 原生选择器回传的 `users_shared` / `chat_shared` 服务消息交由 `handleMiniAppSharedMessage` 消费并终止；
+   * 2. 活跃 `/send` 私聊会话中的普通消息直接短路至自动消息流水线（斜杠内容已由前置私聊网关拦截）；
+   * 3. 其余群消息进入 Anti-Raid 入口（待验证成员拦截、刷屏计数与广告检测投递），未认领时继续进入后续阶段。
    * @param ctx 当前 Telegram 更新上下文。
    * @param next grammY 下游中间件延续函数。
    * @param chatState 当前会话的只读状态快照。
@@ -274,26 +267,16 @@ export function createUpdatePreamble({
   }
 
   /**
-   * 初始化网关：未初始化群和不允许的私聊命令在这里终止，不进入授权维护、身份预热、验证、命令与
-   * AI 链路。群内只有首次 /init 与 my_chat_member 等网关自身明确放行的更新能越过初始化状态；私聊
-   * 只接受超级管理员的 /send。网关拒绝时仍摘除已保存的退群成员，不新增候选。
-   *
-   * 群升级迁移：受管普通群升级为超级群后，旧群 id 收到一条带 `migrate_to_chat_id` 的服务消息，
-   * 此后再也不会有 update。按「群已不存在」（`gone`）收尾旧群并终止本条 update；新超级群照旧
-   * 需要 /init，旧群设置不搬迁。
-   *
-   * 身份预热：黑白名单判断保持同步 LRU 读取；每个 update 在进入 Anti-Raid 和命令前，一次性补齐
-   * 可见身份的冷缺失。热命中不跨线程，冷读一并查询各身份关系并写入正/负缓存。预热是
-   * best-effort：Disk I/O 自愈窗口里冷读失败时 prefetchIdentityPolicies 就地降级并返回 false
-   * （见该函数头注），这里不消费这个结论，留冷身份按 fail-closed 判定。全热 update 直接进入下一段，
-   * 只有冷读分支返回 Promise。成员集合只消费通过初始化网关的主线程更新，实际增删由 wed owner
-   * 合并落盘。
+   * 初始化网关、群升级迁移收尾、`/wed` 成员观察与冷身份策略预热：
+   * - 初始化与私聊网关：拦截未初始化群及非授权私聊命令（未初始化群退群时仍从已有 `/wed` 候选池移除成员）；
+   * - 群升级迁移：受管普通群收到 `migrate_to_chat_id` 服务消息时按 `"gone"` 拆除旧群并终止本条 update；
+   * - 身份预热：一次性向 Disk I/O 批量预取本条 update 的冷身份正/负缓存，冷读降级时由下游按 fail-closed 处理。
    * @param ctx 当前 Telegram 更新上下文。
    * @param next grammY 下游中间件延续函数。
    * @returns 网关拦截或迁移收尾结果，或转交身份预热后的下一阶段。
    */
   function afterLuckReceipt(ctx: Context, next: NextFunction): unknown {
-    // `ctx.chat` 是每次求值的 getter 链，本段只读一次；群状态快照随之读一次并沿同步续接传下去。
+    // ctx.chat 为逐次求值的 getter 链，此处只读一次并将群状态沿同步调用链透传。
     const chat: Chat | undefined = ctx.chat;
     const chatState: Readonly<ChatState> = chatStateOf(chat);
     if (!shouldPassInitGate(ctx, chat, chatState)) {

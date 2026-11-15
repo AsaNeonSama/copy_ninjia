@@ -313,7 +313,6 @@ function parseScenario(
     "slowestMedianNsPerOp",
     `${path}.measured.slowestMedianNsPerOp`
   );
-  // 阈值必须不低于它自己的来源读数。
   if (threshold < slowestMedianNsPerOp) {
     fail(
       `${path}.medianNsPerOpReportThreshold`,
@@ -369,7 +368,6 @@ function parseCalibrationDocument(parsed: unknown): HotPathGateCalibration {
   if (!hasOnlyKeys(parsed, TOP_LEVEL_SECTIONS)) {
     fail("", `must declare only these keys: ${TOP_LEVEL_SECTIONS.join(", ")}`);
   }
-  // 缺少 hotPathProfileGate 节即拒绝。
   const root: Record<string, unknown> = requiredRecord(
     parsed,
     "hotPathProfileGate",
@@ -386,7 +384,6 @@ function parseCalibrationDocument(parsed: unknown): HotPathGateCalibration {
     ["runtime", "limits", "scenarios", NOTES_KEY],
     "hotPathProfileGate.calibration"
   );
-  // 先校验 runtime 与 limits，再逐场景校验。
   const runtime: HotPathGateRuntimeCalibration = parseRuntime(calibration);
   const limits: HotPathGateLimits = parseLimits(calibration);
   const scenarios: Record<string, unknown> = requiredRecord(

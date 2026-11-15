@@ -5,13 +5,13 @@ import {
   MINI_APP_TRANSLATE_LANGUAGES,
 } from "../../consts/miniApp";
 import type { WhitelistPermissionKey } from "../../types/identityPolicy";
+import type { MiniAppTranslateLanguage } from "../../types/miniApp/chats";
 import type {
   MiniAppIdentityMutationResult,
   MiniAppPickerSubjectKind,
   MiniAppPickerTargetList,
-  MiniAppTranslateLanguage,
   PrepareMiniAppPickerResult,
-} from "../../types/miniApp";
+} from "../../types/miniApp/identities";
 import { parseOptionalSafeInt, readJsonObjectBody } from "../libs/request";
 import { jsonResponse } from "../libs/response";
 import { prepareMiniAppPicker } from "../picker/prepare";
@@ -28,7 +28,7 @@ import {
 } from "../view/identities/whitelist";
 
 /**
- * 处理 `GET /api/identities/whitelist`：分页读取白名单及权限说明。
+ * 处理 `GET /api/identities/whitelist`：分页读取白名单成员及其十八项细粒度权限。
  * @param url 已解析的请求 URL（读取分页、游标与搜索查询参数）。
  * @returns JSON 响应。
  */

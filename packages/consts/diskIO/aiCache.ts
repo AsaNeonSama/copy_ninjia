@@ -53,6 +53,15 @@ export const AI_CACHE_SEARCH_ROW_FIELDS: readonly string[] = [
 ];
 
 /**
+ * token 记录允许出现的全部字段名集合（必填字段与可选字段的预合并清单）。
+ * 所属模块：workers/diskIO/aiCacheDocument.ts。
+ */
+export const AI_CACHE_TOKEN_ROW_ALLOWED_FIELDS: readonly string[] = [
+  ...AI_CACHE_ROW_FIELDS,
+  ...AI_CACHE_TOKEN_ROW_OPTIONAL_FIELDS,
+];
+
+/**
  * 合计（汇总本身与 byModel 每一组）的必填字段；另可带 AI_CACHE_TOTALS_OPTIONAL_FIELDS。
  * 所属模块：workers/diskIO/aiCacheDocument.ts。
  */
@@ -66,8 +75,26 @@ export const AI_CACHE_TOTALS_FIELDS: readonly string[] = [
  */
 export const AI_CACHE_TOTALS_OPTIONAL_FIELDS: readonly string[] = ["cacheWriteInputTokens", "costInUsdTicks", "searchCalls"];
 
+/**
+ * 普通合计（byModel 分组等）允许出现的全部字段名集合。
+ * 所属模块：workers/diskIO/aiCacheDocument.ts。
+ */
+export const AI_CACHE_TOTALS_ALLOWED_FIELDS: readonly string[] = [
+  ...AI_CACHE_TOTALS_FIELDS,
+  ...AI_CACHE_TOTALS_OPTIONAL_FIELDS,
+];
+
 /** 汇总条目的必填字段：日期、合计必填字段与 byModel。所属模块：workers/diskIO/aiCacheDocument.ts。 */
 export const AI_CACHE_SUMMARY_FIELDS: readonly string[] = ["day", ...AI_CACHE_TOTALS_FIELDS, "byModel"];
+
+/**
+ * 顶层汇总条目允许出现的全部字段名集合（day、合计允许字段与 byModel）。
+ * 所属模块：workers/diskIO/aiCacheDocument.ts。
+ */
+export const AI_CACHE_SUMMARY_ALLOWED_FIELDS: readonly string[] = [
+  ...AI_CACHE_SUMMARY_FIELDS,
+  ...AI_CACHE_TOTALS_OPTIONAL_FIELDS,
+];
 
 /**
  * 汇总 byModel 的分组键 `<capability>/<provider>/<model>`：第 1 组捕获 capability、第 2 组

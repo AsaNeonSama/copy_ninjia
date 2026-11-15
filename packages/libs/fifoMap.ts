@@ -75,7 +75,7 @@ export class FifoMap<K, V> {
   /**
    * 从容器与顺序链中移除指定键。
    * @param key 待删除的键。
-   * @returns 键原先存在并被移除时返回 true，否则返回 false。
+   * @returns 调用前存在该键并已移除时返回 true，否则返回 false。
    */
   delete(key: K): boolean {
     const node: FifoNode<K, V> | undefined = this.map.get(key);

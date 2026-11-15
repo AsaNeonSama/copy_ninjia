@@ -4,13 +4,23 @@ import type { ColdMigrationEdge } from "../migrations/active";
 import { join } from "node:path";
 import { checked } from "./command";
 import type { ReleaseCommand } from "./command";
-import { RELEASE_PLATFORMS, RELEASE_REQUIRED_FILES, RELEASE_VERSION_PATTERN } from "../../packages/consts/release";
+import {
+  RELEASE_BUNDLED_PATHS,
+  RELEASE_INSTALL_SCRIPT_GLOB,
+  RELEASE_PLATFORMS,
+  RELEASE_REQUIRED_FILES,
+  RELEASE_VERSION_PATTERN,
+} from "../../packages/consts/release";
 
 /** 通过校验的单个发行资产元数据（含 64 位小写十六进制 SHA-256 摘要与字节数）。 */
 export interface ReleaseAsset {
+  /** 发行包或校验和文件名。 */
   readonly name: string;
+  /** 本地文件系统上的资产绝对路径。 */
   readonly path: string;
+  /** 小写 64 位十六进制 SHA-256 摘要。 */
   readonly sha256: string;
+  /** 资产文件字节大小。 */
   readonly size: number;
 }
 
@@ -24,7 +34,7 @@ export interface VerifyAssetsOptions {
   readonly platforms: readonly string[];
   /** 期望的 40 位十六进制 Git tree 哈希。 */
   readonly sourceTree: string;
-  /** 用于执行 tar 等外部命令的执行器。 */
+  /** 用于执行 git 与 tar 等外部命令的执行器。 */
   readonly command: ReleaseCommand;
 }
 
@@ -38,6 +48,13 @@ export async function verifyReleaseAssets({ directory, version, platforms, sourc
   if (platforms.length === 0 || new Set(platforms).size !== platforms.length || platforms.some((value: string): boolean => !RELEASE_PLATFORMS.includes(value))) {
     throw new Error("--platforms must contain unique supported Linux platforms.");
   }
+  const bundledSourceFiles: readonly string[] = checked(
+    command,
+    ["git", "ls-files", "-z", "--", ...RELEASE_BUNDLED_PATHS, `:(glob)${RELEASE_INSTALL_SCRIPT_GLOB}`]
+  )
+    .split("\0")
+    .filter((entry: string): boolean => entry.length > 0)
+    .map((entry: string): string => `copy-ninjia/${entry}`);
   const assets: ReleaseAsset[] = [];
   for (const platform of platforms) {
     const name: string = `copy-ninjia-${platform}.tar.gz`;
@@ -65,7 +82,7 @@ export async function verifyReleaseAssets({ directory, version, platforms, sourc
     }
     const details: readonly string[] = checked(command, ["tar", "-tvzf", path]).split("\n");
     if (details.length !== entries.length) throw new Error(`${name}: tar entry and mode listings must align.`);
-    for (const required of [...RELEASE_REQUIRED_FILES, ...migrations]) {
+    for (const required of [...RELEASE_REQUIRED_FILES, ...bundledSourceFiles, ...migrations]) {
       const index: number = entries.indexOf(required);
       const detail: string | undefined = index !== -1 && index === entries.lastIndexOf(required)
         ? details[index]

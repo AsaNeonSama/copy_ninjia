@@ -5,7 +5,7 @@ import { aiChatConfigReadiness } from "../../config/readiness";
 import type {
   MiniAppMoodMutationResult,
   MiniAppMoodView,
-} from "../../types/miniApp";
+} from "../../types/miniApp/server";
 import { jsonResponse } from "../libs/response";
 import { buildMiniAppStatusView } from "../view/status";
 

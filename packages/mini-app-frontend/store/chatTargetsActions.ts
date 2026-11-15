@@ -10,6 +10,7 @@ import { errorMessage } from "../libs/errorMessage";
 import { waitMinimumLoadingDuration } from "../libs/loading";
 import { getTelegramWebApp } from "../libs/telegram";
 import type {
+  MiniAppChatDetail,
   MiniAppChatDeleteTargetItem,
   MiniAppChatTargetKind,
   MiniAppChatTargetsMutationRequest,
@@ -33,6 +34,8 @@ export interface CreateChatTargetsActionsOptions {
   readonly set: (partial: Partial<MiniAppChatsStoreState>) => void;
   /** 读取当前 `MiniAppChatsStoreState` 快照。 */
   readonly get: () => MiniAppChatsStoreState;
+  /** 写入变更接口回传的最新群详情并推进详情请求序号，作废更早发出的在途详情读取。 */
+  readonly applyMutationDetail: (detail: MiniAppChatDetail) => void;
   /** 递增并返回下一次目标请求序号（用于丢弃过期响应）。 */
   readonly nextTargetsReqSeq: () => number;
   /** 读取当前最新的目标请求序号。 */
@@ -78,6 +81,7 @@ export type MiniAppChatTargetsActions = Pick<
 export function createChatTargetsActions({
   set,
   get,
+  applyMutationDetail,
   nextTargetsReqSeq,
   currentTargetsReqSeq,
 }: CreateChatTargetsActionsOptions): MiniAppChatTargetsActions {
@@ -104,8 +108,10 @@ export function createChatTargetsActions({
         if (result.ok && !isNoOpWarning && onSuccess !== undefined) {
           onSuccess();
         }
+        if (result.detail !== null) {
+          applyMutationDetail(result.detail);
+        }
         set({
-          ...(result.detail !== null ? { chatDetail: result.detail } : {}),
           ...(result.targets !== null ? { chatTargets: result.targets } : {}),
           mutatingTargets: false,
           ...(reqId === currentTargetsReqSeq() ? { loadingTargets: false } : {}),
@@ -151,7 +157,7 @@ export function createChatTargetsActions({
       return;
     }
     if (get().selectedChatId === chatId) {
-      await get().loadChatTargets();
+      await get().loadChatTargets(get().chatTargets?.chatId === chatId);
       void get().loadDetail(chatId);
     }
     useMiniAppStore.getState().notify(
@@ -263,6 +269,40 @@ export function createChatTargetsActions({
     }
   };
 
+  const removeChatTarget = async (
+    kind: "delete" | "translate",
+    targetId: number
+  ): Promise<void> => {
+    if (get().selectedChatId === null || get().mutatingTargets) return;
+    const targets: Readonly<MiniAppChatTargetsView> | null = get().chatTargets;
+    const targetItem:
+      | Readonly<MiniAppChatDeleteTargetItem | MiniAppChatTranslateTargetItem>
+      | undefined = (
+        kind === "delete"
+          ? targets?.deleteMessageTargets
+          : targets?.translateTargets
+      )?.find(
+        (
+          item: Readonly<MiniAppChatDeleteTargetItem | MiniAppChatTranslateTargetItem>
+        ): boolean => item.id === targetId
+      );
+    const displayName: string = targetItem?.displayName ?? `ID ${targetId}`;
+    const app: MiniAppUiStoreState = useMiniAppStore.getState();
+    const chatsText: Readonly<MiniAppTranslations>["chats"] =
+      getMiniAppTranslations(app.language).chats;
+    const confirmText: string =
+      kind === "delete"
+        ? chatsText.confirmRemoveDeleteTarget(displayName, targetId)
+        : chatsText.confirmRemoveTranslateTarget(displayName, targetId);
+    if (!(await app.requestConfirm(confirmText, "danger"))) {
+      return;
+    }
+    await executeTargetsMutation({
+      action: kind === "delete" ? "removeDeleteTarget" : "removeTranslateTarget",
+      id: targetId,
+    });
+  };
+
   return {
     toggleTargetsMenu: (): void => {
       set({ targetsMenuOpen: !get().targetsMenuOpen });
@@ -275,6 +315,11 @@ export function createChatTargetsActions({
     },
 
     openTargetsModal: (kind: MiniAppChatTargetKind): void => {
+      const { selectedChatId, chatTargets }: MiniAppChatsStoreState = get();
+      const hasCurrentChatTargets: boolean =
+        selectedChatId !== null &&
+        chatTargets !== null &&
+        chatTargets.chatId === selectedChatId;
       set({
         targetsMenuOpen: false,
         activeTargetsModal: kind,
@@ -283,7 +328,7 @@ export function createChatTargetsActions({
         targetIdFormOpen: false,
         translateLangMenuOpen: false,
       });
-      void get().loadChatTargets();
+      void get().loadChatTargets(hasCurrentChatTargets);
     },
 
     switchTargetsModalTab: (kind: MiniAppChatTargetKind): void => {
@@ -306,29 +351,35 @@ export function createChatTargetsActions({
       });
     },
 
-    loadChatTargets: async (): Promise<void> => {
+    loadChatTargets: async (silent: boolean = false): Promise<void> => {
       const chatId: number | null = get().selectedChatId;
       if (chatId === null) return;
       const reqId: number = nextTargetsReqSeq();
       const startedAt: number = Date.now();
-      set({ loadingTargets: true });
+      if (!silent) {
+        set({ loadingTargets: true });
+      }
       try {
         const targets: MiniAppChatTargetsView =
           await fetchMiniAppChatTargets(chatId);
-        await waitMinimumLoadingDuration(startedAt);
+        if (!silent) {
+          await waitMinimumLoadingDuration(startedAt);
+        }
         if (reqId !== currentTargetsReqSeq() || get().selectedChatId !== chatId) {
           return;
         }
         set({ chatTargets: targets });
       } catch (error: unknown) {
-        await waitMinimumLoadingDuration(startedAt);
+        if (!silent) {
+          await waitMinimumLoadingDuration(startedAt);
+        }
         if (reqId !== currentTargetsReqSeq() || get().selectedChatId !== chatId) {
           return;
         }
         const message: string = errorMessage(error);
         useMiniAppStore.getState().notify(message, "info", error);
       } finally {
-        if (reqId === currentTargetsReqSeq()) {
+        if (reqId === currentTargetsReqSeq() && get().loadingTargets) {
           set({ loadingTargets: false });
         }
       }
@@ -464,31 +515,8 @@ export function createChatTargetsActions({
       );
     },
 
-    removeDeleteTarget: async (targetId: number): Promise<void> => {
-      if (get().selectedChatId === null || get().mutatingTargets) return;
-      const targetItem: Readonly<MiniAppChatDeleteTargetItem> | undefined =
-        get().chatTargets?.deleteMessageTargets.find(
-          (item: Readonly<MiniAppChatDeleteTargetItem>): boolean =>
-            item.id === targetId
-        );
-      const displayName: string = targetItem?.displayName ?? `ID ${targetId}`;
-      const app: MiniAppUiStoreState = useMiniAppStore.getState();
-      if (
-        !(await app.requestConfirm(
-          getMiniAppTranslations(app.language).chats.confirmRemoveDeleteTarget(
-            displayName,
-            targetId
-          ),
-          "danger"
-        ))
-      ) {
-        return;
-      }
-      await executeTargetsMutation({
-        action: "removeDeleteTarget",
-        id: targetId,
-      });
-    },
+    removeDeleteTarget: (targetId: number): Promise<void> =>
+      removeChatTarget("delete", targetId),
 
     submitTranslateTarget: async (): Promise<void> => {
       const {
@@ -511,30 +539,7 @@ export function createChatTargetsActions({
       );
     },
 
-    removeTranslateTarget: async (targetId: number): Promise<void> => {
-      if (get().selectedChatId === null || get().mutatingTargets) return;
-      const targetItem: Readonly<MiniAppChatTranslateTargetItem> | undefined =
-        get().chatTargets?.translateTargets.find(
-          (item: Readonly<MiniAppChatTranslateTargetItem>): boolean =>
-            item.id === targetId
-        );
-      const displayName: string = targetItem?.displayName ?? `ID ${targetId}`;
-      const app: MiniAppUiStoreState = useMiniAppStore.getState();
-      if (
-        !(await app.requestConfirm(
-          getMiniAppTranslations(app.language).chats.confirmRemoveTranslateTarget(
-            displayName,
-            targetId
-          ),
-          "danger"
-        ))
-      ) {
-        return;
-      }
-      await executeTargetsMutation({
-        action: "removeTranslateTarget",
-        id: targetId,
-      });
-    },
+    removeTranslateTarget: (targetId: number): Promise<void> =>
+      removeChatTarget("translate", targetId),
   };
 }

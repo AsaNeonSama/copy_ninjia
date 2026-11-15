@@ -33,149 +33,176 @@ For a guided explanation, see [02 Architecture Overview](02-architecture.md). Fo
 
 - **The default time zone is a process-startup read-only snapshot**:
   - `config/static/bot.json` accepts an optional `time_zone` field using standard IANA names, defaulting to `DEFAULT_BOT_TIME_ZONE`.
-  - After trimming whitespace, startup strictly validates that Intl, Temporal, and Bun native cron all support the time zone, keeping the Temporal-normalized IANA name (preserving aliases). Empty strings, invalid types, or unsupported zones abort startup before external connections are made.
-  - The main thread holds the authoritative snapshot, distributing it to AI, Anti-Raid, and Disk I/O Workers via `init`, `agentConfig`, and `load` messages; Worker respawns replay the same snapshot.
-  - Each isolate's `cache/perThread/time.ts` maintains its own copy of the zone, a formatter, a single-slot date prefix, and the current UTC offset segment: day indexes, date strings, local times, and hour calculations use integer arithmetic and comparisons within the current offset segment, recalculating through Temporal only when crossing segment boundaries.
-  - Fortune draws, logs, ad activity tracking, join logs, AI time perception, and daily maintenance share this time zone. The Tokyo weather lookup tool (`GET_TOKYO_WEATHER_TOOL`) registers only when the startup zone is `TOKYO_TIME_ZONE`; other zones omit the tool entirely.
+  - After trimming leading and trailing whitespace, startup strictly validates that `Intl`, `Temporal`, and Bun native cron all accept the zone, keeping the `Temporal`-normalized IANA name (for example normalizing `asia/tokyo` to `Asia/Tokyo` while preserving aliases such as `Japan` as-is). Empty strings, non-string types, or unsupported zones abort startup before any external connection is opened.
+  - The main thread holds the authoritative snapshot and distributes it to the AI, Anti-Raid, and Disk I/O Workers via `init`, `agentConfig`, and `load` messages; Worker respawns replay the same snapshot.
+  - Each isolate's `cache/perThread/time.ts` maintains its own copy of the zone, an `Intl` formatter, a single-slot date prefix, and the active UTC offset segment: day indexes, date strings, local wall-clock times, and hour checks use integer arithmetic within the current offset segment, recalculating through `Temporal` only when crossing segment boundaries.
+  - Fortune draws, log timestamps, temporary ad-bypass day tracking, join logs, AI time perception, and daily maintenance all share this zone. The Tokyo weather tool (`GET_TOKYO_WEATHER_TOOL`) is registered only when the startup zone equals `TOKYO_TIME_ZONE`; other zones omit the tool declaration altogether.
 
 - **The data root is permanently bound to its time zone**:
-  - When initializing the database, `initializeStorageDatabase` writes the configured time zone to `storage_metadata` under `IDENTITY_DATABASE_TIME_ZONE_KEY` (`{ timeZone }`).
-  - Disk I/O Worker startup and the service installer verify that the database record matches `bot.json`'s `time_zone`; any mismatch aborts startup and references `storage_metadata.time-zone`. Existing data roots cannot change time zones.
+  - When initializing the database, `initializeStorageDatabase` writes `{ timeZone }` to `storage_metadata` under `IDENTITY_DATABASE_TIME_ZONE_KEY`.
+  - Both Disk I/O Worker startup and the service installer verify that this database marker matches `bot.json`'s `time_zone`; any mismatch aborts startup and names `storage_metadata.time-zone`. Existing data roots cannot switch time zones.
 
 - **Side-Effect-Free Module Imports**:
-  - Importing production modules must never launch Workers, register timers, initiate network requests, or write to disk.
+  - Importing production modules never spawns Workers, schedules timers, opens network connections, or writes to disk.
 
 - **Data Root Preflight and Exclusive Instance Lock**:
-  - The main process recursively creates the runtime data root and preflights write, file-fsync, hard-link, atomic-rename, and directory-fsync capabilities before attempting to acquire `bot.lock`.
-  - **Path and permission rules**: The data root, `memory/`, `logs/`, and `database/` must be physical directories (symlinks fail closed). With explicit `COPY_NINJIA_DATA_ROOT`, permissions for data root, `memory/`, and `logs/` must not allow group or other write bits (`RUNTIME_DATA_ROOT_MAX_MODE`); `database/` permits group write (`IDENTITY_DATABASE_DIRECTORY_MODE`) for SQLite sidecar files.
-  - **Cold-start cleanup and recovery**: Cleans orphaned temporary files left by abnormal terminations; aborts startup if legacy unmigrated `state.json` or `state.json.bak` exists at the data root; strictly restores `memory/global/state.json` before establishing network connections or launching Workers.
-  - **Single-instance lock boundary**: Exactly one running process instance is allowed per data root, verified using `/proc/<pid>/stat` and the kernel boot ID.
+  - Before acquiring `bot.lock`, the main process recursively creates the runtime data root and preflights write, file-`fsync`, hard-link, atomic-`rename`, and directory-`fsync` support.
+  - **Path and permission rules**:
+    - The data root, `memory/`, `logs/`, and `database/` must be physical directories (symlinks fail closed).
+    - When `COPY_NINJIA_DATA_ROOT` is explicitly set, permissions on the data root, `memory/`, and `logs/` must not grant group or world write bits (`RUNTIME_DATA_ROOT_MAX_MODE`), while `database/` permits group write (`IDENTITY_DATABASE_DIRECTORY_MODE`) for SQLite WAL/SHM sidecar files.
+  - **Cold-start cleanup and recovery**:
+    - Startup sweeps orphaned temporary files left by abnormal exits, aborts if legacy unmigrated `state.json` or `state.json.bak` exists at the data root, and strictly loads `memory/mini-app-totp/totp.json` (when present) and `memory/global/state.json` before opening network connections or spawning Workers.
+  - **Single-instance lock boundary**:
+    - Exactly one live process may hold a given data root at a time, verified against `/proc/<pid>/stat` process start ticks and the kernel boot ID.
 
-- **Strict Lifecycle Progression Order**:
-  1. Strictly validate all existing deployment configurations.
-  2. Launch Disk I/O Worker and completely load/recover persisted state.
-  3. Initialize Telegram client, mount middleware, register command menus, and complete the `bot.init()` handshake.
-  4. Launch and hydrate AI Worker and Anti-Raid Worker runtime state.
-  5. Start the acknowledgement-safe runner to begin long-polling and processing updates.
+- **Strict Lifecycle Progression Order** (`packages/app/lifecycle.ts`):
+  1. Acquire `bot.lock`, initialize in-memory main-thread runtimes, sweep orphaned temporary files, load `memory/global/state.json`, strictly validate all existing deployment inputs (`validateExistingDeploymentInputs`, including `memory/mini-app-totp/totp.json` when present) and random-image storage (`prepareRandomImageDirectory`), and spawn the Disk I/O Worker (`initDiskIO`).
+  2. Hydrate persisted SQLite state (`chatStates`, `chatQa`, `wedMembers`, and identity entry counts), initialize Telegram clients, run super-administrator mutual-exclusion assertions (`assertSuperAdminNotBlocked`, `assertSuperAdminNotDeleteMessageTarget`), restore the copied user and translate targets, and restore fortune state and pending verifications.
+  3. Register the update middleware chain and command menus (`registerHandlers`, `registerCommandMenu`, attaching `MenuButtonWebApp` in the superadmin's private chat when `mini_app` is configured), then complete the `bot.init()` handshake.
+  4. Spawn the AI Chat Worker (`initAiChat`) and hydrate AI memories and sticker catalogs; hydrate the blocklist removal outbox (`hydrateBlocklist`) and spawn the Anti-Raid Worker (`initAntiRaid`).
+  5. Start the `cron.json` scheduler (`startCronScheduler`), `config/dynamic/` hot reload (`startConfigReload`), the Mini App HTTP server (`startMiniAppServer`), and the blocklist sweep scheduler (`initBlocklistSweepScheduler`), run an initial blocklist sweep across managed chats (`sweepManagedBlocklistChats`), launch `runAcknowledgedUpdateBatches` to begin polling, and finally enable `/wed` member review (`enableWedMemberReview`) and background chat-title refresh (`refreshAllChatTitles`).
 - **Unified Lifecycle Teardown**:
-  - Initialization failures and normal exits converge on `ApplicationLifecycle`, releasing acquired resources in strict reverse dependency order.
+  - Initialization failures and normal shutdowns converge on `ApplicationLifecycle`, releasing acquired resources in reverse dependency order.
 
 ### Optional Credentials and Strict Configuration Preflight
 
 - **Strict configuration preflight at startup**:
-  - Configuration parsers perform no I/O. Before launching Workers or connecting to networks, the main thread strictly validates all existing deployment configs via `validateExistingDeploymentInputs`; a feature being disabled never excuses malformed configuration.
-  - Truly absent optional files do not block startup; readiness checks simply mark the corresponding feature unavailable. The main thread holds authoritative snapshots: files under `config/dynamic/` support runtime hot reloading, while other deployment files require a restart.
-  - In `config/dynamic/agent.json`, ad detection reads `agent.ad_detect`, while AI chat reads `text`, `summary`, `media`, and optional tools. Startup validates all capabilities declared in the file.
+  - Configuration parsers perform no I/O. Before spawning Workers or opening network connections, the main thread strictly validates every existing deployment file via `validateExistingDeploymentInputs`; disabling a feature never excuses malformed configuration.
+  - Truly absent optional files do not block startup; readiness gates simply mark the corresponding capability unavailable. The main thread holds authoritative snapshots: files under `config/dynamic/` support runtime hot reload, whereas `config/static/` files require a process restart.
+  - In `config/dynamic/agent.json`, ad detection reads `agent.ad_detect`, while AI chat reads `text`, `summary`, `media`, and optional tool capabilities (`image`, `tts`, `web_search`). Startup validates every capability declared in the file.
 
 - **SQLite is the sole authoritative source for identity policies**:
-  - Allowlists, blocklists, temporary ad bypass, and pending moderation state reside in `database/storage.sqlite`; runtime code never reads or writes policy JSON files.
-  - On startup, Disk I/O Worker validates SQLite integrity, JSONB storage class, migration version, data root time-zone marker, row codecs, and mutual exclusivity between blocklist and allowlists. Any failure aborts startup immediately.
+  - Allowlists, blocklists, temporary ad-bypass records, and pending moderation state live exclusively in `database/storage.sqlite`; runtime code never reads or writes policy JSON files.
+  - On startup, the Disk I/O Worker validates SQLite integrity, JSONB storage class, schema migration version, the `storage_metadata.time-zone` marker, every row codec, and mutual exclusivity between the blocklist and allowlists. Any violation aborts startup immediately.
 
 - **Main-thread synchronous authorization via bounded LRU caches**:
-  - The main thread maintains one LRU cache of capacity `IDENTITY_READ_CACHE_MAX_ENTRIES` (`identityPolicyCache` in `packages/cache/main/identityStorage.ts`). Each identity has one entry that always holds three fields—the permanent allowlist, the blocklist, and the temporary ad bypass—which are evicted together with the entry. A field set to `undefined` is not loaded yet and `null` is an explicit negative cache hit; an identity counts as cached only when all three fields are loaded.
-  - **Batch prefetching**: Inbound middleware batches all user and channel identities in an update and cold-reads up to `IDENTITY_PREFETCH_CHUNK_MAX_ENTRIES` keys from Disk I/O Worker in a single request, writing the three fields of an identity into its entry at once. Handlers and permission checks then read synchronously from local memory. On the Disk I/O side, the allowlist, blocklist, and temporary ad bypass batch reads and the chat state ID read use per-connection prepared statements with the ID list bound through a `json_each` placeholder.
-  - **Fail-closed cold-read handling**: Failed prefetch results cause regular commands to fail closed (denying permission); destructive bulk actions (such as mass kicks or bans) cancel execution entirely rather than treating unknown identities as unprotected.
-  - **Batch kick exception (`/batch_kick`)**: Does not rely on cache residency; cold-reads policy verdicts for each chunk before execution, deciding on "local verdict ∪ live cache".
-  - **Mini App list exception**: The Mini App allowlist and blocklist listings and searches cold-read the current page or all entries through `readIdentityPolicyEntries` under the same chunk limit, with unacknowledged local final values overriding database results on both cursor pages and entry payloads, and display metadata bidirectionally aligned with the main-thread `senderIdentity` cache (preferring fresher cached profiles and backfilling unclaimed usernames without overwriting reassigned aliases). The results are held locally for that request only and never read or written into this policy LRU, so they neither refresh nor evict the hot entries the bot needs for message handling; a failed cold read fails the request. Adding or removing members and changing permissions still go through the same prefetch and write path as `/white`, `/block`, and `/permission`, enforcing identical mutual-exclusivity and target boundary guards (rejecting the super administrator, the bot itself, and any initialized managed group chat identity; keeping allowlist and blocklist strictly mutually exclusive; and propagating the first boundary rejection code when a native `users_shared`/`chat_shared` picker import adds zero entries).
+  - **Unified three-field LRU**: The main thread holds one LRU cache of capacity `IDENTITY_READ_CACHE_MAX_ENTRIES` (`identityPolicyCache` in `packages/cache/main/identityStorage.ts`). Each entry stores three policy fields together—permanent allowlist, blocklist, and temporary ad bypass—which are evicted as a unit. `undefined` marks an unloaded field, `null` marks an explicit negative cache hit, and an identity counts as cached only when all three fields are loaded.
+  - **Batch prefetching**:
+    - Inbound update preamble batches all user and channel identities referenced in the update and cold-reads up to `IDENTITY_PREFETCH_CHUNK_MAX_ENTRIES` IDs per request from the Disk I/O Worker, populating all three fields at once so downstream handlers and permission checks read synchronously from memory.
+    - On the Disk I/O side, allowlist, blocklist, temporary ad-bypass, and `chat_states` ID lookups reuse per-connection prepared statements (single-ID queries bind `WHERE id = ?`; multi-ID batch queries bind a JSON array via `json_each`).
+  - **Fail-closed cold-read handling**: If a prefetch fails, regular commands fail closed (denying permission), and destructive bulk actions cancel rather than treating unresolved identities as unprotected.
+  - **Batch kick exception (`/batch_kick`)**: Does not rely on LRU residency; before each `IDENTITY_PREFETCH_CHUNK_MAX_ENTRIES` chunk, `readIdentityPolicyVerdicts` cold-reads permanent policies for the chunk and holds them locally, evaluating protection and blocklist skips over `local verdict ∪ live cache`.
+  - **Mini App list exception**:
+    - **Cold-read pagination and profile alignment**: Mini App allowlist and blocklist pages and searches cold-read through `readIdentityPolicyEntries` under the `IDENTITY_PREFETCH_CHUNK_MAX_ENTRIES` chunk cap. Unacknowledged local mutations override database rows on both cursor pagination and entry payloads, and display metadata is bidirectionally aligned with the main-thread `senderIdentity` cache (preferring fresher cached profiles and backfilling unclaimed usernames without overwriting reassigned handles).
+    - **Request-local isolation**: Listing results stay local to that HTTP request and are never read from or written into `identityPolicyCache`, leaving hot message-path entries untouched; a cold-read failure fails the HTTP request.
+    - **Shared mutation and target guards**: Adding or removing entries and editing permission bits share the exact prefetch and write path of `/white`, `/block`, and `/permission`—rejecting `SUPER_ADMIN_USER_ID`, the bot itself, and any initialized managed group chat identity, enforcing strict allowlist/blocklist mutual exclusivity, and propagating the first boundary rejection code when a native `users_shared` or `chat_shared` picker import adds zero entries.
 
 - **Temporary ad bypass cross-chat accumulation**:
-  - Regular messages from users or channel personas count toward bypass accumulation only when ad detection is ready and the chat has it enabled. The bot itself, auto-forwards, anonymous admins, and allowlist members are excluded.
-  - Messages strictly exceeding `TEMPORARY_AD_BYPASS_DAILY_MESSAGE_THRESHOLD` in a configured local calendar day qualify that day (counted once per day); the first qualifying day immediately grants temporary bypass permissions (`TEMPORARY_AD_BYPASS_PERMISSIONS`).
-  - Reaching `TEMPORARY_AD_BYPASS_REQUIRED_DAYS` consecutive qualifying days automatically promotes the identity to the permanent allowlist (ad bypass only).
-  - Accumulation tracks configured calendar days. If a day does not qualify, midnight maintenance deletes the record; detected ad infractions or manual bans clear accumulation immediately.
+  - Regular messages from user or channel identities count toward accumulation only when ad detection is ready and enabled in that chat. Messages from the bot itself, linked-channel auto-forwards, anonymous group admins, and permanent allowlist members are ignored.
+  - Exceeding `TEMPORARY_AD_BYPASS_DAILY_MESSAGE_THRESHOLD` messages within a configured local calendar day qualifies that day (at most once per day); the first qualifying day immediately grants `TEMPORARY_AD_BYPASS_PERMISSIONS`.
+  - Reaching `TEMPORARY_AD_BYPASS_REQUIRED_DAYS` consecutive qualifying days promotes the identity to the permanent allowlist (with ad-bypass permission only) and removes its temporary record.
+  - If a calendar day ends without qualifying, daily maintenance deletes the temporary record; any ad infraction or manual `/block` clears it immediately.
 
 - **Capacity admission, write-through, and exact revision ACKs**:
-  - Identity policy mutations check pending entry count and byte budgets (`STORAGE_PENDING_MAX_ENTRIES`, `STORAGE_PENDING_MAX_BYTES`) before updating local LRU caches, assigning revision numbers, and posting to Disk I/O.
-  - Budgets are released only when Disk I/O Worker returns an exact revision ACK.
-  - Disk I/O commits changes in a single SQLite transaction when pending entries reach `IDENTITY_WRITE_BATCH_MAX_ENTRIES` or the flush timer (`IDENTITY_WRITE_FLUSH_INTERVAL_MS`) fires.
-  - Transaction failures retain pending values and retry with exponential backoff; exceeding `STORAGE_WRITE_MAX_FAILURES` signals the main thread to stop accepting new requests.
+  - Before mutating local caches, identity policy writes check pending entry and byte budgets (`STORAGE_PENDING_MAX_ENTRIES`, `STORAGE_PENDING_MAX_BYTES`), then update the local cache, assign a monotonic revision, and post to Disk I/O.
+  - Pending budgets are released only when the Disk I/O Worker returns an ACK matching the latest revision.
+  - Disk I/O commits buffered mutations in a single SQLite transaction when pending entries reach `IDENTITY_WRITE_BATCH_MAX_ENTRIES` or the `IDENTITY_WRITE_FLUSH_INTERVAL_MS` timer fires.
+  - Transaction failures retain buffered mutations and retry with exponential backoff; exceeding `STORAGE_WRITE_MAX_FAILURES` triggers a fatal shutdown so the runner stops accepting updates.
 
 - **Super administrator permissions derive from identity, not database rows**:
-  - `SUPER_ADMIN_USER_ID` receives all-true permissions at the code level, taking effect directly without database rows.
-  - `/white` and `/permission` reject the current chat's own identity as a target. Delegated `/white enable` can only add members with default permissions; removing members or changing permission bits remains exclusive to the super administrator.
+  - `SUPER_ADMIN_USER_ID` receives all-`true` permissions directly in code without reading or writing database rows.
+  - `/white` and `/permission` reject the current chat's own ID as a target. Delegated `/white enable` callers can only add members with default permissions; removing allowlist members or editing permission bits is restricted to `SUPER_ADMIN_USER_ID`.
 
 - **Bot identity and AI configuration boundaries**:
-  - `bot_token` and `super_admin_user_id` are read strictly from `config/static/bot.json`.
-  - AI credentials are configured per capability in `config/dynamic/agent.json` (provider, api_key, base_url, model); cross-capability fallbacks are prohibited, and SDK clients are constructed with explicit credentials, base URLs (defaulting to the provider's official endpoint when `base_url` is omitted), and options that disable implicit environment variable fallbacks, so credentials, endpoints, and the SDK log level never come from process environment variables; no constructor option disables `ANTHROPIC_CUSTOM_HEADERS` or `OPENAI_CUSTOM_HEADERS` (the SDKs merge them into every request and they can override `Authorization`), so startup fails when `packages/consts/paths.ts` loads if either is present.
-  - **AI config is read only by the main thread**: The main thread parses `agent.json` at startup and during hot reload, pushing read-only snapshots to Workers. Worker threads never access config files on disk.
-  - Core chat requires `text`, `summary`, and `media` capabilities. Missing `image` or `tts` disables only those specific tools; missing `ad_detect` disables automated ad detection.
+  - `bot_token` and `super_admin_user_id` come exclusively from `config/static/bot.json`.
+  - **Per-capability explicit AI clients**:
+    - `config/dynamic/agent.json` configures `provider`, `api_key`, optional `base_url`, and `model` independently per capability with zero cross-capability fallback.
+    - OpenAI, Anthropic, and Gemini SDK clients are constructed with explicit credentials, explicit base URLs (defaulting to each provider's official endpoint when `base_url` is omitted), and options that disable implicit environment-variable reads for keys, endpoints, and SDK log levels.
+    - Because neither SDK exposes a constructor flag to ignore `ANTHROPIC_CUSTOM_HEADERS` or `OPENAI_CUSTOM_HEADERS` (which merge into every request and could override `Authorization`), `packages/consts/paths.ts` aborts startup whenever either environment variable is present.
+  - **Main-thread-only file reads**: Only the main thread reads `agent.json` (at startup and on hot reload) and pushes read-only snapshots to Workers; Worker threads never read config files from disk.
+  - **Capability gates**: Core AI chat requires `text`, `summary`, and `media`. Omitting `image` or `tts` disables only those tools; omitting `ad_detect` disables automated ad detection.
 
 - **Dynamic media modality probing**:
-  - The AI Worker probes each media modality (image, sticker, voice) on its first real request, advancing state via `reduceMediaInputResult`.
-  - Probing yields one of three verdicts: `supported`, `unsupported` (endpoint explicitly rejects the modality), or `misconfigured` (wrong model name or base URL, HTTP 404/405); transient failures back off between `MEDIA_PROBE_BACKOFF_BASE_MS` and `MEDIA_PROBE_BACKOFF_MAX_MS` up to `MEDIA_PROBE_MAX_TRANSIENT_FAILURES`.
-  - Unsupported or misconfigured states halt future downloads for that modality. Dynamic hot reload resets probing state for new evaluations.
+  - The AI Worker probes each media input modality (`image`, `sticker`, `voice`) on its first live request, advancing per-modality state via `reduceMediaInputResult`.
+  - Each probe settles into `supported`, `unsupported` (provider explicitly rejects the modality), or `misconfigured` (invalid model or base URL, HTTP 404/405); transient errors back off between `MEDIA_PROBE_BACKOFF_BASE_MS` and `MEDIA_PROBE_BACKOFF_MAX_MS` for up to `MEDIA_PROBE_MAX_TRANSIENT_FAILURES` attempts.
+  - Once marked `unsupported` or `misconfigured`, that modality skips media downloads on subsequent messages until a `config/dynamic/agent.json` hot reload resets the probe table.
 
-- **Configuration directory layout check**:
-  - Before reading any configuration file, the system validates directory structure: deployment files must reside under `config/static/` or `config/dynamic/`. Misplaced files directly under `config/` abort startup.
+- **Configuration directory layout check** (`packages/config/layout.ts`):
+  - Before reading any configuration content, the installer (`assertNoMisplacedConfigFiles`), startup preflight (`assertDeploymentConfigLayout`), and dynamic reload (`readDynamicConfigLayoutRejections`) enforce a strict three-level directory whitelist:
+    - `config/`: only `static/` and `dynamic/` subdirectories (`config/dynamic/` must exist as a physical directory).
+    - `config/static/`: only `bot.json` and `g-auth.json`.
+    - `config/dynamic/`: only `assets.json`, `ad_detect.json`, `agent.json`, `mood.json`, `stickers.json`, and `cron.json`.
+  - Non-directories or dangling symlinks at any config directory path, misplaced files, legacy files (`telegram.json`, `ad_samples.json`), hidden/swap/backup files, and undeclared subdirectories are rejected before file contents are read. Every new deployment config file must be registered in `STATIC_ALLOWED_NAMES` or `DYNAMIC_ALLOWED_NAMES` in `packages/config/layout.ts`.
 
 - **Dynamic hot reload via `config/dynamic/`**:
-  - After worker startup, the main thread watches `config/dynamic/` using file-system notifications (`config/static/` files require a restart).
-  - Events are debounced via `CONFIG_RELOAD_DEBOUNCE_MS` to coalesce rapid file modifications into serial reloads.
-  - Hot reload uses the same strict validators as startup: invalid files are rejected in full, retaining the last valid snapshot and logging errors; identical configurations bypass redundant processing.
-  - Cross-file validation: If `cron.json` specifies actions requiring TTS or web digests, the reload verifies that `agent.json` provides the necessary capabilities before applying changes.
-  - When the AI Worker adopts a new `agent.json` snapshot it drops the old capability facades and SDK clients; the next use rebuilds them from the new snapshot. Each AI reply pins the text capability's model and client when its session is created and keeps them for every tool round of that reply (including Anthropic `pause_turn` continuations), so a hot reload only affects replies that start afterwards. A Gemini session whose configuration was replaced before its first request does not reference the shared explicit cache.
-  - Applying configuration updates recomputes feature readiness. When a feature transitions to available, Workers are awakened or re-hydrated; when transitioning to unavailable, new tasks and toggle commands are disabled while persisted chat switches remain intact.
-  - All credentials (tokens, API keys) are registered with the logging redaction system.
+  - **Debounced watcher**: After Workers start, the main thread watches `config/dynamic/` via filesystem notifications and coalesces burst writes with `CONFIG_RELOAD_DEBOUNCE_MS` into serial reload passes (`config/static/` requires a restart).
+  - **Atomic preflight and cross-file check**:
+    - `packages/config/reload.ts` first runs `readDynamicConfigLayoutRejections` and then runs the same strict schema validators as startup; any non-whitelisted entry or malformed file aborts the reload, logs an error, and keeps the previous valid snapshots active. Byte-identical snapshots are skipped as no-ops.
+    - Cross-file check (`assertCronAgentSupported`): if `cron.json` declares `send_voice` or `send_web_digest` actions, reload verifies that `agent.json` supplies `tts` or core conversational capabilities (`AGENT_AI_CHAT_REQUIRED_CAPABILITIES`: `text`, `summary`, `media`) respectively before committing the new snapshots.
+  - **In-flight AI session isolation**:
+    - Adopting a new `agent.json` snapshot drops cached capability facades and SDK clients in the AI Worker so subsequent calls rebuild them lazily.
+    - Each AI reply pins its `text` model and client when the reply session starts and keeps them across every tool round of that reply (including Anthropic `pause_turn` continuations). A Gemini session whose config was replaced before its first request skips referencing the shared explicit cache.
+  - **Readiness transitions and secret redaction**:
+    - Applying a reload recomputes feature readiness: capabilities transitioning to ready wake or re-hydrate Workers, while capabilities transitioning to unavailable stop new tasks and reject toggle commands without erasing persisted per-chat switches.
+    - All newly loaded tokens and API keys are registered with the logger redaction table.
 
 ### Data Root and Background Tasks
 
 - **Data root derivation**:
-  - All runtime paths (`bot.lock`, `logs/`, `database/`, and `memory/` state) derive from the runtime data root (`COPY_NINJIA_DATA_ROOT`, defaulting to the project root).
-  - Test suites automatically inject isolated temporary data roots before module imports.
+  - Every runtime path (`bot.lock`, `logs/`, `database/`, and `memory/`) derives from `COPY_NINJIA_DATA_ROOT` (defaulting to the repository root).
+  - Test suites inject isolated temporary data roots prior to module imports.
 - **Low-priority group title maintenance**:
-  - Starts asynchronously after startup, command registration, and update runner initialization are complete.
-  - Batches `getChat` calls via `runBoundedSettledBatch` (capped at `CHAT_TITLE_REFRESH_CONCURRENCY`), handling chats independently and respecting lifecycle termination signals.
-  - `classifyChatAbsence` in `infra/telegram/errors.ts` classifies `getChat` failures: a 400 whose description is `chat not found` or `group chat was upgraded to a supergroup chat`, or that carries `parameters.migrate_to_chat_id`, is `gone`; a 403 whose description is `bot was kicked from the (super)group chat` or `bot is not a member of the (super)group chat` is `departed`; every other error is only logged.
-  - A chat classified as unreachable is looked up again every `CHAT_ABSENCE_CONFIRM_INTERVAL_MS` until `CHAT_ABSENCE_CONFIRM_ATTEMPTS` lookups (including the first) have been made. Only when every lookup reaches the same class is the chat torn down through `completeChatDeparture`, with one warn line. Finding the chat, a different class or error, or the chat having left the chat-state table abandons the confirmation for this run.
-  - The wait between lookups listens on `chatTitleRefreshRuntime.absenceConfirmation`; shutdown quiesce and abort both interrupt it at once, so the title refresh task settles immediately. In-flight `getChat` calls are unaffected and settle within the maintenance budget.
+  - Runs asynchronously in the background after startup, handler registration, and runner launch complete.
+  - Executes `getChat` across known chats via `runBoundedSettledBatch` at concurrency `CHAT_TITLE_REFRESH_CONCURRENCY`, isolating per-chat failures and honoring shutdown signals.
+  - **Absence classification** (`classifyChatAbsence` in `infra/telegram/errors.ts`):
+    - `gone`: HTTP 400 with description `chat not found` or `group chat was upgraded to a supergroup chat`, or carrying `parameters.migrate_to_chat_id`.
+    - `departed`: HTTP 403 with description `bot was kicked from the (super)group chat` or `bot is not a member of the (super)group chat`.
+    - All other errors are logged without tearing down chat state.
+  - **Multi-probe confirmation**: Unreachable chats are re-probed every `CHAT_ABSENCE_CONFIRM_INTERVAL_MS` until `CHAT_ABSENCE_CONFIRM_ATTEMPTS` total probes complete. Only when every probe returns the identical absence class does `completeChatDeparture` tear down the chat (emitting a single warning). A successful `getChat`, a different error/class, or prior removal from `chat_states` abandons confirmation for that run.
+  - **Immediate shutdown quiesce**: Inter-probe sleeps listen on `chatTitleRefreshRuntime.absenceConfirmation`, so shutdown quiesce or abort wakes them immediately while any in-flight `getChat` finishes within the maintenance budget.
 
 ### Outbound Requests and Message Safety
 
 - **Main thread owns Telegram networking**:
-  - The grammY Bot instance, low-level HTTP requests, and file CDN downloads reside exclusively on the main thread.
-  - AI and Anti-Raid Workers do not hold Bot tokens or network clients; they request allowlisted actions through duplex channels, executed via the main thread outbound gateway.
-  - Worker send requests (`sendMessage`, `sendSticker`, `sendPhoto`, `sendVoice`) get back only the message ID and the reply link (`TelegramSentMessage`); photos also carry the single `photo` size chosen by `pickPhotoSize`. The main thread registers the self-sent message from the full result first and then returns the projection; results of all other requests are returned unchanged. Target-only messages (`sendEphemeralMessage`), like `copyMessage`, `editMessageText`, `deleteEphemeralMessage`, and `unbanChatSenderChat`, are available on the main thread only.
+  - The grammY `Bot` instance, raw HTTP transport, and CDN file downloads live exclusively on the main thread.
+  - AI and Anti-Raid Workers hold neither Bot tokens nor HTTP clients; they invoke allowlisted actions over duplex IPC channels backed by the main-thread outbound gateway.
+  - **Worker send projections**:
+    - Worker sends (`sendMessage`, `sendSticker`, `sendPhoto`, `sendVoice`) register the full sent message in the main-thread self-sent table first, then return only `{ message_id, link }` (`TelegramSentMessage`, plus the single `PhotoSize` selected by `pickPhotoSize` for `sendPhoto`).
+    - All other allowlisted Worker calls return their result unchanged.
+    - Main-thread-only primitives (`sendEphemeralMessage`, `copyMessage`, `editMessageText`, `deleteEphemeralMessage`, `unbanChatSenderChat`) are not exposed to Workers.
 
 - **Unified outbound gateway with token bucket scheduling and 429 backoff**:
-  - Outbound Telegram requests are scheduled through dedicated lanes by category (chat messages, queries, deletions, restrictions, kicks).
-  - **Token-bucket rate limiting**: Message sends throttle to per-chat burst (`TELEGRAM_SEND_CHAT_BURST` / `TELEGRAM_SEND_CHAT_REFILL_MS`), group window (`TELEGRAM_SEND_GROUP_LIMIT` / `TELEGRAM_SEND_GROUP_WINDOW_MS`), and global limits (`TELEGRAM_SEND_GLOBAL_LIMIT` / `TELEGRAM_SEND_GLOBAL_WINDOW_MS`).
+  - Outbound calls enter category-specific lanes (`send`, queries, deletions, restrictions, kicks, `download`, `externalFetch`).
+  - **Token-bucket rate limiting**: Message sends pass through per-chat burst (`TELEGRAM_SEND_CHAT_BURST` / `TELEGRAM_SEND_CHAT_REFILL_MS`), group-chat window (`TELEGRAM_SEND_GROUP_LIMIT` / `TELEGRAM_SEND_GROUP_WINDOW_MS`), and global window (`TELEGRAM_SEND_GLOBAL_LIMIT` / `TELEGRAM_SEND_GLOBAL_WINDOW_MS`) buckets.
   - **429 smart backoff and fault isolation**:
-    - When a send hits HTTP 429, the gateway pauses only **that chat's** queue for the duration of `retry_after`, allowing other chats to send uninterrupted.
-    - Non-message categories (deletions, queries, mutes) maintain independent backoff windows; restrictions in one category never stall others.
-    - The `download` category carries only `getFile` and Telegram file-service downloads; the default-avatar URL and `telegram.me` public profile pages and their avatar images use the `externalFetch` category, so a 429 from an external host never stalls Telegram file downloads. Both still pass through the main-thread outbound gate.
-    - When a category starts a new backoff wait, one warn records the category and milliseconds; further 429s during that wait are not logged again.
-  - **Timeouts and cancellations fail differently**: When a job settles because the caller's timeout budget ran out, the outbound gate, the send scheduler, and Worker duplex requests reject with `TimeoutError`; shutdown revocation and caller cancellation reject with `AbortError`. File downloads (`infra/telegram/fileDownload.ts`) report the separate `getFile` and download stage timeouts as `metadataTimeout` and `downloadTimeout`; caller cancellation or the caller's own budget running out still throws.
+    - On HTTP 429 for a message send, only **that target chat's** send queue pauses for `retry_after`; other chats continue unimpeded.
+    - Non-message categories maintain independent backoff timers so throttling in one category never stalls another.
+    - `download` carries only `getFile` and Telegram file-CDN fetches, whereas default-avatar URLs and `telegram.me` public profile/avatar fetches use `externalFetch`; an external HTTP 429 never stalls Telegram media downloads, while both still pass through the main-thread outbound gate.
+    - Entering a new backoff window logs one warning with the category and wait duration; additional 429 responses during the active window are coalesced silently.
+  - **Distinct timeout vs cancellation errors**:
+    - Exhausting a caller's timeout budget rejects with `TimeoutError` across the outbound gate, send scheduler, and Worker duplex bridge; shutdown revocation and caller `AbortSignal` cancellation reject with `AbortError`.
+    - `infra/telegram/fileDownload.ts` maps per-stage `getFile` and CDN stream timeouts to structured `metadataTimeout` and `downloadTimeout` outcomes, while caller cancellation or outer-budget expiry still throws.
 
 - **Echo loop and self-sent message prevention**:
-  - Messages sent by the bot are registered at the outbound proxy boundary (`SELF_SENT_MESSAGE_TTL_MS`).
-  - In chats receiving channel auto-forwards, incoming updates wait up to `SELF_SENT_RENDEZVOUS_TIMEOUT_MS` for in-flight self-sends to settle before evaluating auto-replies.
+  - Every bot-authored outbound message is recorded at the outbound proxy boundary for `SELF_SENT_MESSAGE_TTL_MS`.
+  - In groups linked to channels that auto-forward posts, inbound updates wait up to `SELF_SENT_RENDEZVOUS_TIMEOUT_MS` for in-flight self-sends to register before evaluating auto-reply triggers.
 
 - **Outbound rich-text safety**:
-  - Outbound formatting strictly enforces either:
-    1. **Explicit Entities**: Callers compute UTF-16 offsets and supply entity arrays.
-    2. **MarkdownV2 Mode**: Dynamic strings (display names, model outputs, configs) must be escaped via [`libs/telegramMarkdown.ts`](../../packages/libs/telegramMarkdown.ts). Raw string interpolation is prohibited. Parsing failures log as errors and never fall back to unescaped plain text.
-  - Plain text messages are sent as raw text without formatting entities.
+  - Formatted outbound messages use one of two explicit contracts:
+    1. **Explicit `entities` arrays**: Callers compute exact UTF-16 code-unit offsets and pass structured entities without `parse_mode`.
+    2. **`MarkdownV2` mode**: Every dynamic string (display names, model outputs, config copy) is escaped via [`libs/telegramMarkdown.ts`](../../packages/libs/telegramMarkdown.ts); raw string interpolation is forbidden, and parse errors log an error without falling back to unescaped plain text.
+  - Plain-text notices omit `parse_mode` and `entities` entirely.
 
 - **Command guard (`containsRenderableCommand`)**:
-  - All bot-authored outputs (repeats, AI replies, image captions, cron digests) pass through `containsRenderableCommand` (`RENDERABLE_COMMAND_PATTERN`).
-  - Repeat mode evaluates the **final transformed string** (e.g., after text reversal) rather than the original input, dropping the message if it forms a clickable Telegram command.
+  - All bot-authored text and captions (echo repeats, AI replies, image captions, cron digests) pass through `containsRenderableCommand` (`RENDERABLE_COMMAND_PATTERN`).
+  - Repeat mode checks the **final transformed text** (for example after reversal) rather than the raw source text, dropping any output that would render a clickable `/command`.
 
 - **Mute duration bounds and dispatch deadlines**:
-  - `/mute` durations are bounded between `MUTE_MIN_DURATION_MS` and `MUTE_MAX_DURATION_MS` (strictly below `TELEGRAM_RESTRICTION_FOREVER_AFTER_MS`).
-  - Mute requests enforce dispatch deadlines (`dispatchTimeoutMs`, requiring at least `MUTE_DISPATCH_MIN_REMAINING_MS` remaining for `/mute` and `FLOOD_MUTE_DISPATCH_TIMEOUT_MS` for flood mutes); queued requests whose deadline expires before dispatch are abandoned.
+  - `/mute` durations must fall within `[MUTE_MIN_DURATION_MS, MUTE_MAX_DURATION_MS]` (strictly below `TELEGRAM_RESTRICTION_FOREVER_AFTER_MS`).
+  - Restriction calls carry a `dispatchTimeoutMs` deadline (requiring at least `MUTE_DISPATCH_MIN_REMAINING_MS` remaining for `/mute` and `FLOOD_MUTE_DISPATCH_TIMEOUT_MS` for flood mutes); queued requests whose deadline expires before leaving the queue are abandoned without calling Telegram.
 
 - **Auto-deletion for non-functional group notices (`COMMAND_MESSAGE_AUTO_DELETE_MS`)**:
-  - Non-functional notices in groups (validation errors, permission denials, usage hints, success receipts) automatically delete after `COMMAND_MESSAGE_AUTO_DELETE_MS`.
-  - **Permanent exceptions**: `/permission help` and `/permission query` boards, `/qa query` boards, direct Q&A answers, successful CJK action results, `/h_image` photos, `cron.json` scheduled task messages, and conversational outputs (echoes, translations, AI replies, bath replies).
-  - Interactive state machine messages (verification buttons, `/qa set` forms, wed results, gag notices) are deleted by user actions or state machine transitions, not fixed timers (`/wed` results that slide out of the session window remain in the group and are not deleted).
+  - Group validation errors, permission denials, usage prompts, and command receipts schedule automatic deletion after `COMMAND_MESSAGE_AUTO_DELETE_MS` (30 s) through the shared notice boundary.
+  - **Permanent retention allowlist**: `/permission help` and `/permission query` boards, `/qa query` boards, direct Q&A answers, successful CJK action replies, `/h_image` spoiler photos, `cron.json` scheduled messages, and conversational outputs (echoes, translations, AI replies, bath replies).
+  - **State-machine-owned messages**: Join-verification prompts, `/qa set` forms, `/wed` cards, and gag notices/prompts carry no fixed timer and are deleted solely by button handlers, state transitions, or chat teardown (`/wed` cards evicted from the active session window stay in chat).
 
 - **Forum topics (`message_thread_id`) routing**:
-  - **User-triggered messages**: Command replies and interactive outputs route to the triggering message's topic thread (`message_thread_id`).
-  - **Proactive broadcasts**: System notices (flood mute announcements, ad ban alerts, lockdown notices) and `cron.json` tasks send to the General topic in forum groups.
+  - **User-triggered replies**: Command notices, state-machine prompts, and conversational replies inherit the triggering message's `message_thread_id` (injected automatically by the main-thread send boundary within an update context, or passed explicitly when sending outside an update).
+  - **Proactive broadcasts**: Bot-initiated alerts (flood-mute notices, ad warnings and ban announcements, verification reminders, lockdown announcements) and `cron.json` tasks omit `message_thread_id`, landing in General in forum supergroups.
 
 - **Consistency in toggle command feedback**:
-  - Toggle commands (`/init`, `/ai_chat`, `/ad_detect`, `/antiraid`, etc.) verify previous states; executing a command for an already-active state reports "already in this state" rather than claiming a change occurred.
-  - `/init disable` durably persists disable state before cleaning up runtime state and memory, ensuring teardown integrity.
+  - Toggle commands (`/init`, `/ai_chat`, `/ad_detect`, `/antiraid`, etc.) compare the requested state against the current state and report "already in this state" on a no-op.
+  - `/init disable` and Mini App chat `init` disable share `disableManagedChat` in `packages/infra/botAdmin.ts`: the `init = false` flag is durably committed first, after which runtime caches and AI memory are torn down and the pruned chat state is persisted.
 
 <p align="right"><a href="#quick-navigation">↑ Back to quick navigation</a></p>
 
@@ -184,466 +211,460 @@ For a guided explanation, see [02 Architecture Overview](02-architecture.md). Fo
 ### Thread and State Ownership
 
 - **Strict thread state boundaries without shared memory**:
-  - **Main thread**: Owns the Telegram update runner, Worker supervision handles, and the authoritative in-memory `memory/global/state.json` mirror under `cache/main/storage.ts`.
-    - `infra/storage/stateStore.ts` acts as the business facade, hydrating the mirror at startup, assembling domain snapshots, and providing accessors.
-    - `infra/storage/statePersistence.ts`'s `StateStore` handles strict decoding, latest-only atomic disk writes, bounded failure retries (`STATE_SAVE_RETRY_DELAYS_MS`, `STATE_SAVE_MAX_ATTEMPTS`), and shutdown flushes.
-    - While a failure retry is scheduled, writes awaiting durability and non-shutdown flushes leave the latest value to the retry timer's backoff, posting nothing early and consuming no extra retries; a shutdown flush cancels the backoff and writes once more immediately.
-    - Exhausting bounded retries is a fatal durability failure: the runner must stop immediately and never continue acknowledging Telegram updates.
-  - **AI Worker**: Exclusively owns group-chat rolling memory, reply admission checks, multimodal media description pipelines, global mood, and sticker catalog generation state.
-  - **Anti-Raid Worker**: Exclusively owns join verification and lockdown state machines and their associated timers. The main thread holds only crash-recovery mirrors.
-  - **Disk I/O Worker**: Exclusively owns persistence for logs, AI memory, sticker catalogs, fortunes, and pending verification data, serializing access to shared directories on a single dedicated thread.
-    - `memory/global/` is the sole exception: persisted asynchronously by the main thread through `stateStore.ts` and `statePersistence.ts`. Business Workers never touch shared storage directories directly.
-  - **Long-lived container management**: Maps, Sets, queues, and timers must define explicit capacity limits, cleanup policies, and Worker reconstruction semantics across `packages/cache/` modules and business lifecycle owners.
+  - **Main thread**: Owns the Telegram update runner, Worker supervisors, the per-chat `chat_states` hot snapshot (`packages/infra/chatStateStorage.ts`), and the in-memory mirror of `memory/global/state.json` (`cache/main/storage.ts`).
+    - `infra/storage/stateStore.ts` is the domain facade for `memory/global/state.json` (`copy` and `ttsUsage`), hydrating the mirror on startup and assembling domain snapshots; per-chat state lives separately in SQLite `chat_states` via `infra/chatStateStorage.ts` and the Disk I/O Worker.
+    - `StateStore` in `infra/storage/statePersistence.ts` strictly decodes via `decodeGlobalStateFile` (`libs/stateFileCodec.ts`) and drives latest-only atomic file writes, bounded retry backoff (`STATE_SAVE_RETRY_DELAYS_MS`, `STATE_SAVE_MAX_ATTEMPTS`), and shutdown flushes.
+    - While a retry timer is pending, new writes awaiting durability and non-shutdown flushes leave the latest snapshot for that scheduled retry without firing early or spending extra attempts; a shutdown flush cancels the timer and writes immediately.
+    - Exhausting `STATE_SAVE_MAX_ATTEMPTS` is a fatal durability failure that stops the runner immediately before any further Telegram update offsets are acknowledged.
+  - **AI Worker**: Exclusively owns rolling group-chat memory, reply admission evaluation, multimodal media description pipelines, global mood state, and sticker catalog indexing.
+  - **Anti-Raid Worker**: Exclusively owns the join-verification and lockdown state machines and their timers; the main thread holds read-only crash-recovery mirrors.
+  - **Disk I/O Worker**: Exclusively owns SQLite (`database/storage.sqlite`), diagnostic/join logs, AI memory snapshots, sticker catalogs, fortune records, and pending-verification snapshots, serializing shared-directory I/O on one thread.
+    - Only `memory/global/` (`stateStore.ts` and `statePersistence.ts`) and `memory/mini-app-totp/totp.json` (`mini-app-api-server/auth/totpStorage.ts`) are written atomically by the main thread; business Workers never touch shared storage directories directly.
+  - **Long-lived container contracts**: Every persistent `Map`, `Set`, queue, and timer in `packages/cache/` documents its owner, population/eviction triggers, capacity bound, and Worker respawn reconstruction rule.
 
 - **Cache file ownership is declared by directory structure and verified statically**:
-  - The first-level subdirectory under `packages/cache/` defines the authoritative owner:
-    - `main/`: Main thread exclusive.
-    - `workers/aiChat/`, `workers/antiRaid/`, `workers/diskIO/`: Respective Worker thread exclusive.
-    - `perThread/`: Independent instance per thread (Telegram capability holders, Worker duplex waiters, deployment config singletons, self-sent message tracking, update cancellation contexts).
-  - Every cache file must begin with `/** owner: <main|perThread|workers/<thread>>。`, matching its parent directory.
-  - Threads communicate solely via IPC messages. `bun run check:conventions` scans runtime import closures from entry points (`index.ts` and each `*Worker.ts`), failing the build and printing the full import chain on any cross-thread violation.
-  - **Exemption registry**: cross-thread imports may only be registered in `CACHE_OWNER_EXEMPTIONS`, which is currently empty. `infra/logger.ts` does not statically import `infra/diskIO.ts`: main-thread error logs reach the disk thread through `logRelaySink` in `cache/perThread/logger.ts` (`initDiskIO` installs `relayLogMessage` there), and Worker-thread error logs are forwarded to the main thread in batches and relayed from there.
+  - The top-level subdirectory under `packages/cache/` declares the sole thread owner:
+    - `main/`: Main thread only.
+    - `workers/aiChat/`, `workers/antiRaid/`, `workers/diskIO/`: Respective Worker thread only.
+    - `perThread/`: Independent per-isolate instance (Telegram capability holders, Worker duplex waiters, deployment config singletons, self-sent message table, update cancellation scopes).
+  - Every cache module starts with `/** owner: <main|perThread|workers/<thread>>。` matching its directory.
+  - Threads share zero mutable memory and communicate strictly by IPC messages. `bun run check:conventions` walks runtime import closures from `index.ts` and each `*Worker.ts`, failing with the full import chain on any cross-owner import.
+  - **Exemption registry**: Cross-owner exemptions must be listed in `CACHE_OWNER_EXEMPTIONS` (currently empty). `infra/logger.ts` avoids importing `infra/diskIO.ts` by routing main-thread error logs through `logRelaySink` in `cache/perThread/logger.ts` (wired to `relayLogMessage` by `initDiskIO`), while Worker error logs batch-forward to the main thread first.
 
 - **Workers requiring main-thread state receive pre-evaluated final values**:
-  - For example, the super-admin user ID is passed to the AI Worker in its `init` message; the AI Worker never imports `config/bot.ts`.
-  - Telegram actions transmit allowlisted minimal payloads to the main thread for execution rather than mirroring Bot tokens, clients, or outbound queues.
-  - High-frequency message processing never uses duplex request/reply round-trips; duplex waiting is reserved for operations that naturally require remote results.
+  - Workers receive resolved scalar/snapshot payloads (for example `SUPER_ADMIN_USER_ID` arrives in the AI Worker's `init` payload rather than importing `config/bot.ts`).
+  - Worker Telegram actions send minimal allowlisted payloads to the main thread instead of mirroring Bot tokens, HTTP clients, or rate-limit queues.
+  - High-frequency per-message paths never perform duplex request/reply round-trips; duplex awaits are reserved for actions that inherently depend on a remote result.
 
 - **IPC failure handling and two-hop log forwarding**:
-  - Business Workers and the Disk I/O host treat synchronous `postMessage` rejections as explicit failures: request dispatches clear waiters/timers immediately, while critical dispatches trigger fatal shutdowns.
-  - **Accepted error logs use a two-hop ACK mechanism**:
-    1. First hop: Business Worker → Main thread (up to `LOGGER_FORWARD_BATCH_MAX_MESSAGES` in flight).
-    2. Second hop: Main thread → Disk I/O Worker (up to `DISK_DIAGNOSTIC_BATCH_MAX_MESSAGES` in flight).
-    - Producers retain batches until receiving downstream ACKs; Worker respawns replay unacknowledged batches. The main thread ACKs only after the log file has flushed to disk; disk write failures initiate exponential reopen backoff that new logs cannot bypass.
-  - **Flow control and backpressure**:
-    - Business Workers limit pending plus in-flight logs to `LOGGER_FORWARD_MAX_PENDING_MESSAGES` messages and `LOGGER_FORWARD_MAX_SERIALIZED_BYTES` bytes per thread.
-    - Main to Disk I/O bounds are `DISK_DIAGNOSTIC_MAX_PENDING_MESSAGES` messages and `DISK_DIAGNOSTIC_MAX_SERIALIZED_BYTES` bytes.
-    - Excess logs increment dropped message and byte counters instead of staying in memory, emitting summaries once capacity recovers. Worker error logs also mirror to stderr.
+  - Synchronous `postMessage` failures are handled explicitly: duplex callers clear timers and reject waiters immediately, while critical control/persistence dispatches trigger fatal shutdown.
+  - **Two-hop error-log ACK pipeline**:
+    1. Hop 1: Business Worker → Main thread (at most `LOGGER_FORWARD_BATCH_MAX_MESSAGES` in flight).
+    2. Hop 2: Main thread → Disk I/O Worker (at most `DISK_DIAGNOSTIC_BATCH_MAX_MESSAGES` in flight).
+    - Each hop retains its batch until downstream ACK arrives and replays unacknowledged batches across Worker respawns. Disk I/O ACKs only after the log write flushes to disk; disk open/write failures enter exponential reopen backoff that new batches cannot bypass.
+  - **Bounded backpressure and drop summaries**:
+    - Per-Worker pending + in-flight buffers cap at `LOGGER_FORWARD_MAX_PENDING_MESSAGES` messages and `LOGGER_FORWARD_MAX_SERIALIZED_BYTES` bytes; Main → Disk I/O caps at `DISK_DIAGNOSTIC_MAX_PENDING_MESSAGES` messages and `DISK_DIAGNOSTIC_MAX_SERIALIZED_BYTES` bytes.
+    - Overflowing logs are dropped immediately while incrementing dropped-message and dropped-byte counters, emitting a single summary line once buffer space recovers. Worker error logs also write directly to `stderr`.
 
 - **Concurrent batch processing principles**:
-  - Never use raw `Promise.all` for concurrent batch processing.
-  - Independent fixed tasks must use `Promise.allSettled`, awaiting all results and aggregating errors individually.
-  - Dynamic task arrays must pass through `runBoundedSettledBatch` to constrain worker concurrency, executing each item once and preserving original item/index mappings.
-  - When underlying layers (such as the Telegram outbound gateway) provide built-in retries, callers must not add redundant outer retries around side-effecting operations.
-  - Drain operations waiting on registered tasks may execute `allSettled` directly on task snapshots, provided tasks manage their own error handling without swallowing unhandled rejections.
+  - Production code avoids raw `Promise.all` for batch execution.
+  - Fixed independent task sets use `Promise.allSettled` and inspect every settled outcome individually.
+  - Variable-length inputs run through `runBoundedSettledBatch` with an explicit concurrency cap, executing each element once and preserving input index order.
+  - Callers do not wrap side-effecting calls in outer retry loops when the underlying layer (such as the Telegram outbound gateway) already owns retry/backoff semantics.
+  - Shutdown drainers may `Promise.allSettled` over registered task snapshots directly when each tracked task handles its own errors without leaking unhandled rejections.
 
 - **Disk I/O runtime recovery handshake**:
-  - Recovery is an indivisible handshake: after loading data, domains replay state via generation-scoped transport in registration order and await asynchronous logic. The host then drains the recovery-window business FIFO before exposing writable status.
-  - Mirror replay is bracketed by `storageFlushHold` open/close markers: automatic batch and timed commits queue on timers and cross-row aggregate checks for chat states (managed-chat limit and proxy-send uniqueness) and chat QA (per-chat capacity) are deferred while open, then verified when closed. A domain that fails verification discards its held writes (an invalid aggregate state is never committed) and reports `recoveryReplayFailed`, which makes the main thread stop fatally; the remaining domains commit in a single transaction. Explicit flushes bypass the hold.
-  - Any listener returning `false`, throwing, rejecting, timing out, or encountering message post failures immediately terminates the current generation and triggers a fatal shutdown. Stale callbacks never mutate new instances.
-  - Callers requiring durability must treat `false` as failure and refuse to acknowledge updates.
-  - FIFO draining is bracketed by `recoveryReplay` markers (`RecoveryReplayRequest`): rejections during this phase reply with `recoveryReplayFailed`, triggering a unified fatal shutdown so Telegram redelivers from the last durable checkpoint.
+  - **Indivisible generation-scoped sequence**: After opening storage, a respawned Disk I/O Worker replays main-thread mirrors in registration order over generation-scoped transport (`await`ing async replay handlers), then drains the recovery-window business FIFO before marking the Worker writable.
+  - **Hold-and-verify bracket (`storageFlushHold`)**:
+    - Mirror replay runs between `storageFlushHold` open and close markers. While open, automatic batch/timer SQLite commits queue on timers, AI memory context deletions and first post-purge snapshots wait on hold, and cross-row aggregate invariants for `chat_states` (`STATE_MANAGED_CHAT_LIMIT` and `/send` target uniqueness) and `chat_qa` (per-chat entry cap) defer until close.
+    - On close, waiting AI memory purges/snapshots flush immediately and deferred aggregate invariants are verified: any domain failing verification discards its held writes without committing invalid state and reports `recoveryReplayFailed` (triggering fatal main-thread shutdown), while valid domains commit in one transaction. Explicit shutdown flushes bypass the hold.
+  - **Strict failure propagation**: Any replay listener returning `false`, throwing, rejecting, timing out, or hitting `postMessage` failure aborts that Worker generation and triggers fatal shutdown; stale generation callbacks are ignored. Callers that require durability treat `false` as failure and withhold update acknowledgement.
+  - **Recovery FIFO vs steady-state write errors (`recoveryReplay`)**: Normal online SQLite write failures surface domain errors and only turn fatal after exhausting `STORAGE_WRITE_MAX_FAILURES` retries, whereas any rejection inside the `recoveryReplay` (`RecoveryReplayRequest`) bracket immediately returns `recoveryReplayFailed` and triggers fatal shutdown so Telegram redelivers from the last durable offset.
 
 - **Bounded Main-to-Disk-I/O business transport**:
-  - Queued and in-flight business payloads are bounded by `DEFAULT_MAX_PENDING_BUSINESS_MESSAGES` messages and `DISK_BUSINESS_MAX_RETAINED_BYTES` bytes, with `DISK_OPERATION_CONTROL_RESERVE` dedicated control slots.
-  - Batches transmit at most `DISK_BUSINESS_BATCH_MAX_MESSAGES` messages with only one batch in flight at a time. The Worker serial queue holds at most `DISK_WORKER_MAX_QUEUED_OPERATIONS` operations.
-  - Batch ACKs release transport capacity; domain ACKs confirm persistence durability. Missing batch ACKs after `DISK_BUSINESS_ACK_TIMEOUT_MS` trigger fatal shutdowns.
-  - Worker respawns preserve the business FIFO; recovery suppresses writes superseded by mirrors using revisions and object markers.
+  - Queued plus in-flight business messages are capped at `DEFAULT_MAX_PENDING_BUSINESS_MESSAGES` and `DISK_BUSINESS_MAX_RETAINED_BYTES`, reserving `DISK_OPERATION_CONTROL_RESERVE` slots for control/flush commands.
+  - At most one batch of up to `DISK_BUSINESS_BATCH_MAX_MESSAGES` messages is in flight at a time, and the Worker's internal serial queue caps at `DISK_WORKER_MAX_QUEUED_OPERATIONS`.
+  - Transport batch ACKs release queue budget, while domain revision ACKs confirm durable commits; missing a batch ACK within `DISK_BUSINESS_ACK_TIMEOUT_MS` triggers fatal shutdown. Inside `packages/workers/diskIO/`, timed SQLite batch flushes share `workers/diskIO/timedFlush.ts` (`armDiskIOFlushTimer`, which calls `unref()` on its timer, and `queueTimedDiskIOOperation`, which coalesces due flushes into one queued operation).
+  - Across Worker respawns, the business FIFO stays intact: mirrors suppress superseded queued writes via revision numbers and object markers, requests that failed before replay reject their waiters immediately, and replayed in-flight requests settle once the respawned Worker finishes them.
 
 - **Main thread unifies sending and cleanup of Worker notices**:
-  - AI rate-limit notices, lockdown releases, verification notices, and flood mute alerts automatically delete after `COMMAND_MESSAGE_AUTO_DELETE_MS`.
-  - Notice requests via `sendTemporaryMessageFromMain` share group notice cleanup lifetimes and forward optional `replyToMessageId` anchors.
-  - Deletion timers are registered in the successful send's `onSent` callback before returning message IDs to Workers; failures log via standard Telegram error logs and timers use `unref()`.
-  - Verification buttons and `/qa set` forms remain state-machine-owned; inline fortunes use the native inline API.
+  - AI rate-limit notices, lockdown-release notices, verification notices, and flood-mute announcements all auto-delete after `COMMAND_MESSAGE_AUTO_DELETE_MS`.
+  - Workers send these notices exclusively through `sendTemporaryMessageFromMain`, inheriting group notice lifetime rules and optional `replyToMessageId` anchors.
+  - The 30-second deletion timer (`unref()`ed) is armed inside the send's `onSent` hook before returning the `messageId` to the Worker, and deletion errors route through standard Telegram error logging.
+  - Interactive verification prompts and `/qa set` forms stay state-machine-owned, and inline fortunes are answered directly via `answerInlineQuery`.
 
 - **Ingress rate-limiting for other bots**:
-  - `app/registerHandlers.ts` invokes `shouldPassBotMessage` (`infra/botMessageGate.ts`) before dispatching business logic.
-  - Filters messages where `message.from.is_bot === true` without a channel sender. Channel personas, non-message updates, and the bot itself are bypassed without tracking.
-  - Messages from a `/delete_message` target in the chat are checked before counting: they pass without being counted or extending the timeout, and the preamble's deletion ingress handles them.
-  - Other bot messages are counted globally across chats: the first `BOT_MESSAGE_ACTIVITY_LIMIT` messages pass normally, while subsequent messages are silently dropped.
-  - Each message extends the bot record's timeout to `BOT_MESSAGE_ACTIVITY_TTL_MS`. The map holds at most `BOT_MESSAGE_ACTIVITY_MAX_ENTRIES` bot IDs; at capacity, new IDs are rejected without timers.
+  - `app/registerHandlers.ts` runs `shouldPassBotMessage` (`infra/botMessageGate.ts`) at update entry before entering preamble business steps.
+  - Only messages with `message.from.is_bot === true` and no `sender_chat` are counted; channel personas, non-message updates, and messages from this bot itself pass straight through untracked.
+  - Messages sent by a configured `/delete_message` target in that chat are checked before counting: they bypass the counter without extending TTL so the preamble's `/delete_message` ingress can enqueue their deletion.
+  - All other bot senders share a global sliding activity map (`BOT_MESSAGE_ACTIVITY_MAX_ENTRIES`): the first `BOT_MESSAGE_ACTIVITY_LIMIT` messages pass and refresh the sender's `BOT_MESSAGE_ACTIVITY_TTL_MS` expiry, while subsequent messages are dropped silently (and new bot IDs arriving when the map is full are dropped without allocating timers).
 
-- **Update dispatch chain and gateway design**:
-  - **Command gateway aggregation**: Slash commands reside in a child Composer behind a shared `:entities:bot_command` filter rather than mounting flatly on the root bot instance. Messages without command entities bypass command matching instantly.
-  - **Single preamble registration**: The whole update chain is registered through one `bot.use` in `app/registerHandlers.ts`. That layer records the update ID and applies the bot-message limit, then enters the continuation chain in `app/updatePreamble.ts`: luck receipt → init gate → group migration → identity prefetch → private relay → the four claiming ingresses (Anti-Raid, `/delete_message` targets, gag, `/qa set`) → command gate → CJK action command gate → message fallback → non-message update router. Each step calls the next one synchronously in a fixed order and returns a Promise only when it actually hits I/O. The chat state (`getChatState`) is read once at the init gate and passed as the `chatState` argument along the synchronous continuations to the init gate, `/wed` member observation, the Anti-Raid and `/delete_message` target ingresses, and the message pipeline; every Promise resume point (identity prefetch, claiming ingresses, the `next` of the command and CJK action `Composer`s, the self-sent message wait) re-reads the current value instead of reusing the object from before the wait, because turning `/init` off or tearing the chat down during the wait deletes or replaces the cache entry. New preamble steps must be inserted into this continuation chain, never as another `bot.use` or `bot.on`. Slash commands, CJK action commands, and non-message updates are handled by three grammY `Composer`s that the preamble calls at their positions, calling the outer `next` exactly once when nothing claims the update. `test/app/registerHandlers.test.ts` asserts a single `bot.use` and no direct `bot.on`, and the `registered-middleware` hot-path gate scenario covers the whole chain.
-  - **Synchronous vs Promise contracts**: Ingress boundaries and bot-admin checks return `boolean | Promise<boolean>`. Steady-state checks return synchronous booleans; only on-demand permission queries, deletions, or durable posts return Promises. The `/delete_message` target ingress only enqueues and never awaits the deletion, so it always returns a synchronous boolean. The continuation functions in `app/updatePreamble.ts` decide on message ingress results in place: a boolean decides at once whether to enter the next step, and a Promise is awaited before deciding; button callback claims go through `claimOrContinue` in `app/registerHandlers.ts`. The `/wed` and `/qa query` pagination handlers on `callback_query:data` use the same return type: a prefix miss returns `false` synchronously. `dispatchCallbackQuery` is not `async`. When both miss synchronously it calls `next()` directly, and it waits only when one of them returns a Promise before deciding whether to continue into join verification.
-  - Entries awaiting persistence (join/leave service messages, verification buttons) must return Promises to prevent Telegram from acknowledging updates before data is safely flushed.
+- **Update dispatch chain and gateway design** (`app/registerHandlers.ts`, `app/updatePreamble.ts`):
+  - **Command gateway aggregation**: Slash commands mount on a child `Composer` behind a shared `:entities:bot_command` filter rather than flatly on `bot`, so plain chat messages skip command regex matching in O(1).
+  - **Single `bot.use` preamble continuation chain**:
+    - `app/registerHandlers.ts` registers exactly one `bot.use` (and zero root `bot.on` handlers, enforced by `test/app/registerHandlers.test.ts` and benchmarked by the `registered-middleware` hot-path gate).
+    - After recording `update_id` and checking `shouldPassBotMessage`, execution enters the ordered continuation chain in `app/updatePreamble.ts`:
+      1. Fortune inline receipt → `/init` & private-mode gate (uninitialized chats only strip departing `/wed` members) → supergroup migration teardown (`migrate_to_chat_id`) → `/wed` member observation → batch identity prefetch → Mini App `users_shared`/`chat_shared` picker receipt & private `/send` relay.
+      2. Four claiming message ingresses in order: Anti-Raid → `/delete_message` targets → gag → `/qa set`.
+      3. Slash-command `Composer` → CJK action-command `Composer` → regular message pipeline → non-message update `Composer` (calling the outer `next` at most once when unclaimed).
+    - **Chat-state read discipline**:
+      - `getChatState` is read once at the `/init` gate and threaded synchronously into `/wed` member observation, Anti-Raid ingress, `/delete_message` ingress, and the message pipeline.
+      - Every `Promise` resumption point (identity prefetch, async claiming ingresses, command/CJK `Composer` `next`, and self-sent rendezvous wait) re-reads `getChatState` from the cache so concurrent `/init disable` or chat teardown is observed immediately. New preamble stages must be added inside this continuation chain, never as an extra `bot.use` or `bot.on`.
+  - **Synchronous vs `Promise` return contracts**:
+    - Ingress gates and bot-admin checks return `boolean | Promise<boolean>`: steady-state checks return synchronous booleans, allocating a `Promise` only when performing on-demand permission probes, message deletions, or durable Disk I/O writes (`/delete_message` target ingress only enqueues and always returns `boolean`).
+    - Preamble continuations branch synchronously on `boolean` returns and `await` only when handed a `Promise`.
+    - Callback queries (`callback_query:data`) follow the same contract via `claimOrContinue` and non-`async` `dispatchCallbackQuery`: `/wed` and `/qa query` prefix misses return `false` synchronously, calling `next()` into join verification without allocating a `Promise` unless a handler matches.
+    - Handlers whose durability gates update acknowledgement (join/leave service events, verification button presses) always return a `Promise` that settles after persistence completes.
+  - **Unified message ingress predicate**: Because `TELEGRAM_ALLOWED_UPDATES` omits `edited_message` and `edited_channel_post`, `ctx.msg` inside message continuations is strictly `ctx.message ?? ctx.channelPost`. The CJK action gate checks for a leading `'/'` character before testing `CJK_ACTION_COMMAND_PATTERN`.
 
 - **Worker-owned timers must call `unref()`**:
-  - All timers inside `packages/workers/` must be `unref()`ed so they do not hold isolate event loops open; graceful shutdown is driven by internal drain/flush routines followed by main-thread termination.
-  - Verified across `packages/workers/` by `bun run check:conventions`.
+  - Timer handles owned inside `packages/workers/` must never hold a Worker isolate's event loop open on their own; ordered shutdown completes internal drain/flush phases first and then terminates the Worker from the main thread.
+  - Short-lived wait timers in shared libraries (`libs/sleep.ts` signal branch and `libs/drainWaiter.ts`) are explicitly cleared by caller `abort` or `clearTimeout` and therefore do not call `unref()`.
+  - `bun run check:conventions` (`scripts/conventions/workerTimers.ts`) statically inspects every `setTimeout` and `setInterval` in `packages/workers/`: each call must assign its handle to a variable or property and call `<target>.unref()` in the same function scope before any subsequent write to that target (unassigned calls such as `return setTimeout(...)` are rejected; main-thread code is exempt).
 
 ### State-Machine Contracts
 
 - **Decoupled state machines and pure transitions**:
-  - State machine types (`State / Event / Effect / Transition / Decision`) reside in `packages/types/states/`.
-  - `packages/states/` contains pure transition functions with zero I/O operations; interpreters and caches depend directly on these types.
-  - Both direct and indirect runtime dependencies must stay within `consts`, `libs`, `types`, and `states`: direct imports are checked one by one, and modules reached further through direct dependencies are traced along the actual import graph (`scripts/conventions/moduleBoundaries.ts`). Day-index arithmetic in `libs/time.ts` reads the thread's startup time-zone snapshot through `config/time.ts`; that module is the only registered exception, allowed without being expanded further (`STATES_CLOSURE_OPAQUE_MODULES`).
+  - State-machine types (`State`, `Event`, `Effect`, `Transition`, `Decision`) live in `packages/types/states/`.
+  - `packages/states/` contains pure deterministic functions with zero I/O; runtime interpreters and caches depend upward on these types.
+  - Both direct imports and transitive runtime imports from `packages/states/` are restricted to `consts`, `libs`, `types`, and `states` via full import-graph tracing in `scripts/conventions/moduleBoundaries.ts`. Day-index math in `libs/time.ts` reads the per-thread startup time-zone snapshot through `config/time.ts`, which is the sole opaque boundary exemption (`STATES_CLOSURE_OPAQUE_MODULES`).
   - **Three structural models**:
-    - **Discrete state machines**: For domains with persistent lifecycle states (like `verification` and `lockdown`), using `transition(state, event) → {next, effects}`.
-    - **Pure rule functions**: For stateless evaluations (like `replyAdmission` and `adDetectAdmission`), taking computed inputs and returning decisions without internal timers.
-    - **Single-record reducers**: For one record advanced by call results or time while containers and write-back stay outside (like `reduceMediaInputResult(current, event) → {next, effects}` in `mediaInputSupport` and `advanceTemporaryAdBypassActivity(current, now) → next` in `temporaryAdBypass`). An unchanged state returns the input object itself, so callers skip the table replacement or write-back by reference equality.
+    - **Discrete state machines**: Domains with durable multi-phase lifecycles (`verification`, `lockdown`), modeled as `transition(state, event) → { next, effects }`.
+    - **Pure rule functions**: Stateless single-shot gates (`replyAdmission`, `adDetectAdmission`) that map pre-computed inputs to a decision without internal timers.
+    - **Single-record reducers**: Single-entry state advanced by call outcomes or timestamps while container storage and write-back stay outside—`reduceMediaInputResult(current, event) → { next, effects }` (`mediaInputSupport`), `advanceTemporaryAdBypassActivity(current, now) → next` (`temporaryAdBypass`), and `commitReferencedAdWarning` / `cancelsReferencedAdWarning` / `referencedAdWarningWindow` (`adReferenceWarning`). No-op transitions return the exact input reference so callers skip map writes via `===`.
 
 - **Lockdown default chat permission updates must set independent flags**:
   - Every read-modify-write of group default permissions passes `use_independent_chat_permissions: true`.
-  - Entering lockdown, expiration restoration, late-receipt corrections, and emergency restorations use `packages/workers/antiRaid/lockdownApi.ts` and `packages/infra/telegram/lockdownPermissions.ts`.
-  - Both re-fetch `getChat().permissions`, modify only `can_invite_users`, and return all other permissions and unknown fields unchanged to Telegram.
+  - Lockdown entry, scheduled expiry restoration, late-receipt repair, and emergency `/antiraid disable` restoration all go through `packages/workers/antiRaid/lockdownApi.ts` and `packages/infra/telegram/lockdownPermissions.ts`.
+  - Both helpers fetch fresh `getChat().permissions`, toggle only `can_invite_users`, and forward all other permission bits and unknown fields unchanged.
 
 - **Lockdown announcements bound to round lifecycle**:
-  - Announcement state is tracked in `LockdownState.announced` and `announcementMessageId`.
-  - Enters the per-chat serial queue before permission queries. Obsolete round notices are discarded; sent notices are deleted by ID on restoration without interfering with new rounds.
-  - `onSent` registers the remote ID before propagating cancellation. Current-round announcement IDs persist and are deleted after permission restoration; deletion errors log without halting recovery.
+  - `LockdownState.announced` and `announcementMessageId` track announcement state per round (`lockdownRuntime.ts`, `lockdownApi.ts`).
+  - Announcement sends enter the per-chat serial queue ahead of permission queries; stale-round sends abort before dispatch, and restoration deletes only that round's recorded `announcementMessageId`.
+  - `onSent` records the remote `messageId` before propagating any cancellation. If active-state persistence (`persistState`) or permission restoration fails after the announcement was sent, the group announcement stays visible until restoration succeeds; deletion failures after successful restoration log an error without blocking recovery.
 
 - **Unlock announcements require active lockdown announcements**:
-  - Unlock notices are sent only if the round actually announced the lockdown (`announced === true`).
-  - The unlock notice text follows why restoration started: expiry of the round uses `lockdownEnded` (with the lockdown minutes); restoring before expiry (manual lift, uncertain commit result, persistence failure) uses `lockdownLifted`. The reason lives only in memory: adopting a persisted `RESTORING` counts as restoring before expiry, and lifting during an expiry restoration keeps the expiry notice.
-  - Rounds transitioning through `APPLYING → ACTIVE → RESTORING → RECONCILING` preserve announcement state; threshold events during `RESTORING` retain restore intent and do not start new rounds.
-  - Worker respawns replay unannounced lockdowns if still active, skipping announcements in `RESTORING`. Restoration completion emits `reportUnlock` for main-thread cleanup.
+  - An unlock notice is sent only when the round actually posted a lockdown announcement (`announced === true`).
+  - **Reason-dependent copy**: Scheduled round expiry sends `lockdownEnded` (including the lockdown duration in minutes), whereas pre-expiry restoration (manual `/antiraid disable`, uncertain commit outcome, or persistence failure) sends `lockdownLifted`. Because the reason is held in memory only, adopting a persisted `RESTORING` record uses `lockdownLifted`, while a manual lift arriving during an already-running expiry restoration keeps `lockdownEnded`.
+  - Announcement metadata carries across `APPLYING → ACTIVE → RESTORING → RECONCILING`; join-threshold spikes arriving during `RESTORING` keep the restore intent rather than starting an overlapping round.
+  - Worker respawns send the lockdown announcement only if the adopted state is still active and unannounced (never in `RESTORING`). Completing restoration emits `reportUnlock` for main-thread cleanup and starts a `LOCKDOWN_RETRIGGER_COOLDOWN_MS` cooldown window (skipped on `abandonLockdown` or manual `/antiraid disable`).
 
 - **Lockdown expiration and recovery progression**:
-  - Entering `ACTIVE` locks the `LOCKDOWN_MS` deadline; subsequent joins do not reschedule it.
-  - Expiration persists restore intent, receives durable ACKs, and invokes the Telegram API.
-  - Failed restorations retry via `RESTORE_RETRY_MS`. Repeated permission denials (`RESTORE_PERMANENT_FAILURE_LOG_LIMIT`) double the retry interval up to `RESTORE_PERMANENT_RETRY_MAX_MS` while retaining records.
-  - The only exception is a chat that no longer exists (teardown reason `gone`): the main thread sends `deactivateChat` with `abandonLockdown: true`, and the Worker dispatches the `chatGone` state-machine event, which deletes the record from any phase, clears its timers, and only emits `reportUnlock` — no permission restore, no announcement deletion. On `unlock` the main thread clears `lockdown`; a chat state left with nothing else is deleted and its managed-chat slot is freed. The main thread never deletes the lockdown record directly, so an in-flight state report from the Worker cannot write it back.
-  - Restoration success clears the group join window; announcement deletion failures log without blocking subsequent rounds.
+  - Entering `ACTIVE` fixes `expiresAt` (`LOCKDOWN_MS`); subsequent joins do not extend the deadline.
+  - Expiry transitions to `RESTORING`, persists the restore intent (`persistState`), awaits its durable ACK, and calls Telegram to restore `can_invite_users`.
+  - Failed restorations retry every `RESTORE_RETRY_MS`. Repeated permission denials (`RESTORE_PERMANENT_FAILURE_LOG_LIMIT`) double the interval up to `RESTORE_PERMANENT_RETRY_MAX_MS` while retaining the record; Worker shutdown aborts (`AbortSignal`) do not increment the permanent-failure counter.
+  - **Gone-chat exception (`chatGone`)**:
+    - When a chat is confirmed non-existent (teardown reason `gone`), the main thread sends `deactivateChat` with `abandonLockdown: true`, and the Worker dispatches `chatGone`—dropping the record from any phase, clearing timers, and emitting `reportUnlock` without calling Telegram to restore permissions or delete announcements.
+    - On `unlock`, the main thread clears `ChatState.lockdown` (and deletes the `ChatState` row, freeing its managed-chat slot, if no other state remains) rather than deleting `lockdown` directly while a Worker report could still be in flight.
+  - Successful restoration clears the chat's sliding join window; announcement deletion errors log without blocking future rounds.
 
 - **Schema normalization for persisted permissions**:
-  - Persisted permissions are normalized via `normalizeChatPermissions` to contain only known schema fields.
-  - Restoration reads only `can_invite_users`, overriding it against freshly queried live permissions rather than overwriting other group permissions with persisted copies.
+  - Persisted `originalPermissions` pass through `normalizeChatPermissions` so only known schema fields are stored.
+  - Restoration reads only `originalPermissions.can_invite_users` and applies it onto freshly queried `getChat().permissions`, leaving all other live group permissions intact.
 
-- **Fail-safe compensation on persistence failure**:
-  - If lockdown persistence fails (`persistFailed`), the system retains recovery responsibility for potentially active restrictions.
-  - In `APPLYING`, dispatched commits transition to `RESTORING` for compensatory restoration.
-  - `ACTIVE` or `RECONCILING` failures publish restore intents and attempt immediate restoration.
+- **Fail-safe compensation on persistence failure (`persistFailed`)**:
+  - **Uncommitted `APPLYING`**: If persistence fails before `commitApply` has tightened permissions, the round aborts cleanly and emits `reportUnlock`.
+  - **Dispatched `APPLYING`, `ACTIVE`, or `RECONCILING`**: Transitions immediately to `RESTORING`, persists the restore intent (`persistState`), and restores `can_invite_users` on Telegram so tightened group permissions are never stranded.
+  - **`RESTORING` or `reportUnlock` failure**: `RESTORING` proceeds with Telegram restoration without re-emitting a duplicate persist request even when its own `persistState` write fails; if the final `reportUnlock` persistence fails, the Worker retries `reportUnlock` every `RESTORE_RETRY_MS` until acknowledged.
 
 - **Pre-mutation persistence assertions**:
-  - Worker lockdown records must pass `assertPersistableLockdown` before updating in-memory `ChatState`.
-  - Validates data feasibility before mutating memory, never deferring checks to `encodeChatStateData`.
+  - Every Worker lockdown snapshot must pass `assertPersistableLockdown` (`{ phase, intentId, originalPermissions, announced, announcementMessageId?, expiresAt }`, requiring a finite integer `expiresAt` in `ACTIVE`, forbidding it in `APPLYING`/`RESTORING`, and allowing an optional finite integer in `RECONCILING`) before mutating main-thread `ChatState`, rather than deferring validation to `encodeChatStateData`.
 
 - **Single dispatch per applying intent**:
-  - `commitApply` is dispatched only once per intent (`commitStarted` flag).
-  - Validates round entry, phase, and intent before query execution and before applying results. Cancelled tasks never tighten group permissions.
+  - Each `APPLYING` intent dispatches `commitApply` at most once (`commitStarted` guard) and re-verifies round entry, phase, and `intentId` both before `getChat` and before `setChatPermissions`; cancelled tasks never tighten group permissions.
 
 ### AI Chat Runtime
 
 - **Tokyo weather refresh**:
-  - Weather data refresh is exclusively owned by the AI Worker.
-  - Starts only upon receiving an `init` message where the configured time zone strictly equals `TOKYO_TIME_ZONE` (matching the mounting requirement for `get_tokyo_weather`).
-  - For other time zones, no weather HTTP requests are sent and mood selection receives no weather weighting.
-  - Stopping clears refresh intervals, cancels pending HTTP requests, and revokes cache update permissions. Worker reconstruction accepts only results from the new cycle. HTTP requests strictly observe caller cancellation signals, timeouts, and response body size limits.
+  - Owned exclusively by the AI Worker and started only when `init` delivers `timeZone === TOKYO_TIME_ZONE` (matching the `get_tokyo_weather` tool mount condition).
+  - Under any other startup time zone, zero weather HTTP requests are made and daily mood selection applies no weather weighting.
+  - Stopping clears the refresh interval, aborts in-flight HTTP fetches, and revokes cache-write permission; a rebuilt Worker accepts results from the new generation only, and every fetch enforces caller `AbortSignal`, timeout, and response-body byte caps.
 
 - **Global mood management (`/mood query` and `/mood switch`)**:
-  - Both commands use a main-thread request/waiter handshake with AI Worker acknowledgements:
-    - `/mood query`: Any group member can inspect the active global mood without triggering a reroll.
-    - `/mood switch`: Verifies that the invoker holds `isCanSwitchMood` permissions before triggering a reroll.
-  - The main thread registers waiters before dispatch, settling them uniformly on timeout, Worker crashes, abandoned restarts, or process shutdowns. Requests carry absolute deadlines, and the AI Worker drops expired queued requests before processing.
-  - Only ACKs where request ID and expected event type match (`moodQueried` / `moodSwitched`) confirm results; subsequent group message delivery failures must never retroactively mark queries or switches as failed.
-  - Mood state is global and shared across all chats in the AI Worker; requests and ACKs omit `chat_id`. A reroll from any group applies globally; `/clear_context`, `/ai_chat disable`, chat teardowns, and memory evictions never affect global mood.
+  - Both commands run a main-thread waiter handshake acknowledged by the AI Worker:
+    - `/mood query`: Any group member may inspect the active global mood without rerolling.
+    - `/mood switch`: Requires `isCanSwitchMood` permission and triggers a global reroll.
+  - Waiters register before `postMessage` and settle uniformly on timeout, Worker crash, abandoned respawn, or shutdown; requests carry absolute monotonic deadlines so the AI Worker drops expired queued requests on arrival.
+  - Only an ACK matching both `requestId` and event type (`moodQueried` / `moodSwitched`) confirms completion; a subsequent Telegram reply failure never marks the mood query or switch itself as failed.
+  - Mood state is global across all managed chats (requests and ACKs carry no `chatId`); `/clear_context`, `/ai_chat disable`, chat teardown, and memory eviction leave global mood untouched.
 
 - **AI chat memory teardown and invalidation**:
   - **Teardown finalization survives timeouts**:
-    - The main thread tracks chats undergoing complete teardown via `pendingAiMemoryTeardowns`, awaiting durable deletion and matching `chatInvalidated` ACKs. Worker reconstructions, abandonments, or terminations settle old requests.
-    - Wait timeouts release only the main-thread waiter; late receipts continue finalization. If Worker `memoryDeleted` triggers another deletion, the system awaits that tombstone ACK.
-    - Re-enabling the chat or introducing new snapshots cancels old finalizations. Standard `/ai_chat disable` does not trigger complete teardown.
-    - Releasing chat counts and sending FIFO `forgetAiMemory` occurs only after confirming no new snapshots, initial persistence flags, tombstones, or waiters remain. A global revision floor prevents new lifecycles from reusing released revision numbers.
-    - Unfinished teardowns are capped at `STATE_MANAGED_CHAT_LIMIT`; exceeding this triggers storage fatal boundaries. Disk I/O reconstruction replays pending deletions from the main thread; process restarts do not recover pure in-memory state.
-  - **Invalidation cancellation boundary and Epoch isolation**:
-    - Each chat receives a unique `epoch` on its first generation-sensitive task, never reused within that isolate.
-    - Invalidation synchronously deletes the current epoch, aborts old generation tasks, and clears unstarted tasks, then awaits settlement of active reply rounds, rate-limit notices, media descriptions, and memory compactions before ACKing `chatInvalidated`.
-    - **Hard drain timeout**: `AI_CHAT_INVALIDATE_DRAIN_TIMEOUT_MS` (strictly less than the main thread's `AI_CHAT_INVALIDATE_TIMEOUT_MS`). Compaction and media description requests pass the generation's `AbortSignal`. The unref timer used for bounded waiting is cleared when all tasks settle. Timed-out tasks complete without mutating state due to generation checks.
-    - The main thread must await both `chatInvalidated` and durable memory deletion before declaring `/ai_chat disable` or `/clear_context` successful (both share `invalidateAiChat(chatId)` to clear memory and set `chat_states.ai_context` to NULL).
+    - Complete chat teardown registers in `pendingAiMemoryTeardowns` on the main thread until both durable SQLite/file deletion and matching `chatInvalidated` ACKs arrive (Worker respawns or shutdowns settle stale waiters).
+    - A waiter timeout releases only the caller's await; background finalization continues on late ACKs, and if a late Worker `memoryDeleted` triggers another tombstone write, teardown waits for that tombstone ACK as well.
+    - Re-enabling `/init` or writing a new memory snapshot cancels stale finalization; ordinary `/ai_chat disable` invalidates memory without running full chat teardown.
+    - Managed-chat count release and FIFO `forgetAiMemory` fire only when zero snapshots, initial-persist flags, tombstones, or waiters remain, guarded by a monotonic global revision floor.
+    - Unfinished teardowns cap at `STATE_MANAGED_CHAT_LIMIT` (overflow triggers a fatal storage shutdown). Disk I/O respawns replay pending deletions from the main thread; full process restarts do not replay pure in-memory teardowns.
+  - **Invalidation cancellation boundary and `epoch` isolation**:
+    - Each chat receives a monotonically increasing `epoch` on its first generation-sensitive task, never reused within that Worker isolate.
+    - Invalidation synchronously deletes the chat's active `epoch`, aborts in-flight tasks via `AbortSignal`, purges queued triggers, and waits up to `AI_CHAT_INVALIDATE_DRAIN_TIMEOUT_MS` (strictly below main-thread `AI_CHAT_INVALIDATE_TIMEOUT_MS`, using an `unref()`ed timer cleared on settlement) for active reply rounds, rate-limit notices, media descriptions, and compactions to settle before posting `chatInvalidated`. Any task outliving the drain budget cannot mutate state once its `epoch` is gone.
+    - `/ai_chat disable` and `/clear_context` both call `invalidateAiChat(chatId)` (clearing rolling memory and setting `chat_states.ai_context` to `NULL`) and report success only after both `chatInvalidated` and durable memory deletion settle.
 
 - **Clear context permissions**:
-  - `/clear_context` clears conversation memory based on the invoker's `isCanClearContext` permission. The super administrator is always authorized; new allowlist members default to false. Managed via `/permission`.
+  - `/clear_context` requires `isCanClearContext` (always `true` for `SUPER_ADMIN_USER_ID`, defaulting to `false` for newly added allowlist members and configurable via `/permission`).
 
 - **Model provider requests, timeouts, and retries**:
-  - Network transport, 429, and 5xx retries are owned solely by provider SDKs (Gemini `@google/genai` `retryOptions`, OpenAI and Anthropic `maxRetries`, with budgets `GEMINI_REQUEST_RETRY_ATTEMPTS`, `OPENAI_REQUEST_MAX_RETRIES`, `ANTHROPIC_REQUEST_MAX_RETRIES`).
-  - SDK timeouts govern individual attempts; lower wrappers (`aiChat/gemini/client.ts`, `openai/client.ts`, `anthropic/client.ts`) compose global deadlines across the entire call (including retries and backoff) using `signalWithTimeout`. Once expired, remaining retries short-circuit, strictly bounding hangs to `GEMINI_REQUEST_TIMEOUTS_MS` / `OPENAI_REQUEST_TIMEOUTS_MS` / `ANTHROPIC_REQUEST_TIMEOUTS_MS`.
-  - Invalidate signals compose with deadlines. When requests fail explicitly with `failureKind: "request"`, outer callers must not add redundant retry loops; resampling is allowed only on usable HTTP responses that yield malformed or abnormal model completions (`failureKind: "response"`) or empty text. Anthropic refusals return as `failureKind: "refused"` (text results carry `refused: true` and `retryable: false`) and are never resampled.
-  - An OpenAI Responses result whose `status` is `completed` counts as a refusal as soon as a message carries a `refusal` content part: it returns as `failureKind: "response"` with finish reason `refusal`.
-  - Unusable responses log the provider's finish-detail object alongside the client's `unusable response` line (Anthropic also logs the `model` that produced the response): Anthropic `stop_details`, Gemini candidate `finishMessage` and `safetyRatings` (`promptFeedback` when there is no candidate), OpenAI `error` and `refusal` text. `aiChat/ai/utils/finishDetails.ts` serializes the details as JSON truncated to `AI_FINISH_DETAILS_MAX_CHARS`, and its `diagnosticWithDetails` appends them after the finish reason as `, details=<JSON>`, omitting that part when there are no details; the same string travels through `AiReplyTurn.finishDetails` to the reply layer, whose `AI reply unusable response` log likewise appends it after `finish_reason` as `, details=<JSON>` through `diagnosticWithDetails`, omitting that part when the provider gave no details.
-  - `aiChat/openai/image.ts` applies `OPENAI_IMAGE_REQUEST_TIMEOUT_MS` across individual attempts and the entire image call.
+  - HTTP transport, 429, and 5xx retries belong solely to provider SDKs (`@google/genai` `retryOptions`, OpenAI and Anthropic `maxRetries`, bounded by `GEMINI_REQUEST_RETRY_ATTEMPTS`, `OPENAI_REQUEST_MAX_RETRIES`, and `ANTHROPIC_REQUEST_MAX_RETRIES`).
+  - SDK timeouts cap individual HTTP attempts, while `aiChat/gemini/client.ts`, `aiChat/openai/client.ts`, and `aiChat/anthropic/client.ts` wrap the entire call (retries + backoff included) in a `signalWithTimeout` deadline (`GEMINI_REQUEST_TIMEOUTS_MS`, `OPENAI_REQUEST_TIMEOUTS_MS`, `ANTHROPIC_REQUEST_TIMEOUTS_MS`; `OPENAI_IMAGE_REQUEST_TIMEOUT_MS` in `aiChat/openai/image.ts`).
+  - **Failure classification and resampling**:
+    - Chat invalidation `AbortSignal`s compose into request signals.
+    - Transport/HTTP failures (`failureKind: "request"`) are never retried again by outer callers; outer resampling runs only when a completed HTTP response yields a malformed/truncated completion (`failureKind: "response"`) or empty text.
+    - Anthropic refusals return `failureKind: "refused"` (`refused: true`, `retryable: false`) and are never resampled. OpenAI Responses payloads with `status === "completed"` containing any `refusal` content part return `failureKind: "response"` with finish reason `"refusal"`.
+  - **Structured finish-detail diagnostics** (`aiChat/ai/utils/finishDetails.ts`):
+    - Unusable responses log provider finish details next to the client's `unusable response` line (Anthropic also logs the response `model`): Anthropic `stop_details`, Gemini candidate `finishMessage` + `safetyRatings` (or `promptFeedback` when no candidate exists), and OpenAI `error` + `refusal`.
+    - `finishDetails.ts` JSON-serializes and truncates details to `AI_FINISH_DETAILS_MAX_CHARS`, and `diagnosticWithDetails` appends `, details=<JSON>` after the finish reason (omitting the suffix when empty); the same string propagates via `AiReplyTurn.finishDetails` to the reply-layer `AI reply unusable response` log.
 
 - **Model quota lanes and isolation**:
-  - AI requests bypass the Telegram outbound gateway and aggregate into quota lanes by provider, `base_url`, and API key (model names do not split lanes).
-  - Each lane permits up to `AI_PROVIDER_MAX_CONCURRENT` active requests and `AI_PROVIDER_MAX_PENDING` queued tasks (background tasks capped at `AI_PROVIDER_BACKGROUND_MAX_PENDING`). After `AI_PROVIDER_INTERACTIVE_BURST` consecutive interactive dispatches, at least one queued background task must be admitted if waiting.
-  - SDK retries retain original lane slots. Full queues return immediate explicit failures without unbounded caching of prompts or media.
-  - When the Telegram outbound queue reaches soft high-water marks (`AI_TELEGRAM_MESSAGE_ACTIVE_HIGH_WATER`, `AI_TELEGRAM_MESSAGE_RETRY_HIGH_WATER`) or encounters 429 backoff, random interjections pause and direct trigger concurrency drops to a single round per chat, without merging AI and Telegram queues.
+  - AI model calls bypass the Telegram outbound gateway and group into quota lanes keyed by `(provider, base_url, api_key)` (different model names under the same key share one lane).
+  - Each lane admits up to `AI_PROVIDER_MAX_CONCURRENT` active calls and `AI_PROVIDER_MAX_PENDING` queued calls (with background tasks capped at `AI_PROVIDER_BACKGROUND_MAX_PENDING`). After `AI_PROVIDER_INTERACTIVE_BURST` consecutive interactive dispatches, at least one waiting background task is scheduled next.
+  - In-SDK retries stay inside their acquired lane slot; full queues fail fast without buffering unbounded prompts or media in memory.
+  - When Telegram's outbound send queue hits `AI_TELEGRAM_MESSAGE_ACTIVE_HIGH_WATER`, `AI_TELEGRAM_MESSAGE_RETRY_HIGH_WATER`, or HTTP 429 backoff, random interjections pause and direct-trigger concurrency drops to 1 per chat while keeping AI and Telegram queues separate.
 
 - **Reply toolset and serial action chains**:
-  - **Synchronous admission and quota reservation**: Action tools validate parameters, claim cooldowns, and consume quotas synchronously during tool calls (`send_voice` reserves daily units, formalizing accounting only upon successful TTS synthesis). Validation failures return immediate errors.
-  - Accepted calls return `{"success": true, "queued": true, "actions_used": ...}` without Telegram message IDs; model execution proceeds without waiting for human-like pauses, audio synthesis, or network delivery.
+  - **Synchronous admission and immediate receipts**: Action tools validate arguments, claim cooldowns, and reserve quotas synchronously at call time (`send_voice` reserves a daily slot and settles accounting only if TTS synthesis succeeds). Accepted calls immediately return `{"success": true, "queued": true, "actions_used": ...}` without Telegram `message_id`s so model generation never blocks on typing delays, TTS synthesis, or Telegram network sends.
   - **Serial action chain (`actionChains.ts`)**:
-    - Each reply round maintains a single serial action chain, executing accepted actions in tool-call order.
-    - Text generation, typing pauses, voice synthesis, and Telegram queuing run sequentially within the chain.
-    - Ordered parallel rounds wait for delivery turns; direct rounds have no gate. Each step resets the chat status to idle upon completion.
-    - Background asynchronous voice synthesis does not block the action chain, appending to the end upon completion.
-    - Replies deliver in message ingress order; later rounds never interleave text, corrections, or captions into earlier rounds.
-  - **Chat action indicators (Heartbeats)**:
-    - Typing, choosing stickers, recording audio, and uploading photos are managed via `aiChat/ai/chatActionHeartbeat.ts`.
-    - Statuses switch only during active chain steps, not during tool invocation.
-    - Direct rounds use `createDirectPacing` to show "typing" during initial model generation; if the first action is `send_message` or `abuse_mark`, it sends immediately without extra typing pauses.
-    - Switching to idle initiates a `CHAT_ACTION_REST_MS` silence window, preventing repetitive heartbeats.
-    - Typo corrections pause silently for `TYPO_QUICK_CORRECTION_MIN_MS`–`TYPO_QUICK_CORRECTION_MAX_MS`, display "typing" for `TYPO_QUICK_CORRECTION_TYPING_MS`, then send the correction.
+    - Every reply round owns one FIFO action chain executing accepted actions in tool-call order (text formatting, typing delays, foreground voice wait, and Telegram enqueue).
+    - Ordered parallel rounds wait for their turn at the delivery gate, whereas direct-trigger rounds enter without waiting; each step resets the chat action indicator to idle when done.
+    - Reply rounds deliver in trigger arrival order so later rounds never interleave messages, typo corrections, or captions into an earlier round.
+  - **Chat action heartbeats (`aiChat/ai/chatActionHeartbeat.ts`)**:
+    - Statuses (`typing`, `choose_sticker`, `record_voice`, `upload_photo`) activate only while the active chain step runs, never at tool-call admission.
+    - Direct rounds run `createDirectPacing` to show `typing` during the initial model turn; if the first accepted tool is `send_message` or `abuse_mark`, it dispatches without an extra artificial pause.
+    - Returning to idle starts a `CHAT_ACTION_REST_MS` quiet window before another heartbeat is sent.
+    - Typo corrections wait silently for `TYPO_QUICK_CORRECTION_MIN_MS`–`TYPO_QUICK_CORRECTION_MAX_MS`, show `typing` for `TYPO_QUICK_CORRECTION_TYPING_MS`, and then send the `*correction`.
   - **Sticker pack viewing (`view_sticker_pack`)**:
-    - Returns current pack index, descriptions, and names synchronously, recording intent. Rounds view up to `MAX_STICKER_PACK_VIEWS_PER_REPLY` distinct packs (once each); subsequent `send_sticker` calls must reference viewed menus.
+    - Synchronously returns the pack's sticker indices, descriptions, and metadata, up to `MAX_STICKER_PACK_VIEWS_PER_REPLY` distinct packs per round (each viewed at most once); `send_sticker` accepts only stickers from packs viewed in that round.
   - **Abuse cooldown marking (`abuse_mark`)**:
-    - `user_id` must be a non-zero safe integer matching the current round's `triggerSenderId`, excluding the bot itself and `superAdmin`.
-    - Upon acceptance, synchronously runs `dropQueuedReplyTriggersForUser` to remove queued direct triggers from that user across all chats in `pendingReplyTriggers`, posts `abuseMark` to the main thread (`aiChat/abuseMark.ts` records the user in `abuseMarkedUsers` (`FifoMap`, capped at `ABUSE_MARK_MAX_USERS`) with a per-entry unref `setTimeout` of `ABUSE_MARK_DURATION_MS` without polling, intercepting that user's messages at the `auto/message` AI chat ingress), enqueues the atmosphere-matched `ABUSE_MARK_NOTICE_TEXT` on the serial action chain (retained in the group as a conversational AI reply and recorded into rolling memory), and immediately terminates the current model round in `runFunctionCalls` (skipping any remaining tool calls in the same response and any further tool round-trips).
+    - `user_id` must be a non-zero safe integer equal to the current round's `triggerSenderId`, and never the bot itself or `SUPER_ADMIN_USER_ID`.
+    - Once accepted, `abuse_mark` performs four steps atomically on the Worker side:
+      1. Runs `dropQueuedReplyTriggersForUser` to purge queued direct triggers from that user across all chats in `pendingReplyTriggers`.
+      2. Posts `abuseMark` to the main thread (`aiChat/abuseMark.ts` inserts the user into `abuseMarkedUsers`—a `FifoMap` capped at `ABUSE_MARK_MAX_USERS`—with a per-entry `unref()`ed `setTimeout` of `ABUSE_MARK_DURATION_MS` that intercepts their messages at the `auto/message` AI ingress).
+      3. Enqueues the atmosphere-matched `ABUSE_MARK_NOTICE_TEXT` onto the serial action chain (kept permanently in chat and recorded into rolling AI memory).
+      4. Immediately ends `runFunctionCalls` for the current round, skipping any remaining tool calls in that model turn and any further tool round-trips.
   - **Concurrency and delivery queues**:
-    - `activeReplyCounts` tracks in-flight rounds: up to `REPLY_ROUND_MAX_CONCURRENT` ordered parallel rounds per chat; direct rounds take an independent model slot; under Telegram backpressure, each chat converges to a single active round.
-    - `pendingReplyTriggers` holds up to `REPLY_TRIGGER_QUEUE_MAX` unstarted direct triggers per chat.
-    - `replyDelivery.ts` maintains FIFO delivery windows bounded by `REPLY_DELIVERY_MAX_PER_CHAT` per chat and `REPLY_DELIVERY_MAX_TOTAL` globally.
-    - Queue capacity limits drop random triggers and queue direct triggers, recording overflow notices when full; failed reservations do not consume rate quotas.
-    - Only messages confirmed sent by Telegram enter self-recorded memory.
+    - `activeReplyCounts` caps ordered parallel rounds at `REPLY_ROUND_MAX_CONCURRENT` per chat (direct triggers use an independent model slot; Telegram backpressure collapses concurrency to 1 per chat).
+    - `pendingReplyTriggers` buffers up to `REPLY_TRIGGER_QUEUE_MAX` unstarted direct triggers per chat; `replyDelivery.ts` caps FIFO delivery windows at `REPLY_DELIVERY_MAX_PER_CHAT` per chat and `REPLY_DELIVERY_MAX_TOTAL` globally.
+    - Full queues drop random triggers silently and record overflow notices for direct triggers without charging rate-limit quotas. Only messages confirmed sent by Telegram enter rolling self-recorded memory.
 
 - **Action budget caps and text deduplication**:
-  - Prompt recommends up to `AI_MAX_ACTIONS_PER_REPLY`; execution hard cap is `HARD_MAX_ACTIONS_PER_REPLY`. Tools counted against the budget are `ACTION_TOOL_NAMES` (including `abuse_mark`); the rejection returned at the cap lists each of them by name.
-  - Stickers, reactions, image generations, and voices may be accepted at most once per round.
-  - Fallback message: only when no actions were accepted does the model's final text fall back through `send_message`. All intentional text must come from explicit tool calls.
-  - **Two visible text outlets**: standalone messages via `send_message`, and image descriptions via `generate_image`'s `caption`.
-    - Captioned images count as one action. If a caption exceeds `TELEGRAM_CAPTION_MAX_CHARS`, execution degrades to "photo without caption + standalone text message" (reserving `IMAGE_SEPARATE_CAPTION_MIN_REMAINING_ACTIONS` action slots); with fewer than `IMAGE_SEPARATE_CAPTION_MIN_REMAINING_ACTIONS` slots remaining, only the image sends and the caption receipt notes `caption_delivery: "no_action_budget"`.
-  - **Duplicate text suppression**:
-    - `send_message` bodies and `generate_image` captions pass through `modelAuthoredTextPolicyResult`.
-    - Text comparisons collapse whitespace, apply Unicode NFC normalization, and check against accepted text, captions, and reserved correction characters.
-    - Duplicates return `{"success": true, "skipped": "duplicate", "actions_used": 0}`, skipping typing indicators, cooldown deductions, network sends, and memory recording.
+  - Prompts recommend at most `AI_MAX_ACTIONS_PER_REPLY` actions while execution enforces `HARD_MAX_ACTIONS_PER_REPLY` across `ACTION_TOOL_NAMES` (including `abuse_mark`, naming all counted tools in the cap-exceeded error).
+  - Stickers, reactions, image generations, and voice messages are each capped at 1 per round.
+  - Plain assistant text falls back to `send_message` **only** when zero action tools succeeded in the round; otherwise visible output comes strictly from tool calls.
+  - **Two visible text outlets**: `send_message` text and `generate_image` `caption`.
+    - A captioned image counts as 1 action unless `caption` exceeds `TELEGRAM_CAPTION_MAX_CHARS`, in which case delivery splits into "uncaptioned photo + standalone text message" when at least `IMAGE_SEPARATE_CAPTION_MIN_REMAINING_ACTIONS` budget slots remain (otherwise only the photo sends and the tool receipt reports `caption_delivery: "no_action_budget"`).
+  - **Duplicate text suppression (`modelAuthoredTextPolicyResult`)**:
+    - Compares whitespace-collapsed, Unicode-NFC-normalized text against already accepted messages, captions, and reserved typo-correction characters in the round.
+    - Duplicates return `{"success": true, "skipped": "duplicate", "actions_used": 0}` without typing pauses, cooldown charges, network calls, or memory writes.
 
 - **Image generation reference images**:
-  - Only direct-trigger rounds carry reference images: the triggering message's own photo/sticker, or the photo/sticker a text message replies to, is the primary reference and comes first.
-  - When the primary reference belongs to an album (`media_group_id`), the AI Worker fills in the album's other images from the album cache (`cache/workers/aiChat/imageReferenceAlbums.ts`) in `message_id` order while assembling the round's tool context, up to `agent.image.max_reference_images` in total; when the cache has no such album (including after a Worker rebuild), only the primary reference is used.
-  - The AI Worker writes the album cache as it records each album photo, keeps only the `IMAGE_GENERATION_MAX_REFERENCE_IMAGES` photos with the smallest `message_id` per album, and retains at most `IMAGE_REFERENCE_ALBUM_CACHE_MAX` albums by LRU. It is not cleared by chat invalidation, is not persisted, and does not cross threads.
-  - Reference images are downloaded concurrently and in order after the model calls `generate_image`, each as one interactive task on the media executor; if any image fails, is cancelled, or the total exceeds `MEDIA_MAX_DOWNLOAD_BYTES`, the generation fails and the chat cooldown claim is released because no model request was started.
+  - Only direct-trigger rounds attach reference images: the triggering message's own photo/sticker (or the replied-to message's photo/sticker) is placed first as the primary reference.
+  - If the primary reference carries a `media_group_id`, the AI Worker appends sibling photos from `cache/workers/aiChat/imageReferenceAlbums.ts` in ascending `message_id` order up to `agent.image.max_reference_images` total (falling back to the primary image alone on cache miss or after Worker respawn).
+  - `imageReferenceAlbums.ts` records incoming album photos on the AI Worker, keeping the `IMAGE_GENERATION_MAX_REFERENCE_IMAGES` lowest-`message_id` entries per album across at most `IMAGE_REFERENCE_ALBUM_CACHE_MAX` LRU albums; it is Worker-local, unpersisted, and survives single-chat invalidation.
+  - Reference media downloads run concurrently in order via the media executor only after the model invokes `generate_image`; if any download fails, aborts, or pushes cumulative bytes past `MEDIA_MAX_DOWNLOAD_BYTES`, `generate_image` fails and releases the chat image cooldown because no image-generation request was sent.
 
 - **Tool declaration invariants and language alignment**:
-  - Tools mounted per round are determined strictly by configuration, regardless of trigger type, Q&A entries, or typo draws:
-    - Base tools always mounted: `send_message`, `add_reaction`, `group_qa_query`, `group_qa_answer`, `abuse_mark`.
-    - `generate_image`: mounted when image provider is configured.
-    - `send_voice`: mounted when `agent.tts` is configured with speech synthesis support.
-    - `view_sticker_pack`, `send_sticker`: mounted when sticker menu is non-empty.
-    - `get_tokyo_weather`: mounted only when startup timezone is `TOKYO_TIME_ZONE`.
-    - `web_search`: mounted as local function when `agent.web_search` is configured; otherwise unmounted (text model uses server-side search).
-  - **Language consistency**: Tool declarations and prompt action rules derive from `agent.tts.bot_language` via `VOICE_LANGUAGE_PROMPTS` (default `TTS_DEFAULT_BOT_LANGUAGE`), ensuring consistent voice instructions throughout replies.
-  - **Round tool status**: The 【本轮工具状态】 block contains factual snapshots (image availability/cooldown, remaining voice quotas, registered Q&A counts, search limits), re-validated by executors at call time.
+  - Mounted tool declarations depend **solely** on static/dynamic deployment configuration, never on per-message trigger type, Q&A count, or typo rolls:
+    - Always mounted: `send_message`, `add_reaction`, `group_qa_query`, `group_qa_answer`, `abuse_mark`.
+    - `generate_image`: mounted when `agent.image` is configured.
+    - `send_voice`: mounted when `agent.tts` is configured.
+    - `view_sticker_pack` & `send_sticker`: mounted when the configured sticker menu is non-empty.
+    - `get_tokyo_weather`: mounted only when startup `time_zone` equals `TOKYO_TIME_ZONE`.
+    - `web_search`: mounted as a local function tool when `agent.web_search` is configured; omitted when using the `text` model's native server-side search.
+  - **Voice language alignment**: Tool schemas and prompt voice rules derive from `agent.tts.bot_language` via `VOICE_LANGUAGE_PROMPTS` (defaulting to `TTS_DEFAULT_BOT_LANGUAGE`).
+  - **Round tool-status snapshot**: The `【本轮工具状态】` (current-round tool status) runtime block reports live snapshots (image cooldown/readiness, remaining voice quota, Q&A entry count, web-search budget), all re-verified by tool executors on invocation.
 
 - **Voice synthesis details (`send_voice`)**:
-  - **Admission**: Verifies round validity, `MAX_VOICES_PER_REPLY`, TTS capability, argument validity, and reserves daily quota (`reserveAiTtsUsage`). Over-quota calls fail immediately with `SEND_VOICE_DAILY_LIMIT_TOOL_ERROR`.
-  - **Sanitization**: `text` required (cleaned to single line, max `VOICE_TEXT_MAX_CHARS`); `tone` optional (max `VOICE_TONE_MAX_CHARS`); `reply_to_trigger` boolean only.
-  - **Delivery & background handoff**:
-    - If audio synthesis is pending when the chain reaches the step, displays "recording voice" up to `VOICE_FOREGROUND_WAIT_MS`.
-    - Exceeding the wait window withdraws recording status and moves delivery to the background (`chains.defer`), allowing the chain to continue; completed audio appends to the chain tail.
-    - Failed synthesis sends nothing, logging `AI reply voice was not sent` without exposing failure to the model.
-    - Successful sends append `voiceSentTagTemplate` markers to self-recorded memory.
+  - **Admission & sanitization**: Checks round liveness, `MAX_VOICES_PER_REPLY`, TTS readiness, single-line `text` (`<= VOICE_TEXT_MAX_CHARS`), optional `tone` (`<= VOICE_TONE_MAX_CHARS`), boolean `reply_to_trigger`, and daily quota (`reserveAiTtsUsage`, failing immediately with `SEND_VOICE_DAILY_LIMIT_TOOL_ERROR` when exhausted).
+  - **Foreground wait & background handoff**:
+    - When the action chain reaches the voice step while synthesis is still running, it shows `record_voice` for at most `VOICE_FOREGROUND_WAIT_MS`.
+    - If still unfinished, recording status clears and delivery moves to `chains.defer` so subsequent actions proceed; once ready, the audio appends to the chain tail.
+    - Synthesis failures send nothing and log `AI reply voice was not sent` without surfacing errors back to the model; confirmed sends record `voiceSentTagTemplate` in self-memory.
   - **Quota accounting**:
-    - Quota reservations exist solely in AI Worker memory (`pendingAiTtsReservations`), never persisted.
-    - Recorded in `agentCount` only after TTS provider succeeds (`settleAiTtsReservation`). Failures prior to synthesis release reservations; encoding or network failures after synthesis do not refund quota.
-    - Daily quotas calculate as `agent.tts.daily_limit - daily_reserve_quota`, separate from operator quotas.
-  - **Audio encoding pipeline**:
-    - WAV: Extracts mono PCM and feeds it to `@audio/encode-opus` in `VOICE_OPUS_ENCODE_CHUNK_SECONDS` chunks, encoding to OGG/Opus while yielding the event loop between chunks. The encoder is built at the PCM's original sample rate and the dependency resamples continuously across chunks to the Opus granule rate (`OPUS_GRANULE_RATE`); the pages from all chunks are joined with `Bun.concatArrayBuffers`. The caller's abort signal is checked before each chunk and after the final yield; once aborted, encoding stops, the encoder is freed, and `aborted` is returned without logging an encoding failure.
-    - OGG/Opus and MP3: Validates container structures (Ogg pages/OpusHead or MPEG Layer III frames) and computes duration, passing through verbatim.
-    - Max response body read limit: `VOICE_SPEECH_MAX_BYTES`.
+    - Reservations live only in AI Worker memory (`pendingAiTtsReservations`) and commit to `agentCount` via `settleAiTtsReservation` once the TTS HTTP call succeeds (pre-synthesis errors release the reservation; post-synthesis Opus/network failures do not refund provider usage).
+    - AI chat daily budget equals `agent.tts.daily_limit - daily_reserve_quota`, isolated from operator reserve usage.
+  - **Audio validation and Opus encoding** (`VOICE_SPEECH_MAX_BYTES` response cap):
+    - **WAV**: Extracts mono PCM and encodes to OGG/Opus via `@audio/encode-opus` in `VOICE_OPUS_ENCODE_CHUNK_SECONDS` slices, yielding the event loop between slices and checking `AbortSignal` before each slice and after the final yield (freeing the native encoder and returning `aborted` cleanly on cancellation). Continuous resampling runs from the source sample rate to `OPUS_GRANULE_RATE`, joining output pages with `Bun.concatArrayBuffers`.
+    - **OGG/Opus & MP3**: Validates Ogg/OpusHead pages or MPEG Layer III frame headers, computes duration, and forwards bytes verbatim.
 
 - **Operator voice borrowing (`/send` and `cron.json`)**:
-  - Main thread requests synthesis via `requestVoiceSynthesis`, receiving binary buffers via requestId ACKs.
-  - Request timeout: `VOICE_SYNTHESIS_REQUEST_TIMEOUT_MS`; cancellations dispatch `cancelVoiceSynthesis`.
-  - Operator daily usage tracked independently by the AI Worker tts facade (`createSpeechFacade` in `packages/aiChat/providerFacades.ts`) in `reserveCount` up to `daily_reserve_quota`, strictly segregated from AI chat quotas.
+  - The main thread requests synthesis over IPC via `requestVoiceSynthesis` (timeout `VOICE_SYNTHESIS_REQUEST_TIMEOUT_MS`; cancellation sends `cancelVoiceSynthesis`) and receives the encoded audio buffer by `requestId`.
+  - Operator synthesis draws exclusively from `reserveCount` (capped at `daily_reserve_quota`) inside `createSpeechFacade` (`packages/aiChat/providerFacades.ts`), never consuming AI chat's `agentCount`.
 
 - **Anthropic model response handling**:
-  - Requests go through the SDK's beta Messages endpoint. Stop reasons `max_tokens` or `model_context_window_exceeded` return as unusable (`failureKind: "response"`); `refusal` (any `stop_details.category`) returns as a refusal (`failureKind: "refused"`) that callers never resample: memory compaction, the sticker catalog, and ad detection give up, the `web_search` tool returns the refusal notice, and cron web digests fail as `refused` without retrying.
-  - When a capability configures `fallback_model`, its client installs the SDK's `betaRefusalFallbackMiddleware` with default options: every request carries the `fallback-credit-2026-07-01` beta; after `model` refuses, the same request is resent with `fallback_model` and the same credentials and endpoint, redeeming the refusal's credit token in `best_effort` mode (a failed redemption still runs at the normal price); if the fallback model also refuses, that refusal is returned. A reply session (including tool round trips and `pause_turn` continuations) and a single search each hold one `BetaFallbackState`, so once rerouted their remaining requests go straight to the fallback model; the next reply starts from `model` again.
-  - A reroute is detected by comparing the fallback index pinned in `BetaFallbackState` before and after the call (`aiChat/anthropic/sdkClient.ts`), and each reroute logs one warning starting with `fell back after a refusal:`. When the fallback model produces the response it continues with `from=…, to=…, trigger=…, fallback_credit=…`, with `trigger` and `fallback_credit` serialized by `aiChat/ai/utils/finishDetails.ts`; when the fallback model also refuses it continues with `from/to` and the fallback response's `stop_reason`; when the fallback request fails or times out it continues with `from/to` and `the fallback request did not complete`. A session already pinned to the fallback, sending straight to the fallback model, logs nothing.
-  - Usage is recorded under the model name as written in the deployment config: `fallback_model` after a reroute, otherwise the request body's `model`, never the canonical model ID echoed by the response; the refused attempt's usage is not recorded. `stop_details` in logs and in the reply turn's `finishDetails` is serialized after removing `fallback_credit_token` (the redeemable fallback credit token a refusal carries).
-  - Empty ad-detection bodies resample up to `AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS` times, while Anthropic refusals give up immediately; all three transports log once only after giving up, with the last attempt's finish reason and finish details (Anthropic `model` and `stop_details`, Gemini as above, OpenAI-compatible Chat Completions `finish_reason` and `message.refusal`; all three log the details as `details=` through `diagnosticWithDetails`, omitted when there are none).
-  - `pause_turn` continues assistant history up to `ANTHROPIC_PAUSE_TURN_MAX_CONTINUATIONS` times, combining search counts across segments.
+  - **Stop reasons and refusals**: Requests use the SDK beta Messages API. `max_tokens` and `model_context_window_exceeded` return `failureKind: "response"` (eligible for resampling where configured), whereas `refusal` (any `stop_details.category`) returns `failureKind: "refused"` and is never resampled—compaction, sticker cataloging, and ad detection stop immediately, `web_search` returns `WEB_SEARCH_REFUSED_TEXT`, and cron digests fail as `refused`.
+  - **Automatic refusal fallback (`fallback_model`)**:
+    - Capabilities configuring `fallback_model` attach `betaRefusalFallbackMiddleware` (`fallback-credit-2026-07-01` beta header): on primary refusal, the middleware resends the request to `fallback_model` on the same endpoint/credentials and redeems `fallback_credit_token` in `best_effort` mode (running at normal billing if credit redemption fails).
+    - One `BetaFallbackState` is shared across an entire reply session (all tool rounds and `pause_turn` continuations) or a single standalone search, pinning the session to `fallback_model` after a reroute while the next reply starts fresh on `model`.
+  - **Reroute diagnostics and usage attribution**:
+    - `aiChat/anthropic/sdkClient.ts` detects a reroute when `BetaFallbackState`'s pinned index changes across a call and logs one warning prefixed `fell back after a refusal:`—recording `from=…, to=…, trigger=…, fallback_credit=…` on success (formatted via `finishDetails.ts`), `from/to` + fallback `stop_reason` on double refusal, or `from/to` + `the fallback request did not complete` on transport failure/timeout. Subsequent calls in an already-rerouted session log nothing.
+    - Token usage attributes to the configured `fallback_model` (or `model` when unrerouted), never the provider's canonical response model ID, and drops the refused primary attempt's usage. `fallback_credit_token` is stripped from `stop_details` before logging or storing `finishDetails`.
+  - **Ad-detection empty-body retries and `pause_turn`**:
+    - Empty ad-detection bodies resample up to `AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS` times (Anthropic refusals abort immediately), logging once on final exhaustion with `details=` via `diagnosticWithDetails` across Anthropic, Gemini, and OpenAI-compatible transports.
+    - Server-side tool `pause_turn` continues assistant turns up to `ANTHROPIC_PAUSE_TURN_MAX_CONTINUATIONS` times, summing web-search counts across segments.
 
-- **Token and usage accounting**:
-  - Usage strictly reflects authoritative SDK responses, reported via `packages/infra/aiCacheUsage.ts`.
-  - Valid usage returned after cancellations is counted; missing SDK usages are not estimated.
-  - Gemini input tokens sum `promptTokenCount` and any separately reported `toolUsePromptTokenCount`, while thinking and text tokens validate and accumulate as output; OpenAI output does not double-count reasoning tokens.
-  - Cache reads and cache writes both count toward total input and never overlap. Anthropic `input_tokens` excludes cached parts, so total input is `input_tokens + cache_creation_input_tokens + cache_read_input_tokens`, reads come from `cache_read_input_tokens`, and writes come from `cache_creation_input_tokens`. OpenAI writes come from Responses `input_tokens_details.cache_write_tokens` or Chat Completions `prompt_tokens_details.cache_write_tokens`. Gemini reports no per-request writes; only explicit cache creation records writes equal to its input. When reads plus writes exceed input, the token record is discarded as invalid (search counts are kept); when a provider omits writes, none are recorded and daily aggregation sums only requests that reported writes.
-  - Cost-only models (xAI image generation `cost_in_usd_ticks`) record cost metrics instead of tokens.
-  - Web searches merge into token usage reports as single daily requests; standalone search calls record search usage. Anthropic tracks `server_tool_use.web_search_requests`; OpenAI tracks completed `action.type === "search"`.
+- **Token and usage accounting** (`packages/infra/aiCacheUsage.ts`):
+  - Accounting records only authoritative SDK usage payloads (including valid usage returned on cancelled calls) and never estimates missing fields; cost-billed endpoints (such as xAI `cost_in_usd_ticks`) record USD ticks instead of tokens.
+  - **Per-provider token mapping**:
+    - **Gemini**: Input sums `promptTokenCount` + `toolUsePromptTokenCount`; thinking + candidate text tokens validate and sum as output. Explicit cache creation records cache writes equal to cached input; regular calls report zero writes.
+    - **Anthropic**: `input_tokens` excludes cached tokens, so total input = `input_tokens + cache_creation_input_tokens + cache_read_input_tokens`, with reads = `cache_read_input_tokens` and writes = `cache_creation_input_tokens`.
+    - **OpenAI**: Output does not double-count reasoning tokens; cache writes read from Responses `input_tokens_details.cache_write_tokens` or Chat Completions `prompt_tokens_details.cache_write_tokens`.
+    - **Sanity guard**: Cache reads and writes count inside total input without overlapping; if `reads + writes > input`, token fields are discarded as invalid while preserving search counts. Omitted write fields record nothing rather than `0`.
+  - **Web-search usage**: Server-side searches (Anthropic `server_tool_use.web_search_requests`, OpenAI completed `action.type === "search"`) fold into the host call's daily usage report; standalone `web_search` function calls report under their own model entry.
 
 - **Two-stage reply admission**:
-  - **Concurrency gate (`admitTrigger`)**: Evaluates capacity upon trigger arrival.
-  - **Rate-limit gate (`isReplyRoundRateLimited`)**: Evaluates the `RATE_LIMIT_LONG_WINDOW_MS` sliding window before launching rounds. Rejections emit rate-limit notices only for direct triggers (`directInvokerId`), silently dropping random interjections.
-  - **FIFO integrity**: Non-empty queues require new triggers to enqueue at the tail, preventing queue jumping.
-  - Queue draining is triggered by model completion (`onModelFinished`), delivery completion (`onFinished`), new enqueues, and maintenance ticks (`drainReplyQueueIfWindowAllows`). Overflow notices flush independently of rate windows.
+  - **Stage 1 — Concurrency gate (`admitTrigger`)**: Checks active/queued capacity on trigger arrival; non-empty queues strictly append new triggers at the tail (no queue jumping).
+  - **Stage 2 — Rate-limit gate (`isReplyRoundRateLimited`)**: Evaluates the `RATE_LIMIT_LONG_WINDOW_MS` sliding window right before launching a round; rejections send a 30-second group notice for direct triggers (`directInvokerId`) and drop random interjections silently.
+  - Queue drains run on `onModelFinished`, `onFinished`, new enqueues, and `drainReplyQueueIfWindowAllows` maintenance ticks; overflow notices flush regardless of the rate window.
 
 - **Chat activity probabilities and JIT performance**:
-  - Visible messages increase random interjection probabilities up to hot-chat ceilings; chats calculate independently, restarting cold on process restart. Direct triggers bypass probability gates.
-  - High-frequency hot path: Existing chats update fixed-shape `AiReplyActivityEntry` objects in place without `Map.delete` + `Map.set` reordering or compound key allocations. Full tables scan LRU entries only when inserting new chats.
-  - Cooldowns stored in two-level nested Maps `[chatId][userId]`. Global sizes tracked centrally with single unref cleanup timers.
-  - **Single system clock read per group message**: `updateNow()` in `packages/infra/updateContext.ts` reads `Date.now()` on its first call and caches it in `UpdateScope.now`, so `antiRaid/updateIngress.ts`, `auto/message/index.ts`, and downstream silence, activity, cooldown, and flood checks share one evaluation instant; when a channel post or linked-channel automatic forward goes through the self-sent rendezvous (`waitForBotOwnMessage`, at most `SELF_SENT_RENDEZVOUS_TIMEOUT_MS`) without a match, `refreshUpdateNow()` reads the clock once more before processing resumes.
+  - Incoming visible messages raise a chat's random-interjection probability toward the hot-chat cap independently per chat (starting cold on process restart; direct triggers bypass probability draws).
+  - **Hot-path allocation discipline**: Existing chats mutate fixed-shape `AiReplyActivityEntry` records in place without `Map.delete`/`Map.set` churn or composite string keys, scanning for LRU eviction only when inserting a brand-new chat. Per-user cooldowns use two-level `Map<chatId, Map<userId, ...>>` tables with a centralized count and single `unref()`ed sweep timer.
+  - **Single clock read per message (`updateNow()`)**: `packages/infra/updateContext.ts` caches the first `Date.now()` read in `UpdateScope.now` so `antiRaid/updateIngress.ts`, `auto/message/index.ts`, silence windows, activity decay, cooldowns, and flood windows share one timestamp; if `waitForBotOwnMessage` waits up to `SELF_SENT_RENDEZVOUS_TIMEOUT_MS` on a channel post/auto-forward without matching, `refreshUpdateNow()` refreshes the timestamp once before continuing.
 
 - **Multimodal media processing pipeline (Images, Stickers, GIFs, Voice)**:
-  - Unified architecture: placeholder in cache → asynchronous parse → in-place backfill.
-  - `transientDescriptionCache` caches Promises by `file_unique_id` up to `MEDIA_DESCRIPTION_CACHE_MAX`, evicting LRU on overflow and removing failed entries immediately. Identical in-flight media requests share Promises.
-  - Concurrency executor limits active tasks to `MEDIA_DESCRIPTION_MAX_CONCURRENCY`, with queue and cold-probe capacities capped at `MEDIA_DESCRIPTION_MAX_PENDING`.
-  - Uses `libs/sharedResult.ts` for cancellable subscriptions: individual cancellations do not disturb other consumers; underlying tasks abort only when the final consumer departs.
-  - **Vision transcoding pixel and edge limits**: In `packages/infra/image.ts`, an animated WebP first has its first frame cut out at the RIFF chunk level (at most `WEBP_MAX_SCANNED_CHUNKS` chunks checked per span); `Bun.Image` then decodes WebP/GIF with `VISION_TRANSCODE_MAX_PIXELS` as the pixel limit, rejecting oversized images after reading the header and before allocating pixel buffers; images whose longest edge exceeds `VISION_TRANSCODE_MAX_EDGE` are scaled down proportionally (never up) before PNG encoding.
+  - Follows a unified **placeholder → async media task → in-place memory backfill** pipeline.
+  - `transientDescriptionCache` deduplicates in-flight and completed descriptions by `file_unique_id` up to `MEDIA_DESCRIPTION_CACHE_MAX` (LRU eviction on overflow; immediate removal on failure) using `libs/sharedResult.ts` reference-counted subscriptions so cancelling one consumer aborts the underlying download/model call only when the last subscriber leaves.
+  - Concurrency caps at `MEDIA_DESCRIPTION_MAX_CONCURRENCY` active tasks with `MEDIA_DESCRIPTION_MAX_PENDING` queued/cold-probe slots.
+  - **Vision transcoding limits (`packages/infra/image.ts`)**: Animated WebP inputs slice out their first frame at the RIFF chunk level (scanning at most `WEBP_MAX_SCANNED_CHUNKS` chunks per span); `Bun.Image` enforces `VISION_TRANSCODE_MAX_PIXELS` at header decode before allocating pixel buffers and downscales (never upscales) any image whose longest edge exceeds `VISION_TRANSCODE_MAX_EDGE` prior to PNG encoding.
 
-- **Self-sent image memory backfills**:
-  - Self-sent images in rolling memory maintain **placeholder states** (body holds prompt/caption marker, carries `pendingImage`) and **content states** (marker replaced with description, `pendingImage` cleared).
-  - Command and cron images (`/wed`, `/h_image`, `send_image`) enter memory as placeholders without immediate descriptions.
-  - `generate_image` writes placeholder markers with prompts, initiates asynchronous descriptions, and backfills descriptions upon success.
-  - Replying to bot images attaches metadata; if original entries remain placeholders, asynchronous descriptions backfill both the original entries and the reply context.
-  - **Pre-download voice validations**: Duration (max `VOICE_MAX_DURATION_SECONDS`) and file size (max `VOICE_MAX_DOWNLOAD_BYTES`) are verified before downloading. Over-limit voices fall back to plain `voiceDurationPlaceholder` text, skipping transcription without blocking replies. Transcripts truncate at `VOICE_TRANSCRIPT_MAX_CHARS`.
+- **Self-sent image memory backfills and pre-download voice checks**:
+  - Bot-sent images enter rolling memory in **placeholder state** (prompt/caption marker + `pendingImage`) and transition to **content state** (marker replaced with vision description, `pendingImage` cleared):
+    - `/wed`, `/h_image`, and cron `send_image` photos record placeholders lazily without eager vision calls.
+    - `generate_image` writes a prompt-tagged placeholder, kicks off background vision description immediately, and backfills in place on completion.
+    - When a user replies to a bot image whose entry is still a placeholder, resolving the description backfills both the original memory entry and the reply reference.
+  - **Voice pre-download bounds**: Voices exceeding `VOICE_MAX_DURATION_SECONDS` or `VOICE_MAX_DOWNLOAD_BYTES` skip download/transcription and record `voiceDurationPlaceholder` directly; transcribed text truncates at `VOICE_TRANSCRIPT_MAX_CHARS`.
 
 - **Allowlisted sticker pack maintenance and mirroring**:
-  - Reconciles sticker packs during AI Worker startup and maintenance via `retryIncompleteStickerCatalogs`.
-  - Negative cache backoffs: `STICKER_CATALOG_ENTRY_FAILURE_RETRY_MS` for failed entries and `STICKER_SET_FAILURE_RETRY_MS` for failed sets.
-  - Dynamic hot reload immediately purges removed sticker packs from caches.
-  - Main thread `stickerMirror.ts` assigns monotonic revision numbers; Disk I/O confirms via `stickerCatalogPersisted` after atomic writes and directory fsyncs.
+  - AI Worker startup and periodic maintenance reconcile configured packs via `retryIncompleteStickerCatalogs` with negative-cache retry backoffs (`STICKER_CATALOG_ENTRY_FAILURE_RETRY_MS` per sticker, `STICKER_SET_FAILURE_RETRY_MS` per set); `stickers.json` hot reload immediately evicts removed packs.
+  - Main-thread `stickerMirror.ts` stamps monotonic revisions, and Disk I/O confirms `stickerCatalogPersisted` after atomic file replacement and directory `fsync`.
 
 ### AI Prompts and Transcript
 
 - **Bot self-identity and speaker labels**:
-  - In AI self-records, speaker rosters, reply references, and transcript summaries, the bot's own speech is marked using `SELF_SPEAKER_NAME`. Telegram `first_name`, `last_name`, and `username` are omitted. For inline results sent via this bot (`via_bot.id === bot.id`, `recordSelfInlineResult` in `packages/auto/message/guards.ts`): gag inline speech (`hasGagInlineMarker`) records under the actual sender identity (`buildInlineSenderRecordMessage`), whereas other self inline results (such as fortune draws after `stripLuckReceipt`) record under `SELF_SPEAKER_NAME` (`buildSelfRecordMessage`) without triggering active replies.
-  - The reply prompt's read-only reference memory includes one sentence containing the deployment's `@username`: the main thread queries account identity once at startup via `bot.init()`'s `getMe` and passes it to the AI Worker via `initAiChat`. Worker respawns replay this startup snapshot without querying per message.
-  - In rosters, the bot is consistently assigned `SELF_ROSTER_CODE`, while members retain account IDs and display names. Historical verbatim snapshots follow the same rule when rendering.
+  - Across self-records, speaker rosters, reply headers, and cold-history summaries, the bot's own messages use `SELF_SPEAKER_NAME` (never Telegram `first_name`, `last_name`, or `username`) and roster code `SELF_ROSTER_CODE`.
+  - **Self inline-result attribution** (`via_bot.id === bot.id`, `recordSelfInlineResult` in `packages/auto/message/guards.ts`): Gag inline posts (`hasGagInlineMarker`) record under the human sender's identity (`buildInlineSenderRecordMessage`), whereas other self inline results (such as fortune cards after `stripLuckReceipt`) record under `SELF_SPEAKER_NAME` (`buildSelfRecordMessage`) without triggering AI replies.
+  - The read-only reference memory block injects one sentence naming the bot's `@username`, captured once from `bot.init()` (`getMe`) at startup and replayed via `initAiChat` across Worker respawns.
 
 - **Web-search verification prompt and dual-mode dispatch**:
-  - **Universal verification principles**: Uses provider-neutral instructions; every model call in the same reply reuses an identical system prompt. Facts that can change or require verification must be searched before visible actions when search tools are mounted. Subjective chat, creative writing, or transcript-provided facts do not trigger searches. Search conclusions outrank vague memories; if unavailable or inconclusive, the model must state uncertainty honestly without exposing internal search mechanisms to group members.
-  - **Dual-mode search implementation**:
-    - **Built-in search (unconfigured `agent.web_search`)**: Uses `WEB_SEARCH_INSTRUCTION` in the system prompt, mounting the `text` model's server-side search. The soft budget is bounded by `MAX_WEB_SEARCH_CALLS_PER_REPLY`; actual calls are tracked by `replyModel.ts`, recording overruns without dynamically modifying the system prompt or unmounting tools.
-    - **Standalone function search (configured `agent.web_search`)**: Uses `WEB_SEARCH_FUNCTION_INSTRUCTION` in the system prompt, mounting the local function tool `web_search`. Call limits are locked at assembly (default `WEB_SEARCH_DEFAULT_MAX_CALLS_PER_USE`). Executed asynchronously by `aiChat/ai/tools/webSearch.ts` using a search-capable model, returning formatted "notice + conclusion + numbered sources" within `WEB_SEARCH_RESULT_MAX_CHARS` and `WEB_SEARCH_MAX_SOURCES`. Failures or timeouts return `WEB_SEARCH_FAILED_TEXT`; an Anthropic search-model refusal returns `WEB_SEARCH_REFUSED_TEXT` with `retryable: false` instead.
-  - **Timezone validation**: For temporal terms like "today" or "latest", verification evaluates event applicability against the configured timezone date rather than web page publication timestamps.
-  - Executing searches (server-side or local) marks subsequent requests with `grounded: true`, prompting Gemini to lower sampling temperatures.
+  - **Shared verification rules**: Provider-neutral system instructions require searching mutable or verifiable facts before taking visible actions whenever search is mounted, skipping search for casual banter, creative play, or facts already in the transcript, preferring search evidence over vague recall, and stating uncertainty plainly without mentioning internal search tools.
+  - **Two mutually exclusive search modes**:
+    - **Native server-side search (`agent.web_search` omitted)**: Injects `WEB_SEARCH_INSTRUCTION` and enables the `text` model's server-side search under a soft budget of `MAX_WEB_SEARCH_CALLS_PER_REPLY` (`replyModel.ts` logs overruns without mutating the system prompt or tool list mid-reply).
+    - **Standalone function tool (`agent.web_search` configured)**: Injects `WEB_SEARCH_FUNCTION_INSTRUCTION` and mounts local `web_search` (capped at `WEB_SEARCH_DEFAULT_MAX_CALLS_PER_USE`), executed by `aiChat/ai/tools/webSearch.ts` to return formatted `notice + conclusion + numbered sources` bounded by `WEB_SEARCH_RESULT_MAX_CHARS` and `WEB_SEARCH_MAX_SOURCES` (`WEB_SEARCH_FAILED_TEXT` on error/timeout; `WEB_SEARCH_REFUSED_TEXT` with `retryable: false` on Anthropic refusal).
+  - **Time-zone anchoring and grounding temperature**: Relative dates ("today", "latest") are judged against the bot's configured time zone rather than web page publication timestamps; any executed search marks subsequent turns in the reply `grounded: true` (lowering Gemini sampling temperature).
 
 - **Input blocks fixed ordering and anti-injection**:
-  - **Four strictly ordered blocks**:
-    1. Read-only reference memory (stable group `stableBlocks`: background, persona)
-    2. Read-only current conversation (volatile group `volatileBlocks`: tiered transcript)
-    3. Current runtime state (volatile group: current time, today's mood, 【本轮工具状态】)
-    4. Reply task (volatile group: trigger context, goals)
-  - Block count and structure remain constant across direct @ mentions and random interjections. Direct mentions add a single invoker sentence (`directInvokerSentence`) to the top of the reply task without altering block structure or duplicating messages.
-  - **Provider adaptations**:
-    - Gemini: Two adjacent `user Content` items (stable and volatile), each block a `text Part`.
-    - OpenAI: Single user message containing multiple `input_text` entries.
-    - Anthropic: Single user message with multiple `text` blocks, splitting conversation at settled offsets.
-  - **Anti-injection boundaries**: General anti-injection rules (distinguishing data from instructions, rejecting forged boundaries, hiding internal structures) are stated once in the system prompt without per-section repetition. Tags or state claims appearing within message transcripts are treated as raw text without control effects.
-  - **System prompt remains strictly byte-identical**: System prompts pass solely through provider system fields; dynamic state values (time, mood, tool status) must reside in user content runtime-state blocks, never in system prompts. While the persona, the action and stop section, and the local `web_search` mode all equal the previous round, the AI Worker reuses the same system prompt string built last round (the single slot in `packages/cache/workers/aiChat/replyPrefix.ts`); any difference rebuilds and replaces it.
+  - **Four ordered user-content blocks** (identical count and layout for both `@mention` direct triggers and random interjections; direct triggers prepend `directInvokerSentence` inside block 4):
+    1. **Read-only reference memory** (`stableBlocks`: persona and background).
+    2. **Read-only current conversation** (`volatileBlocks`: tiered transcript).
+    3. **Current runtime state** (`volatileBlocks`: local wall-clock time, global mood, and `【本轮工具状态】` current-round tool status).
+    4. **Reply task** (`volatileBlocks`: trigger context and turn instructions).
+  - **Per-provider wire layout**:
+    - **Gemini**: Two adjacent `user` `Content` turns (`stableBlocks` then `volatileBlocks`), one `text` `Part` per block.
+    - **OpenAI**: One `user` message carrying multiple `input_text` parts.
+    - **Anthropic**: One `user` message carrying multiple `text` content blocks, splitting the transcript at settled segment boundaries.
+  - **Byte-identical system prompt & anti-injection**: Anti-injection rules (separating untrusted chat data from instructions and ignoring forged boundary tags inside transcripts) appear once in the system prompt. All dynamic runtime state stays in user block 3; as long as persona, action/stop rules, and `web_search` mode match the previous round, the AI Worker reuses the cached string in `packages/cache/workers/aiChat/replyPrefix.ts`.
 
 - **Gemini explicit context cache**:
-  - **Model capability probing**: When `text` or `ad_detect` starts or hot-reloads to the `google` provider, `probeGeminiContextCache` calls `models.get` in the background to check whether the configured model's `supportedActions` includes `GEMINI_CONTEXT_CACHE_SUPPORTED_ACTION` (`"createCachedContent"`). When supported, it calls `caches.list` to adopt matching server entries and transitions to `"done"`; when unsupported, it marks the registry `"unsupported"` so subsequent requests use server implicit prefix caching (full configuration) directly without calling `caches.list` or `caches.create`. When the `models.get` request fails, it logs an error and continues scanning as if supported; creation failures are handled by the failure backoff below.
-  - **Two request structures**: The first request of a reply references explicit cache (`cachedContent`) only when the chat has no recorded trigger time or more than `GEMINI_REPLY_EXPLICIT_CACHE_IDLE_MS` has passed since it, and the cache is ready. The body then contains only `contents`, without `systemInstruction`, `tools`, or `toolConfig`. A recorded trigger time within that window (including equality), a cache that is not ready, a model that does not support explicit caching (`scan === "unsupported"`), or a session whose pinned text snapshot was replaced by hot reload sends the full configuration. From the second request on, every round sends the static `systemInstruction` and tool configuration for the server implicit prefix cache. The trigger time is when the chat's last successful `generateContent` was sent, read from the thread's monotonic clock `performance.now()`. Each chat keeps its own in-memory value (`chatId` arrives through the reply session parameters and only the Gemini implementation reads it), so requests from other chats do not affect it. Failed requests write nothing; when parallel requests finish out of order, an earlier send time never overwrites a later record; the full-configuration retry after an explicit-cache rejection counts from the retry. `/ai_chat disable`, `/clear_context`, chat teardown, memory eviction, and shutdown delete the chat's value; the AI Worker maintenance tick deletes values older than `GEMINI_REPLY_EXPLICIT_CACHE_IDLE_MS` (equivalent to having no record); reloading `agent.text` does not clear it. After the Worker moves to a new isolate every value is empty, so each chat's next reply follows the conditions above. `ad_detect` uses single-turn requests without a per-chat idle window: whenever its explicit cache is ready, every detection request references `cachedContent` directly, falling back to full `systemInstruction` when unready or rejected.
-  - **Cached content**: `text` caches only "system prompt + tool declarations + toolConfig" (never reference memory, transcripts, or runtime state); `ad_detect` caches only the detection `instructions` (rules + historical samples, without tools or `toolConfig`).
-  - **Slot management**: `text` is slotted by system prompt fingerprint and shared across all chats, with at most `GEMINI_TEXT_CACHE_MAX_SLOTS` slots and `displayName` format `${GEMINI_TEXT_CACHE_DISPLAY_NAME_PREFIX}<slot fingerprint>:<content fingerprint>`; while the model, system instruction, tool declaration JSON, and toolConfig all equal the previous round, both fingerprints computed last round are reused, and any difference recomputes them. `ad_detect` is slotted by `instructions` fingerprint, with at most `AD_DETECT_GEMINI_CACHE_MAX_SLOTS` slots and `displayName` prefix `AD_DETECT_GEMINI_CACHE_DISPLAY_NAME_PREFIX`; its single content slot is reused while the model and `instructions` are unchanged. Beyond the slot limit, the least recently used slot (by `lastUsedAt`) and its server entry are evicted.
-  - **Non-blocking acquisition**: `acquireGeminiContextCache` never waits for probing or creation; it returns `null` immediately when `scan === "unsupported"`, and while probing or on initial use for a supported model, requests dispatch full content while background probes, scans, and creations run. Cache hits refresh `lastUsedAt`; remaining lifespans under `GEMINI_CONTEXT_CACHE_RENEW_BEFORE_MS` renew in the background. Callers pass the cache content description (including the tool-declaration JSON serialization and fingerprints) as a callback, which `acquireGeminiContextCache` does not evaluate while `scan` is `"unsupported"` or `"idle"`.
-  - **Failure backoff**: 400 rejection errors record fingerprints and enter cooldowns, aborting cache creation after `GEMINI_CONTEXT_CACHE_MAX_REJECTIONS` consecutive failures.
+  - **Background capability probe (`probeGeminiContextCache`)**: On startup or `google` hot reload for `text` or `ad_detect`, calls `models.get` in the background to check `supportedActions` for `GEMINI_CONTEXT_CACHE_SUPPORTED_ACTION` (`"createCachedContent"`). Supported models scan `caches.list` to adopt matching server caches (`"done"`); unsupported models mark `scan = "unsupported"` and use implicit prefix caching directly; `models.get` errors log and fall through to normal scan/backoff.
+  - **Two request shapes (`cachedContent` vs full config)**:
+    - **Turn 1 of `text` replies**:
+      - References `cachedContent` (sending `contents` only, omitting `systemInstruction`, `tools`, and `toolConfig`) **only when** the explicit cache is ready, the session's pinned `text` config has not been superseded by hot reload, and the chat either has no recorded `generateContent` send timestamp or at least `GEMINI_REPLY_EXPLICIT_CACHE_IDLE_MS` (on `performance.now()`) has elapsed since its last successful send.
+      - Otherwise—and on **Turn 2+** of every multi-turn reply—the request sends full static `systemInstruction` and tool declarations for server-side implicit prefix caching.
+    - **Per-chat timestamp lifecycle**: Each chat tracks its own monotonic timestamp independently (failed calls write nothing, out-of-order completions never overwrite newer timestamps, and full-config retries after a cache rejection record from the retry). `/ai_chat disable`, `/clear_context`, chat teardown, memory eviction, shutdown, and Worker maintenance sweeps (`> GEMINI_REPLY_EXPLICIT_CACHE_IDLE_MS`) delete the entry; `agent.text` hot reload preserves it, while a new Worker isolate starts empty.
+    - **`ad_detect` single-turn requests**: Carry no per-chat idle window—every detection call references `cachedContent` whenever ready and falls back to full `systemInstruction` otherwise.
+  - **Cached payload & LRU slots**:
+    - `text` caches only `systemInstruction + tools + toolConfig` across at most `GEMINI_TEXT_CACHE_MAX_SLOTS` shared slots named `${GEMINI_TEXT_CACHE_DISPLAY_NAME_PREFIX}<slotFp>:<contentFp>` (reusing cached fingerprints while model, system prompt, tool JSON, and `toolConfig` remain unchanged).
+    - `ad_detect` caches only detection `instructions` across at most `AD_DETECT_GEMINI_CACHE_MAX_SLOTS` slots prefixed `AD_DETECT_GEMINI_CACHE_DISPLAY_NAME_PREFIX`. Overflow evicts the oldest `lastUsedAt` slot and deletes its server entry.
+  - **Non-blocking `acquireGeminiContextCache` & rejection backoff**: Never awaits probes or cache creation (skipping descriptor serialization callbacks altogether when `scan` is `"unsupported"` or `"idle"`), refreshes `lastUsedAt` on hit, renews entries with `< GEMINI_CONTEXT_CACHE_RENEW_BEFORE_MS` TTL remaining in the background, and stops retrying creation for a fingerprint after `GEMINI_CONTEXT_CACHE_MAX_REJECTIONS` HTTP 400 rejections.
 
 - **Prompt cache breakpoints**:
-  - OpenAI requests place stable content first, carrying per-chat `prompt_cache_key`. Its fingerprint reuses the previous round's SHA-256 state for the system prompt and tool declaration JSON (`stablePrefixFingerprintWithSlot` in `libs/prefixFingerprint.ts`) only when both parts equal the previous round, and rebuilds it otherwise; the digest is byte-identical to hashing all parts directly. Official models matching `OPENAI_PROMPT_CACHE_BREAKPOINT_MODEL_PREFIX` append `prompt_cache_breakpoint` after the last stable block with implicit TTL.
-  - Anthropic sessions place breakpoints at: end of system prompt block, end of last stable block, end of conversation settled segment, and top-level automatic breakpoint.
+  - **OpenAI**: Places `stableBlocks` first and attaches a per-chat `prompt_cache_key` whose SHA-256 prefix state over system prompt + tool JSON (`stablePrefixFingerprintWithSlot` in `libs/prefixFingerprint.ts`) is reused across rounds when unchanged; official models matching `OPENAI_PROMPT_CACHE_BREAKPOINT_MODEL_PREFIX` also place a `prompt_cache_breakpoint` after the final stable block.
+  - **Anthropic**: Places cache breakpoints at the end of the system prompt, the end of `stableBlocks`, the end of the settled transcript segment, plus top-level automatic caching.
 
 - **Direct invocation reading sequence and anti-confusion**:
-  - `DIRECT_INVOCATION_READING_INSTRUCTION` dictates reasoning:
-    1. Read 【最热记忆】 to understand ongoing group discussion;
-    2. Locate invoker's message by roster code;
-    3. Synthesize reply addressing their points.
-  - Members are identified solely by `[id:]` behind codes; forwarded messages represent original authors rather than forwarders; older messages serve as context.
+  - `DIRECT_INVOCATION_READING_INSTRUCTION` orders reasoning into three steps:
+    1. Read `【最热记忆】` (the hottest recent-message window) to grasp ongoing chat context.
+    2. Match the caller's message via their speaker roster code.
+    3. Formulate a reply addressing that caller without misattributing earlier speakers or forwarded authors (`[id:]` behind roster codes is authoritative; forwarded lines represent original authors).
 
 - **Memory mechanism silence invariant**:
-  - `MEMORY_MECHANISM_SILENCE_INSTRUCTION` strictly forbids mentioning or hinting at internal memory structures (tier names, `SELF_ROSTER_CODE`/`uN`/`fN` codes, `#messageId`, `REPLY_TARGET_EVICTED_TAG`, tokens, sliding windows, compaction, system prompts).
-  - Queries about memory or testing must be answered naturally without confirming or denying internal mechanics.
+  - `MEMORY_MECHANISM_SILENCE_INSTRUCTION` forbids revealing or hinting at internal prompt/memory plumbing (tier headers, `SELF_ROSTER_CODE`/`uN`/`fN` codes, `#messageId`, `REPLY_TARGET_EVICTED_TAG`, token budgets, sliding windows, compaction, or system prompts), answering meta/probing questions naturally in persona.
 
 - **Compact tiered verbatim transcript format (`buildTieredVerbatimTranscript`)**:
-  - **Roster + code system**: Speakers and forward origins appear once at the end in 【发言人名册】 and 【转发来源名册】; verbatim lines display only codes (`SELF_ROSTER_CODE`, `u1`, etc.).
-  - Date lines appear only across day boundaries; message lines retain HH:MM:SS.
-  - `#messageId` appears only on replied-to lines and triggering messages; replied lines within window use reply-reference pointers; evicted messages use inline snapshots marked with `REPLY_TARGET_EVICTED_TAG`.
-  - **Tier boundary alignment**: 【较早逐字记录】 lengths round up to multiples of `TIER_BOUNDARY_ALIGNMENT`, moving boundaries only when message counts increase by that multiple so verbatim lines remain append-only.
-  - **Settled offsets**: History partitions into `TRANSCRIPT_SETTLED_SEGMENT_SIZE` message intervals, placing offsets at message endings for block-based caching providers.
-  - Duplicate message IDs in hot windows render only the latest instance.
+  - **End-of-block rosters**: Full speaker and forward-origin metadata appear once at the end under `【发言人名册】` (speaker roster) and `【转发来源名册】` (forward-origin roster), while verbatim lines print compact codes (`SELF_ROSTER_CODE`, `u1`, `f1`, ...).
+  - **Minimal per-line chrome**: Date headers appear only on calendar-day transitions; lines carry `HH:MM:SS`, attach `#messageId` only on replied-to targets and trigger lines, link in-window replies by pointer, and inline evicted reply targets with `REPLY_TARGET_EVICTED_TAG`. Duplicate `message_id`s in the hot window render only the latest copy.
+  - **Append-only tier & cache alignment**: `【较早逐字记录】` (earlier verbatim tier) rounds length up to multiples of `TIER_BOUNDARY_ALIGNMENT` so tier shifts occur only at stride boundaries, and settled transcript offsets align every `TRANSCRIPT_SETTLED_SEGMENT_SIZE` messages for block-cached providers.
 
 - **Single-hop reply consistency**:
-  - External references to people or messages must use roster notation, never inventing non-existent numbers.
-  - Context preserves only single-hop replies, forward origins, and exact quotes without recursive reply trees.
+  - Roster references never invent non-existent codes, and transcript context records single-hop reply targets, forward origins, and exact quote slices without recursive reply chains.
 
 - **Cold-history compaction format (`summarizeBatch`)**:
-  - Uses self-contained line format (`formatBufferedMessageLine`) without rosters.
-  - Uses fixed `SUMMARY_SYSTEM_PROMPT` with current time appended at the end of `userContent`.
+  - Formats messages as self-contained lines (`formatBufferedMessageLine`) without roster tables and pairs the fixed `SUMMARY_SYSTEM_PROMPT` with the current timestamp at the end of `userContent`.
 
 - **Hard execution-side interception of action markers**:
-  - Action markers (`SELF_ACTION_TAG_MARKERS`, rendered by `stickerSentTagTemplate`, `imageSentTagTemplate`, `voiceSentTagTemplate`, and `botImageTagTemplate` in `transcript.ts`) are written strictly by the system after actions succeed.
-  - Models must never forge these markers in generated output.
-  - `send_message` interceptor rejects forged action markers, forcing re-generation.
-  - `generate_image` caption interceptor runs before claiming cooldowns.
-  - Matches singleton regex `SELF_ACTION_TAG_PATTERNS` (without `g`/`y` flags) anchored on the full template syntax.
+  - Action tags (`SELF_ACTION_TAG_MARKERS`, formatted via `stickerSentTagTemplate`, `imageSentTagTemplate`, `voiceSentTagTemplate`, and `botImageTagTemplate` in `transcript.ts`) are written exclusively by runtime delivery handlers after an action succeeds.
+  - `send_message` and `generate_image` (before claiming image cooldown) test outputs against stateless `SELF_ACTION_TAG_PATTERNS` regexes (no `g`/`y` flags) and reject any model-forged tag so the model regenerates clean text.
 
 ### Join Verification and Terminal Disposal
 
 - **Verification terminal retry and persistence guarantees**:
-  - Verification terminal operations are limited to at most `VERIFICATION_TERMINAL_MAX_ATTEMPTS_PER_PROCESS` attempts per process.
-  - While Disk I/O Worker processes one operation batch, the critical verification writes in it (creations, terminal states, and deletions) are only registered; after the whole batch (including a throw) they are appended and fsynced once, the `verificationPersisted` receipts follow that fsync, and the batch acceptance follows them. A critical write arriving alone outside a batch is persisted immediately.
-  - Completed terminal actions wait for the final revision's durable persistence receipt before cleaning up in-memory records. If revisions increment while waiting, the new revision is confirmed without delaying completed terminal results.
-  - Worker-local execution gates on terminal states (`effectStarted`, `executionStarted`) are never persisted and change only through state machine events: `kickRequestSent` sets `executionStarted` right before the lockdown kick request is issued synchronously, `kickRequestFailed` clears it when the request returns without settling, and `terminalAttemptUnsettled` clears the execution gates when a terminal attempt ends unsettled (both gates for `kickPending`). All three events carry the state object captured when the attempt started and have no effect once the state has been replaced.
-  - When an attempt ends unsettled, `retryTerminalAttempt` first dispatches `terminalAttemptUnsettled` and then schedules one retry on that entry's backoff sequence (`kickPending` dispatches `kickRetry`; `checkingInviter` and `expelling` dispatch `terminalPersisted`). The same step runs when the batch of side effects that obtained a terminal permit rejects midway (for example, a Worker→main-thread request fails); the error is still logged, and entries that changed state are left alone. Timeout-kick battle reports are sent through `runTelegramAction`, so a rejected request counts as "not sent" and follows the same backoff.
-  - When the main thread executes emergency lockdown recovery, it dispatches deletion of the recorded announcement before clearing records; deletion failures log to the shared Telegram logger, and recovery does not block on deletion results.
+  - Terminal verification actions run at most `VERIFICATION_TERMINAL_MAX_ATTEMPTS_PER_PROCESS` attempts per process.
+  - **Batched critical journal `fsync`**: While the Disk I/O Worker executes an operation batch, critical verification writes inside that batch (creations, terminal transitions, and deletions) register in memory and append + `fsync` once at the end of the batch (even if an operation throws), emitting `verificationPersisted` receipts before batch acceptance. A standalone critical write arriving outside a batch appends and `fsync`s immediately.
+  - **Final revision settlement**: Completed terminal actions await the durable ACK of their final revision before removing in-memory state; if a newer revision is stamped while waiting, the newer revision settles without stalling completed terminal cleanup.
+  - **State-machine-owned execution gates**: Worker-local terminal flags (`effectStarted`, `executionStarted`) are never persisted and mutate exclusively via state-machine events bound to the exact state reference captured when the attempt began:
+    - `kickRequestSent`: sets `executionStarted` synchronously right before issuing a lockdown fast-kick request.
+    - `kickRequestFailed`: clears `executionStarted` if that request returns unsettled.
+    - `terminalAttemptUnsettled`: clears execution gates (both flags on `kickPending`) when an attempt finishes unsettled or its side-effect batch rejects mid-flight (`retryTerminalAttempt` logs the error, dispatches `terminalAttemptUnsettled`, and schedules one backoff step—`kickRetry` for `kickPending`, or `terminalPersisted` for `checkingInviter` and `expelling`; timeout-kick notices go through `runTelegramAction` so send failures follow the same backoff).
+  - **Emergency lockdown announcement cleanup**: Main-thread emergency lockdown recovery dispatches deletion of any recorded `announcementMessageId` before clearing state, logging deletion failures via the shared Telegram logger without blocking recovery.
 
 - **Timeout verification rechecks inviter identity (`checkingInviter`)**:
-  - When a member is added by someone else, the inviter is first checked synchronously against the unexpired admin cache, and a cached admin exempts the member at once. `startAdminCheck` fetches the admin list only when the cache has expired (`adminCacheFresh` is false); the same rule applies when one join arrives again via both `chat_member` and `new_chat_members`. With an unexpired cache and a non-admin inviter, no extra check is made.
-  - Upon verification timeout, `isChatAdmin` rechecks inviter identity during the `checkingInviter` stage:
-    - Confirmed admin: Grants exemption to the invited member.
-    - Confirmed non-admin: Advances to timeout expulsion (`expelling`).
-    - Inconclusive identity (network timeout or query failure): Retains existing terminal and disk snapshots, releases local execution flags, and retries with exponential backoff, consuming one approved terminal attempt per retry.
+  - When a member is invited by another user, ingress checks the inviter synchronously against an unexpired Worker admin cache and exempts the newcomer immediately on hit; `startAdminCheck` fetches `getChatAdministrators` only when `adminCacheFresh` is `false` (applying identically when the same join arrives via both `chat_member` and `new_chat_members`).
+  - On verification timeout, `checkingInviter` re-evaluates the inviter via `isChatAdmin`:
+    - **Confirmed admin**: Exempts the invited member.
+    - **Confirmed non-admin**: Transitions to `expelling`.
+    - **Inconclusive (timeout or API error)**: Preserves terminal and disk snapshots, clears local execution gates, and retries with exponential backoff (spending one terminal attempt per retry).
 
 - **Execution permits and deferral latching**:
-  - Terminal permits are valid only for tasks where state object, generation, and revision match while the business lifecycle remains active.
-  - When permits are rejected, return `stale`, or exhaust attempt budgets, runtime state unloads and registers an exact deferral index without advancing revisions or writing tombstones.
-  - The main thread retains disk snapshots and process-level deferral latches; Worker respawns preserve latches without recreating verification for the same key, restoring state from disk only on full process restarts. Results from obsolete tokens, generations, revisions, or cancelled lifecycles are discarded.
+  - A terminal execution permit is valid only while its captured state reference, Worker generation, revision, and chat lifecycle all remain current.
+  - When a permit is denied, turns `stale`, or exhausts `VERIFICATION_TERMINAL_MAX_ATTEMPTS_PER_PROCESS`, Worker runtime state unloads and records a process-level deferral latch on the main thread without advancing revisions or writing a tombstone; Worker respawns honor that latch without recreating the session, whereas a full process restart reloads the durable snapshot from disk.
 
 - **Backoff timers and durable persistence ACKs**:
-  - Duplicate persistence ACKs cannot bypass active terminal backoff timers.
-  - Timer callbacks verify matching entries, state objects, and active handles before clearing handles and dispatching retries; rescheduled, superseded, or torn-down callbacks do nothing.
-  - Exact durable ACKs for `expelling.successNoticeSent` complete finalization immediately regardless of pending backoff timers.
+  - Duplicate `verificationPersisted` ACKs never short-circuit an active terminal backoff timer.
+  - Timer callbacks verify entry identity, state object identity, and timer handle identity before clearing the handle and firing a retry; superseded or torn-down callbacks exit as no-ops.
+  - An exact durable ACK for `expelling.successNoticeSent` finalizes the entry immediately even if a retry timer is still armed.
 
 - **Worker runtime capacity limits**:
-  - The Anti-Raid Worker enforces a `VERIFICATION_RUNTIME_CAPACITY` hard cap across persistent phases and `exempt`/`kicked` deduplication caches.
-  - Saturated capacities reject new keys before join counting, state transitions, or side effects, reporting one fatal error per generation and blocking new joins until adopted by a new generation or stopped. Existing keys, verification releases, and terminal settlements continue unaffected.
-  - New generations clear old runtime state before restoring durable mirrors; same-generation incremental recovery at capacity releases only non-persistent deduplication slots, keeping admission latches closed.
-  - The revision table similarly enforces `VERIFICATION_REVISION_CAPACITY` across active and retained terminal keys. Capacity overflows purge expired tombstones first; persistent overflows signal the main thread to halt.
+  - The Anti-Raid Worker enforces a hard cap of `VERIFICATION_RUNTIME_CAPACITY` across persistent verification entries plus `exempt`/`kicked` deduplication entries.
+  - At capacity, new keys are rejected before join counting, state transitions, or side effects—emitting one fatal error per Worker generation and blocking new join admissions until adopted by a fresh generation or stopped, while existing entries continue settling normally.
+  - New Worker generations wipe prior runtime tables before replaying durable mirrors; same-generation recovery at capacity evicts only non-persistent deduplication entries while keeping the admission latch closed.
+  - Main-thread revision tracking likewise caps at `VERIFICATION_REVISION_CAPACITY` across active and retained terminal keys, purging expired tombstones first and triggering fatal shutdown if still saturated.
 
 - **Unified switch for join verification and anti-raid lockdown**:
-  - Both features share a per-chat switch, disabled by default. Verification windows and join counters activate only when `ChatState.isAntiRaidEnabled === true`.
-  - Callers holding `isCanControllAntiRaidPermission` (always granted to the super administrator) toggle and persist this switch via `/antiraid enable|disable`.
-  - Both workflows share the inbound join event stream; other Anti-Raid Worker features (`/ad_detect`, `/flood_control`, blocklist instant kicks, and `/batch_kick` join logs) operate independently under separate boundaries.
-  - **Main-thread ingress filtering**: Inbound middleware drops joins, leaves, and verification messages/callbacks for disabled chats. However, **inviter admin updates (`adminsChanged`) bypass filtering**: as low-frequency cache maintenance, they update Worker admin caches without touching state machines. Blocklist instant kicks deliver without `joinedAt` when anti-raid is disabled.
+  - Join verification and join-spike lockdown share `ChatState.isAntiRaidEnabled` (default `false`), toggled and persisted via `/antiraid enable|disable` by callers holding `isCanControllAntiRaidPermission` (always `true` for `SUPER_ADMIN_USER_ID`).
+  - Both share the inbound join stream, whereas `/ad_detect`, `/flood_control`, blocklist instant kicks, and `/batch_kick` join logs run under independent switches and boundaries.
+  - **Main-thread ingress filtering**: Disabled chats drop joins, leaves, and verification messages/callbacks at ingress, **except `adminsChanged` updates**, which still forward as low-frequency admin-cache maintenance without touching verification or lockdown state machines (blocklist instant kicks omit `joinedAt` when anti-raid is disabled).
 
 - **Teardown on disabling anti-raid (`/antiraid disable`)**:
-  - Disabling immediately halts all active interactions and removes residues:
-    - `deactivateJoinGuard` transitions all chat verification records through `guardDisabled`, resetting them to ABSENT.
-    - Deletes bot verification reminder messages and buttons (invalidated buttons must not remain in groups). Join notices and member messages remain; pending expulsions are voided without kicking.
-    - Persisted expulsion tasks receive tombstones from the dispatcher, preventing re-execution upon restart.
-    - Sends `deactivate` to lockdown: aborts uncommitted `APPLYING` stages, transitions active stages to `RESTORING` to restore group invite permissions (`can_invite_users`), removes lockdown notices, and clears sliding windows.
-  - Calls Telegram deletion APIs only on explicit admin command or `/init disable`. If the bot loses admin rights or leaves the group, emergency teardown runs locally without calling restricted APIs.
-  - Unfinished cleanups due to Worker unavailability leave the switch safely persisted as disabled; leftovers are cleared by `purgeDisabledJoinGuards` upon process restart or Worker respawn.
+  - Disabling immediately stops active sessions and cleans up group artifacts:
+    - `deactivateJoinGuard` transitions every verification record in that chat through `guardDisabled` to `ABSENT`, deletes bot-sent verification reminders/buttons (leaving join service messages and member messages untouched), voids pending expulsions without kicking, and writes tombstones for persisted expulsion records.
+    - Lockdown receives `deactivate`: uncommitted `APPLYING` aborts, active phases enter `RESTORING` to restore `can_invite_users` and delete lockdown announcements, and sliding join windows clear.
+  - Telegram message deletions run only on explicit `/antiraid disable` or `/init disable`; if the bot lost admin rights or left the chat, local emergency teardown runs without calling restricted Telegram APIs.
+  - If the Worker is unavailable during disable, `isAntiRaidEnabled = false` still persists durably and `purgeDisabledJoinGuards` sweeps residual records on Worker respawn or process restart.
 
 - **Linked-channel discussion group exemptions**:
-  - Comments and nested replies in linked discussion groups share identical exemption logic; comment caches store only message IDs and observation timestamps.
-  - Candidates are strictly limited to linked-channel discussion threads (`is_topic_message !== true` excludes forum supergroups, which follow regular verification).
-  - Uncached `message_thread_id`s serve as asynchronous confirmation candidates: treated as regular pending-verification messages until confirmed as `linked_chat_id` under matching generations, revoking verification upon match. Query failures fail closed and allow retries.
+  - Top-level channel comments and nested replies in linked discussion supergroups share one exemption rule (the comment cache stores only `message_id` and observation timestamp), restricted to non-forum threads (`is_topic_message !== true`).
+  - An uncached `message_thread_id` is treated as a normal pending-verification message while asynchronously checking `getChat().linked_chat_id`; a confirmed match under the same generation revokes the pending verification, while lookup errors fail closed and permit later retries.
 
 - **Worker admin cache in-flight slot management**:
-  - Asynchronous administrator fetches deduplicate via `libs/keyedTask.ts`, clearing promises in `.finally()` only if the stored promise matches.
-  - A whole-table reset (`resetAdminCache()`) clears every snapshot, in-flight slot, and buffered increment, while single-chat deactivation or departure (`clearChatAdminCache(chatId)`) clears only those three for that chat; a completed in-flight fetch whose chat slot no longer points to it returns its result to current waiters without writing to `cacheAdminIds` or touching the buffered increments.
+  - Concurrent `getChatAdministrators` calls coalesce per chat via `libs/keyedTask.ts`, clearing the in-flight slot in `.finally()` only when the slot still holds that exact `Promise`.
+  - `resetAdminCache()` wipes all snapshots, in-flight slots, and buffered increments globally, whereas `clearChatAdminCache(chatId)` wipes only that chat's entries; an in-flight fetch finishing after its slot was cleared still resolves current callers without writing back to `cacheAdminIds` or buffered increments.
 
 - **Verification button interaction permissions**:
-  - **Self-answer buttons**: A human member's reminder shows the `VERIFICATION_CHALLENGE_OPTION_COUNT` options of an arithmetic question on the first row and "通过" on the second; bot members get no question, only the "通过" row. Questions draw an operator uniformly from `VERIFICATION_CHALLENGE_OPERATORS` (`+ - × ÷`) with operands between `VERIFICATION_CHALLENGE_OPERAND_MIN` and `VERIFICATION_CHALLENGE_OPERAND_MAX`; subtraction never goes negative and division is always exact. Distractors are non-negative integers within ±`VERIFICATION_CHALLENGE_DISTRACTOR_SPREAD` of the answer: the answer's numeric rank (how many distractors are below it) is drawn uniformly from the feasible ranks, then that many distractors are drawn uniformly from below the answer and the rest from above, and all options are shuffled together; when the answer is too small to have enough candidates below it, the highest feasible rank shrinks accordingly (an answer of 0 is always the smallest). `callback_data` is `verify:<userId>:<option>`, parsed strictly on the main thread with `parseUserIdArgument` and `VERIFY_ANSWER_ARG_PATTERN`.
-    - Only the pending member may answer. The Worker verifies `callback_query.from.id === callback_data` directly, rejecting unverified claims; anyone else clicking an option leaves the record untouched.
-    - Answers count only on the reminder currently registered on the pending state (`reminderMessageId` or `replyReminderMessageId`); answers on any other message only get an expired notice and are not compared.
-    - A correct answer passes; a wrong answer moves to `expelling` (`reason: "wrongAnswer"`), which after the persistence ack cleans up verification messages before kicking (same order as timeout), kicks without banning, and skips the `checkingInviter` inviter recheck.
-  - **Question cache**: The question lives on the Worker runtime entry `VerificationEntry.challenge`, generated when a human member's reminder delivery is first registered and shared by the original reminder, the reply reminder, and resends of the same pending object. It expires when the entry is replaced or deleted, so its lifetime is bounded by the entry's own verification timeout timer — no extra timer or periodic sweep — and it never enters the persisted snapshot. After a Worker rebuild or same-generation replay the entry has no question; a self-answer on the current reminder then deletes the existing reminders, clears their registration, and resends a fresh question in the current reminder form.
-  - **"通过" (Approve)**: Allowed only for **non-anonymous group administrators** clicking on behalf of candidates. Evaluated via Worker-side admin caches (`isChatAdmin`), fetching `getChatAdministrators` on cold misses; query failures prompt retries without altering records.
-  - **Allowlist independence**: Allowlist members or the super administrator cannot approve members unless they are administrators in that group; targets clicking "通过" on themselves are rejected. Inviter exemptions similarly recognize only non-anonymous human administrators.
-  - **Bots are treated as ordinary members**: Bots never enter the Worker-side admin cache, whether or not they are administrators. The full `getChatAdministrators` fetch omits `return_bots` and filters out the bot itself by `user.is_bot`; `chat_member` increments (`isInviterExemptAdmin`) follow the same rule. Members a bot adds are therefore not exempt from verification, and the admin identity gates of flood muting and ad disposal do not treat bots as administrators.
+  - **Self-answer challenge buttons**:
+    - Human joiners receive `VERIFICATION_CHALLENGE_OPTION_COUNT` arithmetic options on row 1 plus `"通过"` (Approve) on row 2; bot joiners receive only the `"通过"` (Approve) row.
+    - Challenges pick an operator uniformly from `VERIFICATION_CHALLENGE_OPERATORS` (`+`, `-`, `×`, `÷`) and operands in `[VERIFICATION_CHALLENGE_OPERAND_MIN, VERIFICATION_CHALLENGE_OPERAND_MAX]` (non-negative subtraction, exact integer division). Non-negative distractors within `±VERIFICATION_CHALLENGE_DISTRACTOR_SPREAD` pick the answer's rank uniformly from feasible ranks, sample lower/higher distractors without replacement, and shuffle (`0` is always rank 0).
+    - `callback_data` uses `verify:<userId>:<option>`, validated on the main thread via `parseUserIdArgument` and `VERIFY_ANSWER_ARG_PATTERN`.
+    - Only the pending member (`callback_query.from.id === userId`) pressing the active `reminderMessageId` or `replyReminderMessageId` is evaluated (other users are ignored; stale reminder messages return an expired toast). A correct choice passes; a wrong choice transitions to `expelling` (`reason: "wrongAnswer"`), deleting verification prompts after persistence ACK, kicking without banning, and skipping `checkingInviter`.
+  - **Ephemeral challenge cache (`VerificationEntry.challenge`)**:
+    - Generated once when a human member's reminder is first registered, shared across the initial reminder, reply reminder, and resends of that pending state, bounded by the entry's verification timeout timer, and never persisted to disk.
+    - After a Worker respawn or replay (where `challenge` is absent), a self-answer tap deletes the old reminder messages, clears their IDs, and sends a fresh challenge under the current reminder mode.
+  - **`"通过"` (Approve) button & allowlist independence**:
+    - Only **non-anonymous human group administrators** in that chat (verified via `isChatAdmin` / `getChatAdministrators`) may approve a candidate; allowlist members and `SUPER_ADMIN_USER_ID` have no special approval or inviter-exemption privilege unless they are group admins, and candidates cannot approve themselves.
+  - **Bots are never treated as group admins**: `getChatAdministrators` omits `return_bots` and filters `user.is_bot`, and `isInviterExemptAdmin` applies the same filter to `chat_member` diffs—so bot-invited newcomers require verification, and flood/ad admin gates never exempt bots.
 
 - **Terminal member kicks and group type adaptation**:
-  - `kickChatMember` must always be preceded by `probeChatMembership`: kicks proceed only if presence is confirmed; confirmed absence settles silently without battle-reports; query failures enter retry backoff.
-  - When the bot is confirmed to lack `can_restrict_members` (`botCanRestrictIn === false`), the membership probe still runs and only the kick request is skipped: a departed member settles at once, a present member keeps the terminal state and backs off. Once `cleanupSettled` is `true`, `expelling` retries no longer re-send message deletion requests; once the failure notice is also sent, each retry sends only a single probe. When the previous round already confirmed the removal (`removalConfirmed`), the retry likewise sends a single probe without logging the missing-permission error, and sends the success report once the member is gone.
-  - **Initial attempts require presence checks**: In supergroups, "kick without ban" maps to `unbanChatMember` without `only_if_banned`, which **lifts existing bans**. The main thread must verify that the target is currently present via `getChatMember`, cancelling with `absent` if already `left` or `kicked`. Explicit unbans with `only_if_banned: true` bypass this check.
-  - **Group type routing**: Basic groups use `banChatMember` (removing members); supergroups use `unbanChatMember`. Tracked by the main thread and replayed before adopting terminals.
+  - **Presence check before kick**: Every `kickChatMember` call is preceded by `probeChatMembership` (`getChatMember`). Confirmed `left`/`kicked` settles silently as `absent` without sending battle reports; probe errors enter retry backoff. In supergroups, "kick without ban" calls `unbanChatMember` without `only_if_banned` (which lifts existing bans), so confirming live presence first is mandatory (explicit unbans pass `only_if_banned: true` and skip the probe).
+  - **Missing `can_restrict_members` (`botCanRestrictIn === false`)**: `probeChatMembership` still runs while the kick call itself is skipped—departed targets settle immediately, and present targets keep their terminal state on backoff. Once `cleanupSettled === true`, retries stop re-issuing message deletes; once the failure notice has been sent (or `removalConfirmed` was already set on a prior round), each retry performs only a single membership probe (emitting the success notice once the member leaves).
+  - **Group-kind routing**: Basic groups remove via `banChatMember`, whereas supergroups use `unbanChatMember`. Chat kind is mirrored from the main thread before adopting terminals, falling back on cold miss to `getChat` bounded by `VERIFICATION_CHAT_KIND_FETCH_MAX` concurrency and `CHAT_KIND_FETCH_TIMEOUT_MS`.
 
 - **Fast kicks and irreversible execution tokens (`kickPending`)**:
-  - Fast kicks enter `kickPending` with write-ahead disk snapshots, enabling restarts to resume membership probing and expulsion.
-  - Before calling `kickChatMember`, the system must confirm that the in-memory entry retains the exact state object, with zero intervening `await` calls. Intervening exemptions or departures abort the operation immediately.
-  - Transitions to `kicked` only after successful Telegram API calls with matching tokens.
-  - **Join counter retractions**: Apply only to physical joins where `joinCreatesNewRecord === true` (records carrying `countedJoinAt`). A rejoin after a kick record has passed `KICKED_REJOIN_GRACE_MS` counts like a join with no record, so a `kickPending` rebuilt during lockdown also carries `countedJoinAt`; a late delivery carrying the same join announcement is still deduplicated as the same join and is not counted again.
-  - Diagnostic logs for uncancelable admin kick exemptions (`logUncancelableKickExemption`) must be sent to `logger.error` as authoritative traces for manual investigation.
+  - Lockdown fast-kicks persist a write-ahead `kickPending` snapshot before probing and kicking so restarts resume cleanly, verifying exact state-object identity synchronously (zero intervening `await`s) right before `kickChatMember` and transitioning to `kicked` only on token-matched success.
+  - **Join-counter retractions**: Retract only physical joins carrying `countedJoinAt` (`joinCreatesNewRecord === true`, including rejoins after `KICKED_REJOIN_GRACE_MS` and `kickPending` entries rebuilt during lockdown; duplicate deliveries of the same join announcement remain deduplicated).
+  - Uncancelable admin fast-kick exemptions (`logUncancelableKickExemption`) log via `logger.error` as permanent audit traces.
 
 - **Verification reminder delivery and member message safety**:
-  - Each pending member is assigned a single reminder delivery owner; when the state is superseded (including recovery adoption, chat deactivation, and runtime shutdown), the delivery owner is cancelled synchronously and any late-arriving reminder deletes itself. Successfully sending `reminderMessageId` or `replyReminderMessageId` is a prerequisite for timeout kicks; undelivered reminders extend windows and retry delivery.
-  - Extensions cap at `VERIFICATION_REMINDER_UNDELIVERED_MAX_MS`, settling as ordinary timeouts (kicking without bans) if undelivered.
-  - **Member messages are never deleted**: Verification records track join timestamps in `trackedMessageTimes`; exceeding `ANTI_RAID_PER_MINUTE_LIMIT` triggers flood expulsion. Expulsion deletes only bot-sent reminders and announcements, never member messages (message wiping belongs to `/block` and ad detection fast-kicks).
+  - Each pending state owns at most one active reminder delivery; superseding the state (recovery adoption, chat deactivation, or shutdown) cancels delivery synchronously and self-deletes any late-sent message.
+  - Timeout expulsion requires at least one delivered `reminderMessageId` or `replyReminderMessageId`, extending the window up to `VERIFICATION_REMINDER_UNDELIVERED_MAX_MS` while retrying delivery before settling as an ordinary timeout kick.
+  - **Member messages are never deleted by verification**: `trackedMessageTimes` counts member messages toward `ANTI_RAID_PER_MINUTE_LIMIT` flood expulsion, but expulsion deletes only bot-authored verification prompts/notices (member message wiping belongs strictly to `/block` and ad-detection bans).
 
 ### Flood Muting and the Bot's Own Permission Cache
 
@@ -652,329 +673,233 @@ This section covers [counting and enforcement boundaries](#counting-and-enforcem
 #### Counting and enforcement boundaries
 
 - **Flood counting and enforcement are owned entirely by the Anti-Raid Worker**:
-  - Disabled by default, activating only when `ChatState.isFloodControlEnabled === true`. Callers holding `isCanControllFloodControlPermission` toggle and persist it via `/flood_control enable|disable`, clearing active windows on disable.
-  - Applies exclusively to **supergroups**: A member posting `FLOOD_MESSAGE_LIMIT` messages within `FLOOD_WINDOW_MS` is muted for `FLOOD_MUTE_DURATION_MS` (`restrictChatMember` is supported only in supergroups).
-  - **Main-thread synchronous filtering**: Evaluates group switch, supergroup type, real user identity, and `isCanBypassFloodControl` permissions before allocating candidates. Channel personas and anonymous admins are excluded; allowlists default to true; super administrators always bypass. Dispatches to Worker via plain `post`.
-  - Window state resides in `cache/workers/antiRaid/flood.ts`, capped at `FLOOD_WINDOW_MAX_MEMBERS` with LRU eviction and periodic sweeps. Mutes expire automatically via Telegram's `until_date`; Workers maintain no restore timers and write no persistent disk state.
+  - Disabled by default (`ChatState.isFloodControlEnabled === true` required), toggled and persisted via `/flood_control enable|disable` by callers holding `isCanControllFloodControlPermission` (disabling clears active sliding windows).
+  - **Supergroups only**: Sending `FLOOD_MESSAGE_LIMIT` messages within `FLOOD_WINDOW_MS` triggers a `FLOOD_MUTE_DURATION_MS` mute via `restrictChatMember`.
+  - **Main-thread synchronous prefilter**: Checks group toggle, supergroup type, real user sender (excluding channel personas and anonymous admins), and `isCanBypassFloodControl` (default `true` for allowlist members; always `true` for `SUPER_ADMIN_USER_ID`) before posting plain `post` events to the Worker.
+  - Sliding windows live in `cache/workers/antiRaid/flood.ts` (capped at `FLOOD_WINDOW_MAX_MEMBERS` with LRU eviction and periodic sweeps); Telegram's `until_date` lifts mutes automatically without Worker timers or disk state.
 
 #### Verdict-time suppression and concurrency safety
 
 - **Suppression markers are applied at verdict time**:
-  - Markers are applied immediately upon rule match without waiting for network responses.
-  - Deterministic outcomes (successful mute, target is admin, bot lacks permissions) **retain** suppression markers; transient network or query failures **roll back** the suppression marker for retry in subsequent windows.
-  - Every `await` point verifies that entries remain managed (`stillManaged`): if the group is deactivated or the entry is evicted by LRU during waiting, disposal aborts immediately without broadcasting notices.
+  - Applied synchronously on threshold match before awaiting any network probe or mute call.
+  - Deterministic outcomes (`muted`, target is admin, or `forbidden`) **keep** the suppression marker; transient probe/network failures **roll back** the marker so subsequent messages can re-trigger enforcement.
+  - Every `await` resumption checks `stillManaged`: chat deactivation or LRU eviction aborts enforcement immediately without posting notices.
 
 #### Permission gates before enforcement
 
 - **Dual permission preflight**:
-  - Two prerequisite gates must pass before muting:
-    1. The bot's own `canRestrictMembers` permission bit;
-    2. Hot admin cache confirmation (`freshAdminIds`, falling back to cold fetch) that the target **is not an administrator**.
-  - Uses tri-state logic (`true` = is admin / `false` = confirmed not admin / `undefined` = unconfirmed): **never mutes unless confirmed that target is not an admin**; unobserved bot permissions (`undefined`) proceed to Telegram's verdict.
-  - Mute requests use `muteChatMemberWithOutcome`, returning three outcomes: `muted` (success), `forbidden` (explicit rejection, retains suppression without retrying), and `failed` (transient failure, rolls back suppression).
-  - Enforces `FLOOD_MUTE_DISPATCH_TIMEOUT_MS` dispatch deadlines. Group notices send only after successful mutes, auto-deleting after `COMMAND_MESSAGE_AUTO_DELETE_MS`. Active tasks subscribe to the `antiRaidDispatchSignal` shutdown signal.
+  - Before calling `muteChatMemberWithOutcome`, the Worker checks:
+    1. Bot permission mirror `canRestrictMembers` (`false` aborts; `true` or `undefined` proceeds).
+    2. Target non-admin confirmation via `freshAdminIds` / cold `getChatAdministrators` (`true` = admin or `undefined` = unconfirmed **never mutes**; only confirmed `false` proceeds).
+  - `muteChatMemberWithOutcome` returns `muted`, `forbidden` (retains suppression without retry), or `failed` (rolls back suppression), bounded by `FLOOD_MUTE_DISPATCH_TIMEOUT_MS` and `antiRaidDispatchSignal`, sending a `COMMAND_MESSAGE_AUTO_DELETE_MS` group notice only on `muted`.
 
 #### The bot's own permission mirror
 
 - **Bot permissions are mirrored from main thread to Worker**:
-  - Permission snapshots persist in `ChatState.botPermissions`, managed by `packages/infra/botAdmin.ts`.
-  - Changes on the main thread (from `my_chat_member` updates or `getChatMember` probes) broadcast to Workers via `botPermissionsChanged`.
-  - **Deduplication strategy**: Persistence checks all permission fields; cross-thread broadcasts compare only `canRestrictMembers` and `canDeleteMessages`.
-  - Updates triggered by other users' `chat_member` events confirm only admin presence, never specific rights, and must not write incomplete snapshots.
-  - Missing or contradictory snapshots trigger single `getChatMember` probes. **Probes enforce backoff via `BOT_PERMISSION_PROBE_RETRY_MS` and must never be `await`ed** on the update runner path.
-  - Mirrored permissions remain strictly tri-state (`true` / `false` / `undefined`), never collapsing to booleans: destructive actions short-circuit only when permissions are **confirmed `false`**, dispatching normally on `undefined`.
-  - Message deletions return polymorphic outcomes (`deleted` / `gone` / `forbidden` / `failed`), treating both `gone` and `deleted` as successful cleanups.
-  - This cache backs the check-before-acting rule for every destructive action: flood muting reads `canRestrictMembers`, while ad-disposal bulk deletes, channel-alias stragglers and the trace cleanup of a verification-timeout expel read `canDeleteMessages`. Only a confirmed `false` blocks; `undefined` still sends the request (same three-valued rule as above).
-  - **When a confirmed absence skips the deletes, the notice must no longer assert that the traces were cleaned up**; conversely, **"the message was already gone" is not a failed delete**: an administrator (or the member) deleting it first, someone else clearing the join announcement, or a message past the Bot API's deletable age all come back as a 400 from `deleteMessage`.
-  - Of the `deleteMessageWithOutcome` results, only a genuine permission refusal from Telegram (`forbidden`) may call out the administrator; any other failure must state how many of how many were missed. The ad notice does not mention deletion: the deletes run on the judging thread, after the event is published back, so the main thread never learns whether they succeeded.
-  - The Anti-Raid Worker separately keeps a **chat-administrator** cache (`workers/antiRaid/adminCache.ts`). The two describe different subjects, are not shared, and do not substitute for each other.
+  - Authoritative snapshots live in `ChatState.botPermissions` (`packages/infra/botAdmin.ts`) and push incrementally to the Anti-Raid Worker via `botPermissionsChanged` (persisting whenever any permission bit changes, while cross-thread broadcasts diff only `canRestrictMembers` and `canDeleteMessages`).
+  - Other users' `chat_member` updates only confirm that the bot has admin status and never overwrite specific permission bits with partial snapshots. Missing or contradicted snapshots trigger a non-blocking `getChatMember` probe throttled by `BOT_PERMISSION_PROBE_RETRY_MS` (never `await`ed on the update runner path).
+  - **Strict tri-state (`true` / `false` / `undefined`)**: Never coerced to boolean—flood mutes (`canRestrictMembers`), ad-disposal bulk deletes, channel-alias straggler deletes, and verification-expel trace deletes (`canDeleteMessages`) short-circuit **only** on confirmed `false`, sending requests normally on `undefined`.
+  - **Deletion outcomes and honest notice copy** (`deleteMessageWithOutcome` → `deleted` | `gone` | `forbidden` | `failed`):
+    - Both `deleted` and `gone` (HTTP 400 when an admin/member already deleted the message, another bot cleared the join service message, or the message aged past Telegram's delete window) count as settled cleanups.
+    - When confirmed missing `canDeleteMessages` skips deletion calls, notices omit any claim that traces were cleaned up; among failed `deleteMessageWithOutcome` calls, only `forbidden` blames missing admin rights, whereas transient `failed` outcomes report the exact missed-vs-total count. Ad-disposal notices omit deletion status altogether because bulk deletes run on the Worker after publishing `adDetected` to the main thread.
+  - **Distinct from chat-admin cache**: The Worker's `workers/antiRaid/adminCache.ts` tracks which human members are group admins; `botPermissions` tracks the bot's own privilege bits. Neither substitutes for the other.
 
 ### Identity Resolution and Runtime Teardown
 
 - **Two-Way Username Cache Consistency**:
-  - The sender cache maintains two-way mappings: normalized `username -> identity` and `sender ID -> current username`.
-  - Atomically updates both mappings under a single owner during renames, removals, reassignments, and LRU evictions. The resolver rejects alias conflicts and inconsistent records.
-  - **Live username check for destructive commands**: The alias table only remembers the most recently observed speaker, so after a rename or reassignment it may still point at the previous holder. When a command with `requireIdentityPolicies` (`/block … enable|disable`, `/mute`, `/white`, the `/permission` modification path) targets `@username`, it re-reads the target's current identity by id before acting (`commands/liveTargetIdentity.ts`: users via `getChatMember` in the current chat, channel and group identities via `getChat`) and writes the result back to the identity cache. It proceeds only if the username still matches; on a mismatch it refuses and drops the stale alias, and a failed lookup also refuses, asking the caller to reply to the target or use its id. Replies and bare ids are authoritative identities and are not re-checked.
+  - `senderIdentity` maintains atomic bidirectional maps (`normalized username -> identity` and `sender ID -> current username`) across renames, removals, handle reassignments, and LRU evictions, rejecting alias collisions.
+  - **Live `@username` re-verification on policy commands** (`commands/liveTargetIdentity.ts`):
+    - Because cached `@username` entries reflect only the last observed message, commands gated by `requireIdentityPolicies` (`/block … enable|disable`, `/mute`, `/white`, and `/permission` mutations) re-query the resolved ID live before acting (`getChatMember` in the current chat for positive user IDs; `getChat` for negative channel/group IDs) and write the fresh profile back to `senderIdentity`.
+    - Execution proceeds only when the live username still matches; mismatches evict the stale alias and refuse the command, and lookup failures likewise refuse (prompting the caller to reply to the message or pass a numeric ID). Direct message replies and numeric ID arguments are already authoritative and skip this probe.
 - **Anonymous Admins and Group Identities**:
-  - Anonymous admins retain admin exemptions, but cannot act as identifiable inviters to pass down verification waivers to newcomers.
-  - When speaking on behalf of the group, visible sender resolution keeps the group identity for `/copy` and avatar fetching. Destructive management commands must reject the current group identity as a user target.
+  - Anonymous group admins keep admin immunity for their own messages, cannot pass inviter verification exemptions to newcomers, resolve to the group identity for `/copy` and `/icon`, and are rejected as targets of destructive moderation commands.
 - **Numeric User ID Arguments (`acceptUserId`)**:
-  - `/block ... enable` and `/block ... disable` accept numeric Telegram user IDs matching `USER_ID_ARG_PATTERN` (must pass `Number.isSafeInteger`).
-  - Cache misses do not fail resolution; `resolveIdTarget` falls back to a minimal identity containing only the ID, affecting only the reply label.
-  - Opt-in per command (`acceptUserId`) rather than global; `/copy` and CJK action commands do not accept raw user IDs.
-  - **Conflict Resolution**: When both a replied message and command arguments are present and point to different targets, fail explicitly. Never pick one silently. Treat unresolvable arguments as a conflict as well. Identical targets pass through harmlessly.
+  - Opt-in per command (`/block … enable|disable`, `/info`, etc., never `/copy` or CJK actions) for positive safe integers matching `USER_ID_ARG_PATTERN`; cache misses synthesize a minimal `{ id }` target through `resolveIdTarget`.
+  - **Reply-vs-argument conflict rejection**: Supplying both a replied-to message and command arguments that resolve to different targets (or an unresolvable argument alongside a reply) fails closed rather than picking one silently; matching targets succeed.
 - **Negative Chat ID Arguments (`acceptChatId`)**:
-  - Separate `acceptChatId` switch for negative channel/group IDs (`CHAT_ID_ARG_PATTERN`).
-  - Allowed only for `/gag`, `/ungag`, `/delete_message`, `/block disable`, `/permission`, `/white`, `/translate` (stop translation target), and `/info`:
-    - `/gag` and `/ungag` manage temporary, reversible speech suppression;
-    - `/delete_message` only deletes messages a channel identity sends in the group afterwards;
-    - `/block disable` is a recovery operation;
-    - `/permission` and `/white` manage allowlist configurations admitting channel identities;
-    - `/info` is a read-only query.
-    - All other commands must reject negative chat IDs as user targets.
-  - Channel alias IDs enter the blocklist via `/block` replies or ad detection hitting `sender_chat`:
-    - `/block enable` rejects negative chat IDs;
-    - `/block disable` accepts negative chat IDs for unbanning.
-  - **`isChannel` Flag**: `resolveIdTarget` marks `isChannel` based on the ID's sign, driving downstream dispatch in `workers/antiRaid/blocklistEffects.ts`: `/block disable` selects `unbanChatSenderChat` instead of `unbanChatMemberIfBanned`.
+  - Opt-in via `acceptChatId` (`CHAT_ID_ARG_PATTERN`), permitted **only** on `/gag`, `/ungag`, `/delete_message`, `/block disable`, `/permission`, `/white`, `/translate` (stop target), and `/info`; all other commands reject negative IDs.
+  - Channel personas enter the blocklist only via `/block` replies to a `sender_chat` message or automated ad detection (`/block enable` rejects raw negative IDs, while `/block disable` accepts them so operators can unban channels; `resolveIdTarget` sets `isChannel` from the ID sign so `workers/antiRaid/blocklistEffects.ts` calls `unbanChatSenderChat` instead of `unbanChatMemberIfBanned`).
 - **`/gag` State Machine and Message Lifecycle**:
-  - **Authoritative Session Management**: The main thread manages chat target sessions with a global cap of `GAG_SESSION_MAX`. An identity in a chat exclusively holds its slot across `starting`, `active`, and `ending`.
-  - **Notice Delivery**:
-    - Every target first receives a public group notice.
-    - Regular users: Public notice has no button; followed by an ephemeral message with an un-gag/speak button restricted via `ephemeral_message_parameters.receiver_user_id` visible only to the target.
-    - Channel targets: No receiving user; directly receives a public notice with a button.
-    - Transitions to `active` and arms an `unref` timer only after all required messages succeed and both public `message_id` and verified `ephemeral_message_id` are recorded synchronously. If the second send fails, delete the public notice before releasing the slot.
-  - **Teardown and Resource Cleanup**:
-    - On timeout, `/ungag`, or chat teardown, synchronously claim `ending` and clear the timer before invoking Telegram delete APIs sequentially.
-    - Release the slot only after all deletions confirm `deleted` or `gone`, and any release receipt settles.
-    - On `failed` or `forbidden`, retain `ending` ownership and retry with bounded, unref'd backoff (`GAG_CLEANUP_RETRY_DELAYS_MS`). If retries exhaust, suspend until subsequent `/ungag`, teardown, or shutdown retries it. No new session for the same target may interleave until cleanup completes. Total cleanup debt is bounded by `GAG_SESSION_MAX`.
-    - Session start messages belong to the gag session and bypass `COMMAND_MESSAGE_AUTO_DELETE_MS` auto-deletion; release receipts follow the standard `COMMAND_MESSAGE_AUTO_DELETE_MS` auto-delete boundary. Gag owners quiesce and drain before the Telegram outbound gate; incomplete cleanup withholds final offset confirmation and instance lock release.
-  - **Refresh Mechanism for Speak Notices**:
-    - Scheduled by session owner: `commands/gag/counter.ts` tracks chat message counts, triggering when reaching `GAG_SPEAK_NOTICE_MESSAGE_INTERVAL`. No task queued below the threshold or if `speakNoticeRefreshTask` is in-flight.
-    - `commands/gag/refresh.ts` claims tasks for ready sessions into `gagBackgroundTasks`. Concurrent outbound calls are throttled by Telegram's rate-limiter. Up to `GAG_SESSION_MAX` concurrent refresh tasks run globally.
-    - Regular users arm a `speakNoticeRefreshTimer` (`GAG_SPEAK_NOTICE_REFRESH_INTERVAL_MS`, unref'd) upon activation and after each refresh. Channels do not set this timer. Canceled upon starting a refresh, ending, quiescing, or test resets.
-    - Refresh steps: clean `retired` slot, send new notice, record `pending` synchronously on `onSent`, switch entry and topic upon commit, reset counter, and delete old notice. Retain IDs on failure and retry on next threshold or timer.
-  - **Speech After Inactivity**:
-    - `lastTargetMessageAt` initializes on activation and updates only when the target speaks in this chat.
-    - `refreshGagSpeakNoticeOnSpeech` checks the previous timestamp. If the user speaks after at least `GAG_SPEAK_NOTICE_IDLE_INTERVAL_MS` of silence, immediately request a refresh. Other users' messages do not alter this timestamp.
-    - Resets timer upon refresh; speech below the idle threshold updates the timestamp without resetting the timer. Channel notices refresh only on message count thresholds or topic moves.
-  - **Inline Dispatch Isolation and Authentication**:
-    - Strict isolation between gag and fortune inline query protocols: queries without the `GAG_INLINE_QUERY_PREFIX` prefix skip gag entirely and route to fortune, even if the user is gagged.
-    - Button query format is strictly `${GAG_INLINE_QUERY_PREFIX}<target Telegram ID> ` (positive integer for users, negative for channels). Only the canonical safe integer is allowed before the first space; tokens, digests, or chat IDs are prohibited. `ParsedGagInlineQuery` must not add scope fields, and `GagSession.chatId` stores only the authoritative chat ID established at command entry.
-    - Any query with `GAG_INLINE_QUERY_PREFIX` terminates in gag dispatch; invalid, expired, or mismatched queries return an empty answer and never fall back to fortune.
-    - Registered source text (`recordInlineResultSources`) is strictly for ad detection matching, never for identity or chat admission.
-    - Result marker is formatted as `<target profile>#<session chat ID>` as public validation payload; mismatched or cross-chat results are deleted immediately and terminate downstream handling.
+  - **Global slot ownership**: Main-thread sessions cap at `GAG_SESSION_MAX` globally; one `(chatId, targetId)` holds an exclusive slot across `starting → active → ending`.
+  - **Activation & notice pairing**:
+    - Human users receive an un-buttoned public group notice followed by a button-bearing ephemeral prompt scoped via `ephemeral_message_parameters.receiver_user_id`; channel targets receive a single public notice carrying the inline speak button.
+    - The session enters `active` and arms its `unref()`ed expiry timer only after all required sends succeed and both `message_id` and `ephemeral_message_id` are recorded synchronously (if the second send fails, the first notice is deleted before freeing the slot).
+  - **Teardown & bounded retry cleanup**:
+    - Expiry, `/ungag`, or chat teardown synchronously claims `ending` and clears timers before deleting session messages sequentially, freeing the slot only once every message settles (`deleted` or `gone`) and any release receipt finishes.
+    - `failed` or `forbidden` deletes retain the `ending` slot (blocking overlapping `/gag` sessions for that target, bounded globally by `GAG_SESSION_MAX`) and retry on `unref()`ed `GAG_CLEANUP_RETRY_DELAYS_MS` backoff; if exhausted, cleanup suspends until a later `/ungag`, chat teardown, or shutdown retries it.
+    - Session notices bypass `COMMAND_MESSAGE_AUTO_DELETE_MS`, whereas `/ungag` receipts auto-delete after 30 s. Gag drains before the Telegram outbound gate on shutdown; unsettled cleanup withholds final offset confirmation and `bot.lock` release.
+  - **Speak-notice refresh (`commands/gag/counter.ts` & `commands/gag/refresh.ts`)**:
+    - Re-posts the speak prompt after `GAG_SPEAK_NOTICE_MESSAGE_INTERVAL` chat messages (if no `speakNoticeRefreshTask` is already running, up to `GAG_SESSION_MAX` tasks in `gagBackgroundTasks`) and, for human users only, on an `unref()`ed `GAG_SPEAK_NOTICE_REFRESH_INTERVAL_MS` timer.
+    - Each refresh cleans any `retired` slot, sends the new prompt (`pending` recorded synchronously in `onSent`), swaps active IDs/topic, resets the message counter, and deletes the old prompt (retaining IDs to retry on failure).
+    - **Post-idle speech**: `lastTargetMessageAt` updates only when the gagged user speaks; speaking after `>= GAG_SPEAK_NOTICE_IDLE_INTERVAL_MS` of silence triggers an immediate refresh and resets the timer (channel sessions refresh only on message-count thresholds or forum-topic changes).
+  - **Inline protocol isolation & authentication**:
+    - Queries lacking `GAG_INLINE_QUERY_PREFIX` route exclusively to inline fortune; queries starting with `GAG_INLINE_QUERY_PREFIX` terminate in gag (`${GAG_INLINE_QUERY_PREFIX}<canonical safe integer targetId> ` with zero extra tokens, digests, or chat IDs; `ParsedGagInlineQuery` carries no scope fields, and invalid/expired queries return an empty inline result without falling back to fortune).
+    - `recordInlineResultSources` feeds ad-detection text matching only, never identity or chat authorization; posted inline cards embed `<target profile>#<session chatId>` and are deleted immediately on mismatch or cross-chat delivery.
 - **`/delete_message` Targets and Deletion Queue**:
-  - Targets live in the chat state `ChatState.deleteMessageTargets` and persist with `chat_states.status`; the hot read copy is the only in-memory copy. Targets are registered only in initialized groups, up to `DELETE_MESSAGE_CHAT_TARGET_MAX` per group. Arming, stopping, and teardown clearing all update the hot copy first, then wait for durability through `persistChatState`.
-  - Startup decodes them strictly as a non-empty list of up to `DELETE_MESSAGE_CHAT_TARGET_MAX` distinct non-zero safe integers; `decodeStoredChatStates` rejects a row that targets the group itself, and `assertSuperAdminNotDeleteMessageTarget` (right after `assertSuperAdminNotBlocked`) rejects the configured super administrator. Either violation refuses startup with a non-zero exit.
-  - The deletion queue belongs to the main thread only (`packages/cache/main/deleteMessage.ts`); it is never persisted or mirrored to Workers and starts empty after a restart.
-  - The message ingress runs after Anti-Raid and before gag. It decides synchronously and only enqueues, never awaiting the deletion; a group without targets costs a single Map lookup.
-  - The queue holds at most `DELETE_MESSAGE_QUEUE_MAX` entries; when full, new messages are still claimed but not enqueued. A single consumer loop runs in the queue's own cancellation context (`runWithUpdateAbortSignal`), so it never inherits the triggering update's signal or topic. It batches consecutive same-group entries into `deleteMessages` calls through the unified Telegram outbound gate and does not retry failures.
-  - Group teardown synchronously drops the group's unsent entries, removes its targets, and persists the removal. The shutdown drain owner runs before the Telegram outbound gate; past the budget it drops the whole queue, aborts the consumer loop, and logs an error.
+  - Stored in `ChatState.deleteMessageTargets` (`chat_states.status`, hot snapshot only, up to `DELETE_MESSAGE_CHAT_TARGET_MAX` distinct non-zero safe integers per initialized chat), strictly validated on startup (`decodeStoredChatStates` rejects the chat's own ID; `assertSuperAdminNotDeleteMessageTarget` rejects `SUPER_ADMIN_USER_ID`).
+  - Main-thread queue (`packages/cache/main/deleteMessage.ts`, unpersisted, capped at `DELETE_MESSAGE_QUEUE_MAX`): preamble ingress runs synchronously between Anti-Raid and gag (single `Map` lookup when empty; claims without enqueueing when full). One consumer loop runs under its own `runWithUpdateAbortSignal` scope, batching consecutive same-chat IDs into `deleteMessages` without retries; chat teardown purges unsent entries and persists target removal, and shutdown drops un-drained entries past budget with an error log.
 - **`/icon steal` Profile Fallback**:
-  - Live username lookup via `getChat(targetId)` is strictly authoritative. Never short-circuit using context-provided usernames; caller usernames serve solely as diagnostic log hints.
+  - Always queries live `getChat(targetId)` as authoritative; context usernames never short-circuit the lookup and serve solely as diagnostic log hints.
 - **Chat Runtime Teardown**:
-  - Domain cleanup callbacks (`copy`, `translate`, `gag`, `deleteMessage`, `qa`, `wed`, `aiChat`, `antiRaid`, `joinLog`) are registered in reverse through `packages/infra/chatTeardownRegistry.ts` into `packages/cache/main/chatTeardown.ts`. `packages/infra/chatTeardown.ts` orchestrates cleanup and must not statically depend on business modules.
-  - **Teardown Reason & Purge Decision (`ChatTeardownReason`)**:
-    - `explicitDisable` (`/init disable`), `departed` (bot removed from chat, or confirmed at startup to no longer be a member), and `gone` (the chat no longer exists: the old id of a group upgraded to a supergroup, or `chat not found` confirmed at startup): chat is no longer managed; purge `/wed` members, join logs, Q&A records, and `chat_states`.
-    - `lostAuthority` (bot lost admin rights but remains in chat): pause runtime only; preserve all persisted data to resume when permissions return.
-    - Owners take their decisions from the three predicates in `packages/libs/chatTeardown.ts` rather than checking reason strings manually: `purgesChatData` (whether persisted data is deleted), `isChatUnreachable` (`departed` and `gone`: the bot can no longer call the chat's API, so only local message ids are discarded), and `abandonsLockdown` (`gone` only: the lockdown record is abandoned).
-    - Exceptions: AI memory purges on all teardown reasons; leftover buttons (verification, etc.) delete via API only on `explicitDisable` (on `departed` and `gone`, no Telegram request is made).
-  - **Departure entry point (`completeChatDeparture`)**: `completeChatDeparture(chatId, "departed" | "gone")` in `packages/infra/botAdmin.ts` forgets the permission snapshot, runs every owner's teardown, then clears blocklist sweep progress and all chat state except the lockdown record and persists it; repeated calls for the same chat are idempotent. It has exactly three callers:
-    - `my_chat_member` reporting the bot as left/kicked: `departed`;
-    - a managed chat receiving a service message with `migrate_to_chat_id`: the migration ingress in the `packages/app/updatePreamble.ts` preamble, placed after the init gate, tears the old chat down as `gone` and ends the update. The new supergroup still needs `/init`; old settings are not carried over;
-    - the startup title refresh confirming a chat as unreachable (see "Low-priority group title maintenance" above): torn down with the confirmed class.
-  - **Synchronous Order Dispatch**: `teardownChatRuntime` iterates `CHAT_TEARDOWN_ORDER` in `packages/consts/chatTeardown.ts` (exhaustively typed). Starts all cleanup owners synchronously before awaiting settlement together.
+  - Domain handlers (`copy`, `translate`, `gag`, `deleteMessage`, `qa`, `batchKick`, `wed`, `aiChat`, `antiRaid`, `joinLog`) register in `packages/cache/main/chatTeardown.ts` via `packages/infra/chatTeardownRegistry.ts` so `packages/infra/chatTeardown.ts` has zero static imports of business modules, starting synchronously in `CHAT_TEARDOWN_ORDER` (`packages/consts/chatTeardown.ts`) before awaiting settlement together.
+  - **Reason predicates (`packages/libs/chatTeardown.ts` over `ChatTeardownReason`)**:
+    - `explicitDisable` (`/init disable`), `departed` (bot removed/left), and `gone` (group upgraded via `migrate_to_chat_id` or `chat not found`): `purgesChatData === true`—purges `/wed` pools, join logs, Q&A rows, batch-kick sequences and Mini App completion snapshots (`batchKickPreflightSeqsByChat`, `batchKickInFlightSeqByChat`, `miniAppBatchKickCompletedByChat`), and `chat_states`.
+    - `lostAuthority` (bot demoted from admin while still in chat): pauses runtime state while keeping persisted data and Mini App snapshots intact for permission recovery.
+    - `isChatUnreachable` (`departed` | `gone`) skips Telegram delete/restore API calls and drops local message IDs only; `abandonsLockdown` (`gone` only) drops lockdown records via `chatGone`; AI memory purges on **every** teardown reason.
+  - **Idempotent departure boundary (`completeChatDeparture` in `packages/infra/botAdmin.ts`)**: Clears `botPermissions`, runs all teardown owners, resets blocklist sweep state, and clears `ChatState` (except any active `lockdown` awaiting `unlock`) from exactly three entry points: `my_chat_member` kick/leave (`departed`), `migrate_to_chat_id` preamble ingress (`gone`; the upgraded supergroup requires a fresh `/init`), and confirmed unreachable chats in startup title maintenance.
 - **Membership Probe Boundary**:
-  - Between `probeChatMembership` confirming membership and calling `kickChatMember`, verify that the in-memory terminal state reference has not changed; do not insert any `await` between this check and the API call.
+  - Zero `await` points may sit between verifying the unchanged in-memory terminal state reference after `probeChatMembership` and invoking `kickChatMember`.
 - **No Ban Outcome Cache for `/block`**:
-  - Re-issue `banChatMember` across all managed chats on every `/block` invocation (with Telegram's `revoke_messages`). Only chats with confirmed missing `canRestrictMembers` rights skip the request. `/block disable` similarly avoids ban-outcome caching, and its cross-chat unban skips chats with confirmed missing rights in the same way.
+  - Every `/block` fan-out re-sends `banChatMember` (with `revoke_messages`) across all managed chats, and every `/block disable` re-sends cross-chat unbans, skipping only chats where `canRestrictMembers` is confirmed `false`.
 
 ### `/wed` Member Persistence and Interaction
 
-- **Daily Member Review**:
-  - Triggered solely by the Disk I/O Worker's native Bun cron on schedule `DISK_IO_MAINTENANCE_CRON` in the configured time zone (`midnightMaintenance`); main thread creates no separate cron.
-  - `commands/wed/memberReview.ts` sequentially iterates all restored managed groups (even without active sessions), taking a snapshot of up to `WED_MEMBER_LIMIT` IDs per group.
-  - Queries share an interval of at least `WED_MEMBER_REVIEW_INTERVAL_MS` with a `WED_OPERATION_TIMEOUT_MS` budget per query.
-  - Only confirmed departure or 400 `PARTICIPANT_ID_INVALID` calls `removeWedMember` to prune members and mark dirty (not logged as an API error); temporary network errors retain members. Active speech, `chat_member` updates, or join messages observed during review veto late departure determinations.
-  - If the bot is not an admin, `getChatMember` fails with 403 or 400 `CHAT_ADMIN_REQUIRED`: log the error and terminate review for that group, retaining all members. Drawing departed members in non-admin groups is expected behavior.
+- **Daily Member Review** (`commands/wed/memberReview.ts`):
+  - Triggered exclusively by the Disk I/O Worker's native Bun cron (`DISK_IO_MAINTENANCE_CRON` in the configured time zone via `midnightMaintenance`); the main thread runs no separate cron.
+  - Iterates every restored managed group sequentially (up to `WED_MEMBER_LIMIT` user IDs per group), spacing `getChatMember` probes by `WED_MEMBER_REVIEW_INTERVAL_MS` with a `WED_OPERATION_TIMEOUT_MS` per-call budget.
+  - Calls `removeWedMember` only on confirmed departure or HTTP 400 `PARTICIPANT_ID_INVALID` (unlogged as an error), while live speech, `chat_member`, or join observations during the scan veto stale removals and transient errors retain the member. Non-admin groups hitting 403 or 400 `CHAT_ADMIN_REQUIRED` log once, abort that group's scan, and retain all members (drawing departed members in non-admin groups is expected).
 - **Admission and Permissions Gateway**:
-  - `/wed` commands and callbacks sit behind the unified `/init` gateway; adding members requires `isInitEnabled === true`. An uninitialized group removes departed members upon leave events without creating state or admitting handlers.
+  - `/wed` commands and callbacks require `/init` (`isInitEnabled === true`); uninitialized chats only strip departing users on leave events without allocating state.
 - **Cache and Persistence Architecture**:
-  - **Authoritative Member Cache**: `packages/cache/main/wedMembers.ts` maintains a long-lived `FifoMap<number, number>` (`packages/libs/fifoMap.ts`, member ID → entry time) per group as an entry-time sliding window of capacity `WED_MEMBER_LIMIT`: insertion order is entry order, a new member's entry time is the larger of the current time and the largest entry time already assigned, and a full window evicts its first (earliest) entry. Members already in the window keep their entry time when they speak again. Channel, reply/forward, and anonymous senders are excluded.
-  - **Session Interaction Cache**: `packages/cache/main/wed.ts` tracks interactions and avatar probes (one session per user per group); each group's session table is a `FifoMap` of capacity `WED_SESSION_CAPACITY` (`WED_SESSION_LIMIT + WED_MAX_CONCURRENT`) retaining the most recently delivered `WED_SESSION_LIMIT` results, with `trimWedSessions` sliding out the earliest idle result after each new delivery (or after restoring the original session `previous` when a repeated `/wed` fails to deliver its new result) while skipping busy sessions. The group list is bounded by `STATE_MANAGED_CHAT_LIMIT`; no LRU eviction.
-  - **Disk Flush**: Increments revision and marks dirty only on real additions, deletions, or evictions. Uses Disk I/O thresholds (`FLUSH_MAX_ENTRIES` changes or `FLUSH_INTERVAL_MS`). Only a flat `[id, enteredAt, ...]` snapshot crosses threads; the Disk I/O Worker writes it as a `{ id, enteredAt }` array to `memory/wed/<chatId>.json` via temporary file, fsync, and atomic rename.
-  - **Whole-Group Deletion Guarantee**: `purgeWedMembers` assigns a monotonic ID to `pendingWedMemberDeletes` and dispatches to Worker. Releases pending state only upon durable receipt. Replayed on Worker reconstruction.
+  - **Authoritative Member Cache (`packages/cache/main/wedMembers.ts`)**: Per-chat `FifoMap<number, number>` (`packages/libs/fifoMap.ts`, `userId → enteredAt`) capped at `WED_MEMBER_LIMIT` in monotonic `enteredAt` order (`max(now, lastEnteredAt)` on insert; existing speakers keep their original `enteredAt`; full maps evict the oldest entry; channels, forwards, and anonymous admins are excluded).
+  - **Session Interaction Cache (`packages/cache/main/wed.ts`)**: One session per `(chatId, userId)` in a per-chat `FifoMap` of capacity `WED_SESSION_CAPACITY` (`WED_SESSION_LIMIT + WED_MAX_CONCURRENT`, across at most `STATE_MANAGED_CHAT_LIMIT` chats without LRU eviction); `trimWedSessions` evicts the oldest idle delivered entry down to `WED_SESSION_LIMIT` after each delivery (or after restoring `previous` on a failed redraw) while skipping busy sessions.
+  - **Disk Flush & Group Purge**: Marks dirty only on real insertions, removals, or evictions (`FLUSH_MAX_ENTRIES` or `FLUSH_INTERVAL_MS`), posting a flat `[id, enteredAt, ...]` array that Disk I/O atomically writes as `{ id, enteredAt }[]` to `memory/wed/<chatId>.json`. `purgeWedMembers` tracks monotonic delete IDs in `pendingWedMemberDeletes` until durably acknowledged (replayed across Worker respawns).
 - **Read-Only Startup Gate**:
-  - Validates all files under `memory/wed/` at startup: canonical negative integer group IDs, entries of exactly `{ id, enteredAt }`, unique positive safe integer user IDs, non-negative safe integer entry times that never decrease along the array, per-group limits, and total group count. Rejects startup on any invalid data, preserving existing files. Missing files indicate empty sets.
+  - Startup validates every `memory/wed/<chatId>.json` file (canonical negative group ID filename, `{ id, enteredAt }` shape, unique positive safe-integer user IDs, non-decreasing non-negative `enteredAt`, per-group cap, and total group cap), aborting startup on any violation without modifying files.
 - **Drawing and Avatar Pipeline**:
-  - Candidates come exclusively from the `memory/wed` member windows. Avatars fetch via `readCurrentAvatar` (reusing `getChat` private profiles) without requiring admin permissions.
-  - If `getChat` returns 400 `Bad Request: chat not found`, remove that ID from all managed group candidate pools.
-  - Task runner reuses `createPrioritizedBoundedTaskRunner` with global `WED_MAX_CONCURRENT` execution slots and `WED_MAX_PENDING` FIFO queue.
-  - **Photo Delivery & Replacement**: `sendWedResult` in `commands/wed/messages.ts` is the sole send boundary. Results are retained long-term without `COMMAND_MESSAGE_AUTO_DELETE_MS` auto-deletion; results that slide out of the session window remain in the group and are not deleted. On redrawing, delete the old photo only after the new photo sends successfully; if sending fails, keep the old photo and session intact. Once the bot has left the chat (`departed`), a redraw that is still finishing sends no delete request for either the new or the old result.
+  - Draws candidates from `memory/wed`, fetches avatars via `readCurrentAvatar` (`getChat`, purging the user across all groups on HTTP 400 `Bad Request: chat not found`), and schedules work on `createPrioritizedBoundedTaskRunner` (`WED_MAX_CONCURRENT` active, `WED_MAX_PENDING` queued).
+  - **Photo Delivery & Redraw (`sendWedResult` in `commands/wed/messages.ts`)**: Sole send boundary; cards stay permanently in chat (including after sliding out of `WED_SESSION_LIMIT`). Redraws delete the previous photo **only after** the replacement sends (retaining the old photo and session on failure, and sending zero delete calls if the bot already `departed`).
 
 <p align="right"><a href="#quick-navigation">↑ Back to quick navigation</a></p>
 
 ### `/info` Profile Lookups
 
 - **Argument Parsing & Budget**:
-  - `commands/info.ts` enables `acceptUserId`, `acceptChatId`, and `allowSelfTarget` (permits querying the bot itself, forbidden by other commands).
-  - Submits to deferred command executor's `interactive` tier under `INFO_TASK_BUDGET_MS`; replies with partial data on timeout, closes quietly on shutdown.
+  - `commands/info.ts` enables `acceptUserId`, `acceptChatId`, and `allowSelfTarget` (the sole command allowed to inspect the bot itself), running in the `interactive` tier of `deferredCommands.ts` under `INFO_TASK_BUDGET_MS` (replying with partial fields on timeout and aborting silently on shutdown).
 - **Profile & Avatar Acquisition**:
-  - Resolves users via `readChatMemberUser` (group membership), channels/groups via `getChat`, and the bot via `ctx.me`; falls back to cached identities.
-  - Cleans display names via `sanitizeDisplayName` (neutralizing bidirectional controls) and formats IDs with `code` entities. Reuses `readCurrentAvatar` for avatars (groups have no avatar).
+  - Queries users via `readChatMemberUser`, channels/groups via `getChat`, and the bot via `ctx.me` (falling back to cached sender metadata), sanitizing names with `sanitizeDisplayName` (stripping bidi controls), formatting IDs as `code` entities, and fetching user/channel avatars via `readCurrentAvatar`.
 - **Receipt Delivery**:
-  - Photo replies route through `sendCommandPhoto` in `infra/telegram/commandPhotos.ts` (`COMMAND_MESSAGE_AUTO_DELETE_MS` auto-delete in groups, preserved in private chat). Falls back to plain text `sendCommandMessage` if photo sending fails.
+  - Sends via `sendCommandPhoto` (`infra/telegram/commandPhotos.ts`, auto-deleted after `COMMAND_MESSAGE_AUTO_DELETE_MS` in groups and retained in private chats), falling back to `sendCommandMessage` if photo delivery fails.
 
 ### `/h_image` Random Pictures
 
 - **Library Directory Validation & Hot Reload**:
-  - Path configured in `config/dynamic/assets.json` under `onlyPath.random_h_image_dir` (default `RANDOM_H_IMAGE_DIR`).
-  - Preflighted at startup via `ensureRandomImageDirectory` in `infra/imageGallery.ts` before external connections: must exist and be readable/writable. Rejects startup on subdirectories, symlink files, hidden files, or filenames not matching `RANDOM_IMAGE_CONTENT_NAME_PATTERN` (lowercase hex SHA-256).
-  - Hot reload applies the same checks; invalid paths reject the change and retain the active directory. Deleted directories are not recreated at runtime.
-- **Drawing Algorithm & Gallery Dual Caches (`pickRandomImage` / `randomImageDirectoryCache` / `randomImageGalleryCache`)**:
-  - Startup or hot-reload execution of `ensureRandomImageDirectory` (or first access to an uncached directory) scans the directory once, filters non-hidden regular files with allowed extensions, and maintains two caches in `cache/main/hImage.ts`: `randomImageDirectoryCache` sorted in ascending lexicographical order for random drawing and counting, and `randomImageGalleryCache` sorted in descending modification-time order (`mtimeMs` newest-first) for Mini App gallery pagination. `storeRandomImage` (`/h_image add` and Mini App upload) inserts into both caches in-place via binary search according to their respective sort orders, and `deleteRandomImageFile` (Mini App deletion) removes from both caches in-place; random drawing and Mini App gallery pagination read directly from their corresponding caches without re-sorting on page turns.
-  - `pickRandomImage` selects uniformly among filenames cached in `randomImageDirectoryCache` with size ≤ `RANDOM_IMAGE_MAX_BYTES`. If a drawn file vanished before reading, it is evicted from both caches; if it exceeds size limits, it is excluded from the remaining candidates for that draw. Reports `tooLarge` if candidates included oversized files, or `empty` if no candidates remain.
+  - Configured via `onlyPath.random_h_image_dir` in `config/dynamic/assets.json` (default `RANDOM_H_IMAGE_DIR`) and preflighted by `ensureRandomImageDirectory` (`infra/imageGallery.ts`) before opening network connections: must be an existing readable/writable directory containing only non-hidden regular files matching lowercase SHA-256 hex `RANDOM_IMAGE_CONTENT_NAME_PATTERN` (subdirectories, symlinks, hidden files, or non-matching names abort startup or reject hot reload without creating missing directories at runtime).
+- **Drawing Algorithm & Gallery Dual Caches** (`cache/main/hImage.ts`):
+  - **Dual sorted caches**: `ensureRandomImageDirectory` scans once to populate `randomImageDirectoryCache` (ascending filename order for uniform draws and counts) and `randomImageGalleryCache` (descending `mtimeMs` order for Mini App gallery pagination). `storeRandomImage` (`/h_image add` and Mini App uploads) binary-inserts into both caches in place, and `deleteRandomImageFile` (Mini App delete) removes from both in place without re-sorting on page turns.
+  - **Uniform draw (`pickRandomImage`)**: Samples uniformly from `randomImageDirectoryCache` entries `<= RANDOM_IMAGE_MAX_BYTES`, evicting vanished files from both caches on `ENOENT` and excluding oversized candidates for that draw (`tooLarge` if only oversized files existed; `empty` if none remain).
 - **Rate Limiting & Deferred Scheduling**:
-  - `/h_image` and `/h_image add` share a global sliding-window rate limit (`H_IMAGE_RATE_LIMIT_MAX_CALLS_PER_WINDOW` per `H_IMAGE_RATE_LIMIT_WINDOW_MS`). Calls exceeding quota drop silently without queuing or replying.
-  - Submits to deferred command executor (`commands/deferredCommands.ts`):
-    - Drawing runs in `interactive` tier;
-    - Collection (`add`), `/batch_kick`, and `/block` fan-out run in `background` tier.
-    - Full queues return busy hints; drains before Telegram gate during shutdown.
+  - `/h_image` and `/h_image add` share a global sliding window (`H_IMAGE_RATE_LIMIT_MAX_CALLS_PER_WINDOW` per `H_IMAGE_RATE_LIMIT_WINDOW_MS`, dropping excess calls silently) and run on `commands/deferredCommands.ts` (`interactive` tier for draws; `background` tier for `add`, `/batch_kick`, and `/block` fan-out, draining before the Telegram outbound gate on shutdown).
 - **Send Boundary & Album Collection (`add`)**:
-  - `sendHImageResult` in `commands/hImage/draw.ts` is the sole send boundary. Results are exempt from `COMMAND_MESSAGE_AUTO_DELETE_MS` auto-deletion, include topic threads in forum groups, and reply to triggering messages. Prompts and notices use `COMMAND_MESSAGE_AUTO_DELETE_MS` auto-deletion.
-  - `/h_image add` requires `isCanAddHImage`. Candidates include the replied image and images from the same `media_group_id` in the main-thread album cache (`mediaGroups.ts`).
-  - Concurrent downloads within `H_IMAGE_ADD_TASK_BUDGET_MS` run in batches of `H_IMAGE_ADD_DOWNLOAD_BATCH_SIZE`. Computes SHA-256, writes to UUIDv7 temp files, and renames atomically. Skips duplicate hashes for global deduplication.
+  - `sendHImageResult` (`commands/hImage/draw.ts`) is the sole photo boundary (permanent spoiler photo routed to the trigger's forum topic and message; notices use `COMMAND_MESSAGE_AUTO_DELETE_MS`).
+  - `/h_image add` requires `isCanAddHImage`, collects the replied photo plus same-`media_group_id` siblings from `mediaGroups.ts` in batches of `H_IMAGE_ADD_DOWNLOAD_BATCH_SIZE` within `H_IMAGE_ADD_TASK_BUDGET_MS`, hashes SHA-256, writes via UUIDv7 temp file + atomic rename, and deduplicates identical hashes.
 
 ### `cron.json` Scheduled Tasks
 
-- **Configuration Parsing and Source Verification** (`packages/config/cron.ts` / `packages/config/cronAction.ts`):
-  - A missing file indicates no scheduled tasks; any invalid field rejects the entire file with a diagnostic detailing only file path, field path, and expected shape.
-  - `parseCronConfig` strictly performs lexical, shape, and value validation with no disk I/O. `loadCronConfig` verifies local file existence and types after reading: fixed images/files (`path`) must be regular files (following symlinks), and random-image directories must be actual directories.
-  - **Task Table Specifications**:
-    - The top-level structure must be an array. Caps apply to total tasks (`CRON_MAX_TASKS`), actions per task (`CRON_MAX_ACTIONS_PER_TASK`), and task name length (`CRON_TASK_NAME_MAX_CHARS`), rejecting outright on overflow without truncation.
-    - Task names must be non-empty after trimming and unique across the table. Undeclared keys are strictly rejected.
-    - Allowed action `type` values: `send_message`, `send_image`, `send_file`, `send_voice`, `send_web_digest`. `just_once`, `rand_image`, and `is_blurred` accept booleans only.
-  - **Payload and Time Zone Rules**:
-    - `payload.path` accepts absolute paths or paths relative to `RUNTIME_DATA_ROOT`. Rejects empty strings and NUL characters; normalized to an absolute path upon parsing.
-    - `time_zone` defaults to startup time zone. Invalid explicit values reject immediately. Validated by `parseTimeZone` (requires standard IANA time zone supported by Bun cron and calendar).
-    - `cron` expressions are parsed via `Bun.cron.parse` in that time zone; expressions with no future triggers are rejected.
-    - `rand_cron` is optional (`"<min>-<max>"` or single value bounded by `CRON_RANDOM_INTERVAL_MIN_MS` and `CRON_RANDOM_INTERVAL_MAX_MS`, with units `m`, `h`, or `d`). Forbidden when `just_once: true`.
-  - **Action Field Constraints**:
-    - `send_message`: Non-empty trimmed `content`, up to `TELEGRAM_MESSAGE_MAX_CHARS`.
-    - `send_image` & `send_file`: Optional `content` (caption) up to `TELEGRAM_CAPTION_MAX_CHARS`. `send_file` requires exactly one source: `url` (absolute HTTP/HTTPS after trimming surrounding whitespace; each entry of a fixed-image `url` array follows the same rule) or `path`. Fixed images accept a non-empty list of up to `CRON_MAX_IMAGES` items; single images use `sendPhoto`, multiple use `sendMediaGroup` (caption attached only to the first image). Random mode is limited to single images.
-    - `send_voice`: Required `content`, optional `tone`. Trimmed and sanitized to non-empty single-line strings under `VOICE_OPERATOR_TEXT_MAX_CHARS` and `VOICE_TONE_MAX_CHARS`.
-    - `send_web_digest`: Required `topic` (single line under `WEB_DIGEST_TOPIC_MAX_CHARS`). Optional `language` (`WEB_DIGEST_LANGUAGES`, defaults to `WEB_DIGEST_DEFAULT_LANGUAGE`), `max_items` (integer between `WEB_DIGEST_MIN_ITEMS` and `WEB_DIGEST_MAX_ITEMS`, default `WEB_DIGEST_DEFAULT_MAX_ITEMS`), and `instructions` (under `WEB_DIGEST_INSTRUCTIONS_MAX_CHARS`).
-  - **Dependency Contracts & Target Chat Lists**:
-    - Tasks with `send_voice` require `agent.tts`; tasks with `send_web_digest` require core chat capabilities. Checked at startup and during hot reload via `assertCronAgentSupported`.
-    - `chat_id` must be a non-empty array: `["all"]` (`CRON_ALL_CHATS`), `["except", <id>, ...]` (`CRON_EXCEPT_CHATS`), or explicit unique safe-integer IDs (up to `CRON_MAX_CHAT_IDS_PER_TASK`). Scalar strings or numbers are rejected.
-- **Hot Reload and Schedule Reconciliation**:
-  - Scheduler starts before `startConfigReload`. Hot reload takes effect or fails as an atomic whole; invalid updates retain the previous schedule. Deleting the file swaps to an empty task table.
-  - Scheduler runs on the main thread (`packages/cron/scheduler.ts`, state in `cache/main/cron.ts`). Each task manages an in-process native Bun cron (`unref`).
-  - Handlers catch all internal errors and do not re-trigger while a previous action run is in-flight.
-  - **Reconciliation Rules**: Deeply equal tasks keep their scheduler handles. Changed or removed tasks are stopped and cancelled (completing the active action or retry before exiting). New tasks register independently.
-  - `just_once` unregisters immediately upon firing, recording into an LRU cache capped at `CRON_JUST_ONCE_RECORD_MAX`. Cleared if changed to recurring.
-  - `rand_cron` cancels its cron on trigger, picks a uniformly random time in the range, rounds up to the next minute (`CRON_MINUTE_MS`), and registers a single-match cron in `CRON_RANDOM_FIRE_TIME_ZONE`. Missed triggers during downtime are not retroactively executed.
-- **Delivery and Execution Dispatch** (`packages/cron/run.ts` & `packages/cron/delivery.ts`):
-  - Actions maintain a gap of `CRON_ACTION_GAP_MS`. Network errors, 5xx, 429s, and a full per-chat or global send queue (`TelegramSendQueueFullError`) retry with exponential backoff (`CRON_ACTION_RETRY_DELAYS_MS`).
-  - Synthesis and search errors support retry backoff. Irreversible errors (missing TTS, exhausted daily quota, invalid encoding, digests lacking sources or oversized) fail immediately without retrying, aborting remaining actions in the round.
-  - **Intra-Round Resource Reuse**:
-    - Allocates `CronRoundVoices` per round. Synthesizes `send_voice` once, reusing audio across chats and retries. Caches the returned Telegram `file_id` on first success to skip subsequent uploads.
-    - Allocates `CronRoundDigests` per round. Caches rendered MarkdownV2 text of successful `send_web_digest` for all chats. Failed generations are not cached.
-  - **Broadcast (`all` / `except`) Safety Checks**:
-    - `packages/cron/targets.ts` traverses all initialized, non-excluded chats in `chat_states` in ascending chat ID order, checking live permissions (`can_send_messages`, `can_send_photos`, `can_send_documents`, `can_send_voice_notes`) via `getChatMember` and `getChat`. Ineligible chats or query failures are skipped entirely and logged at the end of the round.
-  - **Send Boundaries & Retention**:
-    - `delivery.ts` is the sole send boundary, routing through the main thread outbound scheduler without topic IDs (landing in General in topic groups).
-    - Cron messages are user-authorized permanent exceptions without `COMMAND_MESSAGE_AUTO_DELETE_MS` auto-deletion.
-    - Local file uploads are bounded by `TELEGRAM_PHOTO_UPLOAD_MAX_BYTES` and `TELEGRAM_DOCUMENT_UPLOAD_MAX_BYTES`. Streams are reopened on each serialization so 429 retries never read an exhausted stream.
-- **AI Digest Generation (`send_web_digest`)**:
-  - Executed inside the AI Worker (`aiChat/ai/webDigest.ts`). Prefers `agent.web_search` model, falling back to `text` model built-in search.
-  - If no search was triggered (`searchCalls === 0`) but body is non-empty, prepends a model-cache warning and escapes to MarkdownV2. If search occurred, builds an allowlist of HTTPS URLs from source metadata; phantom links not present in sources are strictly prohibited.
-  - Output is formatted by `text` model into structured JSON, decoded strictly by `libs/webDigest.ts`. Allows up to `WEB_DIGEST_COMPOSE_ATTEMPTS` attempts with diagnostics on malformed output.
-  - Main thread bounds total generation wait time to `WEB_DIGEST_REQUEST_TIMEOUT_MS`. Cancels in-flight requests on shutdown; scheduler drains before Telegram shuts down.
+- **Configuration Parsing and Source Verification** (`packages/config/cron.ts`, `packages/config/cronAction.ts`):
+  - Missing `cron.json` means zero scheduled tasks; any malformed entry rejects the entire file with `{ filePath, fieldPath, expected }` diagnostics only. `parseCronConfig` is pure (zero I/O), while `loadCronConfig` verifies that local `path` files are regular files (following symlinks) and `rand_image` paths are directories.
+  - **Table & schedule constraints**:
+    - Top-level array bounded by `CRON_MAX_TASKS`, `CRON_MAX_ACTIONS_PER_TASK`, and unique trimmed task names `<= CRON_TASK_NAME_MAX_CHARS` (no undeclared keys; `just_once`, `rand_image`, and `is_blurred` must be booleans).
+    - `payload.path` resolves relative to `RUNTIME_DATA_ROOT` (rejecting empty strings and NUL bytes). `time_zone` defaults to the startup zone and validates via `parseTimeZone`; `cron` parses via `Bun.cron.parse` in that zone and must have at least one future fire time; optional `rand_cron` (`"<min>-<max>"` or single `m`/`h`/`d` token within `[CRON_RANDOM_INTERVAL_MIN_MS, CRON_RANDOM_INTERVAL_MAX_MS]`) is mutually exclusive with `just_once: true`.
+  - **Per-action payload rules**:
+    - `send_message`: non-empty trimmed `content` (`<= TELEGRAM_MESSAGE_MAX_CHARS`).
+    - `send_image` & `send_file`: optional `content` caption (`<= TELEGRAM_CAPTION_MAX_CHARS`). `send_file` requires exactly one of `url` (trimmed absolute HTTP/HTTPS) or `path`; fixed `send_image` accepts 1–`CRON_MAX_IMAGES` items (`sendPhoto` for 1, `sendMediaGroup` with caption on item 0 for 2+), whereas `rand_image: true` sends a single photo.
+    - `send_voice`: single-line `content` (`<= VOICE_OPERATOR_TEXT_MAX_CHARS`) and optional `tone` (`<= VOICE_TONE_MAX_CHARS`).
+    - `send_web_digest`: single-line `topic` (`<= WEB_DIGEST_TOPIC_MAX_CHARS`), optional `language` (`WEB_DIGEST_LANGUAGES`, default `WEB_DIGEST_DEFAULT_LANGUAGE`), integer `max_items` in `[WEB_DIGEST_MIN_ITEMS, WEB_DIGEST_MAX_ITEMS]` (default `WEB_DIGEST_DEFAULT_MAX_ITEMS`), and optional `instructions` (`<= WEB_DIGEST_INSTRUCTIONS_MAX_CHARS`).
+  - **Cross-config gates & `chat_id` targets**: `assertCronAgentSupported` verifies `agent.tts` for `send_voice` and core AI chat readiness for `send_web_digest` on startup and hot reload; `chat_id` must be a non-empty array—`["all"]` (`CRON_ALL_CHATS`), `["except", <id>, ...]` (`CRON_EXCEPT_CHATS`), or up to `CRON_MAX_CHAT_IDS_PER_TASK` unique safe-integer chat IDs.
+- **Hot Reload and Schedule Reconciliation** (`packages/cron/scheduler.ts`, `cache/main/cron.ts`):
+  - Starts before `startConfigReload`; each task owns an `unref()`ed in-process Bun cron handle that skips overlapping triggers while a prior run is still active. Deleting `cron.json` swaps in an empty schedule; invalid reloads keep the active schedule untouched.
+  - **Diff reconciliation**: Deep-equal tasks keep their live handles; modified or deleted tasks cancel action-gap and retry sleeps immediately and stop after any in-flight Telegram call settles; `just_once` unregisters on fire and records in a `CRON_JUST_ONCE_RECORD_MAX` LRU (cleared if edited to recurring); `rand_cron` picks a uniform delay on each fire, rounds up to `CRON_MINUTE_MS`, and arms a single-shot cron in `CRON_RANDOM_FIRE_TIME_ZONE` without catching up missed downtime ticks.
+- **Delivery and Execution Dispatch** (`packages/cron/run.ts`, `packages/cron/delivery.ts`):
+  - Spaces actions by `CRON_ACTION_GAP_MS`, retrying transient network/5xx/429/`TelegramSendQueueFullError`/TTS/search errors on `CRON_ACTION_RETRY_DELAYS_MS` while aborting the round immediately on permanent failures (missing TTS, exhausted reserve quota, invalid audio, or sourceless/oversized digests).
+  - **Per-round caching**: `CronRoundVoices` synthesizes `send_voice` once per round (reusing the returned Telegram `file_id` after the first chat upload), and `CronRoundDigests` renders `send_web_digest` MarkdownV2 once per round across all target chats.
+  - **Broadcast (`all` / `except`) & upload rules**: `packages/cron/targets.ts` iterates initialized non-excluded chats in ascending ID order, probing live `can_send_*` rights via `getChatMember`/`getChat` and logging skipped chats once at round end. `delivery.ts` sends permanently without `message_thread_id`, enforces `TELEGRAM_PHOTO_UPLOAD_MAX_BYTES` and `TELEGRAM_DOCUMENT_UPLOAD_MAX_BYTES`, and reopens local file streams on every attempt so HTTP 429 retries never read a consumed stream.
+- **AI Digest Generation (`send_web_digest` in `aiChat/ai/webDigest.ts`)**:
+  - Uses `agent.web_search` when configured (otherwise the `text` model's native search): zero-search non-empty replies prepend a model-memory warning, whereas searched replies enforce an HTTPS URL allowlist built strictly from returned source metadata (rejecting fabricated URLs), structured-JSON-formatted by the `text` model (`libs/webDigest.ts`, up to `WEB_DIGEST_COMPOSE_ATTEMPTS` attempts) within main-thread timeout `WEB_DIGEST_REQUEST_TIMEOUT_MS`.
 
 ### Reply and Response-Body Resource Boundaries
 
-- **Bounded Reads and Memory Management**:
-  - `libs/boundedResponse.ts` verifies accumulated bytes per chunk during streaming, skipping empty chunks.
-  - Uses `Bun.ArrayBufferSink` to aggregate bytes when chunk counts reach `BOUNDED_RESPONSE_CHUNK_THRESHOLD` and average below `BOUNDED_RESPONSE_COALESCE_BYTES`. Triggers abort and resource release on over-limit, disconnects, or cancellation. HTTP responses for avatar fetching that return non-2xx actively cancel unconsumed response bodies.
+- **Bounded Reads and Memory Management** (`libs/boundedResponse.ts`):
+  - Tracks cumulative chunk bytes while streaming (ignoring empty chunks), coalescing into `Bun.ArrayBufferSink` once chunk count reaches `BOUNDED_RESPONSE_CHUNK_THRESHOLD` with mean size below `BOUNDED_RESPONSE_COALESCE_BYTES`, and aborting immediately on byte-cap overflow, disconnect, or `AbortSignal` (non-2xx avatar fetches actively cancel unconsumed bodies).
 - **AI Concurrency & Delivery Capacity Controls**:
-  - Tool execution context extends through message delivery and final resource cleanup.
-  - Enforces bounds of `REPLY_DELIVERY_MAX_PER_CHAT` per chat and `REPLY_DELIVERY_MAX_TOTAL` across the AI Worker, covering all in-flight generations.
+  - Tool execution scopes span through final Telegram delivery and cleanup, bounded at `REPLY_DELIVERY_MAX_PER_CHAT` per chat and `REPLY_DELIVERY_MAX_TOTAL` across the AI Worker.
 
 ## Persistence
 
 - **Strict Validation of Persisted Inputs and Ancestor Paths**:
-  - `libs/fileAccess.ts` (`inspectOptionalDirectory` and `inspectOptionalFile`) recursively verifies ancestor paths when files or directories are missing. Rejects startup on broken symlinks, cyclic links, directories occupying file paths, `ENOTDIR`, or `EACCES`.
-  - Domain directories permit valid symlinks, but normal persisted data files (including `memory/global/state.json`) strictly forbid symlinks.
-  - Inspects all domains read-only at startup (identity database, verifications, logs, luck, AI memory, member files). Any domain failure halts startup immediately, preventing secret generation, state publishing, or file cleanup, preserving on-disk data.
+  - `libs/fileAccess.ts` (`inspectOptionalDirectory` and `inspectOptionalFile`) recursively checks ancestor directories whenever paths are absent, aborting startup on broken or cyclic symlinks, directories occupying file paths, `ENOTDIR`, or `EACCES`.
+  - Domain directories may be valid symlinks, whereas regular persisted data files (including `memory/global/state.json`) strictly forbid symlinks.
+  - Startup inspects every persistence domain read-only first (SQLite database, pending verifications, logs, fortunes, AI memory, and `/wed` member pools); any error aborts startup immediately before generating secrets, publishing state, or touching on-disk files.
 
 ### Durability and Snapshot Contracts
 
 - **Identity Fields Persisted Verbatim**:
-  - Target identity fields for copy and translate (`username`, `first_name`, `last_name`, `title`) are saved and read exactly as returned by Telegram without trimming whitespace. Empty strings and whitespace-only strings remain valid. Unknown fields use static placeholders; sensitive keys are omitted from redaction logs.
+  - Target metadata for `/copy` and `/translate` (`username`, `first_name`, `last_name`, `title`) persists and reloads byte-for-byte as returned by Telegram without trimming (empty and whitespace-only strings remain valid; unknown fields render static placeholders, and sensitive keys are excluded from logs).
 - **Global State `memory/global/state.json`**:
-  - Writes via latest-value coalescing, temporary files, fsync, and atomic rename. Top level holds only `copy` (required) and `ttsUsage` (optional), without backup files.
-  - Startup `loadCurrentGlobalState` rejects existing legacy `state.json` or `state.json.bak` in data root (`assertLegacyStateFilesAbsent`). Strictly decodes new schema, stopping startup on failure.
-  - Copy target changes require disk revision confirmation before reporting success to caller or middleware.
+  - Persisted via latest-snapshot coalescing, temporary file + `fsync` + atomic `rename`, holding only top-level `copy` (required) and `ttsUsage` (optional) with zero `.bak` files.
+  - `loadCurrentGlobalState` aborts startup if legacy `state.json` or `state.json.bak` exists at the data root (`assertLegacyStateFilesAbsent`) or if schema decoding fails. `/copy` target mutations wait for durable revision confirmation before replying or taking effect in middleware.
 - **`ttsUsage` Thread Ownership and Flushing**:
-  - Authoritative daily count in `memory/global/state.json` (`ttsUsage`) belongs to the AI Worker (`cache/workers/aiChat/ttsUsage.ts`). Main thread `cache/main/storage.ts` holds only a persistence mirror.
-  - AI Worker reports full counts via `ttsUsage` events (`{ windowStartedAt, agentCount, reserveCount }`, or `null` when reset to zero). Main thread replaces mirror and schedules delayed background write via `StateStore` (`STATE_BACKGROUND_SAVE_DELAY_MS`), flushing immediately on shutdown or forced flush.
-  - In-flight reservations (`pendingAiTtsReservations`) exist only in AI Worker memory; never sent back or persisted.
-  - Counting window runs `TTS_USAGE_WINDOW_MS` from `windowStartedAt`. Clock rollbacks past window start reset the window. Lowered limits do not rewrite history, only rejecting new over-limit requests.
+  - The AI Worker (`cache/workers/aiChat/ttsUsage.ts`) owns authoritative daily counts; main-thread `cache/main/storage.ts` keeps a persistence mirror updated by full `ttsUsage` snapshots (`{ windowStartedAt, agentCount, reserveCount }` or `null`) and flushed lazily after `STATE_BACKGROUND_SAVE_DELAY_MS` (or immediately on shutdown/explicit flush).
+  - `pendingAiTtsReservations` stays strictly in AI Worker memory. The `TTS_USAGE_WINDOW_MS` window resets on wall-clock rollback past `windowStartedAt`, and lowering configured quotas rejects new over-limit calls without rewriting recorded counts.
 - **Translation Sessions (`ChatState.translate`)**:
-  - Stored inside SQLite `chat_states.status` along with chat state; main thread maintains a hot read copy bounded by `STATE_MANAGED_CHAT_LIMIT`.
-  - Stores up to `TRANSLATE_CHAT_USER_LIMIT` distinct identities and their target languages (`TRANSLATE_LANGUAGE_LABELS`) per chat; `undefined` when empty. Rejects startup if `translate` appears in `memory/global/state.json`.
-  - Messages translate serially in background chains per chat (`translate/message.ts`) without blocking update middleware. Messages without text/caption, containing renderable commands, or already in the target language are skipped before queueing without counting toward the backlog; per-chat queues cap at `TRANSLATE_CHAT_BACKLOG_MAX`, dropping new messages when full. Enabling/disabling sessions waits for durable `persistChatState` confirmation before replying.
+  - Stored inside SQLite `chat_states.status` (hot read copy capped at `STATE_MANAGED_CHAT_LIMIT`), holding up to `TRANSLATE_CHAT_USER_LIMIT` target identities and languages (`TRANSLATE_LANGUAGE_LABELS`) per chat (`undefined` when empty; startup rejects any `translate` key inside `memory/global/state.json`).
+  - `translate/message.ts` translates serially per chat in the background (capped at `TRANSLATE_CHAT_BACKLOG_MAX`, skipping empty/command/already-in-target-language messages before queueing); `/translate` toggles await durable `persistChatState` before replying.
 - **Read Boundaries for State Files**:
-  - `memory/global/state.json` itself must be a regular file (checked with `lstat`, links are not followed). Symlinks (including links to regular files and broken links), directories, or access errors (`EACCES`/`ELOOP`/`ENOTDIR`) reject startup. Only `ENOENT` from `lstat` treats the file as absent.
-  - Strictly decodes UTF-8 and strips BOM via fatal-mode `TextDecoder`. Preserves original files on parse failure.
+  - `memory/global/state.json` is checked via `lstat`: symlinks (valid or dangling), directories, and `EACCES`/`ELOOP`/`ENOTDIR` abort startup; only `ENOENT` counts as absent. UTF-8 decoding runs in fatal `TextDecoder` mode (stripping UTF-8 BOM) without modifying corrupt files.
 - **Asset Configuration `config/dynamic/assets.json`**:
-  - Exactly three top-level groups: `onlyPath` (`random_h_image_dir`), `pathOrUrl` (`bot_default_avatar`), and `onlyUrl` (inline fortune and gag thumbnails).
-  - Missing fields fall back to built-in constants (`consts/ui/assets.ts`). Undeclared groups or fields reject the entire file.
-  - Thumbnails fetched by Telegram clients require `https`. Locally downloaded avatars permit plain `http` or local file paths (absolute or starting with `./` or `../`). Default avatar media is classified by byte signature, size and video track dimensions (`defaultAvatarPhotoType`): JPEG/PNG up to `BOT_PROFILE_PHOTO_MAX_BYTES` is uploaded as a static avatar; an MP4 up to `BOT_PROFILE_ANIMATION_MAX_BYTES` with at least one video track (`hdlr` of `vide`), where every video track's `tkhd` presentation size is a non-zero square no larger than `BOT_PROFILE_ANIMATION_MAX_SIDE`, is uploaded as an animated avatar. An MP4 must start with an `ftyp` box declaring an MP4 brand, followed by top-level boxes that exactly fill the file and contain exactly one `moov`; the children of `moov`, `trak` and `mdia` must likewise exactly fill their payloads, at most `MP4_MAX_SCANNED_BOXES` boxes are read across all levels, and any out-of-range length or truncation is rejected. Local files are checked at load time and again under the same rule when restoring, while URLs are checked only when restoring; reads are capped at `DEFAULT_AVATAR_MAX_READ_BYTES` and each URL download times out after `DEFAULT_AVATAR_FETCH_TIMEOUT_MS`.
+  - Permits exactly three top-level groups—`onlyPath` (`random_h_image_dir`), `pathOrUrl` (`bot_default_avatar`), and `onlyUrl` (inline fortune and gag thumbnails)—falling back to `consts/ui/assets.ts` defaults when omitted and rejecting undeclared groups or keys.
+  - **Transport & path rules**: Client-fetched `onlyUrl` thumbnails require `https://`, whereas `bot_default_avatar` accepts `http://`, `https://`, or local paths (absolute, `./`, or `../`).
+  - **Default-avatar media validation (`defaultAvatarPhotoType`)**:
+    - **Static avatar**: JPEG or PNG `<= BOT_PROFILE_PHOTO_MAX_BYTES`.
+    - **Animated avatar**: MP4 `<= BOT_PROFILE_ANIMATION_MAX_BYTES` containing at least one `vide` (`hdlr`) track whose `tkhd` presentation dimensions are all non-zero squares `<= BOT_PROFILE_ANIMATION_MAX_SIDE`.
+    - **MP4 box integrity**: Must begin with an `ftyp` box declaring an MP4 brand followed by top-level boxes filling the exact file length with a single `moov` box; children inside `moov`, `trak`, and `mdia` must likewise tile their parent payloads cleanly within `MP4_MAX_SCANNED_BOXES` total boxes.
+    - **Validation timing & read bounds**: Local avatar files are validated both at config load and before avatar restoration, while remote URLs are validated at restoration (`DEFAULT_AVATAR_MAX_READ_BYTES` read cap; `DEFAULT_AVATAR_FETCH_TIMEOUT_MS` fetch timeout).
 - **Unified Log Redaction**:
-  - Automatically redacts all credentials from loaded configuration (Tokens, API Keys, etc.) before writing to journal, worker envelopes, or `logs/`.
-  - HTTP(S) URLs in logs are reduced to `origin + pathname`, stripping query strings, fragments, and userinfo.
-  - Expands `cause` and `AggregateError` up to `LOGGER_NESTED_ERROR_MAX_DEPTH`. Serialized parameters cap at `LOGGER_MAX_SERIALIZED_BYTES`; cyclic references use static placeholders.
+  - Scrubs every configured token and API key before writing to stdout/stderr, Worker log envelopes, or `logs/`, strips query strings, fragments, and userinfo from logged HTTP(S) URLs (`origin + pathname` only), expands `cause` / `AggregateError` chains up to `LOGGER_NESTED_ERROR_MAX_DEPTH`, and caps serialized arguments at `LOGGER_MAX_SERIALIZED_BYTES` (replacing cycles with static markers).
 - **Canonical Chat State Shape and Normalizer**:
-  - `normalizeChatState` reclaims only truly expired fields: `quietUntil` accommodates `QUIET_CLOCK_SKEW_TOLERANCE_MS` clock skew; large clock rollbacks clamp quiet periods to `now + QUIET_MAX_DURATION_MS`.
-  - `ChatState` enforces a strict canonical shape (`libs/chatState.ts` `createChatState`): all fields initialize once on object creation with `undefined` for unset values, never using `delete` to alter object shape.
-  - Encodes only non-default fields into `chat_states.status`. Confirmed `botPermissions` snapshots persist even when all permissions are `false`, distinguishing from unprobed `undefined`.
+  - `createChatState` (`libs/chatState.ts`) initializes every `ChatState` property up front (using `undefined` for absent fields and never calling `delete`). `normalizeChatState` clears expired `quietUntil` timestamps (allowing `QUIET_CLOCK_SKEW_TOLERANCE_MS` skew and clamping large clock rollbacks to `now + QUIET_MAX_DURATION_MS`).
+  - `chat_states.status` encodes only non-default fields; confirmed `botPermissions` snapshots persist even when all bits are `false` so confirmed lack of privilege remains distinct from unprobed `undefined`.
 - **Batch Persistence and Midnight Maintenance**:
-  - AI memory reports dirty data every `AI_SNAPSHOT_INTERVAL_MS`, validated by Disk I/O Worker and batched into shared SQLite transactions updating `chat_states.ai_context`.
-  - Fortunes, pending-verification state, logs, AI cache usage, and ad samples use append-only files, batching flushes at `FLUSH_MAX_ENTRIES` entries or `FLUSH_INTERVAL_MS` with fsync.
-  - On schedule `DISK_IO_MAINTENANCE_CRON` in the configured time zone, Disk I/O Worker triggers midnight maintenance: notifies main thread to admit `/wed` daily review, then executes cross-day archiving for fortunes, logs, join records, and verification states.
+  - Dirty AI memories flush every `AI_SNAPSHOT_INTERVAL_MS` into shared Disk I/O SQLite transactions updating `chat_states.ai_context`. Append-only files (fortunes, pending verifications, logs, AI cache usage, and ad samples) batch-flush with `fsync` at `FLUSH_MAX_ENTRIES` or `FLUSH_INTERVAL_MS`.
+  - On `DISK_IO_MAINTENANCE_CRON` in the configured time zone, Disk I/O triggers `midnightMaintenance`: notifying the main thread to run `/wed` daily member review and rotating cross-day files for fortunes, logs, join records, and verification journals.
 - **Join Log (`joinLog`) Batching and `/batch_kick` Retrieval**:
-  - `chat_member` join events write to main thread's unacknowledged mirror via `recordJoinLog` and return immediately. Disk I/O Worker batches writes by `chatId:day` and confirms with sequence numbers (`through` and `pending`).
-  - Retains unsaved data in write buffers with backoff on failure, never discarding data; main-thread mirror limits worker memory usage.
-  - `/batch_kick` reads join logs in rolling `[since, now]` windows (span ≤ `DAY_MS`). Timestamps and date filenames derive from original Telegram event times (`joinedAt` in configured time zone), never host clocks.
-  - Deduplicates records to keep the latest join per user. Skips allowlisted members; hands blocklisted members to ban workflows; kicks remaining members via `kickChatMemberWithOutcome` (kick without ban). Triggers full-list resweep if blocklisted users were found.
+  - `recordJoinLog` appends `chat_member` joins to the main-thread unacknowledged mirror and returns synchronously; Disk I/O batches by `chatId:day`, ACKs via `(through, pending)` sequence numbers, and retains failed writes on backoff without dropping records.
+  - `/batch_kick` reads `[since, now]` windows (`<= DAY_MS`) keyed by Telegram event `joinedAt` in the configured time zone, deduplicating to each user's latest join, skipping protected identities, handing blocklisted users to blocklist repair/resweep, and kicking remaining present members via `kickChatMemberWithOutcome`.
 - **Startup Snapshots for Prompts and Atmospheric Copy**:
-  - AI persona loads from `prompt/persona.md` (falling back to `DEFAULT_AI_PERSONA`); voice tool instructions load from `prompt/voice_tool.md`. Both form immutable read-only snapshots during startup preflight, passed into the AI Worker without runtime hot reloading.
-  - Notice atmosphere is explicitly configured via `bot.json` `atmosphere` (`mesugaki` | `normal`). Defaults to `normal` if a custom persona file exists, or `DEFAULT_BOT_ATMOSPHERE` (`mesugaki`) otherwise. Uniform process-wide style without per-message queries.
+  - `prompt/persona.md` (default `DEFAULT_AI_PERSONA`) and `prompt/voice_tool.md` are captured once at startup preflight as immutable snapshots without hot reload.
+  - Group notice tone comes from `bot.json` `atmosphere` (`mesugaki` | `normal`, defaulting to `normal` when a custom `prompt/persona.md` exists and `DEFAULT_BOT_ATMOSPHERE` otherwise). Mini App console copy ignores this setting and always uses the teasing (`mesugaki`) tone.
 
 ### Chat State and `chat_states`
 
 - **Authoritative Storage and Capacity Limits**:
-  - Authoritative chat state resides in the SQLite `chat_states` table. The main thread maintains a fixed-capacity hot read copy capped at `STATE_MANAGED_CHAT_LIMIT` (`packages/cache/main/chatState.ts`).
-  - Fully stored in the `status` column: feature toggles (including `isProxySendEnabled`), `quietUntil`, `lockdown` WAL records, `botPermissions` snapshot, `title`, `translate` sessions, and `/delete_message` targets `deleteMessageTargets`.
+  - Stored in SQLite `chat_states` with a main-thread hot read copy capped at `STATE_MANAGED_CHAT_LIMIT` (`packages/cache/main/chatState.ts`). `status` stores feature switches (including `isProxySendEnabled`), `quietUntil`, `lockdown` WAL state, `botPermissions`, `title`, `translate` sessions, and `deleteMessageTargets`.
 - **Capacity Enforcement**:
-  - Strictly rejects additions when full; **never uses LRU eviction**. `assertChatStateCapacity` throws when capacity is exceeded; validated during decode at startup and by Disk I/O Worker before writes.
-  - Iterates in insertion order; `get` operations do not alter order, ensuring deterministic chat ordering in `/block` connected bans.
-  - Capacity rejections belong exclusively to `/init enable`, replying with `INIT_CHAT_LIMIT_TEXT`. No other command may implicitly create new chat records.
+  - **Zero LRU eviction**: `assertChatStateCapacity` rejects additions when full (enforced at startup decode, main-thread admission, and Disk I/O commit). Map iteration preserves insertion order (`get` never reorders) for deterministic cross-chat `/block` fan-out. Only `/init enable` may allocate a new chat slot (replying `INIT_CHAT_LIMIT_TEXT` when full).
 - **State Cleanup and Tombstoning**:
-  - Calls `normalizeChatState` before writing to clean expired timers. If `isEmptyChatState` is true (all toggles `false`, all other fields `undefined`), removes the memory entry and writes a persistent deletion tombstone.
-  - `/init disable` must clear the chat `title` as well, ensuring unmanaged chats fully release their capacity slots.
+  - Pre-write `normalizeChatState` strips expired fields; when `isEmptyChatState` becomes `true`, the hot entry is removed and a deletion tombstone commits to SQLite (`/init disable` clears `title` as well so unmanaged chats release their slot).
 - **Unique Proxy-Send Target (`isProxySendEnabled`)**:
-  - Ensures at most one chat globally has proxy sending enabled. Only writes enabling this option verify other rows.
+  - At most one chat globally may hold `isProxySendEnabled === true`, verified across rows whenever enabling `/send`.
 - **Durability Barriers**:
-  - Uses write-through plus exact revision ACKs: `persistChatState` serves as a durable barrier for authoritative decisions; `saveChatStateInBackground` handles reconstructible updates (title refreshes, invalidated permission snapshots) asynchronously.
+  - Authoritative toggles await exact revision ACKs via `persistChatState`, whereas reconstructible metadata updates (title refreshes, invalidated permission probes) write asynchronously via `saveChatStateInBackground`.
 
 <p align="right"><a href="#quick-navigation">↑ Back to quick navigation</a></p>
 
 ### Chat Q&A and `chat_qa`
 
 - **Authoritative Storage & Composite Primary Key**:
-  - Authoritative Q&A storage resides in SQLite `chat_qa`. Main thread maintains the sole hot read copy (`packages/cache/main/qa.ts`).
-  - Uses composite primary key `(chat_id, q)` indexed on `q`: one question in a chat has exactly one answer. Total table rows capped at managed chats × `CHAT_QA_MAX_PER_CHAT`. Loads entirely at startup without runtime pagination.
+  - Stored in SQLite `chat_qa` (`PRIMARY KEY (chat_id, q)` with an index on `q`; total rows `<= STATE_MANAGED_CHAT_LIMIT × CHAT_QA_MAX_PER_CHAT`), loaded in full at startup into the main-thread hot copy (`packages/cache/main/qa.ts`).
 - **Multi-Layer Limit Enforcement**:
-  - Per-chat Q&A question limits are verified independently in three places: main thread `setChatQa`, Disk I/O Worker transaction buffer ingress, and full-table decode at startup.
+  - Per-chat `CHAT_QA_MAX_PER_CHAT` is checked independently in `setChatQa`, Disk I/O transaction staging, and startup full-table decode.
 - **`/qa set` Form Authentication & Lifecycle**:
-  - Command verifies `isCanControllQaPermission` and records `openedById` (visible sender identity). Subsequent user submissions verify only against this visible sender identity without repeating admin queries.
-  - Re-verifies session validity after all awaits (self-sent waits, deletions, edits). Discards superseded or closed sessions, ignoring subsequent submissions or receipts.
-  - Form sending and cleanup execute through `qa/notices.ts`, following standard Telegram cancellation and error handling without custom retry queues.
-  - Field validation: when the question exceeds `CHAT_QA_QUESTION_MAX_CHARS`, the answer exceeds `CHAT_QA_ANSWER_MAX_CHARS`, or the whole question / the answer outside ``` code blocks contains slash text that would render as a clickable command (`containsRenderableCommand`; the answer is split with the same `renderFencedText` used by the direct-answer path), that field is not written to the session, the form stays open, and the receipt shows the matching hint from `QaFormIngressResult.rejection`.
+  - Checks `isCanControllQaPermission` and binds the session to `(openedById, messageThreadId)`; subsequent messages are claimed only when sent by that same visible sender inside that exact forum topic (`forumTopicThreadId`), re-checking session liveness after every `await` and routing prompts/cleanup through `qa/notices.ts`.
+  - **Field validation**: Rejects questions `> CHAT_QA_QUESTION_MAX_CHARS`, answers `> CHAT_QA_ANSWER_MAX_CHARS`, or slash commands matching `containsRenderableCommand` anywhere in the question or outside ```` ``` ```` code fences in the answer (parsed with `renderFencedText`), keeping the form open and replying with `QaFormIngressResult.rejection`.
 - **Echo Prevention for Bot Messages**:
-  - Delivery entry listens on `["message", "channel_post"]`, using `isBotOwnMessage` to prevent bot self-replies.
-  - Ordered by ascending execution cost: numeric Map lookup by chat ID (zero allocations), local message ID check via `selfSentTracker.ts`, and finally cross-thread `waitForBotOwnMessage` synchronization.
+  - Listens on `["message", "channel_post"]` and filters self-sends via `isBotOwnMessage` in ascending cost order: `Map` chat-ID lookup → local `selfSentTracker.ts` ID check → cross-thread `waitForBotOwnMessage`.
 - **Formatting, Preview Truncation & Board Paging**:
-  - Code blocks in answers are stored as literal ``` fences in SQLite, with fence characters counting toward `CHAT_QA_ANSWER_MAX_CHARS`. Restored to entities when sending direct answers.
-  - Form prompts (`renderQaFormPrompt`) truncate the **answer preview** with an ellipsis when exceeding message budgets, keeping questions intact. Persists full, unclipped text to the database.
-  - `/qa query` board compresses answers to `QA_QUERY_ANSWER_PREVIEW_MAX_CHARS` with ellipses while displaying questions in full. Paginated at `QA_QUERY_PAGE_MAX_ENTRIES` rows per page; page numbers reside in `callback_data`, re-rendering the hot table on clicks.
+  - Stores literal ```` ``` ```` fences in SQLite (counted toward `CHAT_QA_ANSWER_MAX_CHARS` and converted to entities on direct reply). `renderQaFormPrompt` truncates only the answer preview when long while keeping the question intact and saving full text; `/qa query` previews `QA_QUERY_ANSWER_PREVIEW_MAX_CHARS` per row across `QA_QUERY_PAGE_MAX_ENTRIES`-row pages via `callback_data`.
 - **Direct Answer Matching & AI Isolation**:
-  - Question text is trimmed upon writing; hot matching paths perform no global normalization. If the first entity is a leading bot mention, case-folding applies only to the bot username; question text requires exact character matching.
-  - Direct answers trigger before AI chat and ignore `/quiet` suppression. Hits reply immediately and terminate downstream handling, completely bypassing AI rolling context.
-  - Model query tools (`group_qa_query` and `group_qa_answer`) receive their context with the main thread's `trigger` message: the main-thread hot copy also holds the chat's Q&A as JSON text (an array of `[question, answer]` pairs) and its count, invalidated by Q&A writes, deletions, and chat teardown and rebuilt on next use. The trigger carries only these two primitive values, and the AI Worker parses the JSON only when a tool runs. There are no cross-thread mirrors and no fuzzy matching. Writes use write-through plus exact revision ACKs.
+  - Questions trim on write and match character-for-character at runtime (case-folding only a leading `@bot_username` mention), firing ahead of AI chat regardless of `/quiet`, terminating the update, and staying out of AI rolling memory.
+  - **Lazy JSON payload for AI tools**: The main-thread Q&A cache lazily builds and caches `{ jsonText, count }` per chat (invalidated on Q&A write/delete or chat teardown) and passes only those two primitives in `trigger` so `group_qa_query` and `group_qa_answer` parse JSON on demand without cross-thread mirrors or fuzzy matching.
 
 ### Blocklist and Ad Detection
 
@@ -983,151 +908,117 @@ This section covers the [authoritative blocklist and the block command](#authori
 #### Authoritative blocklist and the block command
 
 - **Authoritative Storage & Cache Consistency**:
-  - Authoritative `/block` data is stored in the SQLite `blocklist_entries` table. The main thread maintains only a bounded LRU cache of recently accessed identities and unacknowledged pending writes.
-  - The blocklist acts as a synchronous security boundary: positive/negative policy checks must be prefetched before mutation decisions. Updates write the final LRU value in memory before posting database revisions to the Disk I/O Worker.
-  - Blocklist records never expire. They are removed only through `/block disable` or automatic [deleted-account detection](#deleted-account-detection-in-the-blocklist).
-  - Rows use strict JSONB containing `blockedAt` and Telegram metadata. The optional `participantInvalidCount` defaults to zero and, when present, must be a positive integer strictly below `BLOCKLIST_PARTICIPANT_INVALID_LIMIT`. Malformed or out-of-bounds data halts startup.
+  - Stored in SQLite `blocklist_entries` with main-thread LRU + pending-write overlay (`identityPolicyCache`). Entries never expire by time and are removed solely via `/block disable` or [deleted-account detection](#deleted-account-detection-in-the-blocklist).
+  - Strict JSONB rows store `blockedAt`, Telegram profile fields, and optional `participantInvalidCount` (integer in `[1, BLOCKLIST_PARTICIPANT_INVALID_LIMIT - 1]` when present; `0` omitted).
 - **Full Unblock Workflow (`/block disable`)**:
-  - If the target exists, the main thread publishes negative cache entries, removes the ID from in-flight `pendingBlockedRemovals` batches, posts the trimmed outbox snapshot, and finally queues a deletion tombstone (`queueBlocklistDeletion`).
-  - Disk I/O Worker processes messages in arrival order; snapshot commits precede deletions, preventing dangling references to deleted entries. Worker restarts replay by domain priority.
-  - Irrespective of whether the target was stored, bans are lifted across all `managedAdminChatIds` (origin chat first, followed by all initialized chats where the bot is confirmed admin). Users call `unbanChatMemberIfBanned` (`only_if_banned: true`); channel identities call `unbanChatSenderChat`. Chats whose permission snapshot confirms missing "restrict members" rights are not sent a request and count as failures. Requires `isCanUnBlock`.
+  - Requires `isCanUnBlock`. If listed, the main thread writes a negative cache entry, strips the ID from `pendingBlockedRemovals`, posts the updated outbox rows **before** queueing `queueBlocklistDeletion` (so Disk I/O commits outbox updates ahead of deleting the referenced blocklist row), and then unbans across all `managedAdminChatIds` (origin chat first; `unbanChatMemberIfBanned` with `only_if_banned: true` for users, `unbanChatSenderChat` for channels; chats confirmed lacking `canRestrictMembers` skip the call and count as failures).
 - **Protected Identities & Serialization**:
-  - Super administrators (`SUPER_ADMIN_USER_ID`) and permanent allowlist members are unconditionally protected; `isWhitelisted` guards `/block`, `/mute`, and `/batch_kick`. Temporary ad-bypass status does not confer this permanent immunity.
-  - `/white enable` strictly rejects identities already in the blocklist.
-  - `runProtectedIdentityMutation` strictly serializes policy checks and identity state updates on the main thread, while Telegram network calls and durable persistence run outside the critical section. Blockings queue temporary-bypass tombstones before writing blocklist records, failing closed on overlap.
+  - `isWhitelisted` (`SUPER_ADMIN_USER_ID` + permanent allowlist; temporary ad bypass excluded) protects targets across `/block`, `/mute`, and `/batch_kick`, while `/white enable` rejects blocklisted IDs. `runProtectedIdentityMutation` serializes policy checks and cache updates on the main thread (queueing temporary-bypass tombstones before blocklist writes) while keeping network calls and flush waits outside the critical section.
 - **Persistence Barriers & Domain Isolation**:
-  - `/block` confirms persistence (`confirmBlocklistPersisted`) the same way as the whitelist, through `confirmIdentityPolicyPersisted("blocklist", id, …)`: it waits only for the blocklist domain's flush barrier, so the Disk I/O Worker flushes only the shared SQLite transaction containing the blocklist and unrelated domain errors (e.g., wed member files) stay isolated; after a successful flush it also checks that the id's latest revision received an exact ACK.
-  - Unified flushes cover all domains, detailing `failedDomains` in receipts. AI cache usage and ad samples are side-channel data: flush failures log errors without failing the overall flush.
-  - Repeating `/block` (including `/block disable` when the target is no longer listed) serves as a retry after persistence failures: while the id still has an unacknowledged final value (a block record or a removal tombstone), `retryUnacknowledged` resubmits the same revision through `requeueUnacknowledgedIdentityWrite`; in-memory presence never skips persistence confirmation.
+  - `confirmBlocklistPersisted` (`confirmIdentityPolicyPersisted("blocklist", id, …)`) flushes only the shared SQLite transaction domain and verifies an exact revision ACK for `id`, isolating unrelated file domains (AI cache usage and ad samples log errors as non-fatal side channels during full flushes). Re-running `/block` while an entry or tombstone is still unacknowledged resubmits the same revision via `requeueUnacknowledgedIdentityWrite`.
 - **Chat-Level Sweeps & State Latch (`sweepBlockedMembers`)**:
-  - Sweeps trigger if and only if "bot is admin AND chat is `/init enable`d". Any change to either condition re-evaluates the trigger.
-  - The latch `sweptAt` in `blocklistSweepState` updates only upon receiving a `blockedMembersRemoved` receipt confirming `complete: true`.
-  - Retries respect the `BLOCKLIST_SWEEP_RETRY_INTERVAL_MS` backoff gate before fetching ID pages across threads. Disabling `/init`, demotion, or departure calls `forgetChatBlocklistWork`, discarding sweep progress and in-flight batches.
-  - Any signal of residual blocklisted members (failed bans, join-time removals returning `complete: false`) triggers `requestBlocklistResweep`, resetting `sweptAt` to `null`. Consecutive failures linearly increase backoff up to `BLOCKLIST_SWEEP_RETRY_MAX_INTERVAL_MS`.
+  - Runs whenever `isInitEnabled && botIsAdmin`, setting `blocklistSweepState.sweptAt` only on `blockedMembersRemoved` with `complete: true` (reset to `null` via `requestBlocklistResweep` on incomplete removals, backing off linearly from `BLOCKLIST_SWEEP_RETRY_INTERVAL_MS` to `BLOCKLIST_SWEEP_RETRY_MAX_INTERVAL_MS` before fetching ID pages, and cleared via `forgetChatBlocklistWork` on `/init disable`, demotion, or departure).
 - **Missing Permissions vs. Target is Admin**:
-  - Telegram 403 or 400 `not enough rights` maps to `forbidden`.
-  - If the target is an administrator, membership-probing sweeps (`probeMembership: true`) identify administrator status directly from the `getChatMember` call in `probeChatMembershipWithOutcome` without calling `banChatMember` or issuing a second query; non-probing instant kicks and ad-disposal batches (`probeMembership: false`) encounter Telegram 400 `not enough rights` and then probe the target via `probeChatAdmin`. Confirmed admins log and settle that target alone while letting the remaining batch proceed; the receipt marks `targetIsAdmin`, causing the main thread to skip updating `sweptAt` and retain the chat for future sweeps.
-  - If the bot itself lacks permissions, Worker returns `permissionDenied`. Main thread flags `permissionBlocked`, pausing timed retries and marking outbox batches as `missing-permission`. Cleared only upon observing confirmed `canRestrictMembers` rights via `my_chat_member` updates or direct probes.
+  - HTTP 403 or 400 `not enough rights` classifies as `forbidden`:
+    - **Target is group admin**: Probing sweeps (`probeMembership: true`) detect admin status directly from `probeChatMembershipWithOutcome` without calling `banChatMember`; non-probing instant kicks and ad disposals (`probeMembership: false`) call `probeChatAdmin` after receiving 400 `not enough rights`. Confirmed admin targets log an error, settle that target so the rest of the batch continues, and set `targetIsAdmin: true` so the main thread leaves `sweptAt` unset.
+    - **Bot lacks `can_restrict_members`**: Worker returns `permissionDenied`, setting `permissionBlocked` on the main thread and marking outbox rows `missing-permission` until `my_chat_member` or a probe confirms `canRestrictMembers: true`.
 - **Task Durability & Instant Bans**:
-  - Removal batches are tracked by `trackBlockedRemoval` in `pendingBlockedRemovals` and replayed on Worker respawns (bans are idempotent).
-  - Blocklisted users joining trigger instant bans instead of join verification (no verification window opened). `recentBlockedJoinCounts` deduplicates concurrent `chat_member` and `new_chat_members` events, logging join counts and deleting join announcements.
-- **Thread Coordination & Cross-Chat Fan-Out**:
-  - Policy decisions and list maintenance belong to the main thread; probing, banning, and retry sequencing belong asynchronously to the Anti-Raid Worker. Outbound calls route to `query` or `kick` 429 queues.
-  - The cross-chat fan-out of the `/block` command itself (`enable` and `disable`) is an explicit exception (`commands/blocklistFanOut.ts`):
-    - After validation the handler reserves a turn, in arrival order, on the identity's blocklist serial slot (`blocklistIdentityMutationRunner`, shared with ad disposal). The list write and persistence confirmation, the cross-chat ban or unban, and the receipt all run in that slot in order, so successive commands and ad disposals for the same identity settle in arrival order.
-    - When the slot is idle, the list write and persistence confirmation finish inside the update. When an earlier disposal for the same identity is still running, both are deferred together with the fan-out and the update does not wait, ending before the list changes.
-    - The cross-chat part goes to the deferred command executor's background tier, dispatching `banChatMember`, `banChatSenderChat` or the matching unban concurrently up to `MANAGED_CHAT_BATCH_CONCURRENCY`; chats whose ban failed are left to subsequent sweeps.
-    - If shutdown cancels the task before it starts or while it waits for the slot, an error is logged, the pending list write and fan-out are not run, and no receipt is sent.
+  - `trackBlockedRemoval` records batches in `pendingBlockedRemovals` for replay across Worker respawns; blocklisted joins bypass verification for instant ban (`recentBlockedJoinCounts` deduplicates paired `chat_member` + `new_chat_members` events, increments join-spike counters, and deletes join service messages).
+- **Thread Coordination & Cross-Chat Fan-Out** (`commands/blocklistFanOut.ts`):
+  - `/block enable|disable` acquires a FIFO turn on the target's per-identity `blocklistIdentityMutationRunner` slot (shared with ad disposal):
+    - When idle, the SQLite write and persistence ACK finish inside the current update before handing cross-chat bans/unbans (`MANAGED_CHAT_BATCH_CONCURRENCY`) to the `background` deferred-command tier; when an earlier disposal for that same identity is still running, the write, fan-out, and receipt all defer in order so the update returns immediately.
+    - Shutdown cancellation before execution logs an error and skips both the deferred list mutation and receipt.
 
 #### Ad-detection admission, classification, and disposal
 
 - **Admission Gates & Re-check**:
-  - Ad detection requires three simultaneous conditions: chat `ChatState.isAdDetectEnabled === true`, bot is group admin, and sender lacks bypass rights (`isCanBypassAdDetection`). Super administrators always bypass.
-  - After Worker classification, the main thread re-verifies group toggles and allowlist status inside the critical section before calling `blockUser`. If ad detection was disabled in the interim, it logs an expected race and cancels the block.
+  - Requires `ChatState.isAdDetectEnabled === true`, bot admin status, and `!isCanBypassAdDetection` (`SUPER_ADMIN_USER_ID` always exempt). Before applying punishment on `adDetected`, the main thread re-checks chat toggles and allowlist status inside `blocklistIdentityMutationRunner` and `runProtectedIdentityMutation`, cancelling peacefully if toggled off mid-flight.
 - **Exemptions & Special Message Sources**:
-  - Linked-channel automatic forwards (`is_automatic_forward`) and the bot's own messages (`isBotOwnMessage`) are skipped.
-  - Inline messages sent via the bot (`via_bot` pointing to self) are classified on the user's **original query text**, not the bot's formatted output. Inline features register raw query text via `recordInlineResultSources` (up to `INLINE_RESULT_SOURCE_MAX_AUTHORS`). Unregistered or mismatched text is skipped.
-  - Discussion group comments referencing channel posts do not include channel post bodies in quote context. Group owners and human admins are never classified as advertisers; bots are checked and disposed of even when they are admins.
-- **Queue Management & Flow Control** (Worker Thread):
-  - Keys queue by `chatId:senderId`. Consecutive messages from the same sender merge into a single `pendingAdMessages` bundle without taking extra slots.
-  - Bounded by `AD_DETECT_MAX_PENDING_SENDERS`; rejects new senders when full without evicting unjudged senders.
-  - Scheduler extracts up to `AD_DETECT_BATCH_SIZE` senders every `AD_DETECT_QUEUE_TICK_MS`, capped globally by `AD_DETECT_MAX_IN_FLIGHT`.
-  - Disposed sender keys enter `recentlyDisposedAdKeys` for `AD_DETECT_JUDGED_RETENTION_WINDOW_MS`, suppressing duplicate classifications while continuing to delete messages from channel aliases.
-- **Bundle Assembly & Model Interaction**:
-  - Limits per-sender messages to `AD_DETECT_MAX_MESSAGES_PER_SENDER` and character budgets to `AD_DETECT_BUNDLE_MAX_CHARS`. Dropped unjudged messages transfer their IDs to `pendingDeleteIds` to ensure full deletion during disposal, logging an error.
-  - Senders' display names (`firstName`, `lastName`) are submitted alongside non-forwarded text, treating name-based promotions identically to body promotions.
-  - **Bare Link Protection**: If messages consist solely of links and an optional standard name without marketing, recruitment, or commercial copy, they must be classified as `false` (supporting proxy and subscription protocols).
-  - Prompts explicitly mandate `"JSON"` output. Parsers extract bare JSON objects, tolerating markdown fences. Classification errors treat the message as unjudged without penalty.
-  - System facts (such as unverified newcomer status) are declared explicitly in fixed prompt positions, separated from user text.
-- **Disposal Execution & Notices**:
-  - Upon positive classification, Worker deletes pending messages and emits `adDetected`. Main thread runs `blockUser` in its critical section, flushes the blocklist, and posts persistent removal batches to the Worker for cross-chat bans.
-  - Main thread sends temporary disposal notices via `sendTemporaryMessageOnMain` (`COMMAND_MESSAGE_AUTO_DELETE_MS` auto-deletion), reporting enforced chat counts and permission errors.
-  - Shutdown ceases new classifications; in-flight model calls settle within deadlines. Detected samples append to `memory/ad-detected/sample.json`, rotated by configured time-zone calendar dates.
+  - Skips `is_automatic_forward`, `isBotOwnMessage`, channel post bodies quoted in discussion replies, and human group owners/admins (admin bots are still inspected and punished). Self-inline posts (`via_bot === self`) inspect the user's raw query registered in `recordInlineResultSources` (`INLINE_RESULT_SOURCE_MAX_AUTHORS`), skipping unregistered/mismatched posts.
+- **Queue Management & Flow Control** (Anti-Raid Worker):
+  - Coalesces consecutive messages per `chatId:senderId` into one `pendingAdMessages` bundle (up to `AD_DETECT_MAX_PENDING_SENDERS` senders without evicting unjudged entries; `AD_DETECT_MAX_MESSAGES_PER_SENDER` messages and `AD_DETECT_BUNDLE_MAX_CHARS` chars per bundle, moving overflow message IDs into `pendingDeleteIds`).
+  - Pops up to `AD_DETECT_BATCH_SIZE` bundles every `AD_DETECT_QUEUE_TICK_MS` under global `AD_DETECT_MAX_IN_FLIGHT`. Recently punished `chatId:senderId` keys enter `recentlyDisposedAdKeys` for `AD_DETECT_JUDGED_RETENTION_WINDOW_MS`, deleting straggler messages one by one without re-classifying (skipped for ordinary users already on the permanent blocklist, whose `revoke_messages` ban removes history).
+- **Three-Stage Detection Pipeline**:
+  1. **Sticker pack blacklist** (`sticker_black_list` in `ad_detect.json`): Synchronously checks `sticker.set_name`; hits dispose immediately without calling AI.
+  2. **Custom emoji pack blacklist** (`emoji_black_list` in `ad_detect.json`):
+     - Checks `custom_emoji_id` against the Worker's `AD_DETECT_CUSTOM_EMOJI_SET_CACHE_MAX` LRU cache first, then batches uncached IDs (`TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS`) through `getCustomEmojiStickers` on the main-thread `query` lane and caches results; any blacklisted pack match disposes immediately without calling AI.
+     - Transient lookup errors share `AD_DETECT_CUSTOM_EMOJI_QUERY_MAX_RETRIES` immediate retries across batches (4xx errors never retry); exhausting retries or hitting shutdown logs an error and falls through to stage 3.
+  3. **AI text classification** (`samples` in `ad_detect.json`): Runs only when unchecked non-empty text exists, pairing `firstName`/`lastName` with non-forwarded text, declaratively attaching newcomer verification state outside user text, requiring bare `"JSON"` output (fail-open as unjudged on model error), and **always classifying bare link-only messages without promotional/commercial copy as `false`**.
+- **Disposal Execution & Notices** (`states/adPunishment.ts`):
+  - On hit, the Worker deletes bundled + `pendingDeleteIds` messages and posts `adDetected`; the main thread selects punishment from `ad_detect.json`:
+    - `kick` + `block_scope: "global"`: runs `blockUser`, flushes SQLite, and posts durable cross-chat removal batches (users and channels alike).
+    - `mute`: mutes in the triggering chat (`duration - MUTE_DISPATCH_MIN_REMAINING_MS` deadline for timed mutes; no `until_date` for permanent).
+    - `kick` + `block: false`: kicks without ban once `chatIsSupergroupById` is known and live membership is confirmed (skipping if already permanently blocklisted).
+    - `kick` + `block_scope: "chat"`: bans in the triggering chat via `banChatMember` (`revoke_messages: true`) without adding to the global blocklist.
+    - **Channel identities** under non-global modes have their messages deleted without sending member-restriction calls. In-chat punishments track in `inFlightAdDisposals` without entering the durable outbox (abandoned on shutdown timeout, restart, or `ad_detect.json` removal).
+  - Notices send via `sendTemporaryMessageOnMain` (`COMMAND_MESSAGE_AUTO_DELETE_MS`), and matched samples append to daily-rotated `memory/ad-detected/sample.json`.
 
 #### Bans and message revocation
 
 - **Message Revocation Mechanisms**:
-  - Blocklist bans (`/block`, instant kicks, sweeps, ad disposal) invoke `banChatMember` with `revoke_messages: true` to purge historical messages.
-  - Channel alias bans (`banChatSenderChat`) lack automatic revocation; ad disposal deletes associated messages explicitly on the Worker.
+  - User blocklist bans (`/block`, instant kicks, sweeps, global ad blocks) and in-chat ad bans pass `revoke_messages: true` to `banChatMember`; channel persona bans (`banChatSenderChat`) have no `revoke_messages` parameter, so Worker ad disposal deletes captured channel message IDs explicitly.
 
 #### Blocklist-removal outbox
 
-- **Cross-Process Durability Guarantee**:
-  - Removal batches persist to SQLite `pending_blocked_removals` via Disk I/O Worker, row by row: every change to a row sends one `blocklistRemovalWrite` for that row only (its current value, or a deletion once the row is gone) with a monotonic revision, and Disk I/O Worker answers with an exact `(removalId, revision)` ACK after the transaction commits; a late older ACK never clears a newer write. When Disk I/O Worker is rebuilt, the main thread replays only the unacknowledged rows in revision order. Before sending each row write, the main thread checks the shared SQLite write budget (`STORAGE_PENDING_MAX_ENTRIES`, `STORAGE_PENDING_MAX_BYTES`) against the unacknowledged row count and estimated bytes; exceeding it rejects the write and raises the Disk I/O fatal signal, and a newly registered task row is withdrawn. An exact ACK releases the bytes held by that row. Failure bookkeeping that only changes the diagnostic fields (`attempts`, `lastFailure`) stays in memory until that row's next write; the write-ahead before each dispatch first sends those rows, and the main thread dispatches tasks to the Anti-Raid Worker and acknowledges the update only after the current content of every outbox row is durable.
-  - Before accepting a row, Disk I/O Worker strictly decodes it and checks its blocklist references: every `userIds` entry frozen in a named row must be in the effective blocklist, and a sweep row requires a non-empty effective blocklist. Deleting a blocklist identity checks the reverse: no named row may still freeze it, and the blocklist must not become empty while sweep rows remain. The main thread's `unblockUser` must send the row changes before the blocklist deletion. During the mirror replay window (`storageFlushHold`) the blocklist arrives before the outbox and nothing commits, so the deletion-side check is skipped there and the startup validation rechecks the committed state.
-  - Sweeps (`probeMembership: true`) persist only chat IDs in the outbox, reading ascending cursor pages (`BLOCKLIST_SWEEP_PAGE_SIZE`) during execution. Instant kicks (`probeMembership: false`) freeze specific `userIds`.
-  - Restores pending outbox tasks from SQLite on startup; outbox capacity capped at `BLOCKLIST_REMOVAL_OUTBOX_MAX_ENTRIES`, safely halting on decode errors.
+- **Row-Level Write-Ahead & Budgeted ACKs** (`pending_blocked_removals`):
+  - Every outbox row mutation or deletion posts a per-row `blocklistRemovalWrite` with a monotonic revision (checked upfront against `STORAGE_PENDING_MAX_ENTRIES` and `STORAGE_PENDING_MAX_BYTES`; overflow withdraws new rows and raises Disk I/O fatal shutdown) and releases its byte budget only on an exact `(removalId, revision)` commit ACK.
+  - Diagnostic-only updates (`attempts`, `lastFailure`) stay in memory until flushed ahead of the next Worker dispatch; the main thread dispatches to the Anti-Raid Worker and acknowledges the Telegram update **only after** every active outbox row's current payload is durable (replaying unacknowledged rows in revision order on Disk I/O respawn).
+- **Referential Integrity & Row Shapes**:
+  - Disk I/O validates that every frozen `userIds` entry in an instant-kick row (`probeMembership: false`) exists in the effective blocklist and that sweep rows (`probeMembership: true`, storing only `chatId` and paging `BLOCKLIST_SWEEP_PAGE_SIZE` cursors at runtime) coexist with a non-empty blocklist—conversely rejecting blocklist deletions that are still referenced by outbox rows (skipped only inside `storageFlushHold` mirror replay, which re-verifies on close/startup). Outbox size caps at `BLOCKLIST_REMOVAL_OUTBOX_MAX_ENTRIES`.
 
 #### Replay after permission restoration
 
 - **Permission Recovery Sequencing**:
-  - When `can_restrict_members` is restored, the system first replays outbox instant-kick and ad batches that were suspended due to missing permissions.
-  - Next, it triggers a full-list sweep to clean remaining blocklisted members. Sweeps and replay batches settle independently.
+  - Restoring `can_restrict_members` replays `missing-permission` instant-kick and ad-ban outbox rows first, then schedules a full-list sweep (settling independently).
 
 #### Deleted-account detection in the blocklist
 
-- **Error Detection & Counter Tracking**:
-  - Telegram returns 400 `PARTICIPANT_ID_INVALID` for deleted accounts. In full-list sweeps, users returning this error across all `BLOCKLIST_REMOVAL_MAX_ATTEMPTS` attempts are marked `participantInvalid`.
-  - Worker returns `participantInvalidUserIds` and `settledUserIds` in `blockedMembersRemoved` receipts. Main thread increments `participantInvalidCount` for the former and resets it for the latter.
-- **Automatic Blocklist Release**:
-  - When `participantInvalidCount` reaches `BLOCKLIST_PARTICIPANT_INVALID_LIMIT`, the account is confirmed permanently deleted.
-  - Main thread calls `unblockUser` to remove the target from the blocklist, publishing negative cache entries and deletion tombstones with audit logging. Does not trigger cross-chat unbans, terminating infinite sweep loops.
+- **Error Detection & Automatic Release**:
+  - Sweep targets returning HTTP 400 `PARTICIPANT_ID_INVALID` across all `BLOCKLIST_REMOVAL_MAX_ATTEMPTS` attempts report in `participantInvalidUserIds` (incrementing `participantInvalidCount`, whereas `settledUserIds` resets it to `0`).
+  - Reaching `BLOCKLIST_PARTICIPANT_INVALID_LIMIT` confirms a permanently deleted Telegram account and calls `unblockUser` (writing negative cache + deletion tombstone with an audit log, without broadcasting cross-chat unbans).
 
 ### Fortune and AI-Memory Recovery
 
 - **Fortune Day Rollover & Deferral Queue**:
-  - The previous day's append buffer must flush successfully before switching date owners in the configured time zone; failure retains the old owner and rejects rollover.
-  - Draws triggering the rollover move into a bounded deferral queue (up to `LUCK_DEFERRED_DRAW_MAX`) awaiting replay, never dropped (main thread `dailyLuckCache` has already recorded the draw and issued receipts). Drops oldest entry with a log on queue overflow; successful flush retries replay deferred draws immediately.
-  - If target day contains confirmed records, missing keys or date mismatches are critical inconsistencies that block startup or rollover rather than generating keys silently.
+  - Switching local calendar days requires flushing the prior day's append buffer first (retaining the prior day owner on failure while queueing new draws in a `LUCK_DEFERRED_DRAW_MAX` FIFO so main-thread `dailyLuckCache` receipts are replayed once flush succeeds; missing secrets or date mismatches on non-empty day files abort startup/rollover).
 - **Midnight Startup Tolerance**:
-  - If starting across a day boundary, main thread and Worker calculations of "today" may differ by one day.
-  - Treated as non-fatal: discards stale credentials and confirmed records (leaving cache empty), fetching today's fresh key via `ensureLuckCacheFreshForToday` on first use, marking internal rollover.
+  - A 1-day boundary skew between main thread and Worker during midnight startup discards the stale day's cache non-fatally and lazily fetches today's secret via `ensureLuckCacheFreshForToday` on first draw.
 - **AI-Memory Snapshot Hydration Gate**:
-  - Startup loads only current-version snapshots (`AI_MEMORY_SNAPSHOT_KEYS`) within `AI_MEMORY_HYDRATE_BUFFER_MAX` and `MAX_SUMMARY_ROUNDS`. Rejects invalid or oversized snapshots without silent truncation.
-  - Names, usernames, text, quotes must be single-line (ordinary spaces only). Quotes limited to `REPLY_REFERENCE_MAX_CHARS`. `at` must match `LOCAL_TIMESTAMP_PATTERN`. `pendingImage` strictly typed.
-  - Total hydrated chats capped at `AI_MEMORY_MAX_CHATS`, covering coexisting managed chats and pending teardowns.
-  - When AI Worker exhausts restarts and gives up, clears `lastInitState.current` so `flushAiMemory` safely returns `flushed`, preventing offline chat from blocking shutdown.
+  - Startup accepts only current-schema snapshots (`AI_MEMORY_SNAPSHOT_KEYS`, single-line fields, quotes `<= REPLY_REFERENCE_MAX_CHARS`, `LOCAL_TIMESTAMP_PATTERN` timestamps, `<= AI_MEMORY_HYDRATE_BUFFER_MAX` messages, `<= MAX_SUMMARY_ROUNDS` summaries, across `<= AI_MEMORY_MAX_CHATS` chats) without truncation. If the AI Worker exhausts respawn attempts, `lastInitState.current` clears so `flushAiMemory` resolves `flushed` cleanly on shutdown.
 - **In-Memory Message Index (`chatMessageIndexes`)**:
-  - Derived purely from in-memory rolling cache; not persisted. Added and removed synchronously on hot region edges, naturally bounded.
-  - Bot self-replies associate via Telegram `reply_to_message`. Uses trigger snapshot fallback if target slides out of hot zone, without expanding index boundaries.
+  - Ephemeral hot-window index updated synchronously on window edges; bot self-replies link via `reply_to_message` and fall back to the trigger snapshot once targets slide out of the hot window.
 
 ### Acknowledgement Boundary and Shutdown
 
 - **Telegram Update Acknowledgement Boundary**:
-  - An update advances its offset only after middleware completes and all side effects settle.
-  - If an update fails or is aborted during shutdown, the runner records an explicit failure flag. Lifecycle shutdown checks this flag: if unsettled, **withholds final offset confirmation** and exits non-zero so Telegram redelivers.
-  - Runner polls strictly with `limit: UPDATE_POLL_LIMIT`, so each update settles independently without sibling duplicate execution.
+  - Polls with `limit: UPDATE_POLL_LIMIT` and advances the offset only after middleware and durable side effects settle; any failed or shutdown-aborted update latches `hasFailedUpdate()`, withholding final offset confirmation and exiting non-zero for Telegram redelivery.
 - **Long Polling & Network Backoff** (`app/updateFetcher.ts`):
-  - Poll timeout `UPDATE_POLL_TIMEOUT_SECONDS`, retry window `UPDATE_POLL_RETRY_WINDOW_MS`.
-  - Failed fetches back off exponentially between `UPDATE_POLL_INITIAL_RETRY_MS` and `UPDATE_POLL_MAX_RETRY_MS`. A 429 carrying `retry_after` first waits the full `retry_after` and then applies this attempt's exponential backoff as usual; both waits share the retry window, and either one reaching the remaining window rethrows the last error. Fatal exit on 401/409 credential conflicts.
-  - Linked channel query uses `LINKED_CHANNEL_FETCH_TIMEOUT_MS`; returns `undefined` on timeout without granting bypass.
+  - Polls with `UPDATE_POLL_TIMEOUT_SECONDS` inside `UPDATE_POLL_RETRY_WINDOW_MS`, backing off exponentially from `UPDATE_POLL_INITIAL_RETRY_MS` to `UPDATE_POLL_MAX_RETRY_MS` (HTTP 429 waits full `retry_after` first and then applies the attempt's exponential backoff within the shared retry window; HTTP 401/409 exits fatally; linked-channel lookups time out after `LINKED_CHANNEL_FETCH_TIMEOUT_MS` and fail closed as `undefined`).
 - **Final Offset Confirmation & Three-State Shutdown**:
-  - The final offset confirmation `getUpdates` call is bounded by `FINAL_OFFSET_CONFIRM_TIMEOUT_MS`.
-  - Shutdown classifies into three outcomes (`classifyShutdown`):
-    - `clean`: Normal exit, all drained and flushed, offset confirmed.
-    - `offsetWithheld`: All drained and flushed, workers terminated, but final offset unconfirmed. Releases instance lock, exits non-zero for redelivery.
-    - `unsettled`: Unfinished drains or persistence failures. **Retains instance lock** to protect state, exits non-zero.
-- **Anti-Raid and Worker Drain Sequence**:
-  - Anti-Raid shutdown sends `drain` protocol to worker first, stopping ad ticker and new requests. Main thread then drains in-flight actions, persistence transactions, and reconciles fixed point.
-  - Shutdown sequence (maintenance quiesce and runner drain in `packages/app/lifecycle/maintenance.ts`; `SHUTDOWN_DRAIN_OWNERS` and `SHUTDOWN_TERMINATION_OWNERS` in `packages/app/lifecycle/shutdown.ts`):
-    1. Quiesce new tasks (stop config hot reload and update fetcher, quiesce schedulers, drain runner).
-    2. Sequentially drain `SHUTDOWN_DRAIN_OWNERS`: `avatar` → `translate` → `antiRaid` → `gag` → `qa form` → `wed` → `deferred commands` → `cron` → `target message deletion` → `Telegram delayed deletion` → `ai` (flush AI memory) → `telegram` (drain Telegram outbound gate) → `disk` (flush Disk I/O), then flush StateStore (`flushAllToDisk`); the final offset is confirmed only after this step and every other prerequisite succeed.
-    3. `dispose()` drains in the same order with the terminal close steps (close the translate client, terminate the AI Worker, close the Telegram outbound gate), then runs `SHUTDOWN_TERMINATION_OWNERS` (`terminateAntiRaid` → `terminateDiskIO`), flushes StateStore via `flushStateToDisk`, and finally releases or retains the instance lock according to the shutdown outcome.
-  - **Closing the shared SQLite database**: when the current Disk I/O generation has finished its recovery handshake, is writable, and has not signaled a fatal error, `terminateDiskIO` first sets `writable` to false and then sends one `closeStorage` request (budget `DISK_IO_STORAGE_CLOSE_TIMEOUT_MS`). The Disk I/O Worker commits remaining writes in one transaction, runs `PRAGMA wal_checkpoint(TRUNCATE)`, closes the connection, and ignores identity writes afterwards. If the reply reports uncommitted remaining writes, or the close request times out, is rejected, or replies with an error so the commit cannot be confirmed, the Worker is still terminated, the disk termination step is recorded as failed, and the shutdown outcome is `unsettled`. A checkpoint blocked by another reader only produces a diagnostic (the remaining writes are committed and the WAL stays next to the database). `closeStorage` is not a business message and is not replayed when the Worker is rebuilt.
-  - Lifetimes and budgets use monotonic clock (`monotonicDeadline.ts`, `performance.now()`), immune to wall-clock rollback.
-  - **Shutdown budgets**: each owner waits with its own `FlushTimeouts` entry. The `antiRaid` drain uses `antiRaidMs` (`ANTI_RAID_DRAIN_TIMEOUT_MS` on normal shutdown, no smaller than `DISK_IO_FLUSH_TIMEOUT_MS`, covering the Disk I/O and StateStore flushes the drain waits for internally); the `translate` drain and close use `translateMs` (the single-RPC limit `TRANSLATE_REQUEST_TIMEOUT_MS` on normal shutdown); the remaining maintenance owners use `maintenanceMs`. All three are 0 in `EMERGENCY_FLUSH_TIMEOUTS` on the uncaught-error exit path.
-  - **Total shutdown deadline**: the whole shutdown is bounded by `SHUTDOWN_TOTAL_BUDGET_MS`, counted from the stop request (signal or fatal error), or from the start of `wait()` or `dispose()` when shutdown begins without one. Every step of both drain passes, the background-maintenance wait, the final offset confirmation, and the StateStore flush waits for the smaller of its own budget and the time left before the deadline; steps after the deadline run with a zero budget. Runner draining, Worker termination, closing the database, and instance-lock handling are not shortened by the deadline.
+  - Final `getUpdates` confirmation runs under `FINAL_OFFSET_CONFIRM_TIMEOUT_MS`, classifying shutdown via `classifyShutdown` into:
+    - `clean`: All owners drained/flushed and final offset confirmed (`exit 0`, releases `bot.lock`).
+    - `offsetWithheld`: All owners drained/flushed and Workers terminated, but final offset unconfirmed (`exit 1`, releases `bot.lock` so the next instance receives redelivery).
+    - `unsettled`: Unfinished drain or persistence flush failure (`exit 1`, **retains `bot.lock`** until OS process exit).
+- **Ordered Drain, SQLite Close & Monotonic Budgets** (`packages/app/lifecycle/maintenance.ts`, `packages/app/lifecycle/shutdown.ts`):
+  - **Three-stage shutdown order**:
+    1. Quiesce new work: stop `config/dynamic/` hot reload, update fetcher, and Mini App HTTP server (`stopMiniAppServer`), quiesce schedulers, and drain the update runner.
+    2. Drain `SHUTDOWN_DRAIN_OWNERS` in strict order: `avatar` → `translate` → `antiRaid` (sends Worker `drain` to stop ad ticker and reconcile in-flight actions/persistence) → `gag` → `qa form` → `wed` → `deferred commands` → `cron` → `target message deletion` → `Telegram delayed deletion` → `ai` (`flushAiMemory`) → `telegram` (outbound gate) → `disk` (Disk I/O flush), followed by `StateStore` `flushAllToDisk` before confirming the final Telegram offset.
+    3. `dispose()` repeats owner drains alongside terminal closes (close translate client, terminate AI Worker, close Telegram gate), runs `SHUTDOWN_TERMINATION_OWNERS` (`terminateAntiRaid` → `terminateDiskIO`), flushes `StateStore` (`flushStateToDisk`), and releases or retains `bot.lock` per `classifyShutdown`.
+  - **Closing the shared SQLite database (`closeStorage`)**:
+    - When the active Disk I/O generation is recovered, writable, and non-fatal, `terminateDiskIO` flips `writable = false` and sends `closeStorage` (`DISK_IO_STORAGE_CLOSE_TIMEOUT_MS`): the Worker commits remaining buffered writes in one transaction, runs `PRAGMA wal_checkpoint(TRUNCATE)` (a reader-blocked checkpoint logs a diagnostic without failing the commit), closes SQLite, and ignores subsequent identity writes.
+    - Uncommitted writes, timeouts, rejections, or error replies still terminate the Worker while marking disk termination failed (`unsettled`). `closeStorage` is a control message and is never replayed across Worker respawns.
+  - **Per-owner & total monotonic deadlines** (`monotonicDeadline.ts` on `performance.now()`):
+    - `FlushTimeouts` assigns `antiRaidMs` (`ANTI_RAID_DRAIN_TIMEOUT_MS >= DISK_IO_FLUSH_TIMEOUT_MS`), `translateMs` (`TRANSLATE_REQUEST_TIMEOUT_MS`), and `maintenanceMs` for remaining maintenance owners (all `0` in `EMERGENCY_FLUSH_TIMEOUTS` on uncaught errors).
+    - `SHUTDOWN_TOTAL_BUDGET_MS` starts at the first stop signal/fatal error (or `wait()`/`dispose()` entry) and caps every drain step, background-maintenance wait, final offset `getUpdates`, and `StateStore` flush to `min(stepBudget, remainingDeadline)` (`0` once expired), whereas runner draining, Worker termination, `closeStorage`, and `bot.lock` release are never shortened by the total deadline.
 
 ### File Permissions and Schema
 
 - **Runtime Directory Permission Baseline**:
-  - Data root, `memory/`, and `logs/` validated at startup to be no broader than `RUNTIME_DATA_ROOT_MAX_MODE` (strictly forbidding group and other write bits).
-  - SQLite `database/` uses setgid collaboration mode `IDENTITY_DATABASE_DIRECTORY_MODE`; files default to `IDENTITY_DATABASE_FILE_MODE`.
-  - Validates runtime user permissions without altering ownership/permissions; invalid permissions halt startup.
+  - Startup verifies (without `chmod`/`chown`) that the data root, `memory/`, and `logs/` do not exceed `RUNTIME_DATA_ROOT_MAX_MODE` (no group/other write bits), while `database/` uses setgid mode `IDENTITY_DATABASE_DIRECTORY_MODE` and files default to `IDENTITY_DATABASE_FILE_MODE`.
 - **Preserving Permissions on Atomic Replacement**:
-  - `tmp + fsync + rename` atomic writes must read existing file mode and preserve it. Default `mode` applies only to initial creation.
+  - Every `tmp + fsync + rename` replacement reads and preserves the existing target file's mode, applying the default mode only when creating a brand-new file.
 - **Speculative Migration Prohibited**:
-  - Schema must match current version strictly. Incompatible or invalid data halts startup without silent upgrades.
+  - Runtime code accepts the current schema version only; legacy or malformed persisted files abort startup immediately without automatic upgrades.
 
 ### Lockdown Mirror and Terminal Flags
 
@@ -1135,10 +1026,9 @@ See [Lockdown Mirror and Terminal Flags](04-lockdown-invariants.md) for persiste
 
 ## Compatibility Entry Points
 
-- **Barrel Export Purity**: Top-level compatibility entry points re-export symbols only; they must not hold state, parse configuration, or introduce import side-effects.
+- **Barrel Export Purity**: Top-level compatibility barrels re-export symbols only and never hold state, parse config, or trigger side effects on import.
 - **Luck Receipt Signature Format & Safe Decoding**:
-  - Verification requires receipt date to match configured local date; HMAC keys rotate daily.
-  - Centralized in `libs/luckReceipt.ts`: catches `SyntaxError` on malformed Base64, returning `undefined` safely without escaping to middleware.
+  - `libs/luckReceipt.ts` rotates HMAC secrets daily in the configured local time zone, requires the receipt date to match today, and catches malformed Base64/JSON `SyntaxError`s locally (returning `undefined` without throwing into update middleware).
 
 ---
 

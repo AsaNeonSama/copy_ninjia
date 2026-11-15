@@ -61,25 +61,13 @@ function downloadTelegramFile(
 }
 
 /**
- * 把 Worker 经本边界发出的消息登记进主线程的自发消息表。
+ * 把 Worker 经本边界发出的消息登记进主线程自发消息表（`infra/selfSentTracker.ts` 按线程隔离）。
  *
- * `infra/selfSentTracker.ts` 按线程隔离：Worker 侧的 `sendMessage` 在自己的 isolate 里
- * `markSelfSent`；真正的 Bot API 调用中，`call`（`bot.api.raw.*`）、`sendPhoto` 与 `sendVoice`
- * 直接调用 `bot.api`，不经主线程共享动作层的登记，由本函数在主线程统一补登记（`sendTemporaryMessage`
- * 委托 `sendTemporaryMessageOnMain`，其内部经主线程 `sendMessage` 已登记，此处因返回回执而非原始 `Message`
- * 为安全 no-op）。主线程据此在频道帖回投时识别自发消息（三个入口的判定见
- * auto/message/index.ts、commands/cjkAction.ts、commands/qa/ingress.ts）。
- *
- * 登记发生在响应回传给 Worker 之前。两个 Worker 都不回投「我发了什么」，本函数是
- * 全部 Worker 自发消息的唯一登记点。
- *
- * 登记时刻是发送响应落地，回投可能由并发的长轮询先取回；入口侧因此在同步的
- * `isBotOwnMessage` 之外走有界 rendezvous，见 docs/cn/04-invariants.md 的
- * 「出站请求与消息安全」。
- *
- * 判据取返回值的形状而不是按方法名 switch：只要产出 Message 就被覆盖。读结果里恒为
- * 数字的 `chat.id`，不读 payload 的 `chat_id`（可以是 `@username` 字符串）；只返回
- * `MessageId` 的 `copyMessage` 不在任何 Worker 能力白名单里。
+ * - **覆盖范围**：`call`（`bot.api.raw.*`）、`sendPhoto` 与 `sendVoice` 直接调用 `bot.api`，在回传给 Worker 前由本函数统一补登记；
+ *   `sendTemporaryMessage` 已在 `sendTemporaryMessageOnMain` 内部经主线程 `sendMessage` 登记，返回回执对象在此处为 no-op。
+ * - **并发时序**：长轮询回投可能早于发送响应落地，入站入口（`auto/message/index.ts`、`commands/cjkAction.ts`、`commands/qa/ingress.ts`）
+ *   在同步 `isBotOwnMessage` 之外走有界 rendezvous（见 `docs/cn/04-invariants.md`）。
+ * - **形状判据**：按返回值是否含数值 `chat.id` 与 `message_id` 判定，不按方法名分支，也不读取可能是 `@username` 的请求 `chat_id`。
  * @param result Bot API 调用返回的原始结果。
  */
 function markWorkerSentMessage(result: unknown): void {
@@ -145,6 +133,7 @@ function jsonCallReply(call: TelegramWorkerJsonCall, result: unknown): unknown {
     case "getChat":
     case "getChatAdministrators":
     case "getChatMember":
+    case "getCustomEmojiStickers":
     case "getStickerSet":
     case "restrictChatMember":
     case "sendChatAction":
@@ -304,6 +293,7 @@ function antiRaidAllows(request: TelegramWorkerRequest): boolean {
     case "getChat":
     case "getChatAdministrators":
     case "getChatMember":
+    case "getCustomEmojiStickers":
     case "restrictChatMember":
     case "sendMessage":
     case "setChatPermissions":

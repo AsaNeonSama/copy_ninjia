@@ -4,22 +4,22 @@ import { CONSTS_ROOT_PREFIXES } from "./moduleBoundaries";
 import type { ExportedConstDeclaration } from "./constsProgram";
 
 /**
- * 有意只列字面量联合子集的导出数组表：`<相对路径>#<表名>` → 为什么不是全集。登记的表不要求经
- * exhaustiveList 构造；表已删除、改用 exhaustiveList 或元素不再是字面量联合时报废弃登记。
+ * 显式允许只列字面量联合子集的导出数组表白名单（`<相对路径>#<表名>` → 子集说明）。
+ * 白名单内的表免除 `exhaustiveList` 构造要求；若目标表已删除、已改用 `exhaustiveList` 或元素类型非字面量联合，则报告陈旧登记。
  */
 export const PARTIAL_LITERAL_TABLES: ReadonlyMap<string, string> = new Map<string, string>([
   ["packages/consts/aiChat/reactions.ts#AI_REACTION_EMOJIS", "Telegram 可用反应表情里按人设挑出的子集"],
 ]);
 
-/** collectConstExhaustiveListProblems 的入参。 */
+/** `collectConstExhaustiveListProblems` 的检查入参。 */
 export interface ConstExhaustiveListParams {
   /** 仓库根目录绝对路径。 */
   readonly projectRoot: string;
-  /** 以 `packages/consts/` 与 `packages/mini-app-frontend/consts/` 为入口经 createTypeCheckProgram 建的 program 的类型检查器。 */
+  /** 以 `packages/consts/` 与 `packages/mini-app-frontend/consts/` 为入口经 `createTypeCheckProgram` 创建的类型检查器。 */
   readonly checker: ts.TypeChecker;
-  /** `packages/consts/` 与 `packages/mini-app-frontend/consts/` 的全部导出常量声明（exportedConstDeclarations）；废弃登记按这批声明判定。 */
+  /** 常量目录下提取的全部导出常量声明（`exportedConstDeclarations`），同时用于陈旧白名单核对。 */
   readonly declarations: readonly ExportedConstDeclaration[];
-  /** 有意只列字面量联合子集的导出数组表白名单。 */
+  /** 显式允许只列字面量联合子集的导出数组表白名单。 */
   readonly partialTables: ReadonlyMap<string, string>;
 }
 
@@ -89,7 +89,7 @@ function builtByExhaustiveList(
  * `partialTables`。元组类型本身已固定全部元素，不在检查范围内。
  *
  * @param params 字面量联合全集表检查入参
- * @returns 未经 exhaustiveList 构造或废弃白名单登记的违规信息列表
+ * @returns 未经 exhaustiveList 构造或陈旧白名单登记的违规信息列表
  */
 export function collectConstExhaustiveListProblems({
   projectRoot,

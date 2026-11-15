@@ -300,15 +300,12 @@ async function handlePermissionMutation(
 }
 
 /**
- * 处理 /permission：所有身份都可查看说明并查询自身或指定用户的权限；仅超级
- * 管理员可修改已经存在的白名单条目。
+ * 处理 `/permission` 指令：
+ * - **公开只读子命令**：任意身份均可执行 `help` 查看权限说明，或执行 `query [目标]` 查询自身/指定身份的权限看板。
+ * - **超管修改分支**：仅超级管理员可修改已存在于白名单中的身份权限（新增或移除白名单成员由 `/white` 负责）。
+ * - **超管双重角色**：超级管理员作为发起人是唯一有权修改权限的身份；作为目标则一律被拒（其权限由身份直接赋予且恒为全开，
+ *   不写入 SQLite 白名单表，见 `infra/identityPolicy/whitelist.ts` 的 `getEffectiveWhitelistPermissions`）。
  *
- * 新增/删除成员由 /white 负责；其中持有 isCanWhiteOther 的普通成员只能新增
- * 默认权限条目，删除和本命令的逐项授权仍仅限超级管理员。
- *
- * 超级管理员在这条命令里出现在两个位置，语义相反：作为发起人他是唯一能改
- * 权限的人；作为目标则一律被拒（他的权限来自身份、恒为全开，见 infra/identityPolicy/whitelist.ts 的
- * getEffectiveWhitelistPermissions）。
  * @param ctx grammY 命令上下文。
  */
 export async function handlePermissionCommand(

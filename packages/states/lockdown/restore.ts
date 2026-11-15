@@ -1,14 +1,21 @@
 import { NO_LOCKDOWN_EFFECTS, RESTORE_RETRY_MS } from "../../consts/antiRaid/lockdown";
-import { activeOf, announcementCleanupEffects, reconcilingOf, restoringOf } from "./shared";
+import {
+  activeOf,
+  announcementCleanupEffects,
+  appendAnnouncementCleanup,
+  reconcilingOf,
+  restoringOf,
+} from "./shared";
 import type { ChatPermissions } from "grammy/types";
 import type {
+  LockdownEffect,
   LockdownMachineEvent,
   LockdownState,
   LockdownTransition,
 } from "../../types/states/lockdown";
 
 /**
- * 本轮到期：先落盘「要恢复」，落盘回执后才真的把权限还回去。
+ * 私密模式到期：转入 `restoring` 阶段并先持久化恢复意图，收到落盘回执后再恢复群权限。
  * @param state 当前群聊的私密模式状态，未激活时为 undefined。
  * @param event 恢复计时器到期事件。
  * @returns 进入 restoring 阶段并触发落盘的转移结果。
@@ -85,8 +92,7 @@ export function handleDeactivate(
 }
 
 /**
- * 群已不存在：任何阶段都直接删除记录，只报 unlock 让主线程清掉落盘的私密模式；不恢复权限、不删
- * 公告，群里已没有可调的 API。在途的权限调用随后回投的结果撞上空状态，不再推进。
+ * 群已不存在：任意阶段均直接清空内存记录并发出 `reportUnlock` 清理持久化状态，不再发起权限恢复或公告删除请求。
  * @param state 当前群聊的私密模式状态，未激活时为 undefined。
  * @returns 清除内存状态并发出 reportUnlock 的转移结果。
  */
@@ -121,15 +127,14 @@ export function handleRestoreResult(
       };
     }
     if (state.kind === "reconciling") return { next: state, effects: NO_LOCKDOWN_EFFECTS };
+    const effects: LockdownEffect[] = [{ kind: "reportUnlock" }];
+    appendAnnouncementCleanup(effects, state);
+    if (state.announced) {
+      effects.push({ kind: "announceUnlock", reason: state.restoreReason });
+    }
     return {
       next: undefined,
-      effects: state.announced
-        ? [
-          { kind: "reportUnlock" },
-          ...announcementCleanupEffects(state),
-          { kind: "announceUnlock", reason: state.restoreReason },
-        ]
-        : [{ kind: "reportUnlock" }, ...announcementCleanupEffects(state)],
+      effects,
     };
   }
   if (state.kind === "active" || state.kind === "reconciling") {

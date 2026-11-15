@@ -9,7 +9,7 @@ import { aiReplyActivityByChat } from "../../../packages/cache/main/auto";
 import { wedMemberStates, resetWedMemberStates } from "../../../packages/cache/main/wedMembers";
 import { aiChatConfigReadinessCache } from "../../../packages/cache/main/configReadiness";
 import { identityPolicyCache } from "../../../packages/cache/main/identityStorage";
-import { getOrCreateChatState } from "../../../packages/infra/storage/stateStore";
+import { getOrCreateChatState } from "../../../packages/infra/chatStateStorage";
 import { bot } from "../../../packages/infra/telegram/mainClient";
 import { cannedTelegramCalls, installCannedTelegramOutbound } from "../outboundGuard";
 import { incomingMessageSpineScenario } from "./messageSpineScenarios";

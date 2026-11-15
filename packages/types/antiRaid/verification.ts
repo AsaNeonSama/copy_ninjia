@@ -110,7 +110,7 @@ export interface DeferredVerificationRecord {
 }
 
 /**
- * 踢出终态一轮的成员处置结果：踢成、本来不在群、成员或群类型未能确认、请求失败，或等待期间
+ * 踢出终态一轮的成员处置结果：踢出成功、目标已不在群、成员或群类型未能确认、请求失败，或等待期间
  * 状态已被替换（stale，调用方直接放弃本轮）。
  */
 export type ExpelRemovalOutcome =

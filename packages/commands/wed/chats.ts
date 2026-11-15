@@ -50,12 +50,10 @@ export function trimWedSessions(chat: WedChat): void {
 }
 
 /**
- * 群关闭同步取消排队及会话；忙碌项由自身 finally 清理。
- *
- * 机器人已无法访问本群（isChatUnreachable：被移出或群已不存在）时结果一条也删不掉：作废全部
- * 消息 id 并置位 `departed`，忙碌项的 finally（含重抽时被替换、已不在会话表里的旧结果）随之
- * 不再发删除请求。其余起因把此刻空闲的结果按 deleteMessages 的单次上限分批删除，整批成功才作废
- * 这一批的消息 id。
+ * 群 teardown：同步取消排队任务与群内全部会话（正在执行动作的忙碌会话由其自身 `finally` 收尾）。
+ * - **机器人已不可访问本群**（`isChatUnreachable` 为真）：置位 `departed` 并清空全部会话的 `messageId`；
+ *   忙碌会话的 `finally`（含重抽替换下来的旧会话）见 `departed` 为真时不再发起删除请求。
+ * - **机器人仍在群**：将当前空闲会话的结果消息按 `TELEGRAM_DELETE_MESSAGES_BATCH_MAX` 分批删除，整批成功后清空对应 `messageId`。
  * @param chatId 目标群 ID。
  * @param chat 目标群的 `/wed` 交互状态。
  * @param reason 清理触发原因。

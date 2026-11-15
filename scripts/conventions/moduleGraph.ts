@@ -71,8 +71,7 @@ export interface ModuleGraphReader {
    */
   threadModuleClosure(entry: string): Promise<Map<string, string[]>>;
   /**
-   * 同 threadModuleClosure，但 `opaque` 里的模块只收进闭包、不再展开它自己的依赖。
-   * 供只关心「入口能直接或经允许路径碰到什么」的边界规则使用。
+   * 与 `threadModuleClosure` 相同，但 `opaque` 集合内的模块仅收录进闭包、不继续展开其下游依赖。
    */
   boundedModuleClosure(entry: string, opaque: ReadonlySet<string>): Promise<Map<string, string[]>>;
   /** 本文件会在运行期加载的 npm 包；类型专用 import 不进入结果。 */
@@ -82,15 +81,16 @@ export interface ModuleGraphReader {
 /**
  * 创建一个带解析结果记忆的模块图读取器。
  *
+ * @param fileTexts 可选的按绝对路径缓存的预读文本；缺省时按需读盘
  * @returns 模块图读取器实例
  */
-export function createModuleGraphReader(): ModuleGraphReader {
+export function createModuleGraphReader(fileTexts?: ReadonlyMap<string, string>): ModuleGraphReader {
   const edgesByPath: Map<string, ModuleEdges> = new Map();
 
   async function moduleEdges(path: string): Promise<ModuleEdges> {
     const cached: ModuleEdges | undefined = edgesByPath.get(path);
     if (cached !== undefined) return cached;
-    const source: ts.SourceFile = await parseSourceFile(path);
+    const source: ts.SourceFile = await parseSourceFile(path, fileTexts?.get(path));
     const internal: string[] = [];
     const external: string[] = [];
     function record(specifier: string): void {

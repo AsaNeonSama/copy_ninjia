@@ -1,3 +1,7 @@
+/**
+ * 入群验证状态的主线程权威镜像：按代际与单调 revision 接纳 Worker 上报的活动快照与删除墓碑，
+ * 实施记录容量硬门禁，并向 Disk I/O 转发持久化写入与确认回执（见 docs/cn/04-invariants.md）。
+ */
 import { antiRaidRuntimeState } from "../cache/main/antiRaid/proxy";
 import {
   activeVerificationSnapshots,

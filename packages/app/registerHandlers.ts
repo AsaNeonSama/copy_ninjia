@@ -55,12 +55,8 @@ import { createUpdatePreamble } from "./updatePreamble";
 import type { HandlerRegistration } from "../types/lifecycle";
 
 /**
- * 把「认领即终止、否则放行」的按钮回调认领收敛成同一条 MaybePromise 边界：入参为 boolean 时
- * 同步决定是否 next，为 Promise 时等待结果后再决定。函数本身不是 `async`，同步返回 false 的
- * 常态路径不分配 Promise。消息类 ingress 的同一写法见 app/updatePreamble.ts。
- *
- * 「返回不返回 Promise 是语义的一部分」这条跨模块约束见 @see ../../docs/cn/04-invariants.md
- * 的「线程与状态归属」。
+ * 按钮回调的统一续接边界：已认领时终止当前回调链，未认领时调用 `next()` 放行。
+ * 保持非 `async` 声明，使同步返回 `false` 的常态路径不分配 Promise（见 `docs/cn/04-invariants.md`）。
  * @param claimed 前置认领结论（布尔值或解析为布尔值的 Promise）。
  * @param next 下游 grammY 中间件续接函数。
  * @returns 已认领时返回 `undefined`（或解析为 `undefined` 的 Promise），未认领时返回 `next()` 的结果。
@@ -78,12 +74,8 @@ function claimOrContinue(
 }
 
 /**
- * `callback_query:data` 的认领链：先 `/wed`，再 `/qa query` 翻页，都未认领才 `next()`
- * 交给入群验证。
- *
- * 函数本身不是 `async`。两条前缀判定同步返回 false 时不分配 Promise，直接调用
- * `next()`；只有返回 Promise 时才等待后再决定是否继续。
- * 见 @see ../../docs/cn/04-invariants.md 的「线程与状态归属」。
+ * `callback_query:data` 的认领顺序：依次尝试 `/wed` 与 `/qa query` 翻页，均未命中前缀时调用 `next()` 交给入群验证。
+ * 保持非 `async` 声明，两条前缀均同步返回 `false` 时直接调用 `next()`（见 `docs/cn/04-invariants.md`）。
  * @param ctx 带 `callback_query:data` 过滤的 grammY 上下文。
  * @param next 下游 grammY 中间件续接函数。
  * @returns 已认领时返回 `undefined`（或解析为 `undefined` 的 Promise），未认领时返回 `next()` 的结果。
@@ -101,13 +93,9 @@ function dispatchCallbackQuery(
 }
 
 /**
- * 显式安装完整的 grammY 更新链。模块导入本身不修改 Bot；调用一次本函数才
- * 注册 middleware、命令和各类 update handler。
- *
- * 整条链只登记一个 `bot.use`：先做 update_id 记账与 bot 发言外闸，再进入
- * app/updatePreamble.ts 的前置链；斜杠命令、中文动作和非消息 update 在这里建成三个 Composer
- * 交给前置链在对应位置调用。不得再直接挂 `bot.use` / `bot.on` / `bot.command` / `bot.hears`
- * （test/app/registerHandlers.test.ts 断言）。
+ * 在 grammY `Bot` 实例上挂载唯一更新入口中间件与全局错误边界。
+ * 斜杠命令、中文动作命令与非消息更新在此组装为三个子 `Composer`，交由 `app/updatePreamble.ts`
+ * 按固定顺序调用，不在 `bot` 根实例上额外挂载其他 `use` / `on` / `command` / `hears`（见 `docs/cn/04-invariants.md`）。
  * @param bot 待安装更新链的 grammY Bot 实例。
  * @returns 已处理最大 `update_id` 的读取句柄。
  */

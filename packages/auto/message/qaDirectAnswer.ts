@@ -1,13 +1,9 @@
 /**
- * 群问答直答：文本与登记的问题完全一致时直接回答，不经过 AI。
+ * 群问答直答：消息文本与本群已登记问题精确匹配时直接回复答案，排在 AI 触发之前。
  *
- * 判定位于每条群消息的主干：`chatQaEntries.get(chatId)`（cache/main/qa.ts，只读）对没登记过问答的群
- * 返回 undefined，整条路径到此为止，零分配、零字符串操作。开了问答的群用 `message.text` 原串直接
- * `Map.get`，不产生中间对象；问题文本在写入时已 trim，热路径不做归一化。
- *
- * 唯一会分配的分支是「首个实体是指向本机器人的 @提及」：折两次大小写比对用户名，再切一次前缀查表。
- * @ 和回复同样走直答，这条判定排在 AI 触发之前。语义相近但文本不同的提问不归这里，
- * 交给模型的 group_qa_answer。
+ * - 未登记问答的群在 `chatQaEntries.get(chatId)`（`cache/main/qa.ts`）处直接返回 `undefined`。
+ * - 已登记问答的群先用 `message.text` 原串精确查表（登记入库时已完成首尾空白裁剪）；未命中且首个实体为前导 `@<botUsername>`
+ *   提及时，剥离该前缀并 `trim` 后再次查表。语义相近但字面不同的提问不在此处命中，交由 AI 工具 `group_qa_answer` 处理。
  */
 
 import type { Message, MessageEntity } from "grammy/types";
@@ -52,18 +48,14 @@ export function resolveQaDirectAnswer(
   message: Message,
   botUsername: string
 ): string | undefined {
-  // 没登记过问答的群在这一行返回，不读取 message.text。
   const entries: ReadonlyMap<string, string> | undefined = chatQaEntries.get(chatId);
   if (entries === undefined) return undefined;
   const text: string | undefined = message.text;
   if (text === undefined) return undefined;
-  // 原串直查，零分配。
   const direct: string | undefined = entries.get(text);
   if (direct !== undefined) return direct;
   const mentionLength: number = leadingBotMentionLength(message, botUsername);
   if (mentionLength === 0) return undefined;
-  // 只在「本群有问答 + 原串没命中 + 首实体是前导 @提及」时走到这里：
-  // 切掉提及前缀后取正文再查。
   return entries.get(text.slice(mentionLength).trim());
 }
 
@@ -84,15 +76,9 @@ export interface SendQaDirectAnswerParams {
 }
 
 /**
- * 把命中的答案发进群。
- *
- * 判定留在同步的 resolveQaDirectAnswer 里，调用方拿到答案才进入这条异步发送路径。
- *
- * 答案里的 ``` 围栏在这里拆回 `pre` 实体（见 libs/codeFence.ts），渲染成可复制的代码块；
- * 没有围栏的答案在渲染的第一行返回，不产生中间对象。
- *
- * 回答用 sendMessage（不用 sendCommandMessage）：它是本群登记的功能性内容，
- * 不挂固定延迟删除。
+ * 将命中的问答直答发往群聊：
+ * - 答案中的 ` ``` ` 围栏经 `libs/codeFence.ts` 解析为 `pre` 代码块实体。
+ * - 直答属于群功能性内容，经 `sendMessage` 发送且不挂固定延迟删除。
  *
  * @param params 群问答直答发送上下文（含目标群 `chatId`、提问消息 ID `replyToMessageId`、答案原文 `answer` 与话题 `messageThreadId`）。
  * @returns 已发送消息 ID；发送失败时返回 `undefined`。

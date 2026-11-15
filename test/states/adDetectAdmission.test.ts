@@ -15,22 +15,14 @@ import {
   AD_DETECT_MAX_IN_FLIGHT,
   AD_DETECT_MAX_PENDING_SENDERS,
 } from "../../packages/consts/antiRaid/adDetect";
-import type {
-  AdCandidateAdmissionInput,
-  AdRequeueInput,
-} from "../../packages/types/states/adDetectAdmission";
+import type { AdCandidateAdmissionInput } from "../../packages/types/states/adDetectAdmission";
 
 const CANDIDATE: AdCandidateAdmissionInput = {
   textLength: 10,
+  hasPackCandidate: false,
   isChannel: false,
   recentlyDisposed: false,
   blocked: false,
-};
-
-const REQUEUE: AdRequeueInput = {
-  hasUncheckedContent: true,
-  queued: false,
-  inFlight: false,
 };
 
 describe("管理员闸 isKnownAdminCandidate", () => {
@@ -53,37 +45,57 @@ describe("投递闸 admitAdCandidate", () => {
     expect(admitAdCandidate({ ...CANDIDATE, textLength: 0 })).toBe("ignore");
   });
 
-  test("自身 TTL 内刚处置过：普通账号忽略，频道马甲要顺手删这一条", () => {
-    // banChatSenderChat 没有 revoke_messages：跨线程空档里频道新发的广告不会被那次封禁带走，也没有第二次判定来删它。
-    expect(admitAdCandidate({ ...CANDIDATE, recentlyDisposed: true })).toBe("ignore");
+  test("无正文但带贴纸包名或自定义表情 ID 时接纳，交给黑名单核对", () => {
+    expect(admitAdCandidate({ ...CANDIDATE, textLength: 0, hasPackCandidate: true })).toBe("accept");
+  });
+
+  test("自身 TTL 内刚处置过：普通账号与频道马甲都顺手删这一条", () => {
+    // 禁言、只踢不封与 banChatSenderChat 都不撤回消息：跨线程空档里新发的广告不会被那次处罚带走，也没有第二次判定来删它。
+    expect(admitAdCandidate({ ...CANDIDATE, recentlyDisposed: true })).toBe("deleteStraggler");
     expect(admitAdCandidate({ ...CANDIDATE, recentlyDisposed: true, isChannel: true }))
       .toBe("deleteStraggler");
   });
 
+  test("已在永久黑名单：普通账号忽略（封禁撤回消息），频道马甲删这一条", () => {
+    expect(admitAdCandidate({ ...CANDIDATE, blocked: true })).toBe("ignore");
+    expect(admitAdCandidate({ ...CANDIDATE, blocked: true, recentlyDisposed: true })).toBe("ignore");
+    expect(admitAdCandidate({ ...CANDIDATE, blocked: true, isChannel: true })).toBe("deleteStraggler");
+  });
+
   test("空正文优先于其余判据：连删都不必删", () => {
-    expect(admitAdCandidate({ textLength: 0, isChannel: true, recentlyDisposed: true, blocked: false }))
-      .toBe("ignore");
+    expect(admitAdCandidate({
+      textLength: 0,
+      hasPackCandidate: false,
+      isChannel: true,
+      recentlyDisposed: true,
+      blocked: false,
+    })).toBe("ignore");
+  });
+
+  test("无正文的贴纸候选同样走黑名单与处置抑制：普通账号忽略，频道马甲删这一条", () => {
+    const sticker: AdCandidateAdmissionInput = { ...CANDIDATE, textLength: 0, hasPackCandidate: true };
+    expect(admitAdCandidate({ ...sticker, blocked: true })).toBe("ignore");
+    expect(admitAdCandidate({ ...sticker, blocked: true, isChannel: true })).toBe("deleteStraggler");
   });
 });
 
 describe("排队闸 admitAdRequeue", () => {
   test("有未判定内容且不在任何表里 → 入队", () => {
-    expect(admitAdRequeue(REQUEUE)).toBe("enqueue");
+    expect(admitAdRequeue(true, false, false)).toBe("enqueue");
   });
 
   test("没有未判定内容就不排队：重排一个判完的键只会白烧一次额度", () => {
-    expect(admitAdRequeue({ ...REQUEUE, hasUncheckedContent: false })).toBe("skip");
+    expect(admitAdRequeue(false, false, false)).toBe("skip");
   });
 
   test("已排队或在途 → 一律跳过", () => {
-    for (const field of ["queued", "inFlight"] as const) {
-      expect(admitAdRequeue({ ...REQUEUE, [field]: true })).toBe("skip");
-    }
+    expect(admitAdRequeue(true, true, false)).toBe("skip");
+    expect(admitAdRequeue(true, false, true)).toBe("skip");
   });
 
   test("排队闸没有容量判据：队列每键最多一个位置，长度天然被待检硬顶兜住", () => {
     // 走到这一步的键已在 pendingAdMessages 里，容量已由待检硬顶判完。
-    expect(admitAdRequeue(REQUEUE)).toBe("enqueue");
+    expect(admitAdRequeue(true, false, false)).toBe("enqueue");
   });
 });
 

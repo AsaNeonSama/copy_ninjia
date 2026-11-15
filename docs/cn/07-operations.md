@@ -128,12 +128,18 @@ WantedBy=multi-user.target
 - **写入机制**：由主线程独占写入（采用“写入临时文件 + fsync 刷盘 + 原子 rename 覆盖”机制），Disk I/O Worker 不介入此目录。`copy` 变更会立即同步刷盘；`ttsUsage` 则通过 `STATE_BACKGROUND_SAVE_DELAY_MS` 聚合合并后在后台定时刷盘。正常停机时会触发优雅 Flush 提交所有变更；若遭遇断电或被 `kill -9` 强杀，可能丢失未及合并窗口落盘的少量计数。
 - **手工编辑**：若需手动调整，必须先停止服务并确认进程完全退出，在项目目录外通过 `mktemp -d` 完整备份文件及元数据后再进行修改。严禁删除未知字段，核验 JSON 格式符合 Schema 后方可启动。
 - **根目录遗留检查**：如果数据根顶层存在遗留的旧版 `state.json` 或 `state.json.bak`，服务启动与安装器都会拒绝运行。请先参考[旧版本分阶段升级](#staged-upgrade)升级至 17.2.1 并完成其迁移，再把这些旧文件移出数据根。
-- **Mini App 验证器：`memory/mini-app-totp/totp.json`**（可选，详见 [11 Mini App 设置与推荐配置](11-mini-app.md)）：当超级管理员在 Mini App「验证器」页面绑定唯一 Google Authenticator (TOTP) 时，由主线程以原子写（临时文件 + `fsync` + `rename`，权限 `0o600`）持久化 `{ version: 1, secret, createdAt }`；启动组合点一次性读入并严格校验后常驻主线程内存缓存，安装预检按同一口径只读校验（文件缺失视作未绑定，非普通文件或格式非法时拒绝启动与安装），运行期间鉴权与查询零磁盘 I/O，仅在新增、修改或删除验证器时立即同步落盘。
+- **Mini App 验证器：`memory/mini-app-totp/totp.json`**（可选，详见 [10 Mini App 设置与推荐配置](10-mini-app.md)）：
+  - **持久化格式与权限**：超级管理员在 Mini App「验证器」页面绑定唯一 Google Authenticator (TOTP) 时，由主线程以原子写（临时文件 + `fsync` + `rename`，权限 `0o600`）写入 `{ version: 1, secret, createdAt }`。
+  - **加载与运行期读写**：启动阶段一次性读入并严格校验后常驻主线程内存缓存，安装预检按同一口径只读核验（文件缺失视作未绑定，非普通文件或格式非法时拒绝启动与安装）；运行期鉴权与查询零磁盘 I/O，仅在新增、更换或删除验证器时同步落盘。
 
 ### 2. 色图专用图库：`random_h_image_dir`
 - **功能职责**：路径由 `config/dynamic/assets.json` 中的 `onlyPath.random_h_image_dir` 指定（缺省为相对数据根目录的 `RANDOM_H_IMAGE_DIR`）。`/h_image` 命令与未指定目录的定时随机发图均从此目录中均匀随机抽选，管理员可通过 `/h_image add` 命令或 Mini App 图库管理上传收录与删除。
 - **命名规范**：文件名必须严格等于**图片二进制内容的 SHA-256 哈希**（匹配 `RANDOM_IMAGE_CONTENT_NAME_PATTERN`），扩展名仅支持 `RANDOM_IMAGE_EXTENSIONS`。严禁在此目录存放任何非色图文件或说明文档。
-- **启动检查**：若目录不存在，启动时会自动创建；启动阶段会逐项扫描该目录并加载内存缓存，一旦发现非法文件名、子目录、软链接或异常残留的 `RANDOM_IMAGE_TEMP_PREFIX` 前缀临时文件，程序将**直接拒绝启动**。通过 `/h_image add` 或 Mini App 图库增删合规图片会同步更新内存缓存并即时生效，无需重启服务；若在运行期间动态修改配置路径，程序会以同等规则严格校验新目录并刷新缓存，若存在非法文件则拒绝切换。直接在目录中手动放入的图片不会进入内存缓存，需重启服务（或热重载切换到该目录）后才参与抽图与 Mini App 图库；手动删除的图片在被抽中或被 Mini App 图库读取时探测到并从缓存剔除。
+- **启动扫描**：若目录不存在，启动时自动创建；启动阶段逐项扫描目录并加载内存缓存，一旦发现非法文件名、子目录、软链接或残留的 `RANDOM_IMAGE_TEMP_PREFIX` 前缀临时文件，程序**直接拒绝启动**。
+- **运行期同步与热重载**：
+  - 通过 `/h_image add` 或 Mini App 图库增删合规图片会同步更新内存缓存并即时生效，无需重启服务。
+  - 运行期间动态修改配置路径时，系统按同等规则严格校验新目录并刷新缓存；若新目录存在非法文件则拒绝切换。
+  - 直接在文件系统中手动放入的图片不会自动进入内存缓存，需重启服务（或热重载切换到该目录）后才参与抽图与 Mini App 图库；手动删除的图片在被抽中或被 Mini App 图库读取时探测到并从缓存剔除。
 
 ### 3. 群友老婆候选库：`memory/wed/<chatId>.json`
 - **功能职责**：每群一份已发言成员滑窗，文件是按进入顺序排列的对象数组（如 `[{"id":5974478892,"enteredAt":1791770134683}]`），`enteredAt` 为成员进入滑窗时的 Unix 毫秒时间戳；主线程为每个活跃群维护一个复用的 `Map<number, number>`（成员 ID → 进入时间）。系统管理的群数量上限为 `STATE_MANAGED_CHAT_LIMIT`，单群滑窗容量为 `WED_MEMBER_LIMIT`。
@@ -148,7 +154,10 @@ WantedBy=multi-user.target
 - **`memory/luck/receipt-secret.json`**：用于校验当天运势回执真实性的 HMAC 密钥（包含格式版本 `version` 字段、所属日期与匹配 `LUCK_RECEIPT_SECRET_PATTERN` 的十六进制随机密钥）。**此文件必须与当天的运势文件作为整体一同备份与恢复**，严禁单方面删除或重新生成，否则会导致之前发放的运势回执全部失效。
 
 ### 5. 待验证与入群日志：`memory/anti-raid/` 与 `memory/joinlog/`
-- **`memory/anti-raid/<YYYY-MM-DD>.json`**：当天入群验证挑战（Challenge）的状态日志，记录活跃状态、修订版本（revision）、已解决的墓碑记录（tombstone），以及写入但尚未确认执行完毕的剔除任务 `kickPending`（服务重启后会自动继续执行未完成的剔除操作）。稳定状态下只保留当天数据，追加日志条数或体积达到 `VERIFICATION_FILE_COMPACT_ENTRIES` 或 `VERIFICATION_FILE_COMPACT_BYTES` 门限时会自动触发整理压缩。整理时目录里若还留着更早的日文件，会为其中最新一份里仍为活跃、当前已终结的记录写入墓碑，旧日文件删除前进程退出也不会让已终结的记录在恢复时复活。同一份最新旧日文件连续 `VERIFICATION_PRIOR_DAY_DECODE_MAX_ATTEMPTS` 次解码失败（不是合法 UTF-8 或不是当前格式）时，运行中的整理把它改名为 `<YYYY-MM-DD>.json.corrupt` 原样保留供人工排查，新的一天直接按内存镜像写入；改名后的文件不再以 `.json` 结尾，启动恢复与旧日清理都不读也不删它。启动时最新旧日文件损坏仍拒绝启动。
+- **`memory/anti-raid/<YYYY-MM-DD>.json`**：当天入群验证挑战（Challenge）的状态日志。
+  - **写入与日常压缩**：记录活跃状态、修订版本（revision）、已解决的墓碑记录（tombstone），以及已落盘但尚未确认执行完毕的剔除任务 `kickPending`（重启后自动续跑未完成的剔除）。稳态下只保留当天数据；追加条数或文件体积达到 `VERIFICATION_FILE_COMPACT_ENTRIES` 或 `VERIFICATION_FILE_COMPACT_BYTES` 门限时自动触发整理压缩。
+  - **跨日墓碑保护**：整理时若目录里仍留有更早的日文件，会为其中最新一份里仍标为活跃、当前已终结的记录补写墓碑；即便旧日文件删除前进程退出，恢复时也不会复活已终结记录。
+  - **旧日文件损坏隔离**：运行期整理时，若同一份最新旧日文件连续 `VERIFICATION_PRIOR_DAY_DECODE_MAX_ATTEMPTS` 次解码失败（非合法 UTF-8 或非当前格式），会将其改名为 `<YYYY-MM-DD>.json.corrupt` 原样保留供人工排查，新的一天直接按内存镜像写入；改名后的文件不再以 `.json` 结尾，启动恢复与旧日清理均不读也不删它。启动阶段发现最新旧日文件损坏时仍直接拒绝启动。
 - **`memory/joinlog/<chatId>.<YYYY-MM-DD>.json`**：每个群精确记录的 `chat_member` 入群事件流水，供管理员执行 `/batch_kick` 时根据滑动时间窗口准确追踪新成员。
   - **写入机制**：事件先进入 Disk I/O Worker 内存批次，当累计满 `FLUSH_MAX_ENTRIES` 条或满 `FLUSH_INTERVAL_MS` 时，批量追加落盘并调用 fsync。在执行 `/batch_kick` 查询前以及服务正常停机时，会强制刷出所有未落盘的批次。
   - **生命周期**：根据配置时区保留最近 `JOIN_LOG_FILE_RETENTION_DAYS` 天的数据，确保覆盖跨天查询窗口；夏令时短日会自动延长保留天数。单群单日最多保留最新入群的 `JOIN_LOG_MAX_USERS_PER_CHAT_DAY` 人。在执行 `/init disable` 或机器人离群后，对应群的入群日志将被彻底清除。
@@ -168,7 +177,7 @@ WantedBy=multi-user.target
 - **备份规范**：包含敏感数据与核心权限。备份时**必须把主数据库文件与同一时刻的 `-wal`、`-shm` 文件（存在时）作为一个不可分割的整体一同备份与恢复**，绝不能只拷贝单独的 `.sqlite` 文件。
 
 ### 7. 广告样本与 AI 用量：`memory/ad-detected/` 与 `memory/ai-daily-usage/`
-- **`memory/ad-detected/sample.json`**：被广告拦截引擎命中的原始消息样本（包括触发时间、消息原文、命中原因及上下文）。此数据纯属旁路分析审计用途；当文件大小达到 `AD_SAMPLE_FILE_MAX_BYTES` 时会自动归档切分为 `sample.<日期>[.<序号>].json`，历史归档按 `AD_SAMPLE_ARCHIVE_RETENTION_DAYS` 保留指定天数后自动清理。
+- **`memory/ad-detected/sample.json`**：被广告拦截引擎命中的原始消息样本（包括触发时间、消息原文、命中原因及上下文；无正文的纯贴纸消息记其贴纸包 short name）。此数据纯属旁路分析审计用途；当文件大小达到 `AD_SAMPLE_FILE_MAX_BYTES` 时会自动归档切分为 `sample.<日期>[.<序号>].json`，历史归档按 `AD_SAMPLE_ARCHIVE_RETENTION_DAYS` 保留指定天数后自动清理。
 - **`memory/ai-daily-usage/usage.json`**：AI 模型调用的 Token 与请求量统计（不含任何用户对话正文）。
   - **数据结构**：最顶部的 `summary` 对象保存最近一个已结束自然日的用量汇总（按能力、供应商、模型名称分组归纳），其余键值为当天尚未汇总的实时逐条调用统计。
   - **覆盖能力范围**：全面覆盖 `AGENT_CAPABILITY_NAMES` 中定义的所有能力维度。
@@ -195,7 +204,10 @@ WantedBy=multi-user.target
 
 系统在运行时**绝不保留历史旧格式的兼容逻辑，启动时也不会自动变更或升级表结构**。所有数据结构的升级都必须在服务完全停止、进程完全退出后进行。如果迁移失败，必须保留外部备份现场，严禁强行启动新版，也严禁用示例模板 `config_example/` 覆盖现有真实配置。
 
-每次执行停机冷迁移前，必须在项目代码树外部使用 `mktemp -d` 创建安全备份目录，备份所有受影响的文件，并记录核对清单、属主账号、权限模式及 SHA-256 哈希值；迁移脚本生成产物后，必须核验 `ready.json` 中的源文件哈希与产物哈希一致。迁移后的新数据必须能通过当前版本启动时的严格格式校验。确认无误后替换旧文件，并恢复正确的文件属主与权限。新服务启动后，至少观察两个 supervisor 重启周期，确认状态为 `active (running)`、`NRestarts` 计数不增加、systemd journal 中没有异常报错，全部验证通过后方可清理外部备份。
+每次执行停机冷迁移前，请严格遵循以下安全流程：
+- **外部安全备份**：在项目代码树外部使用 `mktemp -d` 创建备份目录，备份所有受影响文件，并记录核对清单、属主账号、权限模式及 SHA-256 哈希值。
+- **双端哈希核验与替换**：迁移脚本产出结果后，核验 `ready.json` 中的源文件哈希与产物哈希一致，且新数据能通过当前版本的启动严格格式校验；确认无误后再替换旧文件并恢复原属主与权限。
+- **上线观察窗口**：新服务启动后至少观察两个 supervisor 重启周期，确认状态为 `active (running)`、`NRestarts` 不增长且 systemd journal 无新增非零退出后，方可清理外部备份。
 
 ### 全新部署建空库
 
@@ -205,7 +217,12 @@ WantedBy=multi-user.target
 
 ### /wed 成员滑窗冷迁移（成员 ID 数组 → `{ id, enteredAt }`）
 
-迁移入口脚本为 [`scripts/migrateWedMemberWindow.ts`](../../scripts/migrateWedMemberWindow.ts)。该脚本把 `memory/wed/<chatId>.json` 从 17.2.1 的成员 ID 数组改写为按进入顺序排列的 `{ id, enteredAt }` 滑窗数组：每群只保留数组末尾（最近进入）的 `WED_MEMBER_LIMIT` 个 ID，顺序不变，`enteredAt` 统一记为迁移开始时刻；超出部分从最早一端丢弃，丢弃数记入 `ready.json` 的 `truncatedMembers`。本脚本仅接收 17.2.1 格式的成员文件（每份至多 `WED_MEMBER_WINDOW_SOURCE_LIMIT` 个不重复的正安全整数 ID，群文件数不超过 `STATE_MANAGED_CHAT_LIMIT`）；已经迁移过的文件、非规范文件名与符号链接一律拒绝，`*.tmp` 等非 `.json` 残留不参与迁移。17.2.1 版本的其他持久化文件和 JSON 配置格式保持不变，可直接沿用。
+迁移入口脚本为 [`scripts/migrateWedMemberWindow.ts`](../../scripts/migrateWedMemberWindow.ts)，用于把 `memory/wed/<chatId>.json` 从 17.2.1 的成员 ID 数组离线改写为按进入顺序排列的 `{ id, enteredAt }` 滑窗数组：
+- **滑窗改写规则**：每群保留数组末尾（最近进入）至多 `WED_MEMBER_LIMIT` 个 ID，顺序不变，`enteredAt` 统一记为迁移开始时刻；超出部分从最早一端截断丢弃，丢弃总数记入 `ready.json` 的 `truncatedMembers`。
+- **输入边界校验**：仅接收 17.2.1 格式的成员文件（每份至多 `WED_MEMBER_WINDOW_SOURCE_LIMIT` 个不重复正安全整数 ID，群文件数不超过 `STATE_MANAGED_CHAT_LIMIT`）；已迁移文件、非规范文件名与符号链接一律拒绝，`*.tmp` 等非 `.json` 残留不参与迁移。
+- **其余持久化与配置迁移说明**：
+  - 17.2.1 至 18.2.0 的 `database/storage.sqlite`（Schema v13）及 `memory/` 下除 `memory/wed/` 以外的持久化数据格式保持不变，可直接沿用。
+  - 若部署目录仍保留 17.2.1 至 18.2.0 的 `config/dynamic/ad_samples.json`，必须在停机状态下手工迁移为 `config/dynamic/ad_detect.json`（保留原样本数组为 `samples`，补齐必填的 `punishment`（`mute` 或 `kick` 二选一）以及 `sticker_black_list`、`emoji_black_list` 字符串数组；字段规范见[部署配置说明](../../config_example/README/zh.md#ad_detectjson)），并删除原 `ad_samples.json`（三级配置目录白名单会拦截残留旧文件）。
 
 1. **停机与备份**：停止服务并确认状态为 inactive；按照规范将整个 `memory/wed/` 目录连同属主、权限与 SHA-256 清单备份到外部安全目录，备份根下保持 `memory/wed/` 相对路径。
 2. **执行迁移脚本**：
@@ -225,7 +242,10 @@ WantedBy=multi-user.target
 
 ### 从旧版本分阶段升级流程
 
-- **针对落后于 17.2.1 的老旧版本**：当前版本仅提供从 17.2.1 升级的直达迁移脚本。若旧版本低于 17.2.1，必须先升级并安装 17.2.1，按照该版本的文档完成其迁移（16.3.2 需执行共享数据库冷迁移 `migrate:chat-persona-removal`，更早版本先按该版本指引升级至 16.3.2），确认 17.2.1 能正常稳定启动后，再执行本版的[/wed 成员滑窗冷迁移](#upgrade-wed-member-window)。
+- **从 17.2.1–18.2.0 升级**：
+  - 17.2.1 部署需先停机执行 [/wed 成员滑窗冷迁移](#upgrade-wed-member-window)（18.0.0–18.2.0 已为 `{ id, enteredAt }` 滑窗格式，无需重跑）。
+  - 17.2.1–18.2.0 若存在 `config/dynamic/ad_samples.json`，需在停机外部备份后手工迁移为 `config/dynamic/ad_detect.json`（补齐必填 `punishment`、`sticker_black_list` 与 `emoji_black_list`）并删除 `ad_samples.json`。
+- **针对落后于 17.2.1 的老旧版本**：当前版本仅保留从 17.2.1 升级的直达冷迁移脚本。若旧版本低于 17.2.1，必须先升级并安装 17.2.1，按照该版本的文档完成其迁移（16.3.2 需执行共享数据库冷迁移 `migrate:chat-persona-removal`，更早版本先按对应指引升级至 16.3.2），确认 17.2.1 能正常稳定启动后，再按上方步骤完成 `/wed` 冷迁移与 `ad_detect.json` 手工配置迁移。
 - **11.0.9（Schema v8）跨大版本升级路径**：
   需要在独立目录中切出对应的历史 Git 标签，分步运行历史冷迁移链路：
   1. 切换至 `500e848fae` 提交：执行 `migrate:ai-context`（v8 → v9）
@@ -234,7 +254,7 @@ WantedBy=multi-user.target
   4. 切换至 `14.0.0` 标签：执行 `migrate:translate-sessions`
   5. 切换至 `16.3.2` 标签：根据该版本指引执行 `migrate:global-state` 与 `migrate:random-image-names`
   6. 切换至 `17.2.1` 标签：执行 `migrate:chat-persona-removal`（v11 → v13）
-  7. 切回当前最新版本：执行 `migrate:wed-member-window`
+  7. 切回当前最新版本：执行 `migrate:wed-member-window`，并将 `config/dynamic/ad_samples.json` 手工迁移为 `config/dynamic/ad_detect.json`
 
   *提示*：也可直接使用 12.0.0 Release 附带的中间源码归档包 `copy-ninjia-schema-v9-source-500e848f.tar.gz`（SHA-256: `df6502625512d8fde136dc66d8470e1d4c977856e8a0bd3909b9b6c763c820f8`）。
 
@@ -253,8 +273,8 @@ WantedBy=multi-user.target
 - **解决方法**：详细排查步骤请参考下一小节 [`bot.lock` 拒绝启动](#botlock-拒绝启动)。
 
 ### 3. 配置目录布局不符
-- **原因**：配置文件被直接散落在 `config/` 根目录而未按规范放入子目录；`config/` 根目录下残留了旧版的 `telegram.json`；或者 `config/dynamic/` 目录缺失。
-- **解决方法**：停机后，将 `bot.json` 和 `g-auth.json` 移入 `config/static/`，将其余动态配置文件移入 `config/dynamic/`；若存在旧的 `telegram.json`，请先参考[旧版本分阶段升级](#staged-upgrade)运行 `migrate:bot-config` 完成升级。
+- **原因**：`config/`、`config/static/` 或 `config/dynamic/` 下存在白名单之外的条目（文件错放、残留历史 `telegram.json` 或 `ad_samples.json`、隐藏/临时/备份文件、未声明子目录或悬挂软链），`config/dynamic/` 目录缺失，或任一层配置目录路径被非目录占用。
+- **解决方法**：停机后，`config/static/` 下仅保留 `bot.json` 与 `g-auth.json`，`config/dynamic/` 下仅保留 6 份动态配置文件，将任何备份或杂项文件移出 `config/`；若存在旧的 `telegram.json`，参考[旧版本分阶段升级](#staged-upgrade)运行 `migrate:bot-config` 完成升级；若残留旧的 `ad_samples.json`，将其手工迁移为 `config/dynamic/ad_detect.json`（补齐必填 `punishment`）后移除原文件。
 
 ### 4. Config Schema 校验失败
 - **原因**：`config/{static,dynamic}/*.json` 中的某些配置内容不符合规范（例如必填项缺失、字段类型错误、枚举值非法或配置了未定义的未知键）。

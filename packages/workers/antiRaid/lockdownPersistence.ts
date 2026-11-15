@@ -1,3 +1,6 @@
+/**
+ * 私密模式持久化事件投影（Anti-Raid Worker 侧）：将指定群当前的私密模式运行态转换为发往主线程落盘的 `LockdownEvent`。
+ */
 import type { ChatPermissions } from "grammy/types";
 import { lockdownEntries } from "../../cache/workers/antiRaid/lockdown";
 import type { LockdownEvent } from "../../types/antiRaid/events";

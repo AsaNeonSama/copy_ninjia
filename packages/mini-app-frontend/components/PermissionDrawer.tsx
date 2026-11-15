@@ -5,7 +5,6 @@ import { getMiniAppTranslations } from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
 import { useComponentStore } from "../libs/componentStore";
 import {
-  getPermissionDisplayLabel,
   readEventTargetChecked,
   sanitizeBidiText,
   truncateDisplayText,
@@ -21,7 +20,6 @@ import type {
 import type { WhitelistPermissionKey } from "../types/identityPolicy";
 import type {
   MiniAppLanguage,
-  MiniAppPermissionDescriptor,
   MiniAppWhitelistEntryView,
 } from "../types/miniApp";
 
@@ -29,8 +27,6 @@ import type {
 export interface PermissionDrawerProps {
   /** 当前正在编辑权限的白名单条目。 */
   readonly entry: MiniAppWhitelistEntryView;
-  /** 后端返回的权限键说明列表。 */
-  readonly descriptors: readonly Readonly<MiniAppPermissionDescriptor>[];
   /** 权限变更成功后触发父组件静默重新加载白名单；抽屉创建仓库时捕获首次渲染传入的回调，之后的重渲染不再替换。 */
   readonly onUpdated: () => Promise<void> | void;
   /** 关闭权限编辑抽屉。 */
@@ -119,15 +115,14 @@ const PermissionChip: React.MemoExoticComponent<typeof PermissionChipView> =
   memo(PermissionChipView);
 
 /**
- * 白名单条目细粒度权限开关控制面板组件（支持单项切换与一键开启全部 18 项权限；
- * 切换单项时仅对应卡片播放骨架效果，点击一键全开时全部 18 项卡片播放骨架效果，已全开时提示无需重复开启）。
+ * 白名单条目的细粒度权限控制抽屉，支持单项切换与一键开启全部 18 项权限。
+ * 切换单项时仅对应卡片显示骨架态，一键全开时全部卡片显示骨架态；已全开时直接提示无需重复开启。
  *
  * @param props 组件属性
  * @returns React 节点
  */
 export function PermissionDrawer({
   entry,
-  descriptors,
   onUpdated,
   onClose,
   storeFactory,
@@ -202,11 +197,7 @@ export function PermissionDrawer({
         {WHITELIST_PERMISSION_KEYS.map((key: WhitelistPermissionKey): React.JSX.Element => {
           const checked: boolean = entry.permissions[key];
           const isChipLoading: boolean = busyKey === "all" || busyKey === key;
-          const descriptor: Readonly<MiniAppPermissionDescriptor> | undefined =
-            descriptors.find(
-              (item: Readonly<MiniAppPermissionDescriptor>): boolean => item.key === key
-            );
-          const permLabel: string = getPermissionDisplayLabel(key, language);
+          const permLabel: string = t.permissionDrawer.labels[key];
           return (
             <PermissionChip
               key={key}
@@ -216,7 +207,7 @@ export function PermissionDrawer({
               isChipLoading={isChipLoading}
               switchDisabled={switchDisabled}
               permLabel={permLabel}
-              titleText={descriptor?.description ?? permLabel}
+              titleText={t.permissionDrawer.descriptions[key]}
               onTogglePermission={togglePermission}
             />
           );

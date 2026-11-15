@@ -1,5 +1,5 @@
 import { CHAT_TEARDOWN_ORDER } from "../consts/chatTeardown";
-import { disableChatStateSwitch } from "./storage/stateStore";
+import { disableChatStateSwitch } from "./chatStateStorage";
 import { teardownRegisteredChat } from "./chatTeardownRegistry";
 import type { ChatTeardownReason } from "../types/chatTeardown";
 

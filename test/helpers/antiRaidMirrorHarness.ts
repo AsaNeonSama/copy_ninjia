@@ -1,11 +1,10 @@
+/**
+ * Anti-Raid 主线程镜像与恢复测试共用的模块替身、缓存句柄、drain 推进助手与逐用例复位钩子。
+ */
+
 import type { DiskBusinessMessage, DiskIORespawnListener, VerificationDeleteDiskMessage, VerificationUpsertDiskMessage } from "../../packages/types/diskIO/messages";
 import { diskIOReplyStub, diskIOStub } from "./diskIOMock";
 import { loggerStub } from "./loggerMock";
-/**
- * Anti-Raid 主线程镜像与恢复用例共用的替身、缓存句柄与隔离钩子：mock.module
- * 装配、drain 推进助手与 beforeEach 复位。
- */
-
 import { afterEach, beforeEach, mock } from "bun:test";
 import type { AntiRaidWorkerEvent } from "../../packages/types/antiRaid/events";
 import type { AntiRaidWorkerMessage } from "../../packages/types/antiRaid/protocol";
@@ -60,6 +59,9 @@ mock.module("../../packages/infra/joinLog", () => ({
   recordJoinLog: (): boolean => true,
 }));
 mock.module("../../packages/infra/storage/stateStore", () => ({
+  flushStateToDisk,
+}));
+mock.module("../../packages/infra/chatStateStorage", () => ({
   clearChatStateField: (chatId: number, field: "lockdown"): boolean => {
     const state = chatStates.get(chatId);
     if (!state || !(field in state)) return false;
@@ -75,7 +77,6 @@ mock.module("../../packages/infra/storage/stateStore", () => ({
     return current;
   },
   persistChatState: async (): Promise<void> => saveState(),
-  flushStateToDisk,
   saveChatStateInBackground: (_chatId: number, context: string): void => { saveStateInBackground(context); },
 }));
 mock.module("../../packages/infra/telegram/actions", () => ({
@@ -94,8 +95,12 @@ mock.module("../../packages/infra/telegram/client", () => ({
   telegramApi: { kind: "main-thread-test-api" },
 }));
 mock.module("../../packages/infra/telegram/lockdownPermissions", () => ({ restoreLockdownInvitePermission }));
-// JOIN_WINDOW_MS 原样透出：秒踢路径的入群计数去重用它当窗口宽度（见 antiRaid/blocklistGuard.ts）；整份模块被替换时需要提供。
-mock.module("../../packages/consts/antiRaid/lockdown", () => ({ RESTORE_RETRY_MS: 5, JOIN_WINDOW_MS: 60_000 }));
+// 在实际常量之上仅把恢复退避压缩为测试用短间隔，其余常量（如 JOIN_WINDOW_MS）原样透出。
+const actualLockdownConsts = await import("../../packages/consts/antiRaid/lockdown");
+mock.module("../../packages/consts/antiRaid/lockdown", () => ({
+  ...actualLockdownConsts,
+  RESTORE_RETRY_MS: 5,
+}));
 mock.module("../../packages/infra/botAdmin", () => ({
   resolveBotAdminStatus: async (): Promise<boolean> => true,
   // ingress 的同步快路径读它；未确证时返回 undefined，退回上面那次现查。
@@ -201,6 +206,7 @@ export interface AntiRaidMirrorDeps {
 
 const deps: { current: AntiRaidMirrorDeps | null } = { current: null };
 
+/** 停掉 Anti-Raid 运行时并清空主线程镜像缓存与全部替身调用记录。 */
 export async function resetAntiRaidTestState(): Promise<void> {
   await deps.current!.terminateAntiRaid();
   workerPosts.length = 0;
@@ -241,7 +247,7 @@ export async function resetAntiRaidTestState(): Promise<void> {
   loggerError.mockClear();
 }
 
-/** 两个 Anti-Raid 镜像用例文件共用的隔离钩子；每份都要登记一次。 */
+/** 注册 Anti-Raid 镜像测试的逐用例初始化与停机复位钩子。 */
 export function installAntiRaidMirrorHooks(injected: AntiRaidMirrorDeps): void {
   deps.current = injected;
   beforeEach(async () => {
@@ -276,6 +282,9 @@ export function terminalRecord(generation: number, revision: number): Verificati
   };
 }
 
+/**
+ * 轮询 Worker 投递记录并自动回投 `barrierComplete` / `drainComplete`，驱动排空链路直至落定。
+ */
 export async function settleAntiRaidDrain(
   result: Promise<FlushResult>,
   firstBoundaryIndex: number,

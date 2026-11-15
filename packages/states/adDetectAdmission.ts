@@ -6,7 +6,6 @@ import type {
   AdCandidateAdmissionInput,
   AdCandidateDecision,
   AdRequeueDecision,
-  AdRequeueInput,
 } from "../types/states/adDetectAdmission";
 
 /**
@@ -21,26 +20,33 @@ export function isKnownAdminCandidate(isChannel: boolean, knownAdmin: boolean): 
 
 /**
  * 投递闸：决定已过管理员闸的候选消息是否并入该发送者的消息串。
- * 空正文返回 `ignore`；命中黑名单或处置抑制窗口时，频道身份返回 `deleteStraggler` 单独删除消息，普通用户返回 `ignore`。
+ * 无正文且无贴纸/自定义表情候选时返回 `ignore`。已在永久黑名单时，普通用户返回 `ignore`（封禁带
+ * `revoke_messages` 撤回其消息），频道身份返回 `deleteStraggler`（`banChatSenderChat` 不撤回消息）。
+ * 处置抑制窗口内一律返回 `deleteStraggler`：禁言、只踢不封与频道封禁都不撤回处置落地前发出的消息。
  * @param input 候选消息的投递准入判定输入。
  * @returns 投递准入决策（accept / ignore / deleteStraggler）。
  */
 export function admitAdCandidate(input: AdCandidateAdmissionInput): AdCandidateDecision {
-  if (input.textLength === 0) return "ignore";
-  if (input.blocked || input.recentlyDisposed) {
-    return input.isChannel ? "deleteStraggler" : "ignore";
-  }
+  if (input.textLength === 0 && !input.hasPackCandidate) return "ignore";
+  if (input.blocked) return input.isChannel ? "deleteStraggler" : "ignore";
+  if (input.recentlyDisposed) return "deleteStraggler";
   return "accept";
 }
 
 /**
  * 排队闸：有未检内容且当前既未排队也不在途时返回 `enqueue`，否则返回 `skip`。
- * @param input 发送者消息串的排队准入输入（含未检内容标记 `hasUncheckedContent`、已入队标记 `queued` 与在途标记 `inFlight`）。
+ * @param hasUncheckedContent 消息串中是否存在序号大于 `checkedSeq` 的未检测消息。
+ * @param queued 该发送者键当前是否已在待检队列中排队。
+ * @param inFlight 该发送者键当前是否有在途的广告检测请求。
  * @returns 排队决策（`enqueue` 或 `skip`）。
  */
-export function admitAdRequeue(input: AdRequeueInput): AdRequeueDecision {
-  if (!input.hasUncheckedContent) return "skip";
-  if (input.queued || input.inFlight) return "skip";
+export function admitAdRequeue(
+  hasUncheckedContent: boolean,
+  queued: boolean,
+  inFlight: boolean
+): AdRequeueDecision {
+  if (!hasUncheckedContent) return "skip";
+  if (queued || inFlight) return "skip";
   return "enqueue";
 }
 

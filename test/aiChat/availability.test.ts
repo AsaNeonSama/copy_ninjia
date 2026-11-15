@@ -17,7 +17,7 @@ const chatState: Partial<ChatState> = {};
 mock.module("../../packages/config/readiness", () => ({
   aiChatConfigReadiness: (): { ok: boolean } => readiness,
 }));
-mock.module("../../packages/infra/storage/stateStore", () => ({
+mock.module("../../packages/infra/chatStateStorage", () => ({
   getChatState: (): Partial<ChatState> => chatState,
 }));
 

@@ -12,8 +12,49 @@ import type { InstallerFixture, InstallerRunResult } from "./fixture";
 /** 一次安装的环境覆盖项；值为 undefined 表示移除该变量。 */
 type EnvironmentOverrides = Readonly<Record<string, string | undefined>>;
 
-/** 既有 unit 的 COPY_NINJIA_DATA_ROOT 与安装环境不一致时拒绝且不写任何东西，一致时继续。 */
-export async function checkServiceDataRoot(): Promise<void> {
+/** 服务隔离检查的可注入外部依赖集合。 */
+export interface ServiceCheckDependencies {
+  /** 创建隔离安装测试夹具。 */
+  readonly createFixture: typeof createFixture;
+  /** 在夹具环境内运行安装脚本。 */
+  readonly runInstaller: typeof runInstaller;
+  /** 构造确认写入 systemd unit 的交互应答项。 */
+  readonly systemdPrompt: typeof systemdPrompt;
+  /** 生成最小合法的 bot.json 文本。 */
+  readonly validTelegram: typeof validTelegram;
+  /** 按指定权限写入夹具文本文件。 */
+  readonly writeText: typeof writeText;
+}
+
+const DEFAULT_SERVICE_CHECK_DEPENDENCIES: ServiceCheckDependencies = {
+  createFixture,
+  runInstaller,
+  systemdPrompt,
+  validTelegram,
+  writeText,
+};
+
+/**
+ * 将部分覆盖的服务校验依赖解析为完整依赖表。
+ *
+ * @param dependencies 测试注入的部分覆盖依赖项
+ * @returns 补齐默认生产依赖后的完整服务校验依赖表
+ */
+function resolveDependencies(
+  dependencies: Partial<ServiceCheckDependencies>
+): ServiceCheckDependencies {
+  return { ...DEFAULT_SERVICE_CHECK_DEPENDENCIES, ...dependencies };
+}
+
+/**
+ * 既有 unit 的 COPY_NINJIA_DATA_ROOT 与安装环境不一致时拒绝且不写任何东西，一致时继续。
+ *
+ * @param dependencies 测试注入的部分覆盖服务校验依赖
+ */
+export async function checkServiceDataRoot(
+  dependencies: Partial<ServiceCheckDependencies> = {}
+): Promise<void> {
+  const resolved: ServiceCheckDependencies = resolveDependencies(dependencies);
   const rejected: readonly ((fixture: InstallerFixture) => EnvironmentOverrides)[] = [
     (): EnvironmentOverrides => ({
       COPY_NINJIA_DATA_ROOT: undefined,
@@ -43,11 +84,11 @@ export async function checkServiceDataRoot(): Promise<void> {
     }),
   ];
   for (const environment of rejected) {
-    const fixture: InstallerFixture = await createFixture();
+    const fixture: InstallerFixture = await resolved.createFixture();
     mkdirSync(join(fixture.configRoot, STATIC_CONFIG_DIR_NAME), { recursive: true });
-    const telegram: string = validTelegram();
-    await writeText(join(fixture.configRoot, STATIC_CONFIG_DIR_NAME, "bot.json"), telegram, 0o600);
-    const result: InstallerRunResult = await runInstaller(fixture, [], environment(fixture));
+    const telegram: string = resolved.validTelegram();
+    await resolved.writeText(join(fixture.configRoot, STATIC_CONFIG_DIR_NAME, "bot.json"), telegram, 0o600);
+    const result: InstallerRunResult = await resolved.runInstaller(fixture, [], environment(fixture));
     assertCondition(result.exitCode !== 0, "既有 unit 与安装环境的数据根不一致时必须失败");
     assertContains(result.output, "COPY_NINJIA_DATA_ROOT", "拒绝信息必须点名数据根环境项");
     assertEqual(await Bun.file(join(fixture.configRoot, STATIC_CONFIG_DIR_NAME, "bot.json")).text(), telegram, "拒绝时不得修改配置");
@@ -60,8 +101,8 @@ export async function checkServiceDataRoot(): Promise<void> {
     assertCondition(!/systemctl:guarded:(start|restart|enable|daemon-reload)|tee:guarded/.test(calls), "拒绝时不得执行服务写操作");
   }
 
-  const missingRoot: InstallerFixture = await createFixture();
-  const unsetResult: InstallerRunResult = await runInstaller(missingRoot, [], { COPY_NINJIA_DATA_ROOT: undefined });
+  const missingRoot: InstallerFixture = await resolved.createFixture();
+  const unsetResult: InstallerRunResult = await resolved.runInstaller(missingRoot, [], { COPY_NINJIA_DATA_ROOT: undefined });
   assertContains(
     unsetResult.output,
     "Environment.COPY_NINJIA_DATA_ROOT 与安装环境必须同时缺省或显式解析为同一数据根",
@@ -82,20 +123,27 @@ export async function checkServiceDataRoot(): Promise<void> {
     }),
   ];
   for (const environment of accepted) {
-    const fixture: InstallerFixture = await createFixture();
+    const fixture: InstallerFixture = await resolved.createFixture();
     mkdirSync(join(fixture.configRoot, STATIC_CONFIG_DIR_NAME), { recursive: true });
-    await writeText(join(fixture.configRoot, STATIC_CONFIG_DIR_NAME, "bot.json"), validTelegram(), 0o600);
-    const result: InstallerRunResult = await runInstaller(fixture, [
+    await resolved.writeText(join(fixture.configRoot, STATIC_CONFIG_DIR_NAME, "bot.json"), resolved.validTelegram(), 0o600);
+    const result: InstallerRunResult = await resolved.runInstaller(fixture, [
       { prompt: "是否重新填写？", reply: "n" },
       { prompt: "现在配置 AI 能力", reply: "n" },
-      systemdPrompt(),
+      resolved.systemdPrompt(),
     ], environment(fixture));
     assertEqual(result.exitCode, 0, `既有 unit 与安装环境指向同一数据根时必须继续：${result.output}`);
   }
 }
 
-/** 服务运行中、状态未知或入口路径不符时拒绝，且不执行任何服务写操作。 */
-export async function checkServiceProtection(): Promise<void> {
+/**
+ * 服务运行中、状态未知或入口路径不符时拒绝，且不执行任何服务写操作。
+ *
+ * @param dependencies 测试注入的部分覆盖服务校验依赖
+ */
+export async function checkServiceProtection(
+  dependencies: Partial<ServiceCheckDependencies> = {}
+): Promise<void> {
+  const resolved: ServiceCheckDependencies = resolveDependencies(dependencies);
   const rejected: readonly Readonly<Record<string, string>>[] = [
     { FAKE_SERVICE_STATE: "active" },
     { FAKE_SERVICE_STATE: "activating" },
@@ -109,11 +157,11 @@ export async function checkServiceProtection(): Promise<void> {
     { FAKE_SERVICE_ENTRY: "{ path=/guarded/bun ; argv[]=/guarded/bun start ; ignore_errors=no ; } ; { path=/bin/false ; argv[]=/bin/false ; ignore_errors=no ; }" },
   ];
   for (const environment of rejected) {
-    const fixture: InstallerFixture = await createFixture();
+    const fixture: InstallerFixture = await resolved.createFixture();
     mkdirSync(join(fixture.configRoot, STATIC_CONFIG_DIR_NAME), { recursive: true });
-    const telegram: string = validTelegram();
-    await writeText(join(fixture.configRoot, STATIC_CONFIG_DIR_NAME, "bot.json"), telegram, 0o600);
-    const result: InstallerRunResult = await runInstaller(fixture, [], environment);
+    const telegram: string = resolved.validTelegram();
+    await resolved.writeText(join(fixture.configRoot, STATIC_CONFIG_DIR_NAME, "bot.json"), telegram, 0o600);
+    const result: InstallerRunResult = await resolved.runInstaller(fixture, [], environment);
     assertCondition(result.exitCode !== 0, "运行中、未知状态或路径不符时必须失败");
     assertEqual(await Bun.file(join(fixture.configRoot, STATIC_CONFIG_DIR_NAME, "bot.json")).text(), telegram, "拒绝时不得修改配置");
     assertEqual(readdirSync(fixture.configRoot).length, 1, "拒绝时不得创建配置");
@@ -126,8 +174,15 @@ export async function checkServiceProtection(): Promise<void> {
   }
 }
 
-/** 启动后按实际重启间隔观察稳定性；只有确认稳定才清理备份。 */
-export async function checkServiceObservation(): Promise<void> {
+/**
+ * 启动后按实际重启间隔观察稳定性；只有确认稳定才清理备份。
+ *
+ * @param dependencies 测试注入的部分覆盖服务校验依赖
+ */
+export async function checkServiceObservation(
+  dependencies: Partial<ServiceCheckDependencies> = {}
+): Promise<void> {
+  const resolved: ServiceCheckDependencies = resolveDependencies(dependencies);
   const cases: readonly Readonly<{
     environment: Readonly<Record<string, string>>;
     fresh?: boolean;
@@ -156,16 +211,16 @@ export async function checkServiceObservation(): Promise<void> {
     { environment: { FAKE_JOURNAL_FAIL: "1" }, overwriteUnit: true, seconds: 12, success: false },
   ];
   for (const scenario of cases) {
-    const fixture: InstallerFixture = await createFixture();
+    const fixture: InstallerFixture = await resolved.createFixture();
     if (scenario.fresh === true) await Bun.file(join(fixture.root, "systemd/copy-ninjia.service")).delete();
     mkdirSync(join(fixture.configRoot, STATIC_CONFIG_DIR_NAME), { recursive: true });
-    await writeText(join(fixture.configRoot, STATIC_CONFIG_DIR_NAME, "bot.json"), validTelegram(), 0o600);
-    const result: InstallerRunResult = await runInstaller(fixture, [
+    await resolved.writeText(join(fixture.configRoot, STATIC_CONFIG_DIR_NAME, "bot.json"), resolved.validTelegram(), 0o600);
+    const result: InstallerRunResult = await resolved.runInstaller(fixture, [
       { prompt: "是否重新填写？", reply: "y" },
       { prompt: "Telegram bot token", reply: "987654321:observation_test_token", secret: true },
       { prompt: "超级管理员用户 ID", reply: "987654321" },
       { prompt: "现在配置 AI 能力", reply: "n" },
-      scenario.overwriteUnit === true ? { prompt: "覆盖它？", reply: "y" } : systemdPrompt(),
+      scenario.overwriteUnit === true ? { prompt: "覆盖它？", reply: "y" } : resolved.systemdPrompt(),
     ], scenario.environment);
     assertEqual(result.exitCode === 0, scenario.success, `服务观察结果不符：${result.output}`);
     const calls: string = await Bun.file(fixture.outboundLog).text();

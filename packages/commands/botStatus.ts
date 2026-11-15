@@ -17,7 +17,7 @@ import { MAX_SUMMARY_ROUNDS, VERBATIM_CONTEXT_MAX } from "../consts/aiChat/memor
 import { aiMemoryUsages } from "../cache/main/aiChat";
 import { GAG_SESSION_MAX } from "../consts/gag";
 import { readBotProcessStatus } from "../infra/processStatus";
-import { getChatState } from "../infra/storage/stateStore";
+import { getChatState } from "../infra/chatStateStorage";
 import { sendCommandMessage } from "../infra/telegram";
 import { telegramOutboundStats } from "../infra/telegram/outboundLifecycle";
 import type { AiMemoryUsage } from "../types/aiChat/memory";
@@ -59,7 +59,7 @@ export interface BotStatusSnapshot {
   readonly telegramCapacity: number;
   /** 全局活动中的 gag 会话总数。 */
   readonly activeGagSessions: number;
-  /** 全局活动中的自动翻译目标总数。 */
+  /** 本群当前活动中的自动翻译目标数。 */
   readonly activeTranslateSessions: number;
   /** 本群 AI 上下文占用量镜像；无条目表示此刻没有可展示的上下文。 */
   readonly aiContextUsage: Readonly<AiMemoryUsage> | undefined;

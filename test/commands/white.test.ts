@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { groupCommandContext } from "../helpers/groupCommandContext";
 import type { CachedUser } from "../../packages/types/chatState";
 import { replyCommandNoticeVia, settleTestBatch } from "../helpers/common";
@@ -55,12 +55,16 @@ const { protectedIdentityMutationQueue } =
 const identityStorage = await import("../../packages/infra/identityStorage");
 const prefetchIdentityPolicies = spyOn(identityStorage, "prefetchIdentityPolicies");
 // 命令直接确认身份策略落盘；这里转记成「白名单这条身份 (id, 是否补投)」的视角。
-spyOn(identityStorage, "confirmIdentityPolicyPersisted").mockImplementation(
+const confirmIdentityPolicyPersisted = spyOn(identityStorage, "confirmIdentityPolicyPersisted").mockImplementation(
   (table: string, id: number, retryUnacknowledged: boolean): Promise<void> => {
     if (table !== "whitelist") throw new Error(`unexpected identity policy table ${table}`);
     return confirmWhitelistEntryPersisted(id, retryUnacknowledged);
   }
 );
+afterAll((): void => {
+  prefetchIdentityPolicies.mockRestore();
+  confirmIdentityPolicyPersisted.mockRestore();
+});
 const { IDENTITY_POLICY_UNAVAILABLE_TEXT } = await import("../../packages/consts/atmosphere/teasing/commands");
 const { runProtectedIdentityMutation } =
   await import("../../packages/infra/identityPolicy/coordination");

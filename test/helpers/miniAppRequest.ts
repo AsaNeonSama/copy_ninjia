@@ -1,3 +1,7 @@
+/**
+ * Mini App 服务端进程内 HTTP 请求分发助手：复刻 `Bun.serve` 的 `routes` 精确/参数匹配与 `fetch` 兜底顺序。
+ */
+
 import {
   createMiniAppBunRoutes,
   handleMiniAppHttpRequest,
@@ -49,7 +53,6 @@ export async function dispatchMiniAppTestRequest(request: Request): Promise<Resp
   const routes: Bun.Serve.Routes<undefined, string> = createMiniAppBunRoutes();
   for (const [pattern, entry] of Object.entries(routes)) {
     if (
-      pattern === "/_bundle" ||
       entry === undefined ||
       typeof entry !== "object" ||
       entry === null ||

@@ -34,8 +34,9 @@ export const forwardedLogDropState: {
 };
 
 /**
- * 当前线程的日志凭据脱敏快照单例（infra/logger/serialization.ts 的 currentSecrets）：首次写日志或本线程任一配置 holder 引用变化时重新构造并覆盖（保留当前凭据与最近退役凭据，数组上限为 LOGGER_MAX_REDACTED_SECRETS，超限淘汰最早退役的旧凭据）。
- * 进程或 Worker 重建后从 null 重新按当前配置构造。
+ * 当前线程的日志凭据脱敏快照单例（`infra/logger/serialization.ts` 的 `currentSecrets`）：
+ * - 首次写日志或本线程任一配置 holder 引用变化时重新构造并覆盖，保留当前凭据与最近退役凭据；
+ * - 数组上限为 `LOGGER_MAX_REDACTED_SECRETS`，超限淘汰最早退役的旧凭据；进程或 Worker 重建后从 `null` 重新按当前配置构造。
  */
 export const loggerSecretsMemo: {
   current: LoggerSecretsSnapshot | null;

@@ -13,9 +13,16 @@ import { verifyMiniAppTotpCode } from "../../libs/miniAppTotp";
 import { formatLocalTime } from "../../libs/time";
 import type { BotMiniAppConfig } from "../../types/config";
 import type {
-  MiniAppAuthSession, MiniAppLoginSuccessResponse, MiniAppPasswordGuardState,
-} from "../../types/miniApp";
+  MiniAppAuthPrecheckResponse,
+  MiniAppAuthSession,
+  MiniAppLoginSuccessResponse,
+  MiniAppPasswordGuardState,
+} from "../../types/miniApp/auth";
 import type { MiniAppTotpRecord } from "../../types/miniAppTotp";
+import {
+  attachClearMiniAppPageGateCookie,
+  attachMiniAppPageGateCookie,
+} from "../auth/pageGate";
 import {
   attachRefreshedSessionHeaders,
   checkSuperAdminPasswordLockout, issueMiniAppAuthSession,
@@ -32,8 +39,9 @@ const MINI_APP_ASSET_TOKEN: string = deriveMiniAppAssetToken(
 );
 
 /**
- * 处理 `GET /api/auth/precheck`：在前置中间件链完成 SuperAdmin `initData` 签名与密码锁定核验后，返回会话 TTL、TOTP 启用状态及持久化会话是否有效（仅当 45 分钟解锁会话仍有效时一并下发受保护资源缓存令牌 `assetToken`；若距签发已超过 5 分钟则自动刷新会话令牌并顺延有效期）。
- * @param request 可选 HTTP 请求对象（用于核验客户端持久化的 45 分钟会话令牌）。
+ * 处理 `GET /api/auth/precheck`：在前置鉴权策略完成超级管理员 `initData` 签名与锁定期核验后，返回会话 TTL、TOTP 启用状态及当前二次认证会话是否有效，并签发最新单页门禁 Cookie。
+ * 仅当 45 分钟解锁会话仍有效时一并下发受保护资源令牌 `assetToken`；若会话距签发已超过 5 分钟则轮换令牌并顺延有效期。
+ * @param request 可选 HTTP 请求对象（用于核验客户端持久化的会话令牌及附加 `Set-Cookie`）。
  * @returns JSON 响应。
  */
 export async function handleGetAuthPrecheckRoute(request?: Request): Promise<Response> {
@@ -43,7 +51,7 @@ export async function handleGetAuthPrecheckRoute(request?: Request): Promise<Res
   const sessionToken: string = request !== undefined ? extractSessionToken(request) : "";
   const activeSession: Readonly<MiniAppAuthSession> | null =
     resolveAndRefreshMiniAppAuthSession(sessionToken, nowMs);
-  const response: Response = jsonResponse({
+  const payload: MiniAppAuthPrecheckResponse = {
     ok: true,
     ttlMs: MINI_APP_SESSION_TTL_MS,
     totpEnabled,
@@ -58,7 +66,11 @@ export async function handleGetAuthPrecheckRoute(request?: Request): Promise<Res
         assetToken: MINI_APP_ASSET_TOKEN,
       }
       : {}),
-  });
+  };
+  const response: Response = jsonResponse(payload);
+  if (request !== undefined) {
+    attachMiniAppPageGateCookie(response, request, nowMs);
+  }
   if (activeSession !== null && activeSession.token !== sessionToken) {
     return attachRefreshedSessionHeaders(response, activeSession);
   }
@@ -66,9 +78,9 @@ export async function handleGetAuthPrecheckRoute(request?: Request): Promise<Res
 }
 
 /**
- * 处理 `POST /api/auth/login`：在前置中间件链完成 SuperAdmin `initData` 签名核验后，若已启用 Google Authenticator 则优先校验 6 位 TOTP 动态码，否则校验 `mini_app.password`（连续输错 3 次锁定该超级管理员 ID 30 分钟），通过后签发 45 分钟会话令牌。
- * 读取请求体与 TOTP 记录后若锁定已生效（由并发登录在等待期间触发），不比对凭据，按失败计数并将锁定顺延至当前时刻起 30 分钟。
- * 由未锁定转入锁定时向超级管理员私聊发送一条告警（不等待发送结果，失败走统一 Telegram 错误日志）；锁定顺延不重复告警。
+ * 处理 `POST /api/auth/login`：在前置鉴权策略完成超级管理员 `initData` 签名核验后，若已启用 Google Authenticator 则校验 6 位动态码，否则校验 `mini_app.password`；通过后签发 45 分钟二次认证会话令牌并刷新单页门禁 Cookie。
+ * 连续输错满 3 次时锁定超级管理员 ID 30 分钟、清空全部已登录会话并清除门禁 Cookie。若等待读取请求体或 TOTP 记录期间已由并发请求触发锁定，则不再比对凭据，直接累加失败次数并将锁定期顺延至当前时刻起 30 分钟。
+ * 由未锁定首次转入锁定时向超级管理员私聊发送告警（异步发送，失败记统一 Telegram 错误日志）；锁定期顺延不重复告警。
  * @param request HTTP 请求对象。
  * @returns JSON 响应。
  */
@@ -125,7 +137,10 @@ export async function handlePostAuthLoginRoute(request: Request): Promise<Respon
           ),
         });
       }
-      return checkSuperAdminPasswordLockout(request, nowMs)!;
+      return attachClearMiniAppPageGateCookie(
+        checkSuperAdminPasswordLockout(request, nowMs)!,
+        request
+      );
     }
     miniAppPasswordGuardHolder.current = {
       userId: SUPER_ADMIN_USER_ID,
@@ -152,12 +167,12 @@ export async function handlePostAuthLoginRoute(request: Request): Promise<Respon
     ttlMs: MINI_APP_SESSION_TTL_MS,
     assetToken: MINI_APP_ASSET_TOKEN,
   };
-  return jsonResponse(response);
+  return attachMiniAppPageGateCookie(jsonResponse(response), request, nowMs);
 }
 
 /**
- * 处理 `POST /api/auth/logout`：在前置中间件链完成 SuperAdmin `initData` 签名与密码锁定核验后，
- * 吊销请求头 `X-Mini-App-Session` 携带的密码认证会话（不刷新、不续期）；会话已过期或不存在时同样返回成功。
+ * 处理 `POST /api/auth/logout`：在前置鉴权策略完成超级管理员 `initData` 签名与锁定期核验后，
+ * 吊销请求头 `X-Mini-App-Session` 携带的二次认证会话（不刷新、不续期）；会话已过期或不存在时同样返回成功。
  * @param request HTTP 请求对象。
  * @returns JSON 响应（`revoked` 表示是否删除了仍有效的会话）。
  */

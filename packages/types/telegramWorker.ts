@@ -15,6 +15,7 @@ export type TelegramWorkerJsonCall =
   | { readonly method: "getChat"; readonly payload: TelegramRawPayload<"getChat"> }
   | { readonly method: "getChatAdministrators"; readonly payload: TelegramRawPayload<"getChatAdministrators"> }
   | { readonly method: "getChatMember"; readonly payload: TelegramRawPayload<"getChatMember"> }
+  | { readonly method: "getCustomEmojiStickers"; readonly payload: TelegramRawPayload<"getCustomEmojiStickers"> }
   | { readonly method: "getStickerSet"; readonly payload: TelegramRawPayload<"getStickerSet"> }
   | { readonly method: "restrictChatMember"; readonly payload: TelegramRawPayload<"restrictChatMember"> }
   | { readonly method: "sendChatAction"; readonly payload: TelegramRawPayload<"sendChatAction"> }
@@ -149,6 +150,7 @@ export type TelegramApi = Pick<Api,
   | "getChat"
   | "getChatAdministrators"
   | "getChatMember"
+  | "getCustomEmojiStickers"
   | "getStickerSet"
   | "restrictChatMember"
   | "sendChatAction"

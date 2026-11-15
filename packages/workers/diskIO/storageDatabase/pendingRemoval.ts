@@ -1,3 +1,6 @@
+/**
+ * 黑名单待踢 outbox（`pending_blocked_removals`）在共享 SQLite 事务缓冲中的写入、行数上限与黑名单引用校验（Disk I/O Worker 侧）。
+ */
 import type { PendingRemovalWrite, RemovalRowTargets } from "../../../types/identityStorage";
 import { BLOCKLIST_REMOVAL_OUTBOX_MAX_ENTRIES } from "../../../consts/antiRaid/blocklist";
 import { IDENTITY_DATABASE_PATH } from "../../../consts/paths";

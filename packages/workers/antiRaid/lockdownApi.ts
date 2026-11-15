@@ -1,3 +1,7 @@
+/**
+ * 临时私密模式的 Telegram API 执行层（Anti-Raid Worker 侧）：
+ * 按群串行执行权限快照读取、加锁提交、公告发送与清理、到期权限恢复及冲突纠偏（约束见 `docs/cn/04-invariants.md`）。
+ */
 import { workerAtmosphere } from "./atmosphere";
 import type { ChatPermissions, ChatFullInfo } from "grammy/types";
 import type { LockdownDispatcher, LockdownEntry } from "../../types/antiRaid/internal";

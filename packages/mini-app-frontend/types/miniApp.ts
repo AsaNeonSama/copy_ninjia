@@ -36,6 +36,26 @@ export interface MiniAppLoginSuccessResponse {
   readonly assetToken?: string;
 }
 
+/** `GET /api/auth/precheck` 首屏认证与会话预检响应。 */
+export interface MiniAppAuthPrecheckResponse {
+  /** 预检是否通过。 */
+  readonly ok: true;
+  /** 会话总有效时长毫秒数（45 分钟 = 2,700,000 ms）。 */
+  readonly ttlMs: number;
+  /** 当前是否已配置并启用谷歌验证器（TOTP）。 */
+  readonly totpEnabled: boolean;
+  /** 当前登录门禁优先使用的认证方式（`"totp"` 或 `"password"`）。 */
+  readonly authMode: MiniAppAuthMode;
+  /** 客户端持久化的会话令牌在服务端是否仍在有效期内。 */
+  readonly sessionValid?: boolean;
+  /** 客户端持久化会话的服务端到期毫秒时间戳。 */
+  readonly sessionExpiresAt?: number;
+  /** 触发 5 分钟滑动续期时服务端签发的新会话令牌。 */
+  readonly sessionToken?: string;
+  /** 供受保护图片与 SVG 资源跨会话稳定缓存复用的确定性鉴权令牌。 */
+  readonly assetToken?: string;
+}
+
 /** `GET /api/auth/precheck` 首屏签名预检结果。 */
 export type MiniAppPrecheckResult =
   | {
@@ -395,12 +415,6 @@ export interface MiniAppBlocklistEntryView {
   readonly blockedAt: string;
 }
 
-/** 白名单权限键元数据（键名与中文说明）。 */
-export interface MiniAppPermissionDescriptor {
-  readonly key: WhitelistPermissionKey;
-  readonly description: string;
-}
-
 /** 白名单分页响应。 */
 export interface MiniAppWhitelistPage {
   readonly items: readonly Readonly<MiniAppWhitelistEntryView>[];
@@ -412,7 +426,6 @@ export interface MiniAppWhitelistPage {
   readonly blocklistTotal: number;
   /** 下一页游标（传入下一次请求的 `afterId`）；无更多页时为 null。 */
   readonly nextAfterId: number | null;
-  readonly permissionDescriptors: readonly Readonly<MiniAppPermissionDescriptor>[];
 }
 
 /** 黑名单分页响应。 */
@@ -536,7 +549,7 @@ export interface MiniAppGalleryDeleteResult {
 export type MiniAppIdentitySubTabKey = "whitelist" | "blocklist";
 
 /** Telegram WebApp `initDataUnsafe` 中当前用户信息。 */
-export interface TelegramWebAppUser {
+interface TelegramWebAppUser {
   readonly id: number;
   readonly first_name?: string;
   readonly last_name?: string;
@@ -545,13 +558,11 @@ export interface TelegramWebAppUser {
 }
 
 /** Mini App 由最小化恢复或被最小化时 Telegram 宿主派发的事件名（Bot API 8.0+）。 */
-export type TelegramWebAppActivityEvent = "activated" | "deactivated";
+type TelegramWebAppActivityEvent = "activated" | "deactivated";
 
 /** Telegram WebApp 注入浏览器的宿主对象接口。 */
 export interface TelegramWebApp {
   readonly initData?: string;
-  readonly colorScheme?: "light" | "dark";
-  readonly themeParams?: Readonly<Record<string, string | undefined>>;
   readonly initDataUnsafe?: Readonly<{ readonly user?: Readonly<TelegramWebAppUser> }>;
   readonly ready?: () => void;
   readonly expand?: () => void;
@@ -584,7 +595,7 @@ export interface MiniAppDownloadAnchorElement {
 }
 
 /** 浏览器 Web Storage（`localStorage` / `sessionStorage`）最小读写接口。 */
-export interface MiniAppWebStorage {
+interface MiniAppWebStorage {
   readonly getItem: (key: string) => string | null;
   readonly setItem: (key: string, value: string) => void;
   readonly removeItem: (key: string) => void;
@@ -614,9 +625,6 @@ export interface TelegramWindow {
     readonly body?: Readonly<{ readonly appendChild?: (node: MiniAppDownloadAnchorElement) => void }>;
     readonly documentElement?: Readonly<{
       readonly setAttribute?: (qualifiedName: string, value: string) => void;
-      readonly style?: Readonly<{
-        readonly setProperty?: (property: string, value: string) => void;
-      }>;
     }>;
     /** 页面可见性；切到后台或被遮挡时为 `"hidden"`。 */
     readonly visibilityState?: "visible" | "hidden";

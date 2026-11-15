@@ -1,6 +1,7 @@
 import { relative } from "node:path";
 import ts from "typescript";
 import { unwrapExpression } from "./staticAccess";
+import { collectTopLevelSpyRestoreProblems } from "./testSpyRestore";
 
 /**
  * 测试替身复位口径：`mockClear()` 只清调用记录，不清 `*Once` 排队的返回值或实现，残留的
@@ -14,6 +15,8 @@ import { unwrapExpression } from "./staticAccess";
  *   归到数组里的每个元素。解析不到符号的接收者（调用结果、下标访问）不参与判定。
  * - 同一符号既出现 {@link ONCE_METHODS} 调用、又在复位钩子里出现 `mockClear()` 即报错，
  *   报错写出两处位置。
+ * - 顶层 `spyOn` 恢复规则由 `scripts/conventions/testSpyRestore.ts` 的
+ *   {@link collectTopLevelSpyRestoreProblems} 负责并在 {@link collectMockResetProblems} 内统一汇总。
  */
 
 /** 会排队一次性返回值或实现的替身方法。 */
@@ -70,7 +73,8 @@ function resolveImportBinding(checker: ts.TypeChecker, symbol: ts.Symbol): ts.Sy
   if (specifier === undefined || !ts.isStringLiteral(specifier)) return symbol;
   const moduleSymbol: ts.Symbol | undefined = checker.getSymbolAtLocation(specifier);
   if (moduleSymbol === undefined) return symbol;
-  const name: string = (declaration.propertyName ?? declaration.name).getText();
+  const prop: ts.PropertyName | ts.BindingName = declaration.propertyName ?? declaration.name;
+  const name: string = ts.isIdentifier(prop) || ts.isStringLiteral(prop) ? prop.text : prop.getText();
   const exported: ts.Symbol | undefined = checker
     .getExportsOfModule(moduleSymbol)
     .find((candidate: ts.Symbol): boolean => candidate.name === name);
@@ -84,7 +88,7 @@ function resolveImportBinding(checker: ts.TypeChecker, symbol: ts.Symbol): ts.Sy
  * @param symbol 待归一化的符号
  * @returns 源声明符号
  */
-function canonicalSymbol(checker: ts.TypeChecker, symbol: ts.Symbol): ts.Symbol {
+export function canonicalSymbol(checker: ts.TypeChecker, symbol: ts.Symbol): ts.Symbol {
   const target: ts.Symbol = (symbol.flags & ts.SymbolFlags.Alias) !== 0
     ? checker.getAliasedSymbol(symbol)
     : symbol;
@@ -98,7 +102,7 @@ function canonicalSymbol(checker: ts.TypeChecker, symbol: ts.Symbol): ts.Symbol 
  * @param expression 待检查的表达式节点
  * @returns 关联的 TypeScript 符号，无法解析时返回 undefined
  */
-function referencedSymbol(checker: ts.TypeChecker, expression: ts.Expression): ts.Symbol | undefined {
+export function referencedSymbol(checker: ts.TypeChecker, expression: ts.Expression): ts.Symbol | undefined {
   const target: ts.Expression = unwrapExpression(expression);
   if (ts.isIdentifier(target)) return checker.getSymbolAtLocation(target);
   if (ts.isPropertyAccessExpression(target)) return checker.getSymbolAtLocation(target.name);
@@ -127,7 +131,7 @@ function forOfArrayElements(symbol: ts.Symbol): readonly ts.Expression[] | null 
  * @param expression 替身接收者表达式
  * @returns 归一化后的声明符号列表
  */
-function mockSymbols(checker: ts.TypeChecker, expression: ts.Expression): ts.Symbol[] {
+export function mockSymbols(checker: ts.TypeChecker, expression: ts.Expression): ts.Symbol[] {
   const symbol: ts.Symbol | undefined = referencedSymbol(checker, expression);
   if (symbol === undefined) return [];
   const elements: readonly ts.Expression[] | null = forOfArrayElements(symbol);
@@ -144,7 +148,7 @@ function mockSymbols(checker: ts.TypeChecker, expression: ts.Expression): ts.Sym
  * @param callee 被调用方表达式
  * @returns 解析到的函数声明节点，未找到时返回 null
  */
-function calledFunction(checker: ts.TypeChecker, callee: ts.Expression): ts.FunctionLikeDeclaration | null {
+export function calledFunction(checker: ts.TypeChecker, callee: ts.Expression): ts.FunctionLikeDeclaration | null {
   const target: ts.Expression = unwrapExpression(callee);
   if (ts.isArrowFunction(target) || ts.isFunctionExpression(target)) return target;
   const symbol: ts.Symbol | undefined = referencedSymbol(checker, target);
@@ -169,7 +173,7 @@ function calledFunction(checker: ts.TypeChecker, callee: ts.Expression): ts.Func
  * @param testFiles 测试文件绝对路径集合
  * @returns 所有可达复位函数节点的只读集合
  */
-function collectResetFunctions(
+export function collectResetFunctions(
   checker: ts.TypeChecker,
   hookRoots: readonly ts.FunctionLikeDeclaration[],
   testFiles: ReadonlySet<string>
@@ -201,7 +205,7 @@ function collectResetFunctions(
  * @param resetFunctions 复位函数节点集合
  * @returns 位于复位函数内部时返回 true
  */
-function isInResetFunction(node: ts.Node, resetFunctions: ReadonlySet<ts.Node>): boolean {
+export function isInResetFunction(node: ts.Node, resetFunctions: ReadonlySet<ts.Node>): boolean {
   for (let current: ts.Node | undefined = node.parent; current !== undefined; current = current.parent) {
     if (resetFunctions.has(current)) return true;
   }
@@ -209,7 +213,7 @@ function isInResetFunction(node: ts.Node, resetFunctions: ReadonlySet<ts.Node>):
 }
 
 /**
- * 列出同一替身既排过 Once、又在复位钩子里只用 mockClear 复位的符号。
+ * 列出同一替身既排过 Once、又在复位钩子里只用 mockClear 复位的符号，并汇总文件顶层 `spyOn` 恢复检查。
  *
  * @param params 测试替身复位检查入参
  * @returns 违规替身复位问题列表
@@ -266,5 +270,6 @@ export function collectMockResetProblems({ projectRoot, program, testFiles }: Mo
       );
     }
   }
+  problems.push(...collectTopLevelSpyRestoreProblems({ projectRoot, program, checker, testFiles }));
   return problems.sort();
 }

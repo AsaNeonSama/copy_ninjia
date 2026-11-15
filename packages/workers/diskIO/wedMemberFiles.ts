@@ -1,3 +1,6 @@
+/**
+ * `/wed` 群成员滑窗文件（`memory/wed/<chatId>.json`）的启动校验、原子覆盖落盘与群文件删除（Disk I/O Worker 侧）。
+ */
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -20,6 +23,7 @@ import type {
   WedMembersDiskMessage,
 } from "../../types/diskIO/messages";
 import { flushDirtyEntries } from "./dirtyFlush";
+import { retainOnlyKeys } from "../../libs/record";
 import { armDiskIOFlushTimer, cancelDiskIOFlushTimer } from "./timedFlush";
 
 /** `inspectWedMemberFiles` 启动只读校验返回的 `/wed` 成员快照与目录文件名集合。 */
@@ -60,9 +64,9 @@ export async function maintainWedMemberFiles(inspection: WedMemberInspection): P
 }
 
 /**
- * 原子覆盖写入指定群的 wed 成员快照文件。
+ * 原子覆盖写入指定群的 `/wed` 成员滑窗文件。
  * @param chatId 目标群 ID。
- * @param entries 交错排列的 `[userId, seenAt, ...]` 成员快照数组。
+ * @param entries 按进入顺序交替排列的 `[userId, enteredAt, ...]` 成员快照数组。
  */
 export function writeWedMemberFile(chatId: number, entries: readonly number[]): void {
   mkdirSync(WED_MEMORY_DIR, { recursive: true });
@@ -139,9 +143,7 @@ export function flushWedMemberFiles(
     write,
     describeFailure: (chatId: number): string => `[diskIOWorker] failed to write wed members for chat ${chatId}:`,
   });
-  for (const chatId of pendingWedMembers.keys()) {
-    if (!dirtyWedChats.has(chatId)) pendingWedMembers.delete(chatId);
-  }
+  retainOnlyKeys(pendingWedMembers, dirtyWedChats);
   if (dirtyWedChats.size > 0 || deletedWedChats.size > 0) {
     armDiskIOFlushTimer(wedFileFlushTimer, FLUSH_INTERVAL_MS, flushWedMemberFiles);
   }

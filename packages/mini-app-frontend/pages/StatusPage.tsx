@@ -23,6 +23,8 @@ import type {
 interface RenderStatusSnapshotOptions {
   /** 实时运行状态快照。 */
   readonly status: Readonly<MiniAppStatusView>;
+  /** 当前界面语言。 */
+  readonly language: MiniAppLanguage;
   /** 当前语言翻译字典。 */
   readonly t: Readonly<MiniAppTranslations>;
   /** 各子系统折叠面板的展开状态表（默认全部收起）。 */
@@ -47,6 +49,7 @@ interface RenderStatusSnapshotOptions {
  */
 function renderStatusSnapshot({
   status,
+  language,
   t,
   expandedCapKeys,
   onToggleCapability,
@@ -57,7 +60,7 @@ function renderStatusSnapshot({
 }: RenderStatusSnapshotOptions): React.JSX.Element {
   return (
     <Fragment>
-      <StatusOverviewCard status={status} t={t} />
+      <StatusOverviewCard status={status} language={language} t={t} />
 
       <div className="card">
         <div className="card-title">
@@ -138,7 +141,7 @@ export function StatusPage(): React.JSX.Element {
           </span>
           <span>
             {!loading && !refreshing && status !== null
-              ? t.status.updatedAtSub(formatClockTime(status.generatedAt))
+              ? t.status.updatedAtSub(formatClockTime(status.generatedAt, language))
               : t.status.loadingText}
           </span>
         </span>
@@ -173,6 +176,7 @@ export function StatusPage(): React.JSX.Element {
           <div className="animate-fade-in">
             {renderStatusSnapshot({
               status,
+              language,
               t,
               expandedCapKeys,
               onToggleCapability: toggleCapability,

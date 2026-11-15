@@ -135,10 +135,10 @@ export function setChatQa(chatId: number, q: string, a: string): "created" | "re
 }
 
 /**
- * 删除一条问答；返回是否真的删掉了，用于让回执如实措辞。
+ * 删除指定问题；返回调用前该问题是否存在并已删除。
  * @param chatId 目标群 ID。
  * @param q 待删除的问题文本。
- * @returns 该问题原本存在并已删除时返回 true，原本不存在时返回 false。
+ * @returns 调用前存在该问题并已删除时返回 true，不存在时返回 false。
  */
 export function removeChatQa(chatId: number, q: string): boolean {
   const questions: Map<string, string> | undefined = chatQaEntries.get(chatId);

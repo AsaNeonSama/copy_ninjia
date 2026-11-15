@@ -1,3 +1,6 @@
+/**
+ * 群问答（`chat_qa`）在共享 SQLite 事务缓冲中的写入、单群条数上限复核与重放暂挂配合（Disk I/O Worker 侧）。
+ */
 import {
   storagePendingBudgets,
   pendingChatQaEntryCount,

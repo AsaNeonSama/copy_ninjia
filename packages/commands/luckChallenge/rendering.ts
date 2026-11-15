@@ -26,7 +26,7 @@ function pickDominantProbability(draw: LuckDraw): { label: string; percent: numb
 }
 
 /**
- * 原地重试、复用同款问题或转发到其他聊天。
+ * 构造运势卡片下方的内联键盘：支持原地重试、复用同一所求事项及转发至其他聊天。
  * @param text 所求事项文本；纯运势查询时为 undefined。
  * @returns 附带内联切换按钮的键盘。
  */

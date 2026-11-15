@@ -4,17 +4,17 @@ import { SUPER_ADMIN_USER_ID } from "../../config/bot";
 import { translateConfigReadiness } from "../../config/readiness";
 import { MINI_APP_PICKER_MAX_USERS_QUANTITY } from "../../consts/miniApp";
 import { botChatPermissionsIn } from "../../infra/botAdmin";
-import { getChatState } from "../../infra/storage/stateStore";
+import { getChatState } from "../../infra/chatStateStorage";
 import { saveMiniAppPreparedKeyboardButton } from "../../infra/telegram/actions/miniApp";
 import type { MiniAppTelegramApi } from "../../infra/telegram/actions/miniApp";
 import type { ChatState } from "../../types/chatState";
+import type { MiniAppTranslateLanguage } from "../../types/miniApp/chats";
 import type {
   MiniAppPickerSubjectKind,
   MiniAppPickerTargetList,
   MiniAppPreparedPickerSession,
-  MiniAppTranslateLanguage,
   PrepareMiniAppPickerResult,
-} from "../../types/miniApp";
+} from "../../types/miniApp/identities";
 import type { BotChatPermissions } from "../../types/telegram";
 import { pruneExpiredMiniAppPickers } from "./sessions";
 
@@ -99,6 +99,15 @@ export async function prepareMiniAppPicker({
   const now: number = Date.now();
   pruneExpiredMiniAppPickers(now);
 
+  const chatState: Readonly<ChatState> | undefined =
+    chatId !== undefined ? getChatState(chatId) : undefined;
+  if (chatState !== undefined && !chatState.isInitEnabled) {
+    return {
+      ok: false,
+      message: "CHAT_NOT_INITIALIZED",
+    };
+  }
+
   if (targetList === "deleteMessage" && chatId !== undefined) {
     const permissions: Readonly<BotChatPermissions> | undefined =
       await botChatPermissionsIn(chatId);
@@ -108,15 +117,14 @@ export async function prepareMiniAppPicker({
         message: "DELETE_TARGET_MISSING_BOT_PERMISSION",
       };
     }
-  } else if (targetList === "translate" && chatId !== undefined) {
+  } else if (targetList === "translate" && chatState !== undefined) {
     if (!translateConfigReadiness().ok) {
       return {
         ok: false,
         message: "TRANSLATE_CAPABILITY_UNAVAILABLE",
       };
     }
-    const state: Readonly<ChatState> = getChatState(chatId);
-    if (!state.isTranslationEnabled) {
+    if (!chatState.isTranslationEnabled) {
       return {
         ok: false,
         message: "TRANSLATE_FEATURE_DISABLED",

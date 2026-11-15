@@ -60,14 +60,16 @@ export interface QaFormIngressResult {
  *
  * 只活在主线程内存里，进程重启后不恢复。两项都填好后由状态机删掉表单消息。
  *
- * 按群索引，按发起人鉴权：同一群同时只有一张表单，`openedById` 决定谁能往里填，
- * 投递消息的可见身份必须与它一致。可见身份取 `sender_chat ?? from`（见
- * commands/commandActor.ts），命令侧与投递侧使用同一个 id。
+ * 按群一张表单，按发起人鉴权并只收表单所在话题的字段：同一群同时只有一张表单，`openedById`
+ * 决定谁能往里填，投递消息的可见身份与所属话题都必须与它一致。可见身份取 `sender_chat ?? from`
+ * （见 commands/commandActor.ts），命令侧与投递侧使用同一个 id。
  */
 export interface QaFormSession {
   readonly chatId: number;
   /** 开这张表单的可见身份；投递消息的身份必须与它相同才会被认领。 */
   readonly openedById: number;
+  /** 发起 `/qa set` 所在的论坛话题；非论坛群或 General 为 undefined。 */
+  readonly messageThreadId: number | undefined;
   /** 表单消息 id；发送成功后回填，结算时按它删除。 */
   formMessageId: number | undefined;
   /** 已登记的问题文本；未设置时为 undefined。 */

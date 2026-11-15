@@ -38,7 +38,7 @@ mock.module("../../packages/infra/diskIO", () => (diskIOStub({
     return true;
   },
 })));
-mock.module("../../packages/infra/storage/stateStore", () => ({
+mock.module("../../packages/infra/chatStateStorage", () => ({
   getChatStateCache: (): ReadonlyMap<number, { isInitEnabled: boolean; botPermissions: BotChatPermissions }> =>
     new Map([[-1001, { isInitEnabled: true, botPermissions: botPermissions() }]]),
 }));

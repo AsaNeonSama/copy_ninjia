@@ -1,3 +1,6 @@
+/**
+ * 共享 SQLite 多领域统一事务提交、批次阈值与定时刷盘调度及持久化回执分发（Disk I/O Worker 侧，约束见 `docs/cn/04-invariants.md`）。
+ */
 import { STORAGE_DATABASE_DOMAINS, STORAGE_WRITE_MAX_FAILURES } from "../../../consts/diskIO/business";
 import {
   resetStoragePendingBudgets,

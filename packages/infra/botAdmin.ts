@@ -1,15 +1,23 @@
+/**
+ * 机器人自己在各群的管理员身份与权限位追踪（存于 `ChatState.botPermissions` 并随 SQLite `chat_states` 持久化）。
+ * 由 `my_chat_member` 更新、他人 `chat_member` 更新触发的缺失快照探测以及首次判定时的按需 `getChatMember`
+ * 三条路径共同维护，经 `recordBotChatPermissions` 统一落盘，且仅作用于已启用 `/init` 的群。
+ * @see ../../docs/cn/04-invariants.md
+ */
+
 import type { Context } from "grammy";
 import { telegramSignal } from "../libs/telegramSignal";
 import { logger } from "./logger";
 import { bot } from "./telegram/mainClient";
 import {
   clearChatStateField,
+  disableChatStateSwitch,
   getChatState,
   getOrCreateChatState,
   persistChatState,
   purgeChatStateExceptLockdown,
   saveChatStateInBackground,
-} from "./storage/stateStore";
+} from "./chatStateStorage";
 import {
   botPermissionFetches,
   botPermissionObserver,
@@ -50,7 +58,6 @@ async function completeAfterTeardown(
   failureMessage: string
 ): Promise<void> {
   const [teardownResult]: [PromiseSettledResult<void>] = await Promise.allSettled([teardown]);
-  // 先等 teardown 落定再执行权威动作；两侧失败合并上抛。
   const [authoritativeResult]: [PromiseSettledResult<void>] = await Promise.allSettled([authoritativeAction()]);
   const failures: unknown[] = [teardownResult, authoritativeResult].flatMap(
     (result: PromiseSettledResult<void>): unknown[] => result.status === "rejected" ? [result.reason] : []
@@ -58,13 +65,6 @@ async function completeAfterTeardown(
   if (failures.length === 1) throw failures[0];
   if (failures.length > 1) throw new AggregateError(failures, failureMessage);
 }
-
-/**
- * 机器人自己在各群的管理员身份与权限位追踪（存于 `ChatState.botPermissions` 并随 SQLite `chat_states` 持久化）。
- * 由 `my_chat_member` 更新、他人 `chat_member` 更新触发的缺失快照探测以及首次判定时的按需 `getChatMember`
- * 三条路径共同维护，经 `recordBotChatPermissions` 统一落盘，且仅作用于已启用 `/init` 的群。
- * @see ../../docs/cn/04-invariants.md
- */
 
 /**
  * 记录一次确证的完整权限观测；已启用 `/init` 且与已知快照不同时写入、落盘并按动作权限位变化广播。
@@ -183,6 +183,38 @@ export async function markBotAdminObserved(chatId: number): Promise<void> {
 export function invalidateBotAdminStatus(chatId: number): void {
   forgetBotChatPermissions(chatId);
   forgetChatBlocklistWork(chatId);
+}
+
+/**
+ * 关闭受管群的 `/init` 总开关并执行运行时拆除与状态清理（群内 `/init disable` 与 Mini App 关群共用）。
+ *
+ * 先关闭内存总开关、作废管理员权限快照并落盘总开关（失败原样上抛，见 `docs/cn/04-invariants.md`），
+ * 再按 `explicitDisable` 拆除各 owner 运行态、清除除 `lockdown` 外的群状态并补写收敛落盘；
+ * 拆除或收敛落盘失败时降级记错误日志并返回 `true`。
+ * @param chatId 目标群 ID。
+ * @returns 运行时拆除或收敛落盘失败时返回 `true`，全部成功时返回 `false`。
+ */
+export async function disableManagedChat(chatId: number): Promise<boolean> {
+  // 无条目的群重复关闭仍写出删除墓碑并重跑下方清理。
+  disableChatStateSwitch(chatId, "isInitEnabled");
+  invalidateBotAdminStatus(chatId);
+  // 总开关落盘先于不可逆的运行时拆除（顺序同 commands/superAdminToggle.ts 的 runChatToggleCommand）。
+  await persistChatState(chatId, "init toggled");
+
+  try {
+    await teardownChatRuntime(chatId, "explicitDisable");
+    purgeChatStateExceptLockdown(chatId);
+    // 补写收敛后的群状态（整条回到缺省时写出删除墓碑，见 infra/chatStateStorage.ts 的 encodeCurrentChatState）。
+    await persistChatState(chatId, "init teardown settled");
+    return false;
+  } catch (error: unknown) {
+    logger.error(
+      `Failed to settle the chat runtime teardown for chat ${chatId}; ` +
+      "the init gate is already persisted as disabled:",
+      error
+    );
+    return true;
+  }
 }
 
 /**

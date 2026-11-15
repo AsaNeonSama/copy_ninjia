@@ -19,10 +19,46 @@ export interface MoodConfig {
 }
 
 /**
- * 广告检测的部署者示例清单：config/dynamic/ad_samples.json 是一个纯字符串数组，每条
- * 是一段“应当被判成广告”的原文，作为判定口径由 workers/antiRaid/adDetect/classifier.ts 使用。
+ * 移出处罚的封禁范围（部署字段 `punishment.kick.block_scope`）：
+ * - `chat`：只在触发群以 `banChatMember` 封禁，不写入机器人的永久黑名单；
+ * - `global`：写入永久黑名单，并在全部受管群封禁（与 `/block` 同一份名单）。
  */
-export type AdSampleConfig = readonly string[];
+export type AdBlockScope = "chat" | "global";
+
+/** 禁言处罚（部署字段 `punishment.mute`）：在触发群禁言。 */
+export interface AdMutePunishment {
+  readonly kind: "mute";
+  /** 禁言时长（毫秒，整分钟）；null 表示永久禁言。 */
+  readonly durationMs: number | null;
+}
+
+/** 移出处罚（部署字段 `punishment.kick`）：把发送者移出触发群。 */
+export interface AdKickPunishment {
+  readonly kind: "kick";
+  /** 移出后的封禁范围；null 表示只踢不封，可再次入群。 */
+  readonly blockScope: AdBlockScope | null;
+}
+
+/** ad_detect.json 的 `punishment` 解析结果：`mute` 与 `kick` 二者恰好其一。 */
+export type AdDetectPunishment = AdMutePunishment | AdKickPunishment;
+
+/**
+ * 广告检测的部署配置（config/dynamic/ad_detect.json）：
+ * - `punishment`：判定为广告后的处罚设置，由 antiRaid/adDetect.ts 在主线程处置时读取；
+ * - `samples`：判定口径参考示例，由 workers/antiRaid/adDetect/classifier.ts 拼入提示词；
+ * - `stickerBlackList`：部署字段 `sticker_black_list`，贴纸包 short name 只读黑名单集合，作为快路径最先检测；
+ * - `emojiBlackList`：部署字段 `emoji_black_list`，自定义表情所属表情包 short name 只读黑名单集合，在贴纸黑名单之后、AI 检测之前检测。
+ */
+export interface AdDetectConfig {
+  /** 判定为广告（含黑名单命中）后的处罚设置。 */
+  readonly punishment: AdDetectPunishment;
+  /** 广告分类判定用的正例参考样本列表（单行规范化、去重）。 */
+  readonly samples: readonly string[];
+  /** 命中即跳过 AI 检测直接判为广告、按 punishment 处罚的贴纸包 short name 只读黑名单集合。 */
+  readonly stickerBlackList: ReadonlySet<string>;
+  /** 命中即跳过 AI 检测直接判为广告、按 punishment 处罚的自定义表情包 short name 只读黑名单集合。 */
+  readonly emojiBlackList: ReadonlySet<string>;
+}
 
 /** `config/static/bot.json` 中可选的 Mini App HTTP 服务与入口配置。 */
 export interface BotMiniAppConfig {
@@ -316,9 +352,11 @@ export interface AssetConfig {
 
 /** config/reload.ts 对可热重载部署文件的一轮读取。 */
 export interface HotDeploymentConfigReads {
+  /** dynamic/ 内非白名单目录项或目录读取失败的拒绝诊断；非空时整轮热重载直接拒绝。 */
+  readonly layoutRejections: readonly string[];
   /** assets.json；随机图片目录变化时已在读取阶段完成目录准备，失败记为 invalid。 */
   readonly assets: HotConfigRead<AssetConfig>;
-  readonly adSamples: HotConfigRead<AdSampleConfig>;
+  readonly adDetectConfig: HotConfigRead<AdDetectConfig>;
   readonly agent: HotConfigRead<AgentConfigSnapshots>;
   readonly mood: HotConfigRead<MoodConfig>;
   readonly stickers: HotConfigRead<StickerConfig>;
@@ -336,7 +374,7 @@ export interface HotDeploymentConfigChanges {
   readonly adDetect: boolean;
   /** agent.json 的 AI 对话能力段快照已替换。 */
   readonly aiAgent: boolean;
-  readonly adSamples: boolean;
+  readonly adDetectConfig: boolean;
   readonly mood: boolean;
   readonly stickers: boolean;
   /** cron.json 的任务表已替换。 */
@@ -365,4 +403,25 @@ export type ConfigReadiness =
 /** 判定结论的单例缓存 holder；成功与失败都缓存，见 config/readiness.ts 头注。 */
 export interface ConfigReadinessCache {
   current: ConfigReadiness | null;
+}
+
+/** 部署配置 URL 校验允许的协议。 */
+export type ConfigUrlProtocol = "http:" | "https:";
+
+/** `config/dynamic/*.json` 单例配置快照的可变容器（见 config/snapshotHolder.ts 的 ensureConfigSnapshot）。 */
+export interface ConfigSnapshotHolder<T> {
+  /** 当前线程持有的已校验配置快照；缺省或文件删除时为 null。 */
+  current: T | null;
+}
+
+/** 部署配置 URL 形态校验策略（见 consts/configUrl.ts 与 config/urlPolicy.ts）。 */
+export interface ConfigUrlPolicy {
+  /** 允许的协议白名单。 */
+  readonly allowedProtocols: readonly ConfigUrlProtocol[];
+  /** 为 true 且协议未命中 allowedProtocols 时，仍放行 LOOPBACK_HOSTS 上的 `http:` 地址。 */
+  readonly allowLoopbackHttp: boolean;
+  /** 为 true 时拒绝携带用户名或密码的 URL。 */
+  readonly rejectUserInfo: boolean;
+  /** 为 true 时拒绝携带 `#fragment` 的 URL。 */
+  readonly rejectFragment: boolean;
 }

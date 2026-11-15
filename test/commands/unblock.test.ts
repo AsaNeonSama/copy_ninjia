@@ -90,7 +90,7 @@ mock.module("../../packages/infra/botAdmin", () => ({
   botCanRestrictMembersIn: (chatId: number): boolean | undefined =>
     chatStates.get(chatId)?.botPermissions?.canRestrictMembers,
 }));
-mock.module("../../packages/infra/storage/stateStore", () => ({
+mock.module("../../packages/infra/chatStateStorage", () => ({
   getChatState: (): Record<string, never> => ({}), getChatStateCache: () => chatStates }));
 mock.module("../../packages/commands/targetResolution", () => ({ resolveCommandTarget }));
 mock.module("../../packages/infra/diskIO", () => (diskIOStub({

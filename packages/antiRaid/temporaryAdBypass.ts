@@ -1,3 +1,7 @@
+/**
+ * 广告检测临时免检与永久白名单晋升的主线程记账入口：统计合规群发言活跃度，
+ * 首次达标时通知 Worker 撤销在途广告候选，满晋升条件时写入永久广告免检白名单（见 docs/cn/04-invariants.md）。
+ */
 import {
   clearTemporaryAdBypassActivity,
   hasActiveTemporaryAdBypassAt,

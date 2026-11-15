@@ -1,3 +1,6 @@
+/**
+ * 受管群状态（`chat_states`）在共享 SQLite 事务缓冲中的写入、受管群数上限及唯一代理发送目标约束校验（Disk I/O Worker 侧）。
+ */
 import {
   storagePendingBudgets,
   pendingChatStateWrites,

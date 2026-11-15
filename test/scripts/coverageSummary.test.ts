@@ -1,3 +1,4 @@
+/** `bun test --coverage` 输出摘要解析器单元测试。 */
 import { describe, expect, test } from "bun:test";
 import { parseCoverageSummary } from "../../scripts/coverageSummary";
 

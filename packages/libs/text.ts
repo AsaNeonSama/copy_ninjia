@@ -1,3 +1,11 @@
+/**
+ * 拼进机器人对外文案的文本清洗与排版纯函数：单行空白折叠、双向控制符剥除、
+ * 可点击命令中和、字形簇切分、子句截断以及 Telegram 姓名拼接。
+ *
+ * 消费方跨 AI 流水线（aiChat/ai/imageDescription.ts 等）、命令回执
+ * （users/userLabel.ts）与消息转录（auto/message/facts.ts）。
+ */
+
 import {
   BIDI_CONTROL_PATTERN,
   INLINE_SANITIZE_REQUIRED_PATTERN,
@@ -5,14 +13,6 @@ import {
   LEADING_AT_SIGNS_PATTERN,
   TRUNCATION_ELLIPSIS,
 } from "../consts/text";
-/**
- * 拼进机器人自己文案的那些文本的共用处理：清洗（压成单行、剥双向控制符、
- * 中和可点击命令）、按字形簇切分，以及把 Telegram 的姓名字段拼成展示名。
- *
- * 消费方跨 AI 流水线（aiChat/ai/imageDescription.ts 等）、命令回执
- * （users/userLabel.ts）与消息转录（auto/message/facts.ts）；同一份规则只此一份。
- */
-
 import { neutralizeRenderableCommands } from "./renderableCommand";
 
 /**
@@ -59,7 +59,6 @@ export function sanitizeDisplayName(raw: string): string {
  * @returns 剥离前导 `@` 后的用户名。
  */
 export function stripLeadingAtSigns(username: string): string {
-  // 0x40 是 `@`。
   return username.charCodeAt(0) === 0x40
     ? username.replace(LEADING_AT_SIGNS_PATTERN, "")
     : username;
@@ -68,11 +67,7 @@ export function stripLeadingAtSigns(username: string): string {
 /**
  * 把 Telegram 的 `first_name` / `last_name` 拼成一个展示名；两段都缺时返回空串。
  *
- * 缺席与空串一律当作「没有这一段」，两段都在时用一个空格分隔；首尾空白由调用方按需
- * `trim`。
- *
- * 直接分支拼接，不创建字面量数组、filter 结果数组或一次性闭包；转发来源标注
- * （auto/message/facts.ts 的 forwardOriginLabel）在每条带 forward_origin 的消息上调用。
+ * 缺席与空串均视为无该段，两段俱在时以单个空格连接；首尾空白由调用方按需 `trim`。
  * @param firstName Telegram 名字字段。
  * @param lastName Telegram 姓氏字段。
  * @returns 拼接后的展示名；两段均为空或缺省时返回空串。

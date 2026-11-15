@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
-import { parseIndexField } from "../../../packages/aiChat/ai/utils/toolArgs";
+import { parseToolArguments, readIndexField } from "../../../packages/aiChat/ai/utils/toolArgs";
 
 /**
  * infra/telegram 的 sendSticker 替换为测试可控的假实现，只覆盖 stickers.ts
@@ -27,7 +27,7 @@ const {
   buildSendStickerToolDefinition,
   buildViewStickerPackToolDefinition,
   createStickerRoundState,
-  parseStickerIntent,
+  readStickerIntent,
   sendStickerTool,
   viewStickerPackTool,
 } = await import("../../../packages/aiChat/ai/tools/stickers");
@@ -91,41 +91,41 @@ function sendStickerForTest({
   return Promise.resolve(typeof execution === "string" ? execution : execution.run(chatAction, pause));
 }
 
-describe("aiChat/ai/stickers parseIndexField", () => {
+describe("aiChat/ai/stickers readIndexField", () => {
   test("合法 JSON 参数原样解析", () => {
-    expect(parseIndexField('{"pack_index": 2}', "pack_index", 5)).toBe(2);
-    expect(parseIndexField('{"sticker_index": 1}', "sticker_index", 1)).toBe(1);
+    expect(readIndexField(parseToolArguments('{"pack_index": 2}'), "pack_index", 5)).toBe(2);
+    expect(readIndexField(parseToolArguments('{"sticker_index": 1}'), "sticker_index", 1)).toBe(1);
   });
 
   test("JSON 解析失败返回 null", () => {
-    expect(parseIndexField("not json", "pack_index", 5)).toBeNull();
-    expect(parseIndexField("", "pack_index", 5)).toBeNull();
+    expect(readIndexField(parseToolArguments("not json"), "pack_index", 5)).toBeNull();
+    expect(readIndexField(parseToolArguments(""), "pack_index", 5)).toBeNull();
   });
 
   test("字段缺失/类型不对/不是整数，返回 null", () => {
-    expect(parseIndexField("{}", "pack_index", 5)).toBeNull();
-    expect(parseIndexField('{"pack_index": "3"}', "pack_index", 5)).toBeNull();
-    expect(parseIndexField('{"pack_index": 2.5}', "pack_index", 5)).toBeNull();
-    expect(parseIndexField('{"pack_index": null}', "pack_index", 5)).toBeNull();
+    expect(readIndexField(parseToolArguments("{}"), "pack_index", 5)).toBeNull();
+    expect(readIndexField(parseToolArguments('{"pack_index": "3"}'), "pack_index", 5)).toBeNull();
+    expect(readIndexField(parseToolArguments('{"pack_index": 2.5}'), "pack_index", 5)).toBeNull();
+    expect(readIndexField(parseToolArguments('{"pack_index": null}'), "pack_index", 5)).toBeNull();
   });
 
   test("越界编号（0、负数、超出上限）返回 null", () => {
-    expect(parseIndexField('{"pack_index": 0}', "pack_index", 5)).toBeNull();
-    expect(parseIndexField('{"pack_index": -1}', "pack_index", 5)).toBeNull();
-    expect(parseIndexField('{"pack_index": 6}', "pack_index", 5)).toBeNull();
+    expect(readIndexField(parseToolArguments('{"pack_index": 0}'), "pack_index", 5)).toBeNull();
+    expect(readIndexField(parseToolArguments('{"pack_index": -1}'), "pack_index", 5)).toBeNull();
+    expect(readIndexField(parseToolArguments('{"pack_index": 6}'), "pack_index", 5)).toBeNull();
   });
 });
 
-describe("aiChat/ai/stickers parseStickerIntent", () => {
+describe("aiChat/ai/stickers readStickerIntent", () => {
   test("规范空白后返回非空意图", () => {
-    expect(parseStickerIntent('{"intent":"  表达无语，  但不要显得生气\\n"}')).toBe("表达无语， 但不要显得生气");
+    expect(readStickerIntent(parseToolArguments('{"intent":"  表达无语，  但不要显得生气\\n"}'))).toBe("表达无语， 但不要显得生气");
   });
 
   test("缺失、类型错误、空文本或超长时返回 null", () => {
-    expect(parseStickerIntent("{}")).toBeNull();
-    expect(parseStickerIntent('{"intent":123}')).toBeNull();
-    expect(parseStickerIntent('{"intent":"   "}')).toBeNull();
-    expect(parseStickerIntent(JSON.stringify({ intent: "意".repeat(STICKER_INTENT_MAX_CHARS + 1) }))).toBeNull();
+    expect(readStickerIntent(parseToolArguments("{}"))).toBeNull();
+    expect(readStickerIntent(parseToolArguments('{"intent":123}'))).toBeNull();
+    expect(readStickerIntent(parseToolArguments('{"intent":"   "}'))).toBeNull();
+    expect(readStickerIntent(parseToolArguments(JSON.stringify({ intent: "意".repeat(STICKER_INTENT_MAX_CHARS + 1) })))).toBeNull();
   });
 });
 

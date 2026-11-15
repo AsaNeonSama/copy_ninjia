@@ -346,7 +346,7 @@ export async function requestAiMood(requestType: "queryMood" | "switchMood"): Pr
 
 /**
  * 向 AI Worker 请求合成一句语音。
- * @param request 语音合成请求参数，包含待合成文本、配额口径与取消信号。
+ * @param request 语音合成请求参数，包含待合成文本、可选语气与取消信号。
  * @returns 语音合成结果或失败原因。
  */
 export function synthesizeVoice(request: VoiceSynthesisRequest): Promise<VoiceSynthesisResult> {

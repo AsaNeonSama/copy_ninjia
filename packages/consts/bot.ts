@@ -12,5 +12,5 @@ export const BOT_ATMOSPHERES: Readonly<Record<BotAtmosphere, Atmosphere>> = {
   normal: "plain",
 };
 
-/** Bot 配置冷迁移的源文件名；config/layout.ts 只用于拒绝配置根顶层的未迁移入口，不读取旧内容。 */
+/** 配置根顶层禁止存在的旧 Bot 配置文件名，出现时拒绝启动；所属模块：config/layout.ts。 */
 export const LEGACY_BOT_CONFIG_NAME: string = "telegram.json";

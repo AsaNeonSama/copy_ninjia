@@ -13,7 +13,7 @@ import {
   OPENAI_REQUEST_TIMEOUTS_MS,
   OPENAI_SDK_LOG_LEVEL,
 } from "../../consts/aiChat/openai";
-import { raceAbortOrThrow, signalWithTimeout } from "../../libs/abortSignal";
+import { runWithTimeoutSignal } from "../../libs/abortSignal";
 import { classifyAiTextFailure, finalizeAiTextResult } from "../ai/utils/textResult";
 import { diagnosticWithDetails } from "../ai/utils/finishDetails";
 import {
@@ -91,17 +91,18 @@ export async function requestOpenAiResult({
   try {
     signal?.throwIfAborted();
     body = buildBody();
-    const requestSignal: AbortSignal = signalWithTimeout(signal, OPENAI_REQUEST_TIMEOUTS_MS[capability]);
-    requestSignal.throwIfAborted();
     const model: string = String(body.model);
-    response = await raceAbortOrThrow(
-      (client ?? getOpenAiClient(capability)).responses.create(body, { signal: requestSignal })
-        .then((result: OpenAI.Responses.Response): OpenAI.Responses.Response => {
-          reportOpenAiResponsesUsage({ capability, model, usage: result.usage, searchCalls: countWebSearchCalls(result) });
-          return result;
-        }),
-      requestSignal
-    );
+    const resolvedClient: OpenAI = client ?? getOpenAiClient(capability);
+    response = await runWithTimeoutSignal({
+      signal,
+      timeoutMs: OPENAI_REQUEST_TIMEOUTS_MS[capability],
+      run: (requestSignal: AbortSignal): Promise<OpenAI.Responses.Response> =>
+        resolvedClient.responses.create(body, { signal: requestSignal })
+          .then((result: OpenAI.Responses.Response): OpenAI.Responses.Response => {
+            reportOpenAiResponsesUsage({ capability, model, usage: result.usage, searchCalls: countWebSearchCalls(result) });
+            return result;
+          }),
+    });
   } catch (error: unknown) {
     if (signal?.aborted === true) {
       return { ok: false, failureKind: "request" };

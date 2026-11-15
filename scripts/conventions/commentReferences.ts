@@ -1,6 +1,6 @@
-import { existsSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import type ts from "typescript";
+import { pathExists, statOptionalPath } from "./pathStat";
 
 /**
  * 注释里「见 `<模块路径>` 的 `<符号>`」这类交叉引用的核对。
@@ -9,14 +9,11 @@ import type ts from "typescript";
  * 展开一层后的再导出）。不判断语义是否贴切，也不要求所有引用都写全路径。
  */
 
-/** 只认这几种写法：`<路径>.ts 的 <符号>`、`<路径>.ts 里的 <符号>` 与 `<路径>.ts 中的 <符号>`。 */
+/** 只认这几种写法：`<路径>.ts/.tsx 的 <符号>`、`<路径>.ts/.tsx 里的 <符号>` 与 `<路径>.ts/.tsx 中的 <符号>`。 */
 const REFERENCE_PATTERN: RegExp =
-  /([A-Za-z0-9_./-]+\.ts)\s*(?:里|中)?\s*的\s*`?([A-Za-z_$][A-Za-z0-9_$]*)/g;
+  /([A-Za-z0-9_./-]+\.tsx?)\s*(?:里|中)?\s*的\s*`?([A-Za-z_$][A-Za-z0-9_$]*)/g;
 
-/**
- * 不参与核对的引用：注释里写的是常量名前缀而不是完整符号（如
- * `TYPING_DELAY_` 泛指同前缀的一组停顿常量）。
- */
+/** 豁免交叉引用核对的符号前缀（如 `TYPING_DELAY_` 泛指同前缀的一组停顿常量）。 */
 const EXEMPT_SYMBOLS: readonly string[] = ["TYPING_DELAY_"];
 
 /**
@@ -24,39 +21,58 @@ const EXEMPT_SYMBOLS: readonly string[] = ["TYPING_DELAY_"];
  *
  * @param path 当前模块文件的绝对路径
  * @param source 当前模块文件的文本内容
+ * @param fileTexts 可选的按绝对路径缓存的预读文本
  * @returns 再导出目标文件的绝对路径列表
  */
-function reexportTargets(path: string, source: string): readonly string[] {
+async function reexportTargets(
+  path: string,
+  source: string,
+  fileTexts?: ReadonlyMap<string, string>
+): Promise<readonly string[]> {
   const targets: string[] = [];
   for (const match of source.matchAll(/export\s+(?:type\s+)?\*\s+from\s+"(\.[^"]+)"/g)) {
     const specifier: string | undefined = match[1];
     if (specifier === undefined) continue;
     const base: string = join(path, "..", specifier);
-    for (const candidate of [`${base}.ts`, join(base, "index.ts")]) {
-      if (existsSync(candidate)) targets.push(candidate);
+    for (const candidate of [`${base}.ts`, `${base}.tsx`, join(base, "index.ts"), join(base, "index.tsx")]) {
+      if (fileTexts?.has(candidate) === true || (await statOptionalPath(candidate))?.isFile() === true) {
+        targets.push(candidate);
+      }
     }
   }
   return targets;
 }
 
+/** `declaresSymbol` 递归核对符号声明与一层 re-export 的参数。 */
+interface DeclaresSymbolOptions {
+  /** 被检查模块文件的绝对路径。 */
+  readonly path: string;
+  /** 待核对的符号名称。 */
+  readonly symbol: string;
+  /** 允许继续展开 `export *` 的最大深度。 */
+  readonly depth?: number;
+  /** 可选的按绝对路径缓存的预读文本。 */
+  readonly fileTexts?: ReadonlyMap<string, string>;
+}
+
 /**
  * 被点名的文件（含一层兼容入口再导出）里是否还有这个符号。
  *
- * @param path 被检查模块文件的绝对路径
- * @param symbol 待核对的符号名称
- * @param depth 允许继续展开 `export *` 的最大深度
+ * @param options 路径、符号、递归深度与可选预读文本缓存
  * @returns 声明或再导出该符号时返回 true
  */
-async function declaresSymbol(
-  path: string,
-  symbol: string,
-  depth: number = 1
-): Promise<boolean> {
-  const source: string = await Bun.file(path).text();
-  if (new RegExp(`\\b${symbol}\\b`).test(source)) return true;
+async function declaresSymbol({
+  path,
+  symbol,
+  depth = 1,
+  fileTexts,
+}: DeclaresSymbolOptions): Promise<boolean> {
+  const source: string = fileTexts?.get(path) ?? await Bun.file(path).text();
+  const escaped: string = RegExp.escape(symbol);
+  if (new RegExp(`(?<![A-Za-z0-9_$])${escaped}(?![A-Za-z0-9_$])`).test(source)) return true;
   if (depth <= 0) return false;
-  for (const target of reexportTargets(path, source)) {
-    if (await declaresSymbol(target, symbol, depth - 1)) return true;
+  for (const target of await reexportTargets(path, source, fileTexts)) {
+    if (await declaresSymbol({ path: target, symbol, depth: depth - 1, fileTexts })) return true;
   }
   return false;
 }
@@ -71,6 +87,8 @@ export interface CommentReferenceParams {
   readonly source: ts.SourceFile;
   /** 全仓源文件的绝对路径，用于按 basename 解析未写全的相对引用。 */
   readonly allSourceFiles: readonly string[];
+  /** 可选的按绝对路径索引的预读文本缓存；命中时直接复用内存文本。 */
+  readonly fileTexts?: ReadonlyMap<string, string>;
 }
 
 /**
@@ -85,17 +103,17 @@ export interface CommentReferenceParams {
  * @param specifier 注释中书写的模块路径片段
  * @returns 解析到的目标文件绝对路径，存在歧义或无法唯一定位时返回 undefined
  */
-function resolveReference(
-  { projectRoot, path, allSourceFiles }: CommentReferenceParams,
+async function resolveReference(
+  { projectRoot, path, allSourceFiles, fileTexts }: CommentReferenceParams,
   specifier: string
-): string | undefined {
+): Promise<string | undefined> {
   if (specifier.startsWith("./") || specifier.startsWith("../")) {
     return resolve(dirname(path), specifier);
   }
   const direct: string = join(projectRoot, specifier);
-  if (existsSync(direct)) return direct;
+  if (fileTexts?.has(direct) === true || await pathExists(direct)) return direct;
   const withPackages: string = join(projectRoot, "packages", specifier);
-  if (existsSync(withPackages)) return withPackages;
+  if (fileTexts?.has(withPackages) === true || await pathExists(withPackages)) return withPackages;
   const suffix: string = `/${specifier}`;
   const matches: readonly string[] = allSourceFiles.filter(
     (file: string): boolean => file.endsWith(suffix)
@@ -112,7 +130,7 @@ function resolveReference(
 export async function collectCommentReferenceProblems(
   params: CommentReferenceParams
 ): Promise<readonly string[]> {
-  const { projectRoot, path, source }: CommentReferenceParams = params;
+  const { projectRoot, path, source, fileTexts }: CommentReferenceParams = params;
   const problems: string[] = [];
   const relativePath: string = relative(projectRoot, path);
   const lines: readonly string[] = source.getFullText().split("\n");
@@ -127,17 +145,19 @@ export async function collectCommentReferenceProblems(
       const symbol: string | undefined = match[2];
       if (specifier === undefined || symbol === undefined) continue;
       if (EXEMPT_SYMBOLS.includes(symbol)) continue;
-      const target: string | undefined = resolveReference(params, specifier);
+      const target: string | undefined = await resolveReference(params, specifier);
       // 非相对路径解析不到唯一目标就不判：注释可以引用未随仓库分发的路径。
       if (target === undefined) continue;
-      if (!(await Bun.file(target).exists())) {
+      const targetExists: boolean = fileTexts?.has(target) === true ||
+        (await statOptionalPath(target))?.isFile() === true;
+      if (!targetExists) {
         problems.push(
           `${relativePath}:${index + 1} comment references ${symbol} in ${specifier}, ` +
           "but that file does not exist"
         );
         continue;
       }
-      if (await declaresSymbol(target, symbol)) continue;
+      if (await declaresSymbol({ path: target, symbol, fileTexts })) continue;
       problems.push(
         `${relativePath}:${index + 1} comment references ${symbol} in ${specifier}, ` +
         "but that module no longer declares or re-exports it"

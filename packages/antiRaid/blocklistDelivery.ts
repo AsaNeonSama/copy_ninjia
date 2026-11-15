@@ -1,3 +1,8 @@
+/**
+ * 黑名单移除批次的投递前对账与持久化收敛：把待发往 Anti-Raid Worker 的 `removeBlockedMembers`
+ * 与主线程当前权威黑名单及 outbox 对齐，批次在对账期间被解封取消时恢复其原本取代的 `join` 事件
+ * （见 docs/cn/04-invariants.md）。
+ */
 import {
   getPendingBlockedRemovalParams,
   persistPendingBlockedRemovals,

@@ -8,16 +8,18 @@ import {
   adoptCopyTarget,
   activeCopyModeIn,
   activeCopyTargetIdIn,
+  getGlobalCopyState,
+  loadState,
+} from "../../../packages/infra/storage/stateStore";
+import {
   clearChatStateField,
   disableChatStateSwitch,
   getActiveProxySendTarget,
   getChatState,
   getChatStateCache,
-  getGlobalCopyState,
   getOrCreateChatState,
-  loadState,
   purgeChatStateExceptLockdown,
-} from "../../../packages/infra/storage/stateStore";
+} from "../../../packages/infra/chatStateStorage";
 import { chatStateCache } from "../../../packages/cache/main/chatState";
 import { STATE_MANAGED_CHAT_LIMIT } from "../../../packages/consts/storage";
 import { LEGACY_STATE_FILE_PATHS } from "../../../packages/consts/paths";
@@ -389,6 +391,8 @@ describe("StateStore", () => {
     const invalid = { copy: { copiedUser: null }, unknownField: true } as unknown as GlobalState;
 
     await expect(store.save(invalid)).rejects.toThrow("$.<key> must be absent");
+    await expect(store.save({ copy: { copiedUser: undefined } } as unknown as GlobalState))
+      .rejects.toThrow("$.copy.copiedUser must be present");
     expect(paths).toEqual([]);
   });
 

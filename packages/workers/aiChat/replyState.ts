@@ -1,3 +1,4 @@
+/** AI 回复限频与队列溢出提示的冷却控制、发送及滚动记忆自录。 */
 import { aiChatAtmosphere } from "./atmosphere";
 import type { TelegramWorkerTemporaryMessageResult } from "../../types/telegramWorker";
 import { sendTemporaryMessageFromMain } from "../../infra/telegram/workerClient";

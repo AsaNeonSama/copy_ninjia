@@ -19,11 +19,12 @@ done
 > [!CAUTION]
 > Never use a copy command that overwrites existing files, and never treat `config_example/` as a deployment backup. Files under `config/` contain credentials and should be readable only by the service account.
 
-`config/` is strictly split into two subdirectories based on how changes take effect:
-- `config/static/`: `bot.json`, `g-auth.json`; changes **require a service restart**.
-- `config/dynamic/`: `assets.json`, `ad_samples.json`, `agent.json`, `mood.json`, `stickers.json`, `cron.json`; changes are automatically hot-reloaded at runtime.
-
-The `config/dynamic/` directory must exist (it may be empty). Placing any configuration file at the root of `config/` or in the wrong subdirectory will refuse startup. Allowlist, blocklist, and per-group state live in `database/storage.sqlite` and are not deployment configuration.
+`config/` enforces a strict three-level directory whitelist (`config/` itself permits only `static/` and `dynamic/`):
+- `config/static/`: permits only `bot.json`, `g-auth.json`; changes **require a service restart**.
+- `config/dynamic/`: permits only `assets.json`, `ad_detect.json`, `agent.json`, `mood.json`, `stickers.json`, `cron.json`; changes are automatically hot-reloaded at runtime.
+- `config/dynamic/` must be an existing directory (it may be empty). Any non-directory occupying a config directory path, or any undeclared entry at any of the three levels (including misplaced or legacy files such as `telegram.json` or `ad_samples.json`, hidden/swap/backup files, extra subdirectories, and dangling symlinks), refuses startup.
+- During hot reload, any undeclared entry in `config/dynamic/` rejects the entire reload round and retains active snapshots.
+- Allowlist, blocklist, and per-group state live in `database/storage.sqlite` under the runtime data root and are not deployment configuration files.
 
 Every JSON file is parsed under a strict schema: unknown keys, typos, type mismatches, invalid enums, or out-of-range values abort startup immediately or are rejected during hot reload—**the bot never repairs or silently ignores invalid configurations**.
 
@@ -44,7 +45,7 @@ Every JSON file is parsed under a strict schema: unknown keys, typos, type misma
   <tr>
     <td><code>static/bot.json</code></td>
     <td><nobr>Static (Restart required)</nobr></td>
-    <td>Telegram Bot Token, sole super administrator, default atmosphere and time zone</td>
+    <td>Telegram Bot Token, sole super administrator, default atmosphere, time zone, and optional Mini App console</td>
     <td><b>Startup refused (Fatal error)</b></td>
   </tr>
   <tr>
@@ -66,9 +67,9 @@ Every JSON file is parsed under a strict schema: unknown keys, typos, type misma
     <td>AI chat halts (startup succeeds)</td>
   </tr>
   <tr>
-    <td><code>dynamic/ad_samples.json</code></td>
+    <td><code>dynamic/ad_detect.json</code></td>
     <td><nobr>Dynamic (Hot reloaded)</nobr></td>
-    <td>Positive reference samples for spam and advertisement detection</td>
+    <td>Ad punishment, positive reference samples, and sticker/emoji pack blacklists for ad detection</td>
     <td>Ad detection halts (startup succeeds)</td>
   </tr>
   <tr>
@@ -104,7 +105,7 @@ The bot watches `config/dynamic/` continuously. Strict schema validation and hot
 1. **Hot Replacement**: Valid changes update the in-memory snapshot and are immediately dispatched to relevant Workers.
 2. **Rejection & Fail-Safe**: Invalid configurations are rejected as a whole. Detailed error locations (file path, field path, expected shape) are logged, and the bot continues running using the previous valid snapshot.
 3. **Availability Linkage**:
-   - Adding or removing `ad_samples.json` or `ad_detect` in `agent.json` directly enables or disables ad detection.
+   - Adding or removing `ad_detect.json` or `ad_detect` in `agent.json` directly enables or disables ad detection.
    - Adding or removing the chat core capabilities (`AGENT_AI_CHAT_REQUIRED_CAPABILITIES`: `text`, `summary`, `media`) or `mood.json` / `stickers.json` automatically enables or disables AI chat.
    - Adding or removing optional tools (`image`, `tts`, `web_search`) takes effect on the fly.
 4. **Cross-File Dependency Validation**:
@@ -146,11 +147,11 @@ Static configuration file located at `config/static/bot.json`. Requires a proces
 | `super_admin_user_id` | `number` | **Required** | Positive safe integer (`> 0`) | Telegram numeric user ID of the sole super administrator (not @username). Inherent holder of all permissions |
 | `atmosphere` | `string` | Optional | `"mesugaki"` or `"normal"`; trimmed and strictly validated; omission selects by custom-persona presence | Global notification tone; explicit configuration takes priority (`mesugaki` teasing, `normal` plain). When omitted, use plain if `prompt/persona.md` exists, otherwise teasing; does not change the AI persona |
 | `time_zone` | `string` | Optional | IANA name, default `DEFAULT_BOT_TIME_ZONE`; trimmed and strictly validated | Default calendar zone for fortune, logs, ad activity, AI clocks, daily maintenance, and cron tasks without an explicit zone; the Tokyo weather tool is registered only for `TOKYO_TIME_ZONE`, including the omitted default; invalid values refuse startup. The data root is bound to this zone when it is created, and a later change refuses startup; see [07 Operations](../../docs/en/07-operations.md#calendar-time-zone) |
-| `mini_app` | `object` | Optional | Strict object allowing only `url`, `port`, `host`, and `password`; when omitted, no local HTTP server or routes are started and private `MenuButtonWebApp` is not registered; when copying from `config_example/` manually without using the Mini App, remove this section or replace `password` with a real password (the placeholder password refuses startup) | SuperAdmin-only Telegram Mini App management console (Dashboard) configuration; see [11 Mini App Setup and Recommended Configuration](../../docs/en/11-mini-app.md) for full setup and Cloudflare Tunnel configuration |
+| `mini_app` | `object` | Optional | Strict object allowing only `url`, `port`, `host`, and `password`; when omitted, no local HTTP server or routes are started and private `MenuButtonWebApp` is not registered; when copying from `config_example/` manually without using the Mini App, remove this section or replace `password` with a real password (the placeholder password refuses startup) | SuperAdmin-only Telegram Mini App management console (Dashboard) configuration; see [10 Mini App Setup and Recommended Configuration](../../docs/en/10-mini-app.md) for full setup and Cloudflare Tunnel configuration |
 | `mini_app.url` | `string` | **Required** when `mini_app` is present | Valid `https://` URL; supports subpath prefixes (e.g. `https://example.com/sub`) and reverse proxies that either preserve or strip the path prefix | Public HTTPS URL loaded by the Telegram WebApp client |
 | `mini_app.port` | `number` | **Required** when `mini_app` is present | Safe integer in `MINI_APP_PORT_MIN`–`MINI_APP_PORT_MAX` (`1`–`65535`), set to `3000` in the example configuration | Local `Bun.serve` HTTP listening port |
 | `mini_app.host` | `string` | Optional | Non-empty string, default `MINI_APP_DEFAULT_HOST` (`"127.0.0.1"`) | Local `Bun.serve` HTTP listening address |
-| `mini_app.password` | `string` | **Required** when `mini_app` is present | Non-empty string containing at least 6 digits (`0-9`) and not equal to `MINI_APP_PASSWORD_PLACEHOLDER`; missing or invalid values refuse startup | First-screen access password for the Mini App (45-minute `initData` and session validity; 3 consecutive failures lock out the SuperAdmin ID for 30 minutes; when Google Authenticator TOTP is bound in the console, 6-digit TOTP takes precedence on login) |
+| `mini_app.password` | `string` | **Required** when `mini_app` is present | Non-empty string containing at least 6 digits (`0-9`) and not equal to `MINI_APP_PASSWORD_PLACEHOLDER`; missing or invalid values refuse startup | First-screen access password for the Mini App (45-minute `initData` and session validity; 3 consecutive failures lock out the SuperAdmin ID for 30 minutes; binding Google Authenticator TOTP in the console switches login to 6-digit TOTP verification until unbound) |
 
 ---
 
@@ -451,26 +452,68 @@ Dynamic configuration file located at `config/dynamic/mood.json`. Defines AI moo
 
 ---
 
-## `ad_samples.json`
+## `ad_detect.json`
 
-Dynamic configuration file located at `config/dynamic/ad_samples.json`. Root is an array of plain text strings used as positive reference examples for advertisement classification.
+Dynamic configuration file located at `config/dynamic/ad_detect.json`. The root is a JSON object that must contain exactly the `punishment` object and the `samples`, `sticker_black_list`, and `emoji_black_list` arrays:
+- **Contents**: Defines the punishment applied after a positive verdict, positive advertisement text examples, blacklisted sticker pack short names, and blacklisted custom emoji pack short names.
+- **Detection order**: Runs in the order "sticker pack blacklist fast-path -> custom emoji pack blacklist -> AI text classification"; matching either blacklist skips AI classification.
+- **Disposal**: Whichever path flags the sender, the offending messages are deleted first, then `punishment` is applied and a notice that self-deletes after `COMMAND_MESSAGE_AUTO_DELETE_MS` is posted in the triggering chat.
 
 ### Configuration Example
 
 ```json
-[
-  "博彩平台首充送58，提款秒到，无视风控，联系 @xxxxxx",
-  "招聘日结兼职，手机就能做，日入三百起，加微信 xxxxxx",
-  "长期收u出u，价格美丽，秒结，飞机 @xxxxxx",
-  "出售TG老号 白号 API号 协议号，价格优惠，私聊"
-]
+{
+  "punishment": {
+    "kick": {
+      "block": true,
+      "block_scope": "global"
+    }
+  },
+  "samples": [
+    "博彩平台首充送58，提款秒到，无视风控，联系 @xxxxxx",
+    "招聘日结兼职，手机就能做，日入三百起，加微信 xxxxxx",
+    "长期收u出u，价格美丽，秒结，飞机 @xxxxxx",
+    "出售TG老号 白号 API号 协议号，价格优惠，私聊"
+  ],
+  "sticker_black_list": [
+    "SpamStickerPack_by_example_bot"
+  ],
+  "emoji_black_list": [
+    "SpamEmojiPack_by_example_bot"
+  ]
+}
 ```
+
+### Punishment Settings
+
+`mute` and `kick` in `punishment` are mutually exclusive: write exactly one of them. Writing both or neither is rejected.
+
+| Setting | Ordinary users | Channel identities (`sender_chat`) |
+| --- | --- | --- |
+| `mute` | Muted in the triggering chat: permanently when `permanent` is `true`, otherwise for `duration`, after which Telegram lifts the mute | Messages deleted only |
+| `kick`, `block: false` | Kicked from the triggering chat without a ban; may rejoin | Messages deleted only |
+| `kick`, `block_scope: "chat"` | Banned in the triggering chat only, with their messages revoked; not added to the permanent blocklist | Messages deleted only |
+| `kick`, `block_scope: "global"` | Added to the permanent blocklist (the same list as `/block`) and banned in every managed chat | Same |
+
+- Mutes, kicks without a ban, and in-chat bans only affect the triggering chat and are not written to the persistent outbox: requests still pending when the shutdown drain times out or the process restarts are abandoned; when a request fails, the notice asks admins to check the bot's permissions.
+- In-chat bans are not on the bot's permanent blocklist, so `/unblock` cannot lift them; lift them from Telegram's group management screen. Lift permanent mutes with `/unmute`.
+- Before a kick without a ban, the bot confirms the target is still in the chat; no removal is sent while the chat kind or the membership is unknown.
+- Punishment settings follow hot reload and are read on every disposal; if the file is deleted, hits still being processed only have their messages deleted.
 
 ### Key Reference
 
-| Structure | Type | Required | Constraints & Values | Description |
+| Key | Type | Required | Constraints & Values | Description |
 | --- | --- | --- | --- | --- |
-| Root Array | `string[]` | **Required** | Array with `0` to `MAX_CONFIGURED_AD_SAMPLES` unique entries | Positive ad message examples. Each entry, after runs of whitespace are collapsed into a single space and leading/trailing whitespace is trimmed, must be non-empty and `≤ AD_SAMPLE_MAX_CHARS` characters; uniqueness is judged on that normalized form. Under `provider: "google"`, these samples are automatically compiled into a Gemini explicit context cache, refreshed in the background when the remaining lifetime falls below `GEMINI_CONTEXT_CACHE_RENEW_BEFORE_MS` |
+| `punishment` | `object` | **Required** | Only the `mute` and `kick` keys, exactly one of them present | Punishment applied after a positive verdict (including blacklist matches); see the table above |
+| `punishment.mute` | `object` | Exactly one of `mute` and `kick` | Only the `permanent` and `duration` keys | Mute settings |
+| `punishment.mute.permanent` | `boolean` | **Required** | — | `true` mutes permanently |
+| `punishment.mute.duration` | `string` | Required when `permanent` is `false`; must be absent when `true` | `<number>m/h/d` (for example `"30m"`, `"12h"`, `"7d"`), trimmed, within `MUTE_MIN_DURATION_MS` to `MUTE_MAX_DURATION_MS`; out-of-range values are rejected | Mute duration |
+| `punishment.kick` | `object` | Exactly one of `mute` and `kick` | Only the `block` and `block_scope` keys | Kick settings |
+| `punishment.kick.block` | `boolean` | **Required** | — | `false` kicks without a ban; `true` bans according to `block_scope` |
+| `punishment.kick.block_scope` | `string` | Required when `block` is `true`; must be absent when `false` | `"chat"` or `"global"` after trimming (`AD_BLOCK_SCOPES`) | `"chat"` bans in the triggering chat only; `"global"` adds the sender to the permanent blocklist and bans in every managed chat |
+| `samples` | `string[]` | **Required** | Array with `0` to `MAX_CONFIGURED_AD_SAMPLES` unique entries | Positive ad message examples. Each entry, after runs of whitespace are collapsed into a single space and leading/trailing whitespace is trimmed, must be non-empty and `≤ AD_SAMPLE_MAX_CHARS` characters; uniqueness is judged on that normalized form. Under `provider: "google"`, these samples are automatically compiled into a Gemini explicit context cache, refreshed in the background when the remaining lifetime falls below `GEMINI_CONTEXT_CACHE_RENEW_BEFORE_MS` |
+| `sticker_black_list` | `string[]` | **Required** | Array with `0` to `MAX_CONFIGURED_AD_BLACKLIST_PACKS` entries; each entry, trimmed, must match `STICKER_PACK_NAME_PATTERN` and be unique | Blacklisted sticker pack short names (the final segment of `https://t.me/addstickers/<short_name>`). When a non-exempt sender posts a sticker belonging to a pack in this list, subsequent checks are skipped and `punishment` is applied |
+| `emoji_black_list` | `string[]` | **Required** | Array with `0` to `MAX_CONFIGURED_AD_BLACKLIST_PACKS` entries; each entry, trimmed, must match `STICKER_PACK_NAME_PATTERN` and be unique | Blacklisted custom emoji pack short names (the final segment of `https://t.me/addemoji/<short_name>`). When a non-exempt sender posts a message with `custom_emoji` entities, their pack names are queried via the main thread's unified Telegram outbound client; a match skips AI classification and applies `punishment` |
 
 ---
 

@@ -12,7 +12,8 @@ const activeTranslateStateIn = mock((_chatState: { chatId: number }, userId: num
 /** 群状态替身：只带群 id，供断言翻译判定读的是本群状态。 */
 const getChatState = (chatId: number): { chatId: number } => ({ chatId });
 
-mock.module("../../packages/infra/storage/stateStore", () => ({ activeCopyTargetIdIn, getChatState }));
+mock.module("../../packages/infra/storage/stateStore", () => ({ activeCopyTargetIdIn }));
+mock.module("../../packages/infra/chatStateStorage", () => ({ getChatState }));
 mock.module("../../packages/infra/telegram", () => ({ setMessageReactions }));
 mock.module("../../packages/infra/logger", () => ({ logger: loggerStub({ log: loggerLog }) }));
 mock.module("../../packages/translate/message", () => ({ activeTranslateStateIn }));

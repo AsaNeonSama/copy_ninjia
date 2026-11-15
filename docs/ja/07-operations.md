@@ -12,7 +12,11 @@
 
 ## デプロイ形態
 
-本システムは、Webhook や外部データベースサービスを使用しない、単一インスタンスのロングポーリングプロセスです。ID ポリシーおよびグループ状態はローカルの SQLite データベースで管理し、その他の永続化データはデータルート配下のファイルに保存されます。
+Copy Ninjia は**単一インスタンスのロングポーリング（Long Polling）**常駐プロセスとして動作します：
+- Telegram 更新受信用に公開 Webhook やリバースプロキシポートを開ける必要はありません（任意の Mini App 管理コンソールのみ HTTPS 入口を使用します。詳細は [10 Mini App](10-mini-app.md) を参照）。
+- MySQL / PostgreSQL などの外部データベースサービスは不要です。
+- ID 権限ポリシーと管理中グループの実行状態はローカルの SQLite データベースに格納されます。
+- その他の永続データは JSON / テキストファイルとしてローカルのデータルート配下に保存されます。
 
 ### ハードウェアの目安
 
@@ -28,32 +32,34 @@
   <tr>
     <td><nobr>🌱 <b>エントリー構成</b></nobr><br><sub>（低負荷 / テキスト中心）</sub></td>
     <td>2 vCPU / 2 GB RAM / ローカル SSD</td>
-    <td>通常動作可能ですが、メディア処理のピーク時に Worker 間で CPU 競合が発生する可能性があります。2 GB Swap の確保を推奨。</td>
+    <td>テキスト中心なら安定稼働します。マルチモーダル処理のピーク時は Worker 間で CPU 競合が起き得るため、2 GB Swap の設定を強く推奨します。</td>
   </tr>
   <tr>
     <td><nobr>⚡ <b>軽量本番</b></nobr><br><sub>（少数のグループのみ AI 有効）</sub></td>
     <td>4 vCPU / 2 GB RAM / ローカル SSD</td>
-    <td>テキスト処理は安定稼働。2 GB メモリでのメディア処理ピーク受け止めは非推奨（2 GB Swap 推奨）。</td>
+    <td>テキスト処理は安定します。2 GB RAM では高並行のメディア負荷に余裕が少ないため、2 GB Swap の併用を推奨します。</td>
   </tr>
   <tr>
     <td><nobr>🌟 <b>推奨本番</b></nobr><br><sub>（中規模のアクティブグループ群）</sub></td>
     <td>4 vCPU / 4 GB RAM / ローカル SSD</td>
-    <td>グループごとの日平均メッセージ量が中程度の標準構成。安定性とコストのバランスに優れます（2 GB Swap 推奨）。</td>
+    <td>日次メッセージ量が中程度の標準本番構成で、安定性とコストのバランスに優れます（2 GB Swap 推奨）。</td>
   </tr>
   <tr>
     <td><nobr>🔥 <b>高負荷本番</b></nobr><br><sub>（全グループ AI 有効 / 画像多数）</sub></td>
     <td>4 vCPU / 8 GB RAM / ローカル SSD</td>
-    <td>メディアダウンロード、Base64 エンコード、画像トランスコードの突発ピーク時にも十分なリソース余力を確保。</td>
+    <td>並行メディア取得・Base64 変換・画像トランスコード時のヒープピークにも十分な余裕を確保できます。</td>
   </tr>
 </tbody>
 </table>
 
 > [!NOTE]
-> 単一インスタンスが同時に管理できるグループ数の上限は `STATE_MANAGED_CHAT_LIMIT` です。主なリソースボトルネックはグループの参加総人数ではなく、Telegram Bot API のレート制限、設定した AI プロバイダのクォータ、および実際のメッセージ・メディアのスループット速度に起因します。
+> 単一インスタンスが同時に管理できるグループ上限は `STATE_MANAGED_CHAT_LIMIT` です。実質的なボトルネックは参加メンバー総数ではなく、Telegram Bot API のレート制限、AI プロバイダのクォータ、および実際のメッセージ・メディア流量で決まります。
 
 ---
 
 ### systemd の例
+
+本番常駐プロセスは systemd で管理することを推奨します：
 
 ```ini
 [Unit]
@@ -77,109 +83,129 @@ WantedBy=multi-user.target
 
 #### ディレクトリ権限とセキュリティ制御
 
-- **データルートディレクトリの事前作成**：デプロイ時にあらかじめデータルートを作成します：
+- **データルートディレクトリの事前作成**：専用の実行ユーザーとデータルートをあらかじめ作成します：
   ```bash
   sudo install -d -o copy-ninjia -g copy-ninjia -m 0750 /var/lib/copy-ninjia
   ```
-  コンテナ運用の場合は、該当ディレクトリを永続ボリュームとしてマウントし、ホスト側または init コンテナで所有者を設定してください。`memory/` や `database/` をコンテナの一時レイヤーに配置してはなりません。
-- **自動補完と厳格な書き込み保護**：プログラム起動時にデータルート、`RUNTIME_SENSITIVE_DIRECTORY_NAMES` に列挙されたディレクトリ（`logs/`、`memory/`、`memory/global/`。上限モードは `packages/consts/storage.ts` の `RUNTIME_DATA_ROOT_MAX_MODE`）、および初期の `database/`（`packages/consts/identityStorage.ts` の `IDENTITY_DATABASE_DIRECTORY_MODE`）が存在しない場合は自動作成されます（実際の権限はプロセスの umask により制限されます）。いずれのディレクトリも**シンボリックリンクは拒否**されます。データルートおよび `RUNTIME_SENSITIVE_DIRECTORY_NAMES` は実行 UID が所有者であり、かつパーミッションが `RUNTIME_DATA_ROOT_MAX_MODE` 以下でなければなりません。group または other に書き込み権限（`w`）が検知された場合は**起動を拒否**します。
+  コンテナ環境ではデータルートを永続ボリュームとしてマウントし、ホスト側または init コンテナで所有者を設定してください（`memory/` や `database/` を揮発性のコンテナ書き込み層に置いてはなりません）。
+- **自動初期化と厳格な書き込み保護**：
+  - 起動時に未作成のディレクトリは自動補完されます（データルートと `RUNTIME_SENSITIVE_DIRECTORY_NAMES`＝`logs/`・`memory/`・`memory/global/` の上限モードは `packages/consts/storage.ts` の `RUNTIME_DATA_ROOT_MAX_MODE`、`database/` は `packages/consts/identityStorage.ts` の `IDENTITY_DATABASE_DIRECTORY_MODE`、実効値はプロセスの `umask` に従います）。すべての対象パスで**シンボリックリンクは拒否**されます。
+  - データルートおよび `RUNTIME_SENSITIVE_DIRECTORY_NAMES` は実行 UID 所有かつ `RUNTIME_DATA_ROOT_MAX_MODE` 以下でなければならず、`group` または `other` に書き込み権限（`w`）がある場合は**即座に起動を拒否**します。
 
 > [!WARNING]
-> **マルチテナント環境のデータセキュリティ**：
-> `memory/` 配下に新規作成されるファイルのデフォルト権限は `PERSISTED_FILE_MODE`（`packages/consts/diskIO/common.ts`）です。親ディレクトリが他のローカルアカウントに読み取り・通過を許可している場合（`RUNTIME_DATA_ROOT_MAX_MODE`）、同一ホスト上の他のローカルアカウントがグループの対話ログを読み取れる可能性があります。マルチテナント環境ではデータルートと `memory/` の `other` 権限を除去し、既存ファイルを所有者のみまたは所有者・グループのみの読み取りに制限してください（実行時のプログラムは既存ファイルの権限を尊重し、自動変更しません）。
-> `database/` は `IDENTITY_DATABASE_DIRECTORY_MODE`（共有サービスグループ運用の場合は setgid ビットを併用可能）に設定し、メインデータベースおよび WAL/SHM の初回作成パーミッションは `IDENTITY_DATABASE_FILE_MODE` となります。**データルート全体に対して再帰的にグループ書き込み権限を除去しないでください**。`database/` には共有サービスグループの書き込み権限を残す必要があります。`config/` は読み取り専用のデプロイデータであるため、読み取り専用パーミッションを維持してください。
+> **マルチテナント環境のデータ隔離**：
+> `memory/` 配下に新規作成されるファイルの既定モードは `PERSISTED_FILE_MODE`（`packages/consts/diskIO/common.ts`、`0644`）です。親ディレクトリが他のローカルユーザーに読み取り・通過を許していると、共有サーバー上の別アカウントからログを読まれる恐れがあります。共有環境ではデータルートと `memory/` を `0750`、既存ファイルを `0600` または `0640` に絞ってください（ランタイムは既存ファイルの権限を勝手に変更しません）。
+> `database/` は上限 `IDENTITY_DATABASE_DIRECTORY_MODE`（共有サービスグループ運用では `setgid` 付き `02770` も可）、DB 本体と WAL/SHM の作成モードは `IDENTITY_DATABASE_FILE_MODE` です。`database/` はグループ書き込み権限を必要とするため、**データルート全体に再帰的な `chmod 0750` を実行しないでください**。`config/` は読み取り専用のまま維持します。
 
-- **クラッシュリカバリ**：プロセスクラッシュや異常終了時は、systemd の `Restart=on-failure` により自動再起動されます。認証待ち状態、ロックダウンタイマー、ID ライトスルー、AI 会話メモリ、未確認の Telegram update は、[04 実行時の正式な不変条件](04-invariants.md#永続化) のセマンティクスに従って安全に復元・再開されます。
+- **クラッシュ時の自動復旧**：異常終了時は systemd の `Restart=on-failure` で自動再起動され、参加認証待ち、ロックダウンタイマー、ID 書き込み、AI 会話メモリ、未確認の Telegram update は [04 実行時の正式な不変条件](04-invariants.md#永続化) に従って復元されます。
 
 ---
 
 ### バイナリデプロイ
 
-バイナリ配布ディレクトリには、実行可能ファイル `copy-ninjia`、`binary.json`、`package.json`、インストーラー、コールドマイグレーションスクリプト、設定・プロンプトのサンプル、およびデータベースマイグレーション定義が含まれます（依存関係はバイナリに内蔵されているため、`node_modules/` は不要です）。デプロイ時はディレクトリ全体の構造をそのまま維持してください。
-- **初回セットアップ**：配布ディレクトリ内で `bash install.sh` を実行し、設定ファイルの作成と空データベースの初期化を完了します。フォアグラウンドでの動作確認は直接 `./copy-ninjia` を実行できます。
-- **systemd 統合**：`WorkingDirectory` に配布ディレクトリを指定し、`ExecStart` に実行可能ファイルの絶対パスを指定します（`start` 引数は不要です）。ホストマシンへの Bun の事前インストールは不要です。
-- **バージョン更新手順**：インストーラーは新規ディレクトリへの導入時にのみ最新パッケージと SHA-256 を取得し、既存のバイナリデプロイを上書きまたはインプレース更新することはありません。更新作業は、後述のサービス停止、外部バックアップ、検証、手動移行手順に従って実施します。まず独立した一時ステージングディレクトリで新パッケージを検証し、既存の設定・認証情報・永続化データを安全に引き継いだ上でプログラムファイルを更新してください。デプロイディレクトリに残存する `node_modules/` は実行時に参照されないため、停止中に安全に削除できます。
-- **コールドマイグレーションスクリプト**：配布パッケージ内のスクリプトは `scripts/migrations/` に配置されており、`BUN_BE_BUN=1 ./copy-ninjia scripts/migrations/<スクリプト>.js --help` で使い方を確認できます。起動エントリポイントは現行フォーマットのデータのみを受け付けます。
-- ビルドとリリースの詳細は [05 リリース](05-dev-workflow.md#リリース) を参照してください。
+公式の事前ビルド済みバイナリ配布物には、単一実行ファイル `copy-ninjia`、`binary.json`、`package.json`、`install.sh`、コールドマイグレーション CLI、設定・プロンプトテンプレート、SQLite マイグレーション SQL が同梱されており、`node_modules/` は不要です。
+- **初回セットアップ**：展開ディレクトリで `bash install.sh` を実行すると、対話ガイドに沿って設定生成と空 DB 初期化が完了します。フォアグラウンド確認は `./copy-ninjia` を直接実行します。
+- **systemd 設定**：`WorkingDirectory` に展開先ディレクトリ、`ExecStart` に `copy-ninjia` の絶対パスを指定します（`start` 引数は不要、ホストへのシステム Bun 導入も不要です）。
+- **バージョン更新手順**：ワンライナー導入スクリプトは新規ディレクトリへ Latest パッケージと SHA-256 を取得するもので、稼働中ディレクトリのインプレース上書きは行いません。更新時はサービス停止・外部バックアップ・一時ディレクトリでの新アーカイブ検証・コールド移行を実施した上で、既存の `config/` とデータルートを保持したままプログラムファイルを差し替えます（残存する `node_modules/` は参照されないため停止中に削除可能です）。
+- **コールドマイグレーション CLI**：同梱スクリプトは `scripts/migrations/` にあり、`BUN_BE_BUN=1 ./copy-ninjia scripts/migrations/<スクリプト>.js --help` で引数を確認できます。本番エントリポイントは現行形式のみを受け付けます。
+- パッケージ構築の詳細は [05 リリース](05-dev-workflow.md#リリース) を参照してください。
 
 ---
 
 ## データルート
 
-環境変数 `COPY_NINJIA_DATA_ROOT` からすべての実行時データパスが解決されます（未設定時はカレントリポジトリルートを使用。空文字列が明示設定された場合は起動を拒否します）：
+すべての実行時データパスは環境変数 `COPY_NINJIA_DATA_ROOT` から派生します（未設定時はプロジェクトルート、空文字や空白のみの明示指定は起動拒否）：
 
 ### 暦タイムゾーン
 
-`config/static/bot.json` の `time_zone` はプロセス起動時に読み込まれ（省略時は `packages/consts/bot.ts` の `DEFAULT_BOT_TIME_ZONE`）、稼働中に再読み込みされることはありません。cron タスクは個別の `time_zone` を指定して上書き可能です。
+`config/static/bot.json` の `time_zone`（省略時は `packages/consts/bot.ts` の `DEFAULT_BOT_TIME_ZONE`）は起動時に 1 回だけ読み込まれ、稼働中には変化しません。`cron.json` の各タスクでは個別の `time_zone` で上書き可能です。
 
-データルートは、初回データベース作成時の設定タイムゾーンに固定されます（`database/storage.sqlite` 内 `storage_metadata` の `IDENTITY_DATABASE_TIME_ZONE_KEY` マーカー `"time-zone"`）。日付別ファイル名、運勢レシートキー、一時広告免除の累計、入室ログはすべてこのタイムゾーンに基づいて計算されます。起動時に `time_zone` の変更が検知された場合、システムは起動を拒否し、エラーメッセージに `storage_metadata.time-zone` と期待値を出力します。インストーラーもサービス登録前に同様の検証を行います。既存データルートに対するタイムゾーンの事後変更はサポートしていません。タイムゾーンを変更したい場合は、設定をマーカーの値に戻して起動してください。`database/` と `memory/` は同一時点の状態で整合している必要があるため、バックアップとリストアは常に一括で扱ってください。
+**データルートとタイムゾーンの恒久バインド**：
+- 初回 DB 作成時に `database/storage.sqlite` の `storage_metadata` テーブルへ `IDENTITY_DATABASE_TIME_ZONE_KEY`（`"time-zone"`）が記録され、以降の日次ファイル切り替え、おみくじレシート署名鍵、一時広告免除枠、入室ログ保持窓はすべてこのタイムゾーン基準で計算されます。
+- 起動時（および `install.sh` 事前検査時）に `bot.json` の `time_zone` と `storage_metadata.time-zone` が一致しない場合は即座に中断し、双方の値をログに出力します。
+- 既存データルートのタイムゾーン変更はサポートしていません。起動するには `bot.json` の `time_zone` を DB 記録値に戻してください。また `database/` と `memory/` は必ず同一時点のスナップショットとして一括でバックアップ・復元してください。
 
 ### 1. グローバル状態：`memory/global/state.json`
-- **役割と内容**：`copy`（グローバルリピート状態：対象ユーザー、モード、発起グループ、クールダウン時計）および `ttsUsage`（音声合成の日次利用枠カウント窓：窓の開始時刻 `windowStartedAt`、AI カウント `agentCount`、予約カウント `reserveCount`）を保持。
-- **フォーマット制約**：トップレベルには必須の `copy` と任意の `ttsUsage` のみが許可されます。`copy.copiedUser` は必須（`null` はリピート対象なし）、`copy.copyMode` はデフォルト（省略）、`reverse`、`nya` のみを受け付けます。`ttsUsage` が存在する場合は `windowStartedAt`、`agentCount`、`reserveCount` がすべて必須の非負整数であり、かつ少なくとも 1 項目が 0 より大きくなければなりません。ファイルが存在しない場合は未利用状態として扱い、ファイルが存在しながら構文エラーや未知のキーが含まれる場合は**起動を拒否**します。インストーラーは設定準備時に起動時と同一基準で厳格な読み取り専用検証を行い、現行形式に合致しない場合はサービス登録と起動の前に中断します。
-- **書き込みメカニズム**：メインスレッドが排他的にアトミック書き込みを行い（一時ファイル + fsync + アトミック rename）、Disk I/O Worker はこのディレクトリに直接触れません。`copy` の変更は即座にディスクへ反映され、`ttsUsage` は `STATE_BACKGROUND_SAVE_DELAY_MS` のマージウィンドウを経てバックグラウンドで flush されます。正常終了時は未書き込みの変更を安全にコミットしますが、突発的な SIGKILL 等ではウィンドウ内の未永続化カウントが失われる可能性があります。
-- **手動変更**：サービスを停止して inactive であることを確認し、ワークツリー外で `mktemp -d` を用いてファイルとメタデータを完全バックアップした上で編集してください。未変更のフィールドは保持し、厳格なパース検証を行い、問題がないことを確認してから起動します。
-- **データルート直下の残留ファイル**：データルート直下に `state.json` または `state.json.bak` が残存している場合、起動およびインストーラーはエラー終了します。先に[段階的アップグレード](#staged-upgrade)で 17.2.1 へ上げてその移行を完了し、このファイルをデータルート外へ移動してください。
-- **Mini App 認証器：`memory/mini-app-totp/totp.json`**（任意、詳細は [11 Mini App の設定方法と推奨構成](11-mini-app.md) を参照）：スーパー管理者が Mini App の「認証器」タブで単一の Google Authenticator (TOTP) シークレットを登録すると、メインスレッドが `{ version: 1, secret, createdAt }` をアトミック書き込み（一時ファイル + `fsync` + `rename`、パーミッション `0o600`）で永続化します。起動時の composition 境界で 1 回だけ厳格に検証してメモリキャッシュへ読み込まれ、インストーラーの事前検査も同じ基準で読み取り専用に検証し（ファイル未作成は未バインド扱い、通常ファイル以外や不正形式は起動とインストールを拒否）、稼働中の認証や状態照会はディスク I/O ゼロで動作し、追加・変更・削除時のみ即座にディスクへ反映されます。
+- **役割と内容**：グローバル復唱設定 `copy`（対象ユーザー、モード、開始グループ、クールダウン時刻）と、音声合成の日次クォータ窓 `ttsUsage`（窓開始時刻 `windowStartedAt`、AI 合成数 `agentCount`、予約中継数 `reserveCount`）を保持します。
+- **フォーマット制約**：
+  - トップレベルは必須の `copy` と任意の `ttsUsage` のみ許可されます（未作成なら初期状態扱い、未知キーや型不正があれば**起動および `install.sh` 事前検査を即座に拒否**）。
+  - `copy.copiedUser` は必須（対象なしは `null`）、`copy.copyMode` は省略・`reverse`・`nya` のみ有効です。
+  - `ttsUsage` がある場合、`windowStartedAt`・`agentCount`・`reserveCount` はすべて必須の非負整数で、少なくとも 1 つは `0` より大きくなければなりません。
+- **書き込み方式**：メインスレッドのみが一時ファイル + `fsync` + アトミック `rename` で書き込みます（Disk I/O Worker は関与しません）。`copy` は即時フラッシュ、`ttsUsage` は `STATE_BACKGROUND_SAVE_DELAY_MS` で合算フラッシュされ、正常停止時に全件コミットされます（`kill -9` や電源断では合算窓内の増分のみ失われる場合があります）。
+- **手動編集**：必ずサービス停止とプロセス終了を確認し、`mktemp -d` でワークツリー外へバックアップした上で、未知キーの混入や必須項目欠落がないことを確認してから再起動してください。
+- **データルート直下の旧ファイル検査**：データルート直下に旧版の `state.json` や `state.json.bak` が残っていると起動・インストーラーともに拒否されます。先に[段階的アップグレード](#staged-upgrade)で 17.2.1 までの移行を済ませ、旧ファイルをデータルート外へ退避してください。
+- **Mini App 認証器：`memory/mini-app-totp/totp.json`**（任意、詳細は [10 Mini App の設定方法と推奨構成](10-mini-app.md) 参照）：
+  - スーパー管理者が Mini App「認証器」画面で Google Authenticator (TOTP) を登録すると、メインスレッドが `{ version: 1, secret, createdAt }` をアトミック書き込み（一時ファイル + `fsync` + `rename`、モード `0o600`）で保存します。
+  - 起動時に 1 回だけ厳格検証してメインスレッドのメモリ holder に常駐させ、`install.sh` 事前検査も同じ基準で読み取り専用検査します（未作成＝未バインド、通常ファイル以外や形式不正＝起動・導入を拒否）。
+  - 稼働中の TOTP 検証・状態照会はディスク I/O ゼロで動作し、登録・再設定・削除時のみ即時永続化されます。
 
 ### 2. エロ画像専用ライブラリ：`random_h_image_dir`
-- **役割と内容**：`config/dynamic/assets.json` の `onlyPath.random_h_image_dir` で指定（デフォルトは `packages/consts/ui/assets.ts` の `RANDOM_H_IMAGE_DIR`、データルート基準で解決）。`/h_image` およびディレクトリ未指定の cron `rand_image` はここから均等に抽選し、`/h_image add` または Mini App 画像庫で画像の収集・削除が行われます。
-- **ファイル仕様**：`RANDOM_IMAGE_CONTENT_NAME_PATTERN`（**画像バイナリコンテンツの SHA-256** の小文字 16 進数に `packages/consts/imageGallery.ts` の `RANDOM_IMAGE_EXTENSIONS` の拡張子を付与した形式）に一致するファイル名でなければなりません。他機能の画像ファイルが混入することは厳禁です。
-- **起動時検査**：ディレクトリが存在しない場合は自動作成されます。ディレクトリエントリを 1 件ずつ走査してメモリキャッシュへ読み込み、不正なファイル名、サブディレクトリ、シンボリックリンク、および残存する `RANDOM_IMAGE_TEMP_PREFIX`（`.h_image-add-*`）一時ファイルが存在する場合は**起動を拒否**します。`/h_image add` や Mini App 画像庫を通じた画像の追加・削除はメモリキャッシュへ即座に同期されるためプロセスの再起動を必要としません。稼働中に設定パスを変更した場合は、まず新ディレクトリを同等基準で事前検査してキャッシュを更新し、失敗した場合は変更全体を拒否します。ディレクトリへ手動で置いた画像はメモリキャッシュに入らず、サービス再起動（またはホットリロードでこのディレクトリへ切り替えたとき）まで抽選と Mini App 画像庫に現れません。手動で削除した画像は、抽選で引かれたとき、または Mini App 画像庫で読み取られたときに検出されキャッシュから除かれます。
+- **役割と内容**：`config/dynamic/assets.json` の `onlyPath.random_h_image_dir` で指定します（既定値はデータルート基準の `RANDOM_H_IMAGE_DIR`、`packages/consts/ui/assets.ts`）。`/h_image` およびディレクトリ未指定の cron `rand_image` がここから一様ランダムに抽選し、`/h_image add` や Mini App 画像庫から追加・削除できます。
+- **ファイル名規約**：通常画像ファイルのみ配置可能で、ファイル名は**画像バイナリの SHA-256 小文字 16 進数**＋対応拡張子（`packages/consts/imageGallery.ts` の `RANDOM_IMAGE_CONTENT_NAME_PATTERN` / `RANDOM_IMAGE_EXTENSIONS`）に完全一致させる必要があります。他用途のファイル・サブディレクトリ・シンボリックリンクは厳禁です。
+- **起動時走査とキャッシュ同期**：
+  - ディレクトリがなければ自動作成し、起動時に全エントリを走査してメモリキャッシュへ読み込みます。不正ファイル名・サブディレクトリ・シンボリックリンク・残留 `RANDOM_IMAGE_TEMP_PREFIX`（`.h_image-add-*`）があれば**起動を拒否**します。
+  - `/h_image add` や Mini App 画像庫での追加・削除はメモリキャッシュへ即時反映され再起動不要です。ホットリロードでパスを切り替える際も新ディレクトリを事前検証してからキャッシュを入れ替えます。
+  - ディレクトリへ直接手動配置した画像は再起動（またはホットリロードでのパス切り替え）までメモリキャッシュに入らず、手動削除した画像は抽選または Mini App 画像庫での読み取り時に検知されてキャッシュから除外されます。
 
 ### 3. グループ嫁候補ライブラリ：`memory/wed/<chatId>.json`
-- **役割と内容**：グループごとに発言済みメンバーのスライディングウィンドウを 1 つ保持し、ファイルは参加順に並んだオブジェクト配列です（例: `[{"id":5974478892,"enteredAt":1791770134683}]`）。`enteredAt` はメンバーがウィンドウに入った時点の Unix ミリ秒タイムスタンプです。メインスレッドはグループごとに長期再利用される `Map<number, number>`（メンバー ID → 参加時刻）を管理します。グループ数の上限は `STATE_MANAGED_CHAT_LIMIT`、単一グループのウィンドウ容量は `WED_MEMBER_LIMIT` です。
-- **ウィンドウ規則**：ウィンドウ外のメンバーが個人身分で発言すると、現在時刻（記録済みの最大参加時刻より前にはならない）で末尾に追加されます。ウィンドウ内のメンバーが再度発言しても参加時刻は更新しません。満杯時は参加時刻が最も早いメンバーを先に押し出します。
-- **検証ルール**：ファイル名は正規の負の安全な整数グループ ID でなければなりません。各要素は `id` と `enteredAt` のみを持ち、`id` は重複のない正の安全な整数、`enteredAt` は配列順に減少しない非負の安全な整数で、要素数は `WED_MEMBER_LIMIT` 以下です。違反があれば起動を拒否し、インストーラーも同じ基準で検証します。メンバー ID 配列のままの旧ファイルは、先に [/wed メンバーウィンドウのコールド移行](#upgrade-wed-member-window)を実行してください。
-- **永続化メカニズム**：追加・削除・押し出しの累積が `FLUSH_MAX_ENTRIES` 件に達するか、最初の変更から `FLUSH_INTERVAL_MS` 経過した時点で、Disk I/O Worker を経由して全量アトミック置換を実行。`/init disable` または Bot のグループ退出時に該当ファイルを自動削除します。
-- **退室メンバーの整理**：退出サービスメッセージ、`chat_member` 更新イベント、および毎日午前 0 時の再確認タスクによって退会メンバーを自動クリーンアップします（後者 2 つは管理者権限が必要）。Bot が管理者でない場合、メンバー一覧が非公開の大規模グループでは退出メッセージを受信できず、ファイル内に退会済みメンバーが残存して抽選対象となる場合がありますが、これは仕様通りの動作です。
+- **役割と内容**：グループごとの発言済みメンバースライディングウィンドウを参加順のオブジェクト配列（例：`[{"id":5974478892,"enteredAt":1791770134683}]`、`enteredAt` は Unix ミリ秒）として保持します。メインスレッドは各グループの `Map<number, number>` を再利用し、管理グループ上限は `STATE_MANAGED_CHAT_LIMIT`、1 グループあたりの定員は `WED_MEMBER_LIMIT` です。
+- **ウィンドウ規則**：未登録メンバーが個人アカウントで発言すると現在時刻（既存の最大 `enteredAt` 以上にクランプ）で末尾へ追加され、登録済みメンバーの再発言では `enteredAt` を更新しません。満員時は最も古いメンバーから押し出されます。
+- **検証ルール**：ファイル名は正規の負の安全な整数グループ ID、各要素は `{ id, enteredAt }` のみ（重複のない正の安全な整数 `id`、配列順に単調非減少の非負安全な整数 `enteredAt`、件数 `WED_MEMBER_LIMIT` 以下）でなければなりません。違反時は起動および `install.sh` で拒否されるため、17.2.1 のメンバー ID 配列ファイルは先に [/wed メンバーウィンドウのコールド移行](#upgrade-wed-member-window)を実行してください。
+- **永続化方式**：変更が `FLUSH_MAX_ENTRIES` 件に達するか初回変更から `FLUSH_INTERVAL_MS` 経過すると、Disk I/O Worker で全量アトミック置換されます。`/init disable` や Bot 退出時にはファイル自体が削除されます。
+- **退室メンバーの整理**：退室サービスメッセージ、`chat_member` 更新、毎日 0 時の巡回（後ろ 2 つは Bot の管理者権限が必要）で自動削除されます。Bot が非管理者かつメンバー一覧非公開の大規模グループでは Telegram API の仕様上退室を検知できず、候補に残る場合があります。
 
 ### 4. スタンプとおみくじ：`memory/stickers/` と `memory/luck/`
-- **`memory/stickers/<pack>.json`**：ホワイトリスト内の各スタンプパックの目録（スキーマ `version` フィールドを含む）。`file_unique_id` をキーに emoji・説明およびパック全体のダイジェストを保存。オンラインのスタンプパックと照合可能であり、設定のホワイトリストから外れたパックは起動時の復元処理で削除されます。
-- **`memory/luck/<YYYY-MM-DD>.json`**：設定タイムゾーンにおける当日の運勢結果。キーはユーザー ID であり、占いたい事柄がある場合は事柄の要約を含みます。当日データのみを保持します。
-- **`memory/luck/receipt-secret.json`**：当日運勢レシートの HMAC 秘密鍵（スキーマ `version` フィールド、当日日付、および `LUCK_RECEIPT_SECRET_PATTERN` に一致する 16 進数秘密鍵を保持）。**必ず当日運勢ファイルと同一の一貫性バックアップを保持**し、単独で削除または再作成しないでください。
+- **`memory/stickers/<pack>.json`**：ホワイトリスト対象スタンプパックの索引キャッシュ（`version`、各スタンプの `file_unique_id`・絵文字・説明・パック要約）。欠落時は Telegram から再同期でき、ホワイトリストから外れたパックは起動時に自動削除されます。
+- **`memory/luck/<YYYY-MM-DD>.json`**：バインドされたタイムゾーンでの当日分おみくじ結果（ユーザー ID キー、運勢ランクと相談内容要約）。当日分のみ保持します。
+- **`memory/luck/receipt-secret.json`**：当日のおみくじレシート検証用 HMAC 秘密鍵（`version`・日付・`LUCK_RECEIPT_SECRET_PATTERN` の 16 進秘密鍵）。**必ず当日のおみくじファイルと一体でバックアップ・復元**してください（単独削除・再生成すると発行済みレシートがすべて失効します）。
 
 ### 5. 認証待ちと入室ログ：`memory/anti-raid/` と `memory/joinlog/`
-- **`memory/anti-raid/<YYYY-MM-DD>.json`**：参加認証（Challenge）待ち状態の当日追記ログ。active スナップショット、リビジョン更新、終了 tombstone、およびキック予約済みで未完了の `kickPending`（再起動後にキック処理を自動再開）を保持。定常状態では設定タイムゾーンの当日分のみを保持し、追記件数またはバイト数が `VERIFICATION_FILE_COMPACT_ENTRIES` / `VERIFICATION_FILE_COMPACT_BYTES` に達した時点で自動圧縮されます。圧縮時にディレクトリへそれ以前の日付ファイルが残っていれば、その最新ファイルで active のまま、現在は終了済みのレコードに tombstone を書き込むため、旧日ファイルの削除前にプロセスが終了しても、復旧時に終了済みのレコードが復活することはありません。同じ最新の旧日ファイルのデコード（正しい UTF-8 でない、または現行形式でない）が `VERIFICATION_PRIOR_DAY_DECODE_MAX_ATTEMPTS` 回連続で失敗した場合、稼働中の圧縮はそのファイルを `VERIFICATION_CORRUPT_DAY_FILE_SUFFIX`（`<YYYY-MM-DD>.json.corrupt`）に改名して手動調査用にそのまま残し、新しい日はメモリ上のミラーからそのまま書き込みます。改名後のファイルは `.json` で終わらないため、起動時の復旧も旧日の削除も読まず削除もしません。起動時に最新の旧日ファイルが破損している場合は従来どおり起動を拒否します。
-- **`memory/joinlog/<chatId>.<YYYY-MM-DD>.json`**：`chat_member` に基づく権威ある入室事実記録。`/batch_kick` がスライディングウィンドウで読み取ります。
-  - **書き込みメカニズム**：まず Disk I/O Worker のメモリバッチに入り、`FLUSH_MAX_ENTRIES` 件蓄積または `FLUSH_INTERVAL_MS` 経過で追記永続化および fsync を実行。`/batch_kick` 実行前および停止時に未完了バッチをフラッシュします。
-  - **保持ライフサイクル**：設定タイムゾーンの直近 `JOIN_LOG_FILE_RETENTION_DAYS` 暦日以上を保持し、前日コマンドのローリング窓を含めます。単一グループ・単日あたり最新 `JOIN_LOG_MAX_USERS_PER_CHAT_DAY` 人までを保持。`/init disable` または Bot の退出時に完全に削除されます。
+- **`memory/anti-raid/<YYYY-MM-DD>.json`**：当日の参加認証（Challenge）追記ログ（active 状態、revision、解決済み tombstone、再起動後に自動再開される未完了 `kickPending`）。
+  - 定常時は当日ファイルのみを保持し、追記数またはサイズが `VERIFICATION_FILE_COMPACT_ENTRIES` / `VERIFICATION_FILE_COMPACT_BYTES` に達すると自動圧縮（compaction）します。
+  - 圧縮時に前日以前のファイルが残っている場合、その最新ファイル上で active だった解決済みレコードへ先に tombstone を書き込むため、旧日ファイル削除前にプロセスが落ちても解決済み Challenge が復活しません。
+  - 稼働中の圧縮でその最新旧日ファイルのデコード（UTF-8 または現行形式）が `VERIFICATION_PRIOR_DAY_DECODE_MAX_ATTEMPTS` 回連続で失敗した場合、`VERIFICATION_CORRUPT_DAY_FILE_SUFFIX`（`<YYYY-MM-DD>.json.corrupt`）へ改名して調査用に保全し、当日分はメモリミラーから書き出します（`.corrupt` は起動復元・日次削除ともに対象外。一方、コールド起動時に最新旧日ファイルが破損していれば起動を拒否します）。
+- **`memory/joinlog/<chatId>.<YYYY-MM-DD>.json`**：`/batch_kick` が時間窓で参照する `chat_member` 入室イベント記録です。
+  - **書き込み方式**：Disk I/O Worker のメモリバッチに蓄積し、`FLUSH_MAX_ENTRIES` 件または `FLUSH_INTERVAL_MS` ごとに追記 + `fsync` します（`/batch_kick` 照会前および正常停止時は強制フラッシュ）。
+  - **保持期間**：設定タイムゾーンで直近 `JOIN_LOG_FILE_RETENTION_DAYS` 暦日以上（サマータイム短日時は自動延長）、1 グループ 1 日あたり最新 `JOIN_LOG_MAX_USERS_PER_CHAT_DAY` 人まで保持し、`/init disable` や Bot 退出時に完全削除します。
 
 ### 6. コア ID とグループ状態：`database/storage.sqlite`
-稼働中は `-wal` および `-shm` ファイルが同時に存在する場合があります：
-- **保存内容**：現行スキーマ（`IDENTITY_DATABASE_SCHEMA_VERSION`）の共有 SQLite データベース。
-  - `storage_metadata`：`IDENTITY_DATABASE_METADATA_KEYS`（`IDENTITY_DATABASE_SCHEMA_KEY` とデータルートに固定された設定タイムゾーンの `IDENTITY_DATABASE_TIME_ZONE_KEY`）を保持するメタデータテーブル。
-  - `permission_list.policy`：恒久 ID 権限の厳格 JSONB。
-  - `blocklist_entries`：権威ある恒久ブラックリスト。
-  - `temporary_ad_bypass_entries`：一時広告免除の累積記録。
-  - `pending_blocked_removals`：未完了のグループ単位 BAN タスクキュー。
-  - `chat_qa`：グループ Q&A。`(chat_id, q)` が複合主キー。
-  - `chat_states`：最大 `STATE_MANAGED_CHAT_LIMIT` 行のグループ状態。必須のグループ状態 JSONB（`status`。うち `translate` は翻訳セッション配列で上限は `TRANSLATE_CHAT_USER_LIMIT`）、および任意の `ai_context`（null 許容の JSONB スナップショット、逐字記憶、中期要約など）を保持。
-- **排他性とトランザクション**：Disk I/O Worker がデータベース接続を一元的に排他管理。起動時に integrity、JSONB、スキーマバージョン、系譜、Codec、相互排他制約を厳格に検証します。グループ状態と AI スナップショットは同一接続から復元されます。
-- **停止時のクローズ**：正常停止時、Disk I/O Worker は残りの書き込みをコミットし、WAL をメインデータベースへ戻して切り詰めてから接続を閉じるため、通常は停止後の `database/` に `storage.sqlite` だけが残ります。プロセスが強制終了された場合や、checkpoint が他の読み取り接続（外部で開いた SQLite エディターなど）に阻まれた場合は `-wal`、`-shm` が残ります。クローズ時に残り書き込みのコミットを確認できない場合、停止は `unsettled` として非ゼロで終了し、journal に対応する `[diskIO]` エラーが残ります。
-- **バックアップ仕様**：機密データを含むため、バックアップ時はメインデータベースと同一時点の WAL/SHM（存在する場合）を不可分の一体として一緒にバックアップ・復元する必要があります。
+稼働中は SQLite の WAL（`-wal`）および共有メモリ（`-shm`）サイドカーを伴います：
+- **格納テーブル**（現行スキーマ `IDENTITY_DATABASE_SCHEMA_VERSION`）：
+  - `storage_metadata`：`IDENTITY_DATABASE_METADATA_KEYS`（`IDENTITY_DATABASE_SCHEMA_KEY` とデータルート固定タイムゾーン `IDENTITY_DATABASE_TIME_ZONE_KEY`）の 2 行を保持。
+  - `permission_list.policy`：ユーザー権限ポリシー（厳格 JSONB）。
+  - `blocklist_entries`：グローバルブラックリストの正本。
+  - `temporary_ad_bypass_entries`：一時広告免除枠の累積カウント。
+  - `pending_blocked_removals`：未完了のグループ横断 BAN キュー。
+  - `chat_qa`：複合主キー `(chat_id, q)` のグループカスタム Q&A。
+  - `chat_states`：最大 `STATE_MANAGED_CHAT_LIMIT` 行の管理グループ状態。必須の `status` JSONB（上限 `TRANSLATE_CHAT_USER_LIMIT` の翻訳セッション `translate` を含む）と null 許容の `ai_context` JSONB（逐語会話メモリと中期要約）を保持。
+- **排他接続と起動検査**：Disk I/O Worker のみが読み書き接続を保持し、起動時に SQLite integrity・JSONB・スキーマバージョン・マイグレーション系譜・相互排他制約を全件検証してからグループ状態と AI メモリを復元します。
+- **停止時のクローズ**：
+  - 正常停止時は Disk I/O Worker が残余書き込みをコミットし、WAL を本体へ checkpoint・切り詰めしてから接続を閉じるため、通常は `database/` に `storage.sqlite` のみが残ります。
+  - 強制終了（`SIGKILL`）時や外部リーダー（SQLite エディタ等）が checkpoint を妨げた場合は `-wal`・`-shm` が残ります。
+  - クローズ時に残余書き込みのコミットを確認できない場合は `unsettled` として非ゼロ終了し、journal に `[diskIO]` エラーを記録します。
+- **バックアップ規約**：**必ず `storage.sqlite` 本体と同一時点の `-wal`・`-shm`（存在する場合）を不可分のセットとしてバックアップ・復元**してください（`.sqlite` 単体コピーは厳禁です）。
 
 ### 7. 広告サンプルと AI 利用量：`memory/ad-detected/` と `memory/ai-daily-usage/`
-- **`memory/ad-detected/sample.json`**：広告判定に命中した生サンプル記録（時刻、メッセージ本文、判定理由、文脈）。純粋な副次的データであり、`AD_SAMPLE_FILE_MAX_BYTES` に達した時点で自動的に `sample.<日付>[.<連番>].json` にローテーション・アーカイブされ、アーカイブは `AD_SAMPLE_ARCHIVE_RETENTION_DAYS` に従って保持されます。
-- **`memory/ai-daily-usage/usage.json`**：モデルリクエスト利用量の統計（対話内容は含みません）。
-  - **データ構造**：先頭の `summary` は直近の終了済み設定タイムゾーンの暦日利用量集計（機能 / プロバイダ / モデル別に集約）、残りのキーは未集計の個別記録。
-  - **対象機能**：`AGENT_CAPABILITY_NAMES` のすべての機能。
+- **`memory/ad-detected/sample.json`**：広告検出に命中した監査用サンプル（時刻、本文、判定理由、文脈。本文なしのスタンプ単体メッセージはスタンプパックの short name を記録）。`AD_SAMPLE_FILE_MAX_BYTES` 到達で `sample.<日付>[.<連番>].json` へローテーションし、`AD_SAMPLE_ARCHIVE_RETENTION_DAYS` 日保持後に自動削除します。
+- **`memory/ai-daily-usage/usage.json`**：会話本文を含まないトークン・リクエスト統計です：
+  - **データ構造**：先頭の `summary` が直近完了日の機能 / プロバイダ / モデル別集計、残りのキーが当日未集計の呼び出し記録です。
+  - **対象範囲**：`AGENT_CAPABILITY_NAMES` の全機能を網羅します。
 
 ### 8. ログとインスタンスロック：`logs/` と `bot.lock`
-- **`logs/`**：英語の構造化エラーログ。Disk I/O Worker により一括非同期追記されます。
-- **`bot.lock`**（および `.guard`/`.recovery`）：Linux `/proc` に基づく単一インスタンスプロセスロック。同一データルートで稼働できるアクティブインスタンスは常に 1 つだけです。
+- **`logs/`**：Disk I/O Worker が非同期バッチ追記する英語の構造化エラーログです。
+- **`bot.lock`**（および `.guard` / `.recovery`）：Linux `/proc` ベースの単一インスタンス排他ロックで、同一データルートへの多重起動を防止します。
 
 ---
 
 ### データルート管理とメンテナンススケジュール
 
-- **ディレクトリ構造の隔離**：`memory/` の直下にはファイルを直接配置せず、各ドメインがそれぞれ独立したサブディレクトリを持ちます。ID ポリシーとグループ状態は `database/` が担当します。
-- **起動時事前検査パイプライン**：起動時はまず読み取り専用モードですべての復元対象データ（`joinlog/` の保持ウィンドウを含む）をスキャンして厳格デコードし、全領域の検証が完了した後に初めて所有権を引き継ぎます（adopt）。完了レシートの発行後に必要に応じてディレクトリを補完作成し、孤立した一時ファイルをクリーンアップして、`bot.json` の `time_zone` に基づく午前 0 時のメンテナンス cron を登録します。
-- **設定タイムゾーンの 0 時メンテナンス Cron**：設定タイムゾーンの毎日 0 時スケジュール（`packages/consts/diskIO/maintenance.ts` の `DISK_IO_MAINTENANCE_CRON`）で、`/wed` 毎日のメンバー再確認、運勢アーカイブ、ログローテーション、AI キャッシュ利用量集計、入室ログローテーション、広告サンプルクリーンアップ、Challenge ログ統合、一時広告免除減衰を順次スケジューリングします。単一領域で異常が発生しても他タスクには影響しません。
-- **補助ファイルと純粋なメモリ状態**：
-  - アトミック書き込みによって生成される `.<ターゲットファイル名>.<pid>.<uuid>.tmp` 一時ファイルは通常自動クリーンアップされますが、プロセスの強制終了時などに残存する場合があります。起動時検査ではこれらを登録のみ行い削除せず、各領域が正常に引き継がれた後にメンテナンスタスクが安全に回収します。
-  - `storage.sqlite-wal` と `storage.sqlite-shm` は SQLite に必須の稼働ファイルであり、**一時ファイルと誤認して削除することは固く禁止**します。
-  - Challenge タイマー、広告判定待ちキュー、Telegram 短期キャッシュは純粋なメモリ状態であり、ディスクへ永続化されません。
+- **ディレクトリの責務分離**：`memory/` 直下にはファイルを置かず各ドメインが専用サブディレクトリを持ち、ID ポリシーとグループ状態は `database/` に集約します。
+- **読み取り専用の起動プリフライト**：起動時はまず全永続ファイル（保持窓内の全 `joinlog/` を含む）を読み取り専用で厳格デコードし、全ドメイン合格後に初めてメモリ所有権を引き継ぎます。その後、不足ディレクトリ作成・孤立一時ファイル整理・`bot.json` の `time_zone` に基づく 0 時メンテナンス cron 登録を行います。
+- **設定タイムゾーン 0 時の日次メンテナンス**：毎日 `00:00`（`packages/consts/diskIO/maintenance.ts` の `DISK_IO_MAINTENANCE_CRON`）に、`/wed` メンバー再確認 → おみくじ切り替え → ログローテーション → AI 利用量集計 → 入室ログ期限切れ整理 → 広告サンプル整理 → Challenge ログ圧縮 → 一時広告免除減衰を順次実行します（単一タスクの失敗が他タスクを止めることはありません）。
+- **一時ファイルと純メモリ状態**：
+  - アトミック書き込み中の `.<対象名>.<pid>.<uuid>.tmp` が強制終了で残った場合、起動検査では記録のみ行い、引き継ぎ完了後にバックグラウンド保守で安全に回収します。
+  - `storage.sqlite-wal` と `storage.sqlite-shm` は SQLite WAL モードの必須ファイルであり、**一時ファイルとして手動削除することは厳禁**です。
+  - 入室 Challenge タイマー、広告判定待ちキュー、Telegram 短期キャッシュは純メモリ状態でありディスクへは保存されません。
 
 ---
 
@@ -187,31 +213,34 @@ WantedBy=multi-user.target
 
 ## 永続データの移行
 
-実行時には旧フォーマットの後方互換ロジックを保持せず、起動時の自動テーブル構築も行いません。すべてのマイグレーション作業は、まず Bot を停止しプロセスが終了したことを確認してから実施してください。作業に失敗した場合は外部バックアップと現場を保全し、不整合のまま新バージョンを起動してはなりません。また、`config_example/` で本番設定を安易に上書きすることも禁止します。
+**本番コードには旧形式の後方互換ロジックが一切なく、起動時の自動スキーマ更新も行いません**。データ形式の移行は必ずサービス停止・プロセス完全終了後に行ってください。途中で失敗した場合は外部バックアップと現場を保全し、無理な新バージョン起動や `config_example/` による本番設定の上書きは絶対に行わないでください。
 
-以下の停止中のマイグレーションでは、`mktemp -d` でワークツリー外に対象データをバックアップし、ファイル一覧・所有者・パーミッション・SHA-256 を記録して複製と照合します。スクリプトの成果物は `ready.json` に記載された元ファイルと成果物のハッシュも照合します。変更後の入力を現行形式で厳格に検証し、差し替え時に所有者とパーミッションを復元します。起動後は supervisor の再起動間隔を 2 回以上観察し、`active/running` 状態、`NRestarts` が増加していないこと、ログに新たな非ゼロ終了がないことを確認します。すべて確認できるまで外部バックアップを削除してはなりません。
+オフライン移行の前には、必ず `mktemp -d` でワークツリー外にバックアップ先を作成し、対象ファイル一覧・所有者・モード・SHA-256 を記録します。移行スクリプト実行後は `ready.json` の移行元 / 成果物ハッシュを照合し、差し替え時に所有者とモードを復元します。起動後は少なくとも 2 周期分の supervisor 再起動間隔を監視し、`active (running)`・`NRestarts` 不変・journal の非ゼロ終了なしを確認してから外部バックアップを削除します。
 
 ### 新規 deployment での空 database 作成
 
-起動処理は、データベースの欠落を「空のポリシー」と勝手に解釈することはありません。新規デプロイでは [01 環境構築の identity storage 初期化手順](01-getting-started.md#identity-storage-の初期化) に従い、現行スキーマの空データベースを作成してください。`install.sh` もデータベースが存在しない場合にこの手順を実行します。なお、初期化処理は既存データベースの上書きを安全に拒否します。
+起動時に `database/storage.sqlite` が存在しない場合、勝手な初期化は行わずエラー終了します。新規デプロイでは [01 環境構築の identity storage 初期化手順](01-getting-started.md#identity-storage-の初期化) に従って現行スキーマの空 DB を作成してください（`install.sh` は DB 未作成時に自動実行し、既存 DB の上書きは拒否します）。
 
 <a id="upgrade-wed-member-window"></a>
 
 ### /wed メンバーウィンドウのコールド移行（メンバー ID 配列 → `{ id, enteredAt }`）
 
-エントリポイントは [`scripts/migrateWedMemberWindow.ts`](../../scripts/migrateWedMemberWindow.ts) です。`memory/wed/<chatId>.json` を 17.2.1 のメンバー ID 配列から、参加順に並んだ `{ id, enteredAt }` のウィンドウ配列へ書き換えます。各グループは配列末尾（直近に参加した）の `WED_MEMBER_LIMIT` 件の ID のみを元の順序で保持し、`enteredAt` はすべて移行開始時刻になります。超過分は最も古い側から破棄され、件数は `ready.json` の `truncatedMembers` に記録されます。受け付ける移行元は 17.2.1 形式のメンバーファイル（1 ファイルあたり重複のない正の安全な整数 ID が最大 `WED_MEMBER_WINDOW_SOURCE_LIMIT` 件、グループファイル数は `STATE_MANAGED_CHAT_LIMIT` 以下）のみで、移行済みファイル、非正規のファイル名、シンボリックリンクはすべて拒否されます。`*.tmp` など `.json` 以外の残留物は移行対象外です。17.2.1 のその他の永続データと設定は形式が共通しているためそのまま使用できます。
+[`scripts/migrateWedMemberWindow.ts`](../../scripts/migrateWedMemberWindow.ts) を用いて、`memory/wed/<chatId>.json` を 17.2.1 のメンバー ID 配列から参加順の `{ id, enteredAt }` スライディングウィンドウ配列へ変換します：
+- **変換内容**：各グループとも配列末尾（直近参加側）の最大 `WED_MEMBER_LIMIT` 件の ID を元の順序のまま保持し、`enteredAt` には移行開始時刻を一括設定します（溢れた古い ID は先頭側から破棄され、`ready.json` の `truncatedMembers` に記録されます）。
+- **受付条件**：17.2.1 形式のメンバーファイル（1 ファイル最大 `WED_MEMBER_WINDOW_SOURCE_LIMIT` 件の重複なし正の安全な整数 ID、最大 `STATE_MANAGED_CHAT_LIMIT` ファイル）のみを受け付け、移行済みファイル・非正規ファイル名・シンボリックリンクは拒否します（`*.tmp` 等の非 `.json` ファイルは対象外）。
+- **その他の永続データと `ad_samples.json` → `ad_detect.json` 設定移行**：17.2.1〜18.2.0 の他の `memory/` サブディレクトリおよび `database/storage.sqlite`（Schema v13）は形式共通のためそのまま利用できます。一方、`config/dynamic/ad_samples.json`（17.2.1〜18.2.0 で使用）が存在する場合は、停止中に手動で `config/dynamic/ad_detect.json` へ移行し（`samples` を引き継ぎ、必須の `punishment`〔`mute` または `kick`〕・`sticker_black_list`・`emoji_black_list` を追加）、旧 `ad_samples.json` を削除する必要があります（`packages/config/layout.ts` と `install.sh` は `ad_samples.json` の残存を拒否します）。
 
-1. **サービス停止とバックアップ**：サービスを停止して inactive であることを確認し、`memory/wed/` 全体を所有者・パーミッション・SHA-256 一覧とともに外部バックアップ。バックアップルート配下では `memory/wed/` の相対パスを維持。
-2. **移行の実行**：
+1. **サービス停止とバックアップ**：サービスを停止して `inactive` を確認し、`memory/wed/` 全体（および `ad_samples.json` を移行する場合は `config/`）を所有者・モード・SHA-256 一覧とともに外部ディレクトリへバックアップします（バックアップルート配下に `memory/wed/` の相対パスを維持）。
+2. **移行スクリプトの実行**：
    ```bash
    bun run migrate:wed-member-window \
      --source-root /absolute/cold-backup \
      --output-root /absolute/new-staging-directory
    ```
-   バイナリ配布版では同じ引数で `BUN_BE_BUN=1 ./copy-ninjia scripts/migrations/migrateWedMemberWindow.js` を実行。
-3. **成果物の確認**：`ready.json` の `sourceFiles` と `outputFiles` の SHA-256、および `chatCount`、`keptMembers`、`truncatedMembers`、`enteredAt` を照合。成果物ファイルは現在のアカウントのみ読み書き可能です。
-4. **メンバーファイルの差し替え**：停止中に成果物の `memory/wed/<chatId>.json` でデプロイ側のファイルを 1 つずつ置き換え、`sourceFiles` に従って所有者とパーミッションを復元し、サービスアカウントが `memory/wed/` とその中のファイルに書き込めることを確認。
-5. **起動と検証**：共通検証手順に従って起動を確認し、すべて成功したことを確認してからバックアップを削除。
+   バイナリ配布版では同じ引数で `BUN_BE_BUN=1 ./copy-ninjia scripts/migrations/migrateWedMemberWindow.js` を実行します。
+3. **成果物の照合**：出力先 `ready.json` の `sourceFiles` / `outputFiles` の SHA-256、および `chatCount`・`keptMembers`・`truncatedMembers`・`enteredAt` を確認します（成果物ファイルは実行アカウントのみ読み書き可能で作成されます）。
+4. **ファイル差し替えと `ad_detect.json` 更新**：停止中に成果物の `memory/wed/<chatId>.json` で本番ファイルを置き換え、`sourceFiles` に基づき所有者とモードを復元してサービスアカウントの書き込み権限を確認します。`config/dynamic/ad_samples.json` がある場合は `config/dynamic/ad_detect.json`（`punishment`・`samples`・`sticker_black_list`・`emoji_black_list`）へ変換し、`ad_samples.json` を削除します。
+5. **起動検証**：サービスを起動して 2 周期分の再起動監視を通過した後にのみ、外部バックアップを削除します。
 
 ---
 
@@ -219,18 +248,18 @@ WantedBy=multi-user.target
 
 ### 旧バージョンからの段階的アップグレード手順
 
-- **17.2.1 より古いデプロイ**：本バージョンが直接提供するのは 17.2.1 からのコールド移行のみです。先に 17.2.1 をインストールし、そのドキュメントに従って移行（16.3.2 は共有データベースのコールド移行 `migrate:chat-persona-removal`、それより古いバージョンは各ドキュメントに従ってまず 16.3.2 まで）を完了して正常稼働を確認してから、本バージョンの [/wed メンバーウィンドウのコールド移行](#upgrade-wed-member-window)を実行してください。
+- **17.2.1 より古いデプロイ**：現行版のコールド移行スクリプトが直接受け付けるのは 17.2.1 のデータのみです。先に 17.2.1 を導入してその移行（16.3.2 からは `migrate:chat-persona-removal`、それ以前は各版の案内に従ってまず 16.3.2 まで）を完了し、17.2.1 の安定起動を確認してからサービスを止め、本バージョンの [/wed メンバーウィンドウのコールド移行](#upgrade-wed-member-window)を実行するとともに、`config/dynamic/ad_samples.json` がある場合は手動で `config/dynamic/ad_detect.json`（`punishment`・`sticker_black_list`・`emoji_black_list` を追加）へ移行して旧ファイルを削除してください。
 - **11.0.9（Schema v8）からのメジャーバージョン跨ぎアップグレード**：
-  独立した作業ディレクトリ内で Git タグを用いて段階的にコールド移行チェーンを実行する必要があります：
-  1. `500e848fae` コミット：`migrate:ai-context` を実行（v8 → v9）
-  2. `12.1.0` タグ：`migrate:clear-context-permission` を実行（v9 → v10）
-  3. `13.0.2` タグ：`migrate:h-image-add-permission`（v10 → v11）および `migrate:bot-config` を実行
-  4. `14.0.0` タグ：`migrate:translate-sessions` を実行
-  5. `16.3.2` タグ：そのドキュメントに従って `migrate:global-state` と `migrate:random-image-names` を実行
-  6. `17.2.1` タグ：`migrate:chat-persona-removal` を実行（v11 → v13）
-  7. 現行バージョン：`migrate:wed-member-window` を実行
+  独立した作業ディレクトリで各 Git タグを順にチェックアウトし、コールド移行チェーンを段階実行します：
+  1. `500e848fae` コミット：`migrate:ai-context`（v8 → v9）
+  2. `12.1.0` タグ：`migrate:clear-context-permission`（v9 → v10）
+  3. `13.0.2` タグ：`migrate:h-image-add-permission`（v10 → v11）と `migrate:bot-config`
+  4. `14.0.0` タグ：`migrate:translate-sessions`
+  5. `16.3.2` タグ：`migrate:global-state` と `migrate:random-image-names`
+  6. `17.2.1` タグ：`migrate:chat-persona-removal`（v11 → v13）
+  7. 現行バージョン：`migrate:wed-member-window` を実行し、`config/dynamic/ad_samples.json` が存在する場合は手動で `config/dynamic/ad_detect.json`（`punishment`・`sticker_black_list`・`emoji_black_list` を追加）へ移行して `ad_samples.json` を削除
 
-  *備考*：12.0.0 Release に添付された中間ソースコードアーカイブ `copy-ninjia-schema-v9-source-500e848f.tar.gz`（SHA-256: `df6502625512d8fde136dc66d8470e1d4c977856e8a0bd3909b9b6c763c820f8`）を使用することも可能です。
+  *補足*：手順 1 では 12.0.0 Release 添付の中間ソースアーカイブ `copy-ninjia-schema-v9-source-500e848f.tar.gz`（SHA-256: `df6502625512d8fde136dc66d8470e1d4c977856e8a0bd3909b9b6c763c820f8`）も利用できます。
 
 ---
 
@@ -238,39 +267,39 @@ WantedBy=multi-user.target
 
 ## 起動失敗の調査
 
-プログラムの起動失敗はすべて**意図的な Fail-Fast（早期停止）設計**となっており、エラーログに正確な原因とフィールドパスが出力されます。以下の項目と照合して適切に対処し、安易にバリデーションをバイパスしないでください：
+起動処理はすべて**意図的な Fail-Fast（即時停止）**として設計されており、異常検知時はファイルパス・フィールドパス・期待形式を出力して停止します。検査を迂回せず原因そのものを解消してください：
 
 ### 1. データルート事前検査失敗
-- **原因**：データルート、`memory/`、`memory/global/`、`logs/`、`database/` にシンボリックリンクが存在する。データルート、`memory/`、`memory/global/`、`logs/` の所有者が実行 UID でない、またはパーミッションが `RUNTIME_DATA_ROOT_MAX_MODE` より広い（group / other に書き込み権限がある）。`database/` が `IDENTITY_DATABASE_DIRECTORY_MODE` より広い、または所有者が実行 UID でなく実行プロセスの所属グループにグループ書き込み権限がない。基盤ファイルシステムが fsync、ハードリンク、アトミック rename をサポートしていない。
-- **対処**：サービスを停止し、ディレクトリの所有者とパーミッションを修正。データルートおよび `RUNTIME_SENSITIVE_DIRECTORY_NAMES` を実行 UID 所有かつ `RUNTIME_DATA_ROOT_MAX_MODE` 以下（group / other の書き込み権限なし）に設定し、`database/` を `IDENTITY_DATABASE_DIRECTORY_MODE`（共有サービスグループ運用の場合は setgid を併用可能）に設定。ローカルの標準 POSIX ファイルシステム上で実行されていることを確認。
+- **原因**：データルート・`memory/`・`memory/global/`・`logs/`・`database/` にシンボリックリンクがある、所有者が実行 UID でない、モードが `RUNTIME_DATA_ROOT_MAX_MODE` を超えている（`group` / `other` 書き込みビットあり）、`database/` が `IDENTITY_DATABASE_DIRECTORY_MODE` 超または共有サービスグループの書き込み権限がない、あるいはファイルシステムが `fsync`・ハードリンク・アトミック `rename` 非対応。
+- **対処**：サービス停止後、データルートと `RUNTIME_SENSITIVE_DIRECTORY_NAMES` を実行 UID 所有の `0750`（`RUNTIME_DATA_ROOT_MAX_MODE` 以下）、`database/` を `0750` または `02770`（`IDENTITY_DATABASE_DIRECTORY_MODE` 以下）に修正し、標準のローカル POSIX ファイルシステム上に配置します。
 
 ### 2. bot.lock による起動拒否
-- **原因**：同一データルートを使用するアクティブなプロセスが検出された（トークンの一致は問わない）、またはロックファイルが破損している、もしくは旧形式である。
-- **対処**：次節の [`bot.lock が起動を拒否する場合`](#botlock-が起動を拒否する場合) を参照。
+- **原因**：同一データルートを使用中の別プロセスが稼働している（トークン違いを含む）、または `bot.lock` が破損・旧形式である。
+- **対処**：次節 [`bot.lock が起動を拒否する場合`](#botlock-が起動を拒否する場合) を参照してください。
 
 ### 3. 設定ディレクトリレイアウト不一致
-- **原因**：設定ファイルが `config/` 直下にフラットに置かれている、または別のサブディレクトリにある。`config/` 直下に `telegram.json` が残っている、または `config/dynamic/` が欠落している。
-- **対処**：サービス停止後、`bot.json`、`g-auth.json` を `config/static/` へ移動し、その他の業務設定ファイルを `config/dynamic/` へ移動。`telegram.json` が残っている場合は、先に[旧バージョンからの段階的アップグレード手順](#staged-upgrade)に従って `migrate:bot-config` を完了。
+- **原因**：`config/`・`config/static/`・`config/dynamic/` にホワイトリスト外のエントリ（配置ミス、旧 `telegram.json` や `ad_samples.json`、隠しファイル・一時ファイル・バックアップ、未定義サブディレクトリ、リンク切れシンボリックリンク）がある、`config/dynamic/` が欠落している、またはディレクトリパスが非ディレクトリで占有されている。
+- **対処**：停止中に `config/static/` は `bot.json` と `g-auth.json` のみ、`config/dynamic/` は 6 つの動的 JSON のみに整理し、バックアップ等は `config/` 外へ移動します。旧 `telegram.json` は[段階的アップグレード](#staged-upgrade)の `migrate:bot-config` を実施し、旧 `ad_samples.json` は手動で `config/dynamic/ad_detect.json`（`samples` を保持し必須の `punishment`・`sticker_black_list`・`emoji_black_list` を追加）へ移行して `ad_samples.json` を削除します。
 
 ### 4. Config Schema 検証失敗
-- **原因**：`config/{static,dynamic}/*.json` の内容が不正（必須項目の欠落、型の不一致、列挙値の範囲外など）。
-- **対処**：コンソールエラーに示された JSON パスに従って直接修正。フィールドの制約は[デプロイ設定説明](../../config_example/README/ja.md)を参照。
+- **原因**：`config/{static,dynamic}/*.json` に必須項目欠落、型・値域・列挙値の不一致、または未定義キーがある。
+- **対処**：ログに出力されたファイルパスと JSONPath を確認し、[デプロイ設定説明](../../config_example/README/ja.md) に従って修正します。
 
 ### 5. ID データベース検証失敗
-- **原因**：`storage.sqlite` が書き込み不可。データベースの破損または未移行（現行 schema でない）。`time_zone` がデータルートに固定されたタイムゾーンと異なる（エラーは `storage_metadata.time-zone` を示す）。ブラックリストと免除リストの間に重複・競合が存在する。
-- **対処**：タイムゾーン不一致の場合は `time_zone` を期待値に戻す。データベースが現行 schema でない場合（例：16.3.2 の v11 データベース）は、先に[段階的アップグレード](#staged-upgrade)で 17.2.1 へ上げてその移行を完了する。破損している場合は同一時点のバックアップからメインデータベースとサイドカー（`-wal` / `-shm`）を復元。空データベースでの上書きや手動でのレコード削除は禁止です。
+- **原因**：`storage.sqlite` が書き込み不可・物理破損・未移行スキーマである、`bot.json` の `time_zone` が `storage_metadata.time-zone` と異なる、またはブラックリストと一時広告免除に同一 ID が重複している。
+- **対処**：タイムゾーン不一致は `bot.json` の `time_zone` を DB 記録値に戻します。旧スキーマ（16.3.2 の v11 等）は先に[段階的アップグレード](#staged-upgrade)で 17.2.1 への移行を完了します。物理破損時は同一時点のバックアップから `storage.sqlite` と `-wal` / `-shm` を一括復元します（空 DB での上書きや手動レコード編集は厳禁です）。
 
 ### 6. おみくじ結果とレシート秘密鍵の不一致
-- **原因**：当日の運勢結果と `receipt-secret.json` が異なるバックアップ時点に由来している。
-- **対処**：Bot を停止し、同一バックアップ時点から `memory/luck/` ディレクトリ全体を完全復元。秘密鍵のみを単独で再生成することは禁止です。
+- **原因**：当日おみくじファイルと `receipt-secret.json` が別時点のバックアップから混在し、HMAC 検証に失敗している。
+- **対処**：サービスを停止し、同一バックアップ時点から `memory/luck/` 全体を復元します（秘密鍵単体の削除・再生成は厳禁です）。
 
 ### 7. グローバル状態ファイル不正または旧 state.json 残留
-- **原因**：`memory/global/state.json` の形式が現行スキーマに一致しない、またはデータルート直下に旧版 `state.json` が残留している。
-- **対処**：バックアップを取得後、不正なフィールドを修正。旧形式は先に[段階的アップグレード](#staged-upgrade)で 17.2.1 へ上げてその移行を完了し、旧ファイルをデータルート外へ移動。
+- **原因**：`memory/global/state.json` が現行スキーマに合わない、またはデータルート直下に旧 `state.json` / `state.json.bak` が残っている。
+- **対処**：バックアップ取得後に不正フィールドを修正し、旧形式の場合は[段階的アップグレード](#staged-upgrade)で 17.2.1 まで移行した上でルート直下の旧ファイルを退避します。
 
 ### 8. /wed 候補ファイルの形式不正
-- **原因**：`memory/wed/<chatId>.json` が現行のウィンドウ形式に一致しない（例：17.2.1 のメンバー ID 配列のまま、`enteredAt` の欠落、参加時刻の逆順、`WED_MEMBER_LIMIT` 件超過）、またはファイル名が正規のグループ ID でない。
-- **対処**：停止中にバックアップを取得した後、メンバー ID 配列の旧ファイルは [/wed メンバーウィンドウのコールド移行](#upgrade-wed-member-window)を実行。それ以外はエラーが示すファイルとフィールドパスに従って修正するか、バックアップから復元。
+- **原因**：`memory/wed/<chatId>.json` が現行ウィンドウ形式でない（17.2.1 のメンバー ID 配列のまま、`enteredAt` 欠落、時刻逆順、`WED_MEMBER_LIMIT` 超過など）、またはファイル名が正規グループ ID でない。
+- **対処**：停止・バックアップ後、17.2.1 の ID 配列には [/wed メンバーウィンドウのコールド移行](#upgrade-wed-member-window)を実行し、それ以外はエラー対象のファイル・フィールドを修正するかバックアップから復元します。
 
 ---
 
@@ -278,39 +307,39 @@ WantedBy=multi-user.target
 
 ### bot.lock が起動を拒否する場合
 
-ロックファイルの形式は `BOT_LOCK_LINE_PATTERN`（`v2:<pid>:<starttime>:<boot_id>:<sha256(token)>`、`starttime` は `/proc/<pid>/stat` から取得）に一致しなければなりません。インスタンスロックは Linux `/proc` ファイルシステムに依存し、厳格な Fail-Closed 機構を備えています：
+インスタンスロックは Linux `/proc` を用いた厳密な 1 行形式 `BOT_LOCK_LINE_PATTERN`（`v2:<pid>:<starttime>:<boot_id>:<sha256(token)>`、`starttime` は `/proc/<pid>/stat` 第 22 フィールド）で Fail-Closed に動作します：
 
-- **アクティブプロセス競合**：PID、starttime、boot ID がすべて一致した場合にのみアクティブプロセスと判定されます。すでに別のインスタンスが稼働していることを意味するため、先に旧インスタンスを停止してください。同一データルートでの多重起動は厳禁です。
-- **失効した古いロック（Stale Lock）**：SIGKILL で強制終了されたプロセスや、システム再起動後に残されたロックは、次回起動時または終了時に自動的に識別・クリーンアップされるため、手動介入は不要です。
-- **破損または旧形式のロック**：ロックファイルの内容は、現行形式の所有者レコード 1 行と改行でなければなりません。複数行、形式不一致、余分な内容がある場合、取得と停止時の解放はどちらも拒否し、ファイルをそのまま残します。プログラムは推測や自動アップグレードを拒否します。関連するプロセスが**一切稼働していないことを確実に確認**した上で、破損したロックファイルを手動削除してから再起動してください。
-- **終了時のロック解放失敗**：プロセスは非ゼロの終了コードを保持しエラーを出力します。`/proc` のマウント状態、ディレクトリパーミッション、guard ファイルを調査してください。
-- **一時残存ファイル**：`.candidate.*`（ハードリンクロック候補ファイル）および `.tmp` 一時ファイルは、元の所有者が非アクティブであることを確認後、起動プロセスによって自動的に回収されます。
+- **稼働中プロセスとの競合**：PID・`starttime`・`boot_id` の 3 点すべてが一致した場合のみ稼働中と判定されます。別インスタンスが動いているため先に停止してください（同一データルートの多重起動は厳禁です）。
+- **強制終了・再起動後の古いロック（Stale Lock）**：`kill -9` やホスト再起動で残ったロックは次回起動時または停止時に自動判定・回収されるため、手動削除は不要です。
+- **破損または旧形式のロックファイル**：現行形式の 1 行＋改行でない場合、ロック取得も停止時解放もファイルを書き換えずに拒否します。**関連プロセスが一切稼働していないことを確実に確認**した上で、`bot.lock` を手動削除して再起動してください。
+- **停止時のロック解放失敗**：エラーを出力して非ゼロ終了します。`/proc` のマウント状態、ディレクトリの書き込み権限、残留 `.guard` ファイルを確認してください。
+- **ロック候補一時ファイルの回収**：ハードリンクロック時の `.candidate.*` や `.tmp` は、元の所有者が非稼働と確認された時点で起動処理が自動回収します。
 
 > [!CAUTION]
-> トークンフィンガープリントはロック保持者の身元識別にのみ使用され、マルチテナントのデータ分離は行いません。複数の Bot を並行デプロイする場合は、**必ず各インスタンスに独立したデータルートディレクトリを指定**してください。
+> `bot.lock` 内のトークン SHA-256 は単一所有者の認証情報整合性確認用であり、マルチテナント分離機構ではありません。複数 Bot を同時稼働させる場合は**必ず Bot ごとに独立した `COPY_NINJIA_DATA_ROOT` を設定**してください。
 
 ---
 
 ## アップグレードとリリース
 
-1. **ソースコード品質ゲートの実行**：ソースワークツリー上で全量検査（凍結インストール、`check`、`check:coverage`、`test:fault-injection`、バイナリビルド）を実行：
+1. **リリース前フルゲート**：ソース作業ツリーで全量検証（frozen lockfile、`check`、`check:coverage`、`test:fault-injection`、バイナリビルド）を実行します：
    ```bash
    bun run release:check -- --version <tag>
    # ネットワーク接続環境ではセキュリティ監査を追加
    bun run audit:release
    ```
-2. **Git 状態の確認**：Git 操作を実行する前に、`git status --short`、バージョン差分、および保護対象ファイル `git ls-files config .env g-auth.json` を確認。リポジトリのテンプレートでデプロイデータを上書きすることは厳禁です。
-3. **独立した作業ディレクトリ**：systemd の `WorkingDirectory` が現在のリポジトリである場合は、独立した worktree またはクローンでテストとビルドを行い、ブランチは `dev` と `master` のみに限ります。インプレース更新が必要な場合は、**先にサービスを停止して inactive を確認**し、デプロイファイルとデータベースを外部にバックアップしてから pull と移行を実行します。
-4. **永続化データの変更**：データ構造の変更が伴う場合は、コールド移行の仕様に厳格に従って作業を実施。
-5. **リリース後の稼働観察**：設定と状態の厳密な検証後にサービスを起動します。少なくとも 2 回分の実際の supervisor 再起動間隔を観察し、`ActiveState=active`、`SubState=running`、起動後の基準値から `NRestarts` が増えていないこと、journal に新たな非ゼロ終了がないことを確認します。すべて合格するまで外部バックアップを残します。
+2. **Git 状態の確認**：Git 操作の前に `git status --short`、対象リビジョンとの差分、および `git ls-files config .env g-auth.json` を確認します（`config_example/` による本番設定の上書きは厳禁です）。
+3. **独立した作業ディレクトリの利用**：systemd の `WorkingDirectory` がリポジトリ自身を指している場合は、独立した git worktree または新規クローンでビルド・検証を行い、ブランチは `dev` と `master` のみを使用します。やむを得ずインプレース更新する場合は、**先に systemd サービスを停止して `inactive` を確認**し、設定と DB を外部バックアップしてから pull・移行を行います。
+4. **永続データ・設定の移行**：スキーマや設定構成に変更がある場合は、停止中に所定のコールド移行手順を実施します。
+5. **起動後の安定性監視**：設定・永続データの検証通過後に起動し、少なくとも 2 周期分の supervisor 再起動間隔で `ActiveState=active`・`SubState=running`・`NRestarts` 増加なし・journal の非ゼロ終了なしを確認してから外部バックアップを削除します。
 
 ### インストーラーのサービスとバックアップ境界
 
-`install.sh` は内蔵の保護ガード機構を備えています：
-- **サービス状態の確認**：インストーラーは最初のインプレース書き込みを行う前に、既存サービスが `inactive/dead` 状態であることを要求します。サービスが稼働中である場合や複数の `ExecStart` が競合している場合は、直ちに処理を拒否します。
-- **バックアップと隔離**：設定ファイルや unit ファイルを置き換える前に、ワークツリー外にバックアップとリストを作成し、ファイルごとに SHA-256 を照合して所有者とパーミッションを記録します。設定のバックアップはサービスの安定性がすべて確認できた後にのみ削除され、いずれかの手順が失敗した場合やフォアグラウンド実行の場合はバックアップと現場を保持します。
-- **環境変数の制約**：`COPY_NINJIA_DATA_ROOT` が未設定ならプロジェクトルートを使用します。明示設定した場合は、既存 unit の `Environment` とインストーラー環境が同じデータルートへ解決される必要があります。空でない `EnvironmentFiles` と、この変数に関わる `PassEnvironment` / `UnsetEnvironment` は拒否されます。
-- **健全性観察ウィンドウ**：起動後、インストーラーは systemd の `RestartUSec`、`RestartMaxDelayUSec`、`RestartRandomizedDelayUSec` から `service_observation_seconds`（`scripts/install/service.sh`）が算出した 2 回分の再起動間隔に安全マージンを加えた期間を観察します。基準値からの `NRestarts` の変化、異常終了、journal の読み取り失敗、または新たな非ゼロ終了があれば検証は失敗します。
+`install.sh` には以下の安全ガードが組み込まれています：
+- **サービス停止状態の強制**：既存の systemd サービスが稼働中である場合や、複数の競合する `ExecStart` が定義されている場合は、書き込みを行う前に即座に中断します。
+- **ワークツリー外バックアップ**：設定や unit ファイルを更新する前にワークツリー外へバックアップを作成し、所有者・モードの記録と SHA-256 照合を行います。バックアップは起動後の安定性監視をすべて通過した後にのみ削除され、途中失敗やフォアグラウンド起動選択時はそのまま保全されます。
+- **データルート環境変数の一貫性**：`COPY_NINJIA_DATA_ROOT` 未設定時はプロジェクトルートを使用し、明示設定時は既存 unit の `Environment=` と同一の絶対パスに解決されることを要求します（非空の `EnvironmentFiles` や当該変数に関わる `PassEnvironment` / `UnsetEnvironment` は拒否）。
+- **起動後の健全性観察ウィンドウ**：systemd の `RestartUSec`・`RestartMaxDelayUSec`・`RestartRandomizedDelayUSec` から `service_observation_seconds`（`scripts/install/service.sh`）で算出した 2 再起動周期＋安全マージンを監視し、`NRestarts` の増加・プロセス終了・journal 読み取り失敗・非ゼロ終了があれば失敗としてロールバックを案内します。
 
 ---
 
@@ -318,32 +347,32 @@ WantedBy=multi-user.target
 
 ### 主要ログの特徴とトラブルシューティング
 
-- **構造化ログ**：`logs/` 配下に配置され、Disk I/O Worker により一括非同期追記されます。純粋な英語ログであり、grep によるフィルタリング分析が容易です。
-- **Worker クラッシュの自己修復**：単一の Worker がクラッシュした場合は自動的にレート制限付きで再起動され、メインスレッドからミラーやスナップショットが復元されます。
-- **永続化失敗による即時終了**：有限再試行を使い果たしたディスク書き込み失敗は、能動的な非ゼロ終了をトリガーし、systemd による再起動で復旧します。
+- **構造化英語ログ**：Disk I/O Worker が `logs/` 配下へ非同期バッチ追記します。すべて英語出力のため `grep` やログ収集基盤で容易に検索できます。
+- **Worker クラッシュの自動復旧**：個別 Worker が異常終了すると、メインスレッドがレート制限付きで新スレッドを起動し、保持中のスナップショットから状態を自動再注入します。
+- **永続化失敗時の Fail-Fast 終了**：ディスク書き込みが有限回のリトライ後も失敗し続ける場合、メモリとディスクの乖離を防ぐため非ゼロ終了して systemd のクリーン再起動に委ねます。
 
 #### よくあるログメッセージ
 
 - `Cron task "<name>" action #<n> (<type>) failed after <k> attempt(s)`：
-  定期タスクのアクションが最終的に失敗したことを示します。考えられる原因：
-  - `403`：Bot が対象グループから退出させられた。
-  - `400`：メディアの URL が無効、またはファイル形式を Telegram がサポートしていない。
-  - `local file ... is missing`：ローカルの素材ファイルが存在しない。
-  - `speech synthesis failed: ...`：音声合成の失敗（`tts unconfigured` / `tts unsupported` は設定不一致、`worker unavailable` は AI Worker が未準備、`synthesis failed` / `timed out` はモデルサーバー側の問題、`daily limit reached` は現在のカウント窓の利用枠の枯渇）。
+  定期タスクのアクションが最終失敗に達しました：
+  - `403`：Bot が対象グループ / チャンネルから退出させられている、または送信権限がない。
+  - `400`：外部メディア URL が無効、または画像 / 音声形式が Telegram 非対応。
+  - `local file ... is missing`：指定したローカル素材ファイルが存在しない。
+  - `speech synthesis failed: ...`：音声合成の失敗（`tts unconfigured` / `tts unsupported`＝設定不一致、`worker unavailable`＝AI Worker 初期化中、`synthesis failed` / `timed out`＝上流 API・通信エラー、`daily limit reached`＝日次枠の上限到達）。
 - `/send TTS for chat <id> produced no voice: <原因>`：
-  プライベートチャット中継内の音声合成が失敗したことを示します（原因は上記と同様）。スーパー管理者のプライベートチャットへ失敗通知が送信され、中継セッション自体は開いたまま維持されます。
+  スーパー管理者の DM `/send` 中継での音声合成失敗です（原因は同上）。DM にエラーが返り、中継セッション自体は維持されます。
 - `AI reply voice was not sent (chat <id>): <原因>`：
-  AI 返信において `send_voice` ツールが正常な音声を出力できなかったことを示します（モデルまたはネットワークの障害、利用枠の枯渇）。このエラーによってテキスト返信の正常な送信が妨げられることはありません。
+  グループ AI 返信中の `send_voice` 失敗です（タイムアウトや日次枠到達など）。テキスト返信の送信は通常どおり継続します。
 - `Failed to probe chat membership ... PARTICIPANT_ID_INVALID`：
-  ブラックリストメンバーの再スキャン時に、削除済みのアカウントに遭遇したことを示します。同一ユーザーに対して `BLOCKLIST_PARTICIPANT_INVALID_LIMIT` 回連続で再スキャンの処置がすべてこのエラーで拒否された場合、システムは自動的にその ID をブラックリストから登録解除します。
+  ブラックリスト巡回中に削除済み Telegram アカウントを検出しました。同一 ID で `BLOCKLIST_PARTICIPANT_INVALID_LIMIT` 回連続して返った場合、ブラックリストから自動削除されます。
 - `Chat <id> was upgraded to supergroup <newId>; tearing down the old chat.`：
-  管理グループがスーパーグループへ昇格し、旧グループ ID を「グループが既に存在しない」として後始末しました（データ削除、管理グループ枠の解放）。新しいスーパーグループで改めて `/init enable` を実行してください。旧グループの設定は移されません。
+  管理中の通常グループがスーパーグループへ昇格したため、旧グループ ID を `gone` として後始末（データ削除・管理枠解放）しました。新しいスーパーグループで改めて `/init enable` を実行してください（旧設定は自動引き継ぎされません）。
 - `Chat <id> was gone|departed in <n> lookups <ms>ms apart; tearing it down.`：
-  起動時のタイトル更新が、グループが既に存在しない（`gone`）、または Bot がもうメンバーでない（`departed`）ことを続けて複数回確証し、自動で後始末しました。`departed` のグループに未復元の非公開モード記録がある場合は保持され、Bot がグループに戻ってメンバー制限権限を取り戻した時点で自動的に復元されます。
+  起動時のタイトル更新で、グループの消滅（`gone`）または Bot の非メンバー化（`departed`）が複数回連続で確認されたため自動後始末しました（`departed` グループに未復元のロックダウン記録がある場合は保持され、Bot が再参加してメンバー制限権限を得た時点で自動復元されます）。
 - `Chat <id> looked gone|departed at startup but lookup <n> disagreed; keeping it.`：
-  初回の照会は到達不能に見えたものの、再照会の結論が一致しませんでした（多くは Telegram の一時的なエラー）。今回は後始末せず、次回起動時に改めて確証します。
+  初回照会では到達不能に見えたものの再照会で結果が異なったため（多くは Telegram 側の一時エラー）、今回は後始末を見送り次回起動時に再確認します。
 - `Gemini context cache API ... create rejected (<n>/<max>): 400`：
-  キャッシュ作成が 400 で拒否されています。内容がキャッシュの最小 token 数に届かない場合と、パラメータが不正な場合があります。同じ内容は `GEMINI_CONTEXT_CACHE_REJECTION_RETRY_AFTER_MS` のクールダウン後に再試行し、拒否が累計 `GEMINI_CONTEXT_CACHE_MAX_REJECTIONS` 回になると停止します。その間もキャッシュなしでリクエストを送れます。
+  Gemini のコンテキストキャッシュ作成が HTTP 400 で拒否されました（最小トークン数未満やパラメータ不一致など）。`GEMINI_CONTEXT_CACHE_REJECTION_RETRY_AFTER_MS` 後に再試行し、累計 `GEMINI_CONTEXT_CACHE_MAX_REJECTIONS` 回拒否された時点でその内容のキャッシュ作成を停止します（通常のキャッシュなし応答はそのまま継続します）。
 
 ---
 

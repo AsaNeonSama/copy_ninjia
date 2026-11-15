@@ -1,3 +1,7 @@
+/**
+ * 入群验证终态动作退避重试调度（Anti-Raid Worker 侧）：
+ * 在终态动作本轮未结算时复位状态机执行门，并按指数退避排定下一次尝试。
+ */
 import { verificationEntries } from "../../../cache/workers/antiRaid/verification";
 import {
   VERIFICATION_TERMINAL_RETRY_MAX_MS,
@@ -14,7 +18,7 @@ export interface RetryTerminalAttemptParams {
   chatId: number;
   /** 目标成员 ID。 */
   userId: number;
-  /** 发起这一轮尝试时捕获的执行 token；条目已换成别的状态对象时什么也不做。 */
+  /** 发起本轮尝试时捕获的终态状态引用；运行态条目状态已变更时跳过重试调度。 */
   state: VerificationTerminalState;
   /** 验证状态机派发函数。 */
   dispatchVerification: VerificationDispatcher;

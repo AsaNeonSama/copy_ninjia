@@ -19,11 +19,12 @@ done
 > [!CAUTION]
 > 不要使用会覆盖已有文件的复制命令，也不要把 `config_example/` 当作部署配置的备份。`config/` 包含凭据，建议仅开放服务账号读取权限。
 
-`config/` 严格按生效机制拆分为两个子目录：
-- `config/static/`：`bot.json`、`g-auth.json`，修改后**必须重启服务**生效。
-- `config/dynamic/`：`assets.json`、`ad_samples.json`、`agent.json`、`mood.json`、`stickers.json`、`cron.json`，运行中修改会自动热重载生效。
-
-`config/dynamic/` 目录必须存在（可以为空）；任一配置文件放在 `config/` 顶层或放错子目录均会拒绝启动。白名单、黑名单和群状态保存在运行时数据根的 `database/storage.sqlite` 中，不属于配置文件。
+`config/` 严格按生效机制实施三级目录白名单（`config/` 顶层仅允许 `static/` 与 `dynamic/` 两个子目录）：
+- `config/static/`：仅允许 `bot.json`、`g-auth.json`，修改后**必须重启服务**生效。
+- `config/dynamic/`：仅允许 `assets.json`、`ad_detect.json`、`agent.json`、`mood.json`、`stickers.json`、`cron.json`，运行中修改会自动热重载生效。
+- `config/dynamic/` 必须是已存在的目录（可以为空）；若目录路径被非目录占用，或任一层级出现未声明条目（含错放或旧版文件如 `telegram.json`、`ad_samples.json`，隐藏/交换/备份文件、额外子目录及悬空软链接），启动阶段直接拒绝。
+- 热重载期间若 `config/dynamic/` 出现非白名单条目，整轮重载会被拒绝并保留当前已生效快照。
+- 白名单、黑名单和群状态保存在运行时数据根的 `database/storage.sqlite` 中，不属于部署配置文件。
 
 所有 JSON 文件均执行严格 schema 校验：未知字段、拼写错误、类型不符、非法枚举或越界取值都会在启动阶段或热重载时被拒绝，**绝不静默修正或忽略**。
 
@@ -44,7 +45,7 @@ done
   <tr>
     <td><code>static/bot.json</code></td>
     <td><nobr>静态（需重启）</nobr></td>
-    <td>Telegram Bot Token、唯一超级管理员、默认语气与时区</td>
+    <td>Telegram Bot Token、唯一超级管理员、默认语气、时区与可选 Mini App 控制台</td>
     <td><b>拒绝启动（致命错误）</b></td>
   </tr>
   <tr>
@@ -66,9 +67,9 @@ done
     <td>AI 对话停摆（但不拒绝启动）</td>
   </tr>
   <tr>
-    <td><code>dynamic/ad_samples.json</code></td>
+    <td><code>dynamic/ad_detect.json</code></td>
     <td><nobr>动态（热重载）</nobr></td>
-    <td>广告分类判定用的正例参考样本</td>
+    <td>广告处罚设置、广告分类正例参考样本与贴纸包/表情包黑名单</td>
     <td>广告检测停摆（但不拒绝启动）</td>
   </tr>
   <tr>
@@ -104,7 +105,7 @@ done
 1. **热替换**：解析通过且配置产生变化时，立即更新快照并投递给各 Worker。
 2. **校验失败保护**：解析失败时整份变更被拒绝，日志记录具体错误位置（文件路径、字段路径与期望形态），系统继续沿用上一份已生效配置，不中断运行。
 3. **功能联动**：
-   - 增删 `ad_samples.json` 或 `agent.json` 的 `ad_detect` 段，自动启停广告检测。
+   - 增删 `ad_detect.json` 或 `agent.json` 的 `ad_detect` 段，自动启停广告检测。
    - 增删 `agent.json` 的对话核心能力（`AGENT_AI_CHAT_REQUIRED_CAPABILITIES`：`text` / `summary` / `media`）或 `mood.json` / `stickers.json`，自动启停 AI 闲聊。
    - 可选能力（`image`、`tts`、`web_search`）的变更即时生效。
 4. **跨配置依赖校验**：
@@ -146,11 +147,11 @@ done
 | `super_admin_user_id` | `number` | **必填** | 正安全整数（`> 0`） | 唯一超级管理员的 Telegram 用户数字 ID（非用户名），天生拥有全部可授予权限，无需写入数据库 |
 | `atmosphere` | `string` | 可选 | `"mesugaki"` 或 `"normal"`；首尾空白去掉后严格校验，缺省按是否配置自定义人设选择 | 机器人系统通知与命令回执的语气风格；显式配置优先（`mesugaki` 雌小鬼，`normal` 普通）。未配置时，存在 `prompt/persona.md` 使用普通风格，否则使用雌小鬼风格；不改变 AI 人设 |
 | `time_zone` | `string` | 可选 | IANA 时区名，缺省 `DEFAULT_BOT_TIME_ZONE`；首尾空白去掉后严格校验 | 默认日历时区：运势、日志、广告累计、AI 时间、每日维护与未指定时区的 cron 共用；仅为 `TOKYO_TIME_ZONE`（含缺省）时注册东京天气工具；非法值拒绝启动。数据根建库时绑定该时区，之后更换会被启动拒绝，见 [07 运维与排障](../../docs/cn/07-operations.md#日历时区) |
-| `mini_app` | `object` | 可选 | 严格对象，仅允许 `url`、`port`、`host`、`password` 四个字段；缺省时不启动本地 HTTP 服务、不注册路由，也不挂载私聊 `MenuButtonWebApp`；手工从 `config_example/` 复制配置且不使用 Mini App 时须删除该节，或将 `password` 替换为真实密码（占位密码拒绝启动） | SuperAdmin 专属 Telegram Mini App 管理面板（Dashboard）配置，完整设置方法与 Cloudflare Tunnel 推荐配置见 [11 Mini App 设置与推荐配置](../../docs/cn/11-mini-app.md) |
+| `mini_app` | `object` | 可选 | 严格对象，仅允许 `url`、`port`、`host`、`password` 四个字段；缺省时不启动本地 HTTP 服务、不注册路由，也不挂载私聊 `MenuButtonWebApp`；手工从 `config_example/` 复制配置且不使用 Mini App 时须删除该节，或将 `password` 替换为真实密码（占位密码拒绝启动） | SuperAdmin 专属 Telegram Mini App 管理面板（Dashboard）配置，完整设置方法与 Cloudflare Tunnel 推荐配置见 [10 Mini App 设置与推荐配置](../../docs/cn/10-mini-app.md) |
 | `mini_app.url` | `string` | `mini_app` 存在时**必填** | 合法的 `https://` URL；支持配置子路径前缀（如 `https://example.com/sub`），兼容保留或剥离路径前缀的反向代理 | Telegram 客户端加载 WebApp 的公网 HTTPS 入口地址 |
 | `mini_app.port` | `number` | `mini_app` 存在时**必填** | `MINI_APP_PORT_MIN`–`MINI_APP_PORT_MAX`（`1`–`65535`）的安全整数，示例配置为 `3000` | 本地 `Bun.serve` HTTP 监听端口 |
 | `mini_app.host` | `string` | 可选 | 非空字符串，缺省 `MINI_APP_DEFAULT_HOST`（`"127.0.0.1"`） | 本地 `Bun.serve` HTTP 监听地址 |
-| `mini_app.password` | `string` | `mini_app` 存在时**必填** | 非空字符串、至少包含 6 位数字（`0-9`），且不得保留占位值 `MINI_APP_PASSWORD_PLACEHOLDER`；缺省或非法时拒绝启动 | Mini App 首屏访问密码（`initData` 与单次会话有效期均为 45 分钟；连续输错 3 次锁定超级管理员 ID 30 分钟；在控制台绑定 Google Authenticator TOTP 后登录优先校验 6 位动态码） |
+| `mini_app.password` | `string` | `mini_app` 存在时**必填** | 非空字符串、至少包含 6 位数字（`0-9`），且不得保留占位值 `MINI_APP_PASSWORD_PLACEHOLDER`；缺省或非法时拒绝启动 | Mini App 首屏访问密码（`initData` 与单次会话有效期均为 45 分钟；连续输错 3 次锁定超级管理员 ID 30 分钟；在控制台绑定 Google Authenticator TOTP 后首屏改为校验 6 位动态码，解绑后恢复密码登录） |
 
 ---
 
@@ -451,26 +452,68 @@ done
 
 ---
 
-## `ad_samples.json`
+## `ad_detect.json`
 
-动态配置文件，路径为 `config/dynamic/ad_samples.json`。顶层为纯文本字符串数组，提供给广告分类模型作为判定正例参考。
+动态配置文件，路径为 `config/dynamic/ad_detect.json`。顶层为 JSON 对象，必须精确包含 `punishment` 对象与 `samples`、`sticker_black_list`、`emoji_black_list` 三个数组：
+- **配置内容**：分别定义判定为广告后的处罚设置、广告分类正例样本、贴纸包黑名单与自定义表情包黑名单。
+- **检测顺序**：按「贴纸包黑名单快路径 -> 自定义表情包黑名单 -> AI 文本判定」依次执行，命中任一黑名单直接跳过 AI 判定。
+- **命中处置**：任一路径判定为广告后，先删除涉事消息，再按 `punishment` 处罚，并在触发群发出 `COMMAND_MESSAGE_AUTO_DELETE_MS` 后自动删除的播报。
 
 ### 配置案例
 
 ```json
-[
-  "博彩平台首充送58，提款秒到，无视风控，联系 @xxxxxx",
-  "招聘日结兼职，手机就能做，日入三百起，加微信 xxxxxx",
-  "长期收u出u，价格美丽，秒结，飞机 @xxxxxx",
-  "出售TG老号 白号 API号 协议号，价格优惠，私聊"
-]
+{
+  "punishment": {
+    "kick": {
+      "block": true,
+      "block_scope": "global"
+    }
+  },
+  "samples": [
+    "博彩平台首充送58，提款秒到，无视风控，联系 @xxxxxx",
+    "招聘日结兼职，手机就能做，日入三百起，加微信 xxxxxx",
+    "长期收u出u，价格美丽，秒结，飞机 @xxxxxx",
+    "出售TG老号 白号 API号 协议号，价格优惠，私聊"
+  ],
+  "sticker_black_list": [
+    "SpamStickerPack_by_example_bot"
+  ],
+  "emoji_black_list": [
+    "SpamEmojiPack_by_example_bot"
+  ]
+}
 ```
+
+### 处罚设置
+
+`punishment` 里 `mute` 与 `kick` 互斥，必须恰好写其中一个；两个都写或都不写均拒绝。
+
+| 设置 | 普通用户 | 频道身份（`sender_chat`） |
+| --- | --- | --- |
+| `mute` | 在触发群禁言：`permanent` 为 `true` 时永久禁言，否则禁言 `duration`，到期由 Telegram 自动解除 | 只删除消息 |
+| `kick`，`block: false` | 只踢不封：移出触发群，可再次入群 | 只删除消息 |
+| `kick`，`block_scope: "chat"` | 只在触发群封禁并撤回其消息，不写入永久黑名单 | 只删除消息 |
+| `kick`，`block_scope: "global"` | 写入永久黑名单（与 `/block` 同一份名单），并在全部受管群封禁 | 同左 |
+
+- 禁言、只踢不封与本群封禁只作用于触发群，不写入持久化 outbox：停机排空超时或进程重启时，尚未完成的请求直接放弃；请求未成功时播报提示管理员检查机器人权限。
+- 本群封禁不在机器人的永久黑名单里，`/unblock` 解不开，需在 Telegram 群管理界面解除；永久禁言用 `/unmute` 解除。
+- 只踢不封前先确认目标仍在群；群类型未知或成员状态无法确认时不发移出请求。
+- 处罚设置随热重载生效，每次处置都读取当前设置；文件被删除时，尚在处理的命中只删除消息、不再处罚。
 
 ### 键说明
 
-| 结构 | 类型 | 必填/可选 | 约束与取值范围 | 说明 |
+| 键名 | 类型 | 必填/可选 | 约束与取值范围 | 说明 |
 | --- | --- | --- | --- | --- |
-| 顶层数组 | `string[]` | **必填** | 数组长度 `0 ～ MAX_CONFIGURED_AD_SAMPLES`，元素互不重复 | 广告正例文本样本数组。每条样本的连续空白压成单个空格并去掉首尾空白后必须非空且长度 `≤ AD_SAMPLE_MAX_CHARS` 个字符，判重按该规范化结果。使用 `provider: "google"` 时，系统会自动将这些样本构建为 Gemini 显式上下文缓存，剩余存活时长低于 `GEMINI_CONTEXT_CACHE_RENEW_BEFORE_MS` 时后台续期 |
+| `punishment` | `object` | **必填** | 只允许 `mute`、`kick` 两个键，且恰好出现其一 | 判定为广告（含黑名单命中）后的处罚设置，见上表 |
+| `punishment.mute` | `object` | 与 `kick` 二选一 | 只允许 `permanent`、`duration` 两个键 | 禁言设置 |
+| `punishment.mute.permanent` | `boolean` | **必填** | — | `true` 为永久禁言 |
+| `punishment.mute.duration` | `string` | `permanent` 为 `false` 时必填，为 `true` 时必须缺省 | `数字+m/h/d`（如 `"30m"`、`"12h"`、`"7d"`），去掉首尾空白后落在 `MUTE_MIN_DURATION_MS ～ MUTE_MAX_DURATION_MS`，越界拒绝 | 禁言时长 |
+| `punishment.kick` | `object` | 与 `mute` 二选一 | 只允许 `block`、`block_scope` 两个键 | 移出设置 |
+| `punishment.kick.block` | `boolean` | **必填** | — | `false` 为只踢不封，`true` 时按 `block_scope` 封禁 |
+| `punishment.kick.block_scope` | `string` | `block` 为 `true` 时必填，为 `false` 时必须缺省 | 去掉首尾空白后只能是 `"chat"` 或 `"global"`（`AD_BLOCK_SCOPES`） | `"chat"` 只在触发群封禁；`"global"` 写入永久黑名单并在全部受管群封禁 |
+| `samples` | `string[]` | **必填** | 数组长度 `0 ～ MAX_CONFIGURED_AD_SAMPLES`，元素互不重复 | 广告正例文本样本数组。每条样本的连续空白压成单个空格并去掉首尾空白后必须非空且长度 `≤ AD_SAMPLE_MAX_CHARS` 个字符，判重按该规范化结果。使用 `provider: "google"` 时，系统会自动将这些样本构建为 Gemini 显式上下文缓存，剩余存活时长低于 `GEMINI_CONTEXT_CACHE_RENEW_BEFORE_MS` 时后台续期 |
+| `sticker_black_list` | `string[]` | **必填** | 数组长度 `0 ～ MAX_CONFIGURED_AD_BLACKLIST_PACKS`，元素去掉首尾空白后符合 `STICKER_PACK_NAME_PATTERN` 且互不重复 | 贴纸包 short name 黑名单（即 `https://t.me/addstickers/<short_name>` 末尾段）。非豁免发送者发送所属贴纸包命中该列表的贴纸时，直接跳过后续检测并按 `punishment` 处罚 |
+| `emoji_black_list` | `string[]` | **必填** | 数组长度 `0 ～ MAX_CONFIGURED_AD_BLACKLIST_PACKS`，元素去掉首尾空白后符合 `STICKER_PACK_NAME_PATTERN` 且互不重复 | 自定义表情包 short name 黑名单（即 `https://t.me/addemoji/<short_name>` 末尾段）。非豁免发送者消息含 `custom_emoji` 实体时，经主线程统一 Telegram 出站查询所属表情包，命中该列表时直接跳过 AI 检测并按 `punishment` 处罚 |
 
 ---
 

@@ -1,16 +1,15 @@
+/**
+ * 媒体消息直接点名机器人时的必回触发判定测试（见 `packages/auto/message/` 媒体分支）：
+ * - 带视觉素材时经 `recordChatMedia` 携带 `directTriggerReason`，按「命中缓存或等待解析完成后回复」执行；
+ * - 无视觉素材时记录兜底行后直接触发回复，且必回路径与文字点名一致无视 `/quiet` 静默窗口。
+ */
+
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import {
   aiRecordMediaMessageFixture,
   aiRecordMessageFixture,
   aiReplyReferenceFixture,
 } from "../helpers/aiMemoryFixtures";
-
-/** 「拿媒体直接叫机器人」的触发判定（见 packages/auto/message/ 的媒体分支）：
- * 有视觉素材时经 recordChatMedia 带 directTriggerReason 走「先试缓存、解析完成再
- * 回答」的必回管线；没有素材时记完兜底行直接触发。storage mock 里
- * quietUntil 恒为将来时刻——必回路径与文字回复/@ 一致地无视 /quiet，正好
- * 顺带验证这一点。 */
-
 // 公共模块桩收在 helper 里（见 test/helpers/autoMessageMocks.ts）；必须在下面的 await import 之前登记。贴纸视觉源解析用真实实现。
 import {
   autoMessageChatState,
@@ -28,7 +27,7 @@ const { clearUserReplyTriggerTimes } =
   await import("../../packages/auto/message/triggerPolicy");
 
 const { handleIncomingMessageMiddleware: handleIncomingMessageWithState } = await import("../../packages/auto/message");
-const { getChatState } = await import("../../packages/infra/storage/stateStore");
+const { getChatState } = await import("../../packages/infra/chatStateStorage");
 const { DEFAULT_CHAT_STATE } = await import("../../packages/libs/chatState");
 
 /** 与前置链一致：读一次本条消息所在群的状态快照，再交给自动流水线。 */

@@ -36,6 +36,8 @@ export interface OpenQaFormSessionParams {
   readonly chatId: number;
   /** 开表单的可见身份；投递消息的身份必须与它相同才会被认领。 */
   readonly openedById: number;
+  /** 发起 `/qa set` 所在的论坛话题；非论坛群或 General 为 undefined。 */
+  readonly messageThreadId: number | undefined;
   /**
    * 表单被丢弃时的收尾动作，由命令层提供，用来删掉那条表单消息。
    *
@@ -46,17 +48,16 @@ export interface OpenQaFormSessionParams {
 }
 
 /**
- * 开一张新表单；同一群的旧表单连同它那条消息一起丢弃。
+ * 开启一张新表单；同群若已有旧会话（同一发起人重开），将其连同旧表单消息与已填字段一并作废，
+ * 新表单从空状态重新开始（其他身份在途时的互斥由命令层前置拦截）。
  *
- * 重开是同一个人的重来一次：已经填进去的问题和答案随旧会话一并作废，
- * 新表单从两项皆空开始；其他身份正在填的情形由命令层在调用之前挡住。
- *
- * @param params 新建表单会话的参数（含目标群 `chatId`、发起人身份 `openedById` 与旧会话丢弃清理回调 `onDiscard`）。
+ * @param params 新建表单会话的参数（含目标群 `chatId`、发起人身份 `openedById`、表单所在话题 `messageThreadId` 与旧会话丢弃清理回调 `onDiscard`）。
  * @returns 新建并登记的表单会话；达到全局容量上限 `QA_FORM_SESSION_MAX` 时返回 null（不挤掉其他群的表单）。
  */
 export function openQaFormSession({
   chatId,
   openedById,
+  messageThreadId,
   onDiscard,
 }: OpenQaFormSessionParams): QaFormSession | null {
   const previous: QaFormSession | undefined = qaFormSessions.get(chatId);
@@ -69,6 +70,7 @@ export function openQaFormSession({
   const session: QaFormSession = {
     chatId,
     openedById,
+    messageThreadId,
     formMessageId: undefined,
     q: undefined,
     a: undefined,

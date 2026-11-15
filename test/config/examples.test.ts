@@ -16,14 +16,14 @@
 import { describe, expect, test } from "bun:test";
 import { join, relative, sep } from "node:path";
 import { rsaPrivateKeyPemFixture } from "../../scripts/fixtures/googleAuth";
-import { loadAdSampleConfig } from "../../packages/config/adSamples";
+import { loadAdDetectConfig } from "../../packages/config/adDetectConfig";
 import { parseCronConfig } from "../../packages/config/cron";
 import { parseGoogleServiceAccountKey } from "../../packages/config/googleAuth";
 import { loadMoodConfig } from "../../packages/config/mood";
 import { loadStickerConfig } from "../../packages/config/stickers";
 import { parseBotConfig } from "../../packages/config/botInput";
 import {
-  AD_SAMPLES_CONFIG_PATH,
+  AD_DETECT_CONFIG_PATH,
   AGENT_CONFIG_PATH,
   BOT_CONFIG_PATH,
   CONFIG_ROOT,
@@ -51,7 +51,7 @@ function examplePath(deploymentPath: string): string {
 const COPIED_EXAMPLES: readonly (readonly [string, (path: string) => Promise<unknown>])[] = [
   [STICKERS_CONFIG_PATH, loadStickerConfig],
   [MOOD_CONFIG_PATH, loadMoodConfig],
-  [AD_SAMPLES_CONFIG_PATH, loadAdSampleConfig],
+  [AD_DETECT_CONFIG_PATH, loadAdDetectConfig],
 ];
 
 describe("config_example 与解析器保持同步", () => {

@@ -32,8 +32,9 @@ mock.module("../../../packages/aiChat/ai/telegramImage", () => ({
 const { describeMedia, describeMediaForStickerCatalog } = await import("../../../packages/aiChat/ai/imageDescription");
 const { transientDescriptionCache: cache, transientDescriptionTasks } = await import("../../../packages/cache/workers/aiChat/imageDescription");
 const { mediaTaskRunner } = await import("../../../packages/cache/workers/aiChat/mediaTasks");
-const { resetMediaInputSupport, getMediaInputState, recordMediaInputResult, getMediaInputProbe } =
+const { resetMediaInputSupport, getMediaInputState, getMediaInputProbe } =
   await import("../../../packages/cache/workers/aiChat/mediaInputSupport");
+const { recordMediaInputResult } = await import("../../../packages/aiChat/ai/mediaInputSupport");
 
 function request(key: string, signal?: AbortSignal): Promise<string | null> {
   return describeMedia({ kind: "photo", fileId: key, fileUniqueId: key, voiceMime: undefined, signal });

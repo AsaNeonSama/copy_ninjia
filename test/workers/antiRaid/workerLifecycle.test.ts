@@ -1,5 +1,5 @@
 import { adoptTimeZone, getTimeZone } from "../../../packages/config/time";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { AntiRaidWorkerEvent } from "../../../packages/types/antiRaid/events";
 import type { AntiRaidWorkerMessage } from "../../../packages/types/antiRaid/protocol";
 import type { AdDetectAgentConfig } from "../../../packages/types/config";
@@ -25,7 +25,13 @@ const workerSelf: {
   onmessage: null,
   postMessage: (event) => { workerEvents.push(event); },
 };
+const originalSelfDescriptor: PropertyDescriptor | undefined =
+  Object.getOwnPropertyDescriptor(globalThis, "self");
 Object.defineProperty(globalThis, "self", { configurable: true, value: workerSelf });
+afterAll((): void => {
+  if (originalSelfDescriptor === undefined) Reflect.deleteProperty(globalThis, "self");
+  else Object.defineProperty(globalThis, "self", originalSelfDescriptor);
+});
 
 mock.module("../../../packages/workers/antiRaid/verificationEvents", () => ({
   handleJoinEvent(): void { calls.push("join"); },
@@ -161,7 +167,7 @@ beforeEach(() => {
 describe("Anti-Raid Worker lifecycle", () => {
   test("时区与通知风格随 agentConfig 注入，失权不改风格，Worker 停止时清空风格", () => {
     worker.startAntiRaidWorker();
-    worker.handleAntiRaidWorkerMessage({ type: "agentConfig", timeZone: "UTC", atmosphere: "plain", adDetect: null, adSamples: null });
+    worker.handleAntiRaidWorkerMessage({ type: "agentConfig", timeZone: "UTC", atmosphere: "plain", adDetect: null, adDetectConfig: null });
     expect(workerAtmosphere()).toBe(ATMOSPHERE_TEXTS.plain);
     expect(getTimeZone()).toBe("UTC");
     worker.handleAntiRaidWorkerMessage({ type: "deactivateChat", chatId: -1001, cleanupVerificationMessages: false, abandonLockdown: false });
@@ -266,7 +272,13 @@ describe("Anti-Raid Worker lifecycle", () => {
     expect(workerSelf.onmessage).not.toBeNull();
 
     const messages: AntiRaidWorkerMessage[] = [
-      { atmosphere: "teasing", type: "agentConfig", timeZone: getTimeZone(), adDetect: injectedAdDetectConfig, adSamples: [] },
+      {
+        atmosphere: "teasing",
+        type: "agentConfig",
+        timeZone: getTimeZone(),
+        adDetect: injectedAdDetectConfig,
+        adDetectConfig: { punishment: { kind: "kick", blockScope: "global" }, samples: [], stickerBlackList: new Set(), emojiBlackList: new Set() },
+      },
       {
         type: "join",
         chatId: -1001,
@@ -292,7 +304,7 @@ describe("Anti-Raid Worker lifecycle", () => {
       { type: "verificationPersisted", key: "-1001:1", generation: 1, revision: 1 },
       { type: "adminsChanged", chatId: -1001, userId: 1, isInviterExempt: true },
       { type: "removeBlockedMembers", chatId: -1001, userIds: [42], probeMembership: false, removalId: 1 },
-      { type: "adCandidate", chatId: -1001, senderId: 1, messageId: 11, observedAt: 1, text: "买号加我", firstName: "Spam", lastName: "", username: "spam", isChannel: false, isForwarded: false, blocked: false, justJoined: true, linkUrls: undefined, sampleQuote: undefined, sampleReplyTo: undefined },
+      { type: "adCandidate", chatId: -1001, senderId: 1, messageId: 11, observedAt: 1, text: "买号加我", firstName: "Spam", lastName: "", username: "spam", isChannel: false, isForwarded: false, blocked: false, justJoined: true, linkUrls: undefined, stickerSetName: undefined, customEmojiIds: undefined, sampleQuote: undefined, sampleReplyTo: undefined },
       { type: "clearAdDetect", chatId: -1001 },
       { type: "floodCandidate", chatId: -1001, userId: 1, observedAt: 1, name: "@noisy" },
       { type: "clearFloodControl", chatId: -1001 },

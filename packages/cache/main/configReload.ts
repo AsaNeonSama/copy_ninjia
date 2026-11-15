@@ -4,8 +4,11 @@ import type { FSWatcher } from "node:fs";
 import type { LatestValueRunner } from "../../libs/latestValueRunner";
 
 /**
- * 热重载监听器与单飞执行器状态：startConfigReload 填充 watcher 与 runner 并开启 accepting；文件变更事件重设 debounceTimer（到期清空），目录改名或暂缺时按 CONFIG_RELOAD_REWATCH_RETRY_DELAYS_MS 调度 rewatchTimer 并递增 rewatchAttempts（重建成功或关闸时归零）；quiesceConfigReload 关闭 accepting、关闭 watcher 并清除定时器。
- * 单例固定字段，不淘汰；进程重启后从初始值开始。
+ * 热重载监听器与单飞执行器状态：
+ * - 填充：`startConfigReload` 写入 `watcher` 与 `runner` 并开启 `accepting`。
+ * - 更新：文件变更事件重设 `debounceTimer`（到期清空）；目录改名或暂缺时按 `CONFIG_RELOAD_REWATCH_RETRY_DELAYS_MS`
+ *   调度 `rewatchTimer` 并递增 `rewatchAttempts`（重建成功或关闸时归零）。
+ * - 清理与重建：`quiesceConfigReload` 关闭 `accepting`、关闭 `watcher` 并清除全部定时器；单例固定字段，不淘汰，进程重启后从初值开始。
  */
 export const configReloadRuntime: {
   watcher: FSWatcher | null;

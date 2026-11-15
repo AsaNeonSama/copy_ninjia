@@ -1,3 +1,6 @@
+/**
+ * 临时广告免检活跃度（`temporary_ad_bypass_entries`）在共享 SQLite 中的写入、黑名单互斥校验与跨日过期清理（Disk I/O Worker 侧）。
+ */
 import {
   storagePendingBudgets,
   pendingTemporaryAdBypassWrites,
@@ -43,6 +46,9 @@ export function handleTemporaryAdBypassWrite(
       activity = null;
     }
   }
+  const current: PendingTemporaryAdBypassWrite | undefined =
+    pendingTemporaryAdBypassWrites.get(message.id);
+  if (current !== undefined && current.revision >= message.revision) return;
   if (activity !== null) {
     if (hasEffectiveBlocklistIdentity(message.id)) {
       throw new Error(
@@ -50,9 +56,6 @@ export function handleTemporaryAdBypassWrite(
       );
     }
   }
-  const current: PendingTemporaryAdBypassWrite | undefined =
-    pendingTemporaryAdBypassWrites.get(message.id);
-  if (current !== undefined && current.revision >= message.revision) return;
   storagePendingBudgets.temporaryAdBypass.reserve(current === undefined ? 1 : 0, current === undefined ? storageWriteCost(null) : 0);
   pendingTemporaryAdBypassWrites.set(message.id, {
     activity,

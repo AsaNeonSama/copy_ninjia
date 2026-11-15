@@ -8,7 +8,7 @@ export interface MessageSkeletonRowsProps {
 }
 
 /**
- * 渲染发言列表骨架占位卡片（含头像徽章、作者信息行与消息气泡骨架）。
+ * 渲染热发言列表的骨架占位卡片集合（含头像、作者条、序号徽章、元信息条与消息气泡占位）。
  *
  * @param props 骨架行数
  * @returns React 节点
@@ -21,11 +21,11 @@ export function MessageSkeletonRows({ count }: MessageSkeletonRowsProps): React.
         <div className="msg-head">
           <div className="skeleton-line msg-skeleton-avatar" />
           <div className="msg-author-col">
-            <div className="skeleton-row-between" style={{ marginBottom: 0 }}>
-              <div className="skeleton-line" style={{ width: "46%", height: "12px" }} />
-              <div className="skeleton-line" style={{ width: "36px", height: "14px" }} />
+            <div className="skeleton-row-between msg-skeleton-head-row">
+              <div className="skeleton-line msg-skeleton-author" />
+              <div className="skeleton-line msg-skeleton-seq" />
             </div>
-            <div className="skeleton-line" style={{ width: "68%", height: "9px" }} />
+            <div className="skeleton-line msg-skeleton-meta" />
           </div>
         </div>
         <div className="skeleton-line msg-skeleton-bubble" />

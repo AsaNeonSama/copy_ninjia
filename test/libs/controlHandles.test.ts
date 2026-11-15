@@ -4,7 +4,7 @@ import type { createKeyedSerialTaskRunner } from "../../packages/libs/keyedSeria
 import type { createLatestValueRunner } from "../../packages/libs/latestValueRunner";
 import type { createPrioritizedBoundedTaskRunner } from "../../packages/libs/prioritizedBoundedTaskRunner";
 import type { createRestartThrottle } from "../../packages/libs/restartThrottle";
-import type { getChatStateCache } from "../../packages/infra/storage/stateStore";
+import type { getChatStateCache } from "../../packages/infra/chatStateStorage";
 import type { superviseWorker } from "../../packages/infra/supervisedWorker";
 import type { registerHandlers } from "../../packages/app/registerHandlers";
 import type { runAcknowledgedUpdateBatches } from "../../packages/app/updateRunner";

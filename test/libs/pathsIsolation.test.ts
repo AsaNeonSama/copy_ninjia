@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import {
-  AD_SAMPLES_CONFIG_PATH,
+  AD_DETECT_CONFIG_PATH,
   CONFIG_ROOT,
   DATABASE_DIR,
   GOOGLE_AUTH_FILE_PATH,
@@ -50,7 +50,7 @@ test("测试环境的真实运行时文件与生产数据根完全隔离", async
 test("测试环境的默认部署配置只读取独占临时副本", async () => {
   expect(CONFIG_ROOT).toBe(TEST_CONFIG_ROOT);
   for (const path of [
-    AD_SAMPLES_CONFIG_PATH,
+    AD_DETECT_CONFIG_PATH,
     MOOD_CONFIG_PATH,
     STICKERS_CONFIG_PATH,
   ]) {

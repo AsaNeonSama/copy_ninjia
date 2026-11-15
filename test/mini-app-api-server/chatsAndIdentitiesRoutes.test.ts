@@ -1,22 +1,28 @@
+/**
+ * Mini App 服务端受管群组（列表、详情、功能开关、目标名单、问答、消息分页、批量清理）与身份策略路由测试。
+ */
+
 import { afterEach, describe, expect, test } from "bun:test";
 import type {
   MiniAppBatchKickResult,
-  MiniAppBlocklistPage,
   MiniAppChatDetail,
   MiniAppChatSummary,
   MiniAppChatTargetsMutationResult,
   MiniAppChatTargetsView,
   MiniAppFeatureToggleResult,
-  MiniAppIdentityMutationResult,
   MiniAppMessagePage,
+} from "../../packages/types/miniApp/chats";
+import type {
+  MiniAppBlocklistPage,
+  MiniAppIdentityMutationResult,
   MiniAppWhitelistPage,
-} from "../../packages/types/miniApp";
+} from "../../packages/types/miniApp/identities";
 import type { QaFieldRejection } from "../../packages/types/qa";
 import type { InstalledTelegramApi, TelegramSentMessage } from "../../packages/types/telegramWorker";
 import { verificationKey } from "../../packages/libs/verificationKey";
 import { botPermissions } from "../helpers/botPermissions";
 import {
-  buildSignedTestInitData,
+  buildSuperAdminHeaders,
   installMiniAppTestDiskIOMock,
   miniAppTestJoinLogState,
   resetMiniAppTestDiskIOState,
@@ -32,6 +38,7 @@ const {
 } = await import("../../packages/cache/main/antiRaid/verificationMirror");
 const {
   batchKickChats,
+  batchKickInFlightSeqByChat,
   miniAppBatchKickCompletedByChat,
 } = await import("../../packages/cache/main/batchKick");
 const { resetChatStateCache } = await import("../../packages/cache/main/chatState");
@@ -55,17 +62,18 @@ const { AI_MEMORY_HYDRATE_BUFFER_MAX, VERBATIM_CONTEXT_MAX } = await import(
 );
 const { BOT_CHAT_PERMISSION_LABELS } = await import("../../packages/consts/botAdmin");
 const {
+  MINI_APP_BATCH_KICK_MAX_HOURS,
+  MINI_APP_BATCH_KICK_MIN_HOURS,
   MINI_APP_CSP_HEADER_VALUE,
-  MINI_APP_INIT_DATA_HEADER,
+  MINI_APP_IDENTITY_MAX_PAGE_SIZE,
   MINI_APP_MESSAGES_DEFAULT_PAGE_SIZE,
-  MINI_APP_SESSION_HEADER,
   MINI_APP_X_FRAME_OPTIONS_VALUE,
 } = await import("../../packages/consts/miniApp");
 const {
   CHAT_QA_ANSWER_MAX_CHARS,
   CHAT_QA_QUESTION_MAX_CHARS,
 } = await import("../../packages/consts/qa");
-const { getOrCreateChatState } = await import("../../packages/infra/storage/stateStore");
+const { getOrCreateChatState } = await import("../../packages/infra/chatStateStorage");
 const {
   issueMiniAppAuthSession,
   stopMiniAppServer,
@@ -75,24 +83,16 @@ const { dispatchMiniAppTestRequest: handleMiniAppHttpRequest } = await import(
 );
 
 /**
- * 构造携带当前 `BOT_TOKEN`、`SUPER_ADMIN_USER_ID` 签名与 45 分钟有效密码会话的测试请求头。
+ * 构造携带当前 `BOT_TOKEN`、`SUPER_ADMIN_USER_ID` 签名与有效密码会话令牌的测试请求头。
  * @returns 包含 `X-Telegram-Init-Data` 与 `X-Mini-App-Session` 的请求头。
  */
 function superAdminHeaders(): Record<string, string> {
-  const initData: string = buildSignedTestInitData({
+  return buildSuperAdminHeaders({
     botToken: BOT_TOKEN,
-    authDate: Math.floor(Date.now() / 1000),
-    user: {
-      id: SUPER_ADMIN_USER_ID,
-      first_name: "SuperAdmin",
-      username: "super_admin",
-    },
+    superAdminUserId: SUPER_ADMIN_USER_ID,
+    sessionToken: issueMiniAppAuthSession().token,
+    username: "super_admin",
   });
-  const session = issueMiniAppAuthSession();
-  return {
-    [MINI_APP_INIT_DATA_HEADER]: initData,
-    [MINI_APP_SESSION_HEADER]: session.token,
-  };
 }
 
 afterEach(async (): Promise<void> => {
@@ -103,6 +103,7 @@ afterEach(async (): Promise<void> => {
   chatIsSupergroupById.clear();
   clearActiveVerificationSnapshots();
   miniAppBatchKickCompletedByChat.clear();
+  batchKickInFlightSeqByChat.clear();
   resetIdentityStorageCache();
   resetChatStateCache();
   latestAiMemories.clear();
@@ -185,7 +186,7 @@ describe("Mini App 受管群与黑白名单路由", () => {
     expect(detailBody.detail.joinedCountsByHour[0]).toBe(1);
     expect(detailBody.detail.joinedCountsByHour[1]).toBe(1);
     expect(detailBody.detail.joinedCountsByHour[2]).toBe(2);
-    expect(detailBody.detail.joinedCountsByHour[23]).toBe(2);
+    expect(detailBody.detail.joinedCountsByHour[MINI_APP_BATCH_KICK_MAX_HOURS - 1]).toBe(2);
     expect(detailBody.detail.batchKickRunning).toBeFalse();
     expect(detailBody.detail.botPermissions?.grantedLabels).toEqual([
       BOT_CHAT_PERMISSION_LABELS.isAdministrator,
@@ -257,8 +258,8 @@ describe("Mini App 受管群与黑白名单路由", () => {
 
     for (const invalidBody of [
       "{}",
-      JSON.stringify({ hours: 0 }),
-      JSON.stringify({ hours: 25 }),
+      JSON.stringify({ hours: MINI_APP_BATCH_KICK_MIN_HOURS - 1 }),
+      JSON.stringify({ hours: MINI_APP_BATCH_KICK_MAX_HOURS + 1 }),
       JSON.stringify({ hours: 1.5 }),
       "not-json",
     ]) {
@@ -478,6 +479,99 @@ describe("Mini App 受管群与黑白名单路由", () => {
       await Bun.sleep(10);
     }
     expect(miniAppBatchKickCompletedByChat.has(chatId)).toBeFalse();
+  });
+
+  test("在途 API /batch_kick 跨「关群 → 重开 /init」完成后不写回旧生命周期结果", async () => {
+    const chatId: number = -1002099;
+    const state = getOrCreateChatState(chatId);
+    state.isInitEnabled = true;
+    state.title = "跨代次批踢测试群";
+    chatIsSupergroupById.set(chatId, true);
+    initDeferredCommandRuntime();
+
+    let banCalls: number = 0;
+    let sendCalls: number = 0;
+    const probeEntered: PromiseWithResolvers<void> = Promise.withResolvers<void>();
+    const releaseProbe: PromiseWithResolvers<void> = Promise.withResolvers<void>();
+    telegramApiState.current = {
+      getChatMember: async (_cId: number, userId: number): Promise<unknown> => {
+        probeEntered.resolve();
+        await releaseProbe.promise;
+        return {
+          status: "member",
+          user: { id: userId, is_bot: false, first_name: "U" },
+        };
+      },
+      banChatMember: async (): Promise<boolean> => {
+        banCalls += 1;
+        return true;
+      },
+      unbanChatMember: async (): Promise<boolean> => true,
+      sendMessage: async (): Promise<TelegramSentMessage> => {
+        sendCalls += 1;
+        return { message_id: 1 };
+      },
+      deleteMessage: async (): Promise<boolean> => true,
+    } as unknown as InstalledTelegramApi;
+
+    miniAppTestJoinLogState.records = [
+      { userId: 7101, joinedAt: Date.now() - 30_000 },
+    ];
+
+    const acceptedRes: Response = await handleMiniAppHttpRequest(
+      new Request(`http://127.0.0.1:3000/api/chats/${chatId}/batch-kick`, {
+        method: "POST",
+        headers: { ...superAdminHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ hours: 2 }),
+      })
+    );
+    expect(acceptedRes.status).toBe(200);
+    expect(((await acceptedRes.json()) as MiniAppBatchKickResult).outcome).toBe("accepted");
+
+    try {
+      await probeEntered.promise;
+      expect(batchKickChats.has(chatId)).toBeTrue();
+
+      const disableRes: Response = await handleMiniAppHttpRequest(
+        new Request(`http://127.0.0.1:3000/api/chats/${chatId}/feature`, {
+          method: "POST",
+          headers: { ...superAdminHeaders(), "Content-Type": "application/json" },
+          body: JSON.stringify({ feature: "init", enabled: false }),
+        })
+      );
+      expect(disableRes.status).toBe(200);
+      expect(((await disableRes.json()) as MiniAppFeatureToggleResult).removedFromList).toBeTrue();
+
+      const reopened = getOrCreateChatState(chatId);
+      reopened.isInitEnabled = true;
+      reopened.title = "跨代次批踢测试群";
+      chatIsSupergroupById.set(chatId, true);
+    } finally {
+      releaseProbe.resolve();
+    }
+    for (let turn: number = 0; turn < 20 && batchKickChats.has(chatId); turn += 1) {
+      await Bun.sleep(10);
+    }
+    expect(banCalls).toBe(0);
+    expect(sendCalls).toBe(0);
+    expect(miniAppBatchKickCompletedByChat.has(chatId)).toBeFalse();
+    expect(batchKickInFlightSeqByChat.has(chatId)).toBeFalse();
+
+    // 重开后发起的新一轮 API 批次分配新序号，完成后正常写入最新结果。
+    const freshAcceptedRes: Response = await handleMiniAppHttpRequest(
+      new Request(`http://127.0.0.1:3000/api/chats/${chatId}/batch-kick`, {
+        method: "POST",
+        headers: { ...superAdminHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ hours: 3 }),
+      })
+    );
+    expect(freshAcceptedRes.status).toBe(200);
+    expect(((await freshAcceptedRes.json()) as MiniAppBatchKickResult).outcome).toBe("accepted");
+    for (let turn: number = 0; turn < 20 && batchKickChats.has(chatId); turn += 1) {
+      await Bun.sleep(10);
+    }
+    expect(miniAppBatchKickCompletedByChat.get(chatId)?.hours).toBe(3);
+    expect(miniAppBatchKickCompletedByChat.get(chatId)?.kicked).toBe(1);
   });
 
   test("GET /api/chats/:chatId/messages 仅返回热 256 条发言记录并支持分页，不暴露压缩记忆", async () => {
@@ -736,9 +830,12 @@ describe("Mini App 受管群与黑白名单路由", () => {
     expect(dupWhiteBody.duplicate).toBeTrue();
 
     const listWhiteRes: Response = await handleMiniAppHttpRequest(
-      new Request("http://127.0.0.1:3000/api/identities/whitelist?page=1&pageSize=20", {
-        headers: superAdminHeaders(),
-      })
+      new Request(
+        `http://127.0.0.1:3000/api/identities/whitelist?page=1&pageSize=${MINI_APP_IDENTITY_MAX_PAGE_SIZE}`,
+        {
+          headers: superAdminHeaders(),
+        }
+      )
     );
     expect(listWhiteRes.status).toBe(200);
     const listWhiteBody: MiniAppWhitelistPage =
@@ -752,7 +849,7 @@ describe("Mini App 受管群与黑白名单路由", () => {
 
     const searchWhiteHitRes: Response = await handleMiniAppHttpRequest(
       new Request(
-        "http://127.0.0.1:3000/api/identities/whitelist?page=1&pageSize=20&query=88001",
+        `http://127.0.0.1:3000/api/identities/whitelist?page=1&pageSize=${MINI_APP_IDENTITY_MAX_PAGE_SIZE}&query=88001`,
         { headers: superAdminHeaders() }
       )
     );
@@ -763,7 +860,7 @@ describe("Mini App 受管群与黑白名单路由", () => {
 
     const searchWhiteMissRes: Response = await handleMiniAppHttpRequest(
       new Request(
-        "http://127.0.0.1:3000/api/identities/whitelist?page=1&pageSize=20&query=nonexistent_zako",
+        `http://127.0.0.1:3000/api/identities/whitelist?page=1&pageSize=${MINI_APP_IDENTITY_MAX_PAGE_SIZE}&query=nonexistent_zako`,
         { headers: superAdminHeaders() }
       )
     );
@@ -846,9 +943,12 @@ describe("Mini App 受管群与黑白名单路由", () => {
     expect(dupBlockBody.duplicate).toBeTrue();
 
     const listBlockRes: Response = await handleMiniAppHttpRequest(
-      new Request("http://127.0.0.1:3000/api/identities/blocklist?page=1&pageSize=20", {
-        headers: superAdminHeaders(),
-      })
+      new Request(
+        `http://127.0.0.1:3000/api/identities/blocklist?page=1&pageSize=${MINI_APP_IDENTITY_MAX_PAGE_SIZE}`,
+        {
+          headers: superAdminHeaders(),
+        }
+      )
     );
     expect(listBlockRes.status).toBe(200);
     const listBlockBody: MiniAppBlocklistPage =
@@ -862,7 +962,7 @@ describe("Mini App 受管群与黑白名单路由", () => {
 
     const searchBlockHitRes: Response = await handleMiniAppHttpRequest(
       new Request(
-        "http://127.0.0.1:3000/api/identities/blocklist?page=1&pageSize=20&query=99002",
+        `http://127.0.0.1:3000/api/identities/blocklist?page=1&pageSize=${MINI_APP_IDENTITY_MAX_PAGE_SIZE}&query=99002`,
         { headers: superAdminHeaders() }
       )
     );

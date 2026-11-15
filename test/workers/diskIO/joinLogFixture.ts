@@ -1,3 +1,7 @@
+/**
+ * Disk I/O 入群日志（`joinLogFiles` / `joinLogRecovery`）测试共用的隔离目录、原子重写故障注入与样本构造夹具。
+ */
+
 import {
   afterAll,
   afterEach,

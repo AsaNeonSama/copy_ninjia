@@ -8,8 +8,10 @@ import { observeMediaGroupImage } from "../../infra/mediaGroups";
 import {
   activeCopyModeIn,
   activeCopyTargetIdIn,
-  getChatState,
 } from "../../infra/storage/stateStore";
+import {
+  getChatState,
+} from "../../infra/chatStateStorage";
 import { forumTopicThreadId } from "../../libs/forumTopic";
 import { isQuietUntilActive } from "../../libs/chatState";
 import type { AiBotInfo } from "../../types/aiChat/protocol";
@@ -75,14 +77,9 @@ function handleAcceptedIncomingMessage(
 ): Promise<void> | undefined {
   const chatId: number = message.chat.id;
   const senderId: number | undefined = cacheSender(message);
-  // 相册里的图记进缓存，供 `/h_image add` 收齐整组；排在复读、翻译等提前返回的分支之前。
+  // 相册图片先记入缓存供 `/h_image add` 收齐整组，排在翻译与复读等提前返回分支之前。
   if (message.media_group_id !== undefined) observeMediaGroupImage(message);
-  /**
-   * 本条消息统一的「现在」，传给活跃度入窗与安静期判定。
-   * 取值经 updateNow：已确证机器人是管理员的群消息在入群守卫入口已先取本条 update 的
-   * 时刻（广告检测与防刷屏开关关闭时同样），其余消息在本处首次取值并留给后续调用点
-   * （见 infra/updateContext.ts）。
-   */
+  // 本条 update 统一使用的当前时间戳（供群活跃度窗口与安静期判定共用，见 infra/updateContext.ts）。
   const now: number = updateNow();
 
   // 所有可见群消息都先计入滑动活跃度窗口，即使当前正在复读或 AI 已关闭。
@@ -93,9 +90,7 @@ function handleAcceptedIncomingMessage(
 
   const copyTargetId: number | undefined = activeCopyTargetIdIn(chatId);
   const translation: TranslateState | undefined = senderId === undefined ? undefined : activeTranslateStateIn(state, senderId);
-  // 生效的翻译目标只走翻译：同时是 copy 目标也不复读、不复制媒体；翻译整条不发送时
-  // （同语种、没有文字等）这条消息同样不再往下处理。译文在按群串行的后台链里生成并发出，
-  // 本条 update 不等它。
+  // 生效的翻译目标优先走后台按群串行翻译链，不再进入复读或后续分支。
   if (translation !== undefined) {
     queueTranslateMessage({
       chatId,
@@ -109,22 +104,16 @@ function handleAcceptedIncomingMessage(
     return echoMessage({
       chatId,
       message,
-      // 上一行已确认本群确有目标，这里取模式才有意义（见 activeCopyModeIn）。
       mode: activeCopyModeIn(chatId),
       messageThreadId: forumTopicThreadId(message),
     });
   }
 
   if (message.chat.type === "private") {
-    // 是否进入 /send 中转只由 handlePrivateProxySend 开头判定，这里不预先重复该条件。
     return handlePrivateProxySend(message);
   }
 
-  // 群问答直答：与登记问题一字不差时直接回答，不进 AI，也不受 @/回复/随机插话
-  // 的触发条件约束；排在 AI 触发之前。
-  // 未接管的群已被 infra/updateGate.ts 的 shouldPassInitGate 挡在流水线之外；本群没
-  // 登记过问答时 resolveQaDirectAnswer 在第一行返回。
-  // 同步判定：未命中是一次 Map.get 返回 undefined，不分配 promise。
+  // 群问答直答：文本与已登记问题精确匹配时直接回复，排在 AI 触发之前。
   const qaAnswer: string | undefined = resolveQaDirectAnswer(
     chatId,
     message,

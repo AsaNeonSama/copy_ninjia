@@ -1,3 +1,7 @@
+/**
+ * 入群验证内联按钮回调处理（Anti-Raid Worker 侧）：
+ * 处理本人算术题作答与管理员代点「通过」按钮，管控回调应答与管理员核查的在途并发上限（约束见 `docs/cn/04-invariants.md`）。
+ */
 import {
   verificationCallbackChecks,
   verificationCallbackOverloadLogged,

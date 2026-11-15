@@ -197,7 +197,7 @@ export function recordTemporaryAdBypassActivity(
  * 删除整条临时累计：广告判定为 true、晋升永久白名单后与 /block 拉黑时调用；不存在时幂等成功。
  *
  * @param id 待清除临时广告免检累计的身份 ID。
- * @returns 本来确证不存在或删除墓碑已成功投递时返回 `true`，投递失败暂存待重放时返回 `false`。
+ * @returns 缓存已确证无记录或删除墓碑已成功投递时返回 `true`，投递失败暂存待重放时返回 `false`。
  */
 export function clearTemporaryAdBypassActivity(id: number): boolean {
   if (identityPolicyCache.peek(id)?.temporaryAdBypass === null) return true;

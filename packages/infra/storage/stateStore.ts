@@ -1,18 +1,13 @@
+/**
+ * 主线程全局状态门面：维护全局复读（`globalCopyState`）与每日 TTS 用量（`globalTtsUsageState`）
+ * 的内存镜像，并封装 `StateStore` 持久化与停机排空边界。群级状态读写与持久化见 `infra/chatStateStorage.ts`。
+ */
+
 import type { FlushResult } from "../../types/lifecycle";
-import { chatStateCache } from "../../cache/main/chatState";
 import { globalCopyState, globalTtsUsageState, stateStoreHolder } from "../../cache/main/storage";
-import {
-  DEFAULT_CHAT_STATE,
-  createChatState,
-  isEmptyChatState,
-  normalizeChatState,
-} from "../../libs/chatState";
 import type { TtsDailyUsage } from "../../types/aiChat/voiceMessage";
 import type {
   CachedUser,
-  ChatState,
-  ChatStateOptionalField,
-  ChatStateSwitchKey,
   CopyMode,
   DecodedGlobalCopyState,
   DecodedGlobalState,
@@ -21,15 +16,8 @@ import type {
 } from "../../types/chatState";
 import { logger } from "../logger";
 import { throwIfUpdateAborted } from "../updateContext";
-import { assertChatStateCapacity } from "../chatStateStorage";
 import { StateStore, loadCurrentGlobalState } from "./statePersistence";
 import { toError } from "../../libs/errorMessage";
-
-export {
-  hydrateChatStateCache,
-  persistChatState,
-  saveChatStateInBackground,
-} from "../chatStateStorage";
 
 export { StateStore } from "./statePersistence";
 
@@ -80,27 +68,6 @@ export function activeCopyModeIn(chatId: number): CopyMode | undefined {
     return undefined;
   }
   return globalCopyState.copyMode;
-}
-
-/**
- * 获取主线程按群状态缓存的只读映射视图。
- *
- * @returns 群聊 ID 到群状态的只读 Map。
- */
-export function getChatStateCache(): ReadonlyMap<number, ChatState> {
-  return chatStateCache;
-}
-
-/**
- * 查找当前开启了代发模式（`isProxySendEnabled`）的目标群聊 ID。
- *
- * @returns 开启代发模式的群聊 ID；没有任何群开启时返回 `undefined`。
- */
-export function getActiveProxySendTarget(): number | undefined {
-  for (const [chatId, chatState] of chatStateCache) {
-    if (chatState.isProxySendEnabled === true) return chatId;
-  }
-  return undefined;
 }
 
 /**
@@ -255,102 +222,4 @@ function saveGlobalStateInBackground(context: string): void {
  */
 export function flushStateToDisk(timeoutMs: number, quiesce: boolean): Promise<FlushResult> {
   return sharedStateStore().flush(timeoutMs, quiesce);
-}
-
-/**
- * 只读地查一个群的状态。没有条目时返回全局共享的 `DEFAULT_CHAT_STATE`，
- * 返回类型为 `Readonly<ChatState>`。要修改状态的调用方一律走 `getOrCreateChatState`。
- *
- * @param chatId 群聊 ID。
- * @returns 群状态的只读视图。
- */
-export function getChatState(chatId: number): Readonly<ChatState> {
-  return chatStateCache.get(chatId) ?? DEFAULT_CHAT_STATE;
-}
-
-/**
- * 取可写的群状态；没有条目时先过容量闸（infra/chatStateStorage.ts 的
- * assertChatStateCapacity），再以规范形状新建并登记。
- *
- * @param chatId 群聊 ID。
- * @returns 群状态的可写引用。
- */
-export function getOrCreateChatState(chatId: number): ChatState {
-  let chatState: ChatState | undefined = chatStateCache.get(chatId);
-  if (!chatState) {
-    assertChatStateCapacity(chatId);
-    // 规范形状一次建好；写入方只赋值，不往裸 `{}` 上一个个加字段（见
-    // libs/chatState.ts 的 createChatState）。
-    chatState = createChatState();
-    chatStateCache.set(chatId, chatState);
-  }
-  return chatState;
-}
-
-/**
- * 收敛刚被清除字段的群状态；整条回到缺省时摘除热读副本条目。
- *
- * @param chatId 群聊 ID。
- * @param chatState 刚被修改的群状态对象。
- */
-function settleClearedChatState(chatId: number, chatState: ChatState): void {
-  normalizeChatState(chatState);
-  if (isEmptyChatState(chatState)) chatStateCache.delete(chatId);
-}
-
-/**
- * 清除一个可选字段（置为 undefined）。字段本来就没设过时返回 false，不改动状态。
- * 调用方负责随后落盘。
- *
- * @param chatId 群聊 ID。
- * @param field 要清除的可选字段名。
- * @returns 实际清除了已有字段值时返回 `true`。
- */
-export function clearChatStateField(chatId: number, field: ChatStateOptionalField): boolean {
-  const chatState: ChatState | undefined = chatStateCache.get(chatId);
-  if (chatState?.[field] === undefined) return false;
-  chatState[field] = undefined;
-  settleClearedChatState(chatId, chatState);
-  return true;
-}
-
-/**
- * 关闭一个群开关（置为 false）。开关本来就是关闭时返回 false，不改动状态。
- * 调用方负责随后落盘。
- *
- * @param chatId 群聊 ID。
- * @param key 要关闭的布尔开关字段名。
- * @returns 实际将已开启开关置为关闭时返回 `true`。
- */
-export function disableChatStateSwitch(chatId: number, key: ChatStateSwitchKey): boolean {
-  const chatState: ChatState | undefined = chatStateCache.get(chatId);
-  if (chatState?.[key] !== true) return false;
-  chatState[key] = false;
-  settleClearedChatState(chatId, chatState);
-  return true;
-}
-
-/**
- * 停管一个群时删除它的全部配置，但保留尚需恢复的 lockdown write-ahead 记录。
- *
- * 两条路径共用：`/init disable`（见 commands/init.ts）与机器人被移出群（见
- * infra/botAdmin.ts）。lockdown 是唯一例外：反刷群恢复流程仍要用它的
- * originalPermissions 解锁（同 libs/chatState.ts 的 normalizeChatState）。
- *
- * 无记录时不做任何事；调用方负责在同一 teardown 尾部统一落盘。清完后若整条状态
- * 回到缺省，这里会删掉热读副本条目，随后的 persistChatState 写出删除墓碑，SQLite 行
- * 一并消失（见 infra/chatStateStorage.ts 的 encodeCurrentChatState）。
- *
- * @param chatId 群聊 ID。
- */
-export function purgeChatStateExceptLockdown(chatId: number): void {
-  const current: ChatState | undefined = chatStateCache.get(chatId);
-  if (!current) return;
-  if (current.lockdown === undefined) {
-    chatStateCache.delete(chatId);
-    return;
-  }
-  const retained: ChatState = createChatState();
-  retained.lockdown = current.lockdown;
-  chatStateCache.set(chatId, retained);
 }

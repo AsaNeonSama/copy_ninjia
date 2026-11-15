@@ -31,21 +31,28 @@ export interface WedMemberWindowMigrationOptions {
 
 /** `/wed` 成员文件冷迁移完成后的汇总结果与校验清单。 */
 export interface WedMemberWindowMigrationResult {
-  /** 写入全部成员的同一进入时间（Unix 毫秒），取自迁移开始时刻。 */
+  /** 写入全部保留成员的统一进入时间戳（Unix 毫秒，取自迁移开始时刻）。 */
   readonly enteredAt: number;
+  /** 本次参与迁移的群文件总数。 */
   readonly chatCount: number;
+  /** 各群迁移后保留的成员总数。 */
   readonly keptMembers: number;
-  /** 超出 WED_MEMBER_LIMIT、从各群最早一端丢弃的成员数。 */
+  /** 超出 `WED_MEMBER_LIMIT` 从各群最早一端截断的成员总数。 */
   readonly truncatedMembers: number;
+  /** 停机备份源目录的真实绝对路径。 */
   readonly sourceRoot: string;
+  /** 迁移产物输出目录的绝对路径。 */
   readonly outputRoot: string;
+  /** 源目录参与迁移文件的相对路径、SHA-256 与权限清单。 */
   readonly sourceFiles: readonly MigrationFileRecord[];
+  /** 输出目录生成文件的相对路径、SHA-256 与权限清单。 */
   readonly outputFiles: readonly MigrationFileRecord[];
 }
 
 /**
- * 源目录里参与迁移的文件相对路径，按名字排序：只取 `.json`，名字必须是规范的 `<负安全整数 chatId>.json`，
- * 群数不超过 STATE_MANAGED_CHAT_LIMIT；其余目录项（未提交的 *.tmp）不参与迁移，与源版本启动口径一致。
+ * 枚举源目录 `memory/wed` 下参与迁移的群文件相对路径（按文件名升序排列）：
+ * - 仅纳入文件名合法的 `<负安全整数 chatId>.json`，未提交的 `*.tmp` 等非 `.json` 项跳过；
+ * - 群文件总数上限为 `STATE_MANAGED_CHAT_LIMIT`，目录为软链接或非目录时拒绝。
  *
  * @param source 停机备份源目录的真实绝对路径
  * @returns 排序后的参与迁移文件相对路径列表
@@ -65,10 +72,10 @@ async function sourceMemberPaths(source: string): Promise<readonly string[]> {
 }
 
 /**
- * 从上一次迁移产出格式（成员 ID 数组）的停机备份生成 `{ id, enteredAt }` 滑窗产物：每群只保留最后
- * WED_MEMBER_LIMIT 个 ID，顺序不变，进入时间统一记为迁移开始时刻。不改源文件，不覆盖既有目录，
- * 不执行服务操作；每份产物按生产启动口径回读校验，ready.json 只在全部校验及源哈希复核后产生，
- * 中断后保留目录，换新 outputRoot 重跑。部署方停服期间按清单手工替换 memory/wed/ 下的文件。
+ * 将停机备份中的成员 ID 数组冷迁移为 `{ id, enteredAt }` 滑窗格式产物：
+ * 1. 核对 `outputRoot` 为源目录之外的新建目录，先落盘 `incomplete.json` 记录源清单；
+ * 2. 每群按原进入顺序保留末尾至多 `WED_MEMBER_LIMIT` 个 ID，赋予本次迁移开始时刻 `enteredAt`，并按生产读取器回读校验；
+ * 3. 复核源目录清单与元数据未发生变动后写入 `ready.json` 并移除 `incomplete.json`；若中途失败则保留现场，重跑须指定新 `outputRoot`。
  *
  * @param options 迁移源目录与输出目录选项
  * @returns 迁移汇总统计与源/产物文件清单

@@ -24,10 +24,9 @@ export interface RefuseIfConfigBrokenParams {
 }
 
 /**
- * 配置可用就什么都不做；不可用则记一行诊断、回一条点名文件的拒绝，并告诉
- * 调用方已经拒绝。
+ * 校验功能部署配置是否就绪：就绪时直接返回 `false`；不可用时记录错误日志、向群内回复指明问题文件的拒绝提示并返回 `true`。
  * @param params 就绪度结论 `readiness`、目标会话 `chatId`、触发消息 `messageId`、日志功能名 `feature` 与拒绝文案构造函数 `text`。
- * @returns true 表示已经拒绝并回复，调用方必须立刻 return、不得改任何状态。
+ * @returns 已发送拒绝回执时返回 `true`（调用方应直接结束，不改动任何状态）；配置就绪时返回 `false`。
  */
 export async function refuseIfConfigBroken({
   readiness,

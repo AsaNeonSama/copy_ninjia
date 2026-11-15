@@ -1,3 +1,7 @@
+/**
+ * 单轮 AI 群聊回复的完整执行生命周期：完成代际校验、长窗口限频与发送顺位预留后，等待关联媒体准备就绪，
+ * 启动动作心跳与回复工具集，驱动模型生成与兜底发送，并按序释放模型并发槽位与发送顺位。
+ */
 import { startChatActionHeartbeat } from "../../aiChat/ai/chatActionHeartbeat";
 import { createReplyToolset } from "../../aiChat/ai/tools/replyToolset/orchestrator";
 import { buildSelfRecordMessage } from "../../aiChat/ai/utils/selfRecord";
@@ -346,6 +350,7 @@ export function startReplyRound(
           if (finalText && toolset.actionsUsed() === 0) sendFallbackText(toolset, request, finalText);
         } finally {
           toolset.afterModel();
+          // 先释放模型并发计数并提交发送顺位以放行同群排队轮进入模型阶段，再等待本轮出站发送动作全部结算。
           try {
             finishModel();
           } finally {

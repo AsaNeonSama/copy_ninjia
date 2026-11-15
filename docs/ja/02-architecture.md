@@ -19,7 +19,7 @@ flowchart TD
     classDef main stroke:#8e75ff,stroke-width:2.5px;
     classDef worker stroke:#3b82f6,stroke-width:2px;
 
-    MAIN["🧵 メインスレッド (Main Thread)<br/>• ACK 付き update runner（全体で直列処理）<br/>• 唯一の Telegram クライアント + 統合送信ゲート<br/>• state ファサード + StateStore（memory/global/state.json）"]:::main
+    MAIN["🧵 メインスレッド (Main Thread)<br/>• ACK 付き update runner（全体で直列処理）<br/>• 唯一の Telegram クライアント + 統合送信ゲート<br/>• 任意の Mini App HTTP サーバー（Bun.serve）<br/>• state ファサード + StateStore（memory/global/state.json）"]:::main
     AI["🤖 AI Worker<br/>• 複数ターンのツール呼び出し（差し替え可能なプロバイダ）<br/>• ローリング逐字メモリ · 要約圧縮 · 感情ステートマシン"]:::worker
     RAID["🛡️ Anti-Raid Worker<br/>• 参加認証とロックダウンのステートマシン<br/>• ブラックリスト処置 · 広告判定モデル"]:::worker
     DISK["💾 Disk I/O Worker<br/>• storage.sqlite トランザクション永続化<br/>• ログ / メモリスナップショット / 運勢 / 認証 / wed メンバーの直列書き込み"]:::worker
@@ -34,13 +34,13 @@ flowchart TD
 ### 4 大スレッドの役割分担
 
 - **🧵 メインスレッド (Main Thread)**
-  - **ネットワークとディスパッチ**：Telegram runner、唯一の実体 grammY Bot インスタンス、外部送信リクエストゲート、および 3 つの Worker の監視ハンドルを統括管理。
+  - **ネットワークとディスパッチ**：Telegram update runner、唯一の実体 grammY Bot インスタンス、統合送信リクエストゲート、任意のスーパー管理者専用 Mini App `Bun.serve` HTTP サーバー（`packages/mini-app-api-server/`）、および 3 つの Worker の監視ハンドルを統括管理。
   - **インメモリキャッシュ**：
     - `cache/main/storage.ts`：`memory/global/state.json` のグローバルミラー（リピート状態と音声の 1 日あたり利用量）。
     - `cache/main/assets.ts`：`config/dynamic/assets.json` のアセットと画像ライブラリスナップショット。
     - `cache/main/chatState.ts`：`chat_states` グループ状態の高速読み取り用インメモリコピー（上限 `STATE_MANAGED_CHAT_LIMIT` グループ：各種有効化フラグ、ロックダウン履歴、権限スナップショット、グループ名、中継セッション、翻訳状態）。
-  - **状態書き込みファサード**：`stateStore.ts` 業務ファサード経由で `StateStore` を呼び出し、`state.json` をアトミックに永続化。
-  - **Telegram 操作の集約**：すべての Telegram API 操作および Bot の権限が必要なメディアダウンロードは、メインスレッドの送信境界に集約して実行。AI および Anti-Raid Worker は、設定された各モデル API のみを直接呼び出します。
+  - **直接状態書き込み**：`stateStore.ts` 業務ファサード経由で `memory/global/state.json` をアトミックに更新し、Mini App の TOTP バインド変更時は `memory/mini-app-totp/totp.json` もアトミックに永続化。
+  - **Telegram 操作の集約**：すべての Telegram API 操作および Bot の資格情報が必要なメディアダウンロードはメインスレッドの送信境界に集約して実行。AI および Anti-Raid Worker は設定された各外部モデル API のみを直接呼び出します。
 
 - **🤖 AI Worker**
   - **排他的所有状態**：グループチャットの会話メモリ（逐字記録ホット領域 + 要約圧縮コールド領域）、返信受付カウンタ、メディア解説パイプライン、現在の感情（ムード）ステート、許可スタンプパックの目録。
@@ -57,7 +57,9 @@ flowchart TD
 
 ### モジュール境界と Worker 監視
 
-- **公開インターフェースの疎結合**：[`packages/aiChat/index.ts`](../../packages/aiChat/index.ts) と [`packages/antiRaid/index.ts`](../../packages/antiRaid/index.ts) は薄いエクスポートレイヤーであり、内部実装状態を保持しません。AI の監視は [`workerBridge.ts`](../../packages/aiChat/workerBridge.ts)、メッセージ入口は [`messageIngress.ts`](../../packages/aiChat/messageIngress.ts) が担当します。Anti-Raid の監視は [`workerBridge/controller.ts`](../../packages/antiRaid/workerBridge/controller.ts)、確実なメッセージ配信（durable delivery）は [`durableDelivery.ts`](../../packages/antiRaid/durableDelivery.ts) が担当します。
+- **公開インターフェースの疎結合**：[`packages/aiChat/index.ts`](../../packages/aiChat/index.ts) と [`packages/antiRaid/index.ts`](../../packages/antiRaid/index.ts) は薄い公開エクスポートモジュールであり、内部実装状態を保持しません：
+  - AI モジュール：[`workerBridge.ts`](../../packages/aiChat/workerBridge.ts) が Worker のライフサイクルと状態ミラーを管理し、[`messageIngress.ts`](../../packages/aiChat/messageIngress.ts) が処理対象メッセージの受付と振り分けを担当します。
+  - Anti-Raid モジュール：[`workerBridge/controller.ts`](../../packages/antiRaid/workerBridge/controller.ts) が Worker の監視を担当し、[`durableDelivery.ts`](../../packages/antiRaid/durableDelivery.ts) が重要状態の確実な配信（durable delivery）を保証します。
 - **純粋な状態遷移の分離**：認証状態の遷移は join、pending、terminal、disable、adopt の各フェーズ（`packages/states/verification/`）に、ロックダウンステートマシンは apply、persistence、restore、announcement、adopt の各フェーズ（`packages/states/lockdown/`）にモジュール分割されています。
 - **障害監視と自己修復**：
   - AI / Anti-Raid Worker は [`packages/infra/supervisedWorker.ts`](../../packages/infra/supervisedWorker.ts) を共用し、クラッシュ時には再起動予算の範囲内でレート制限付きで自動再起動され、メインスレッドから最新のスナップショットがリプレイされます。
@@ -67,8 +69,11 @@ flowchart TD
 
 ## 1 件のメッセージが通る経路
 
-すべてのメッセージミドルウェアは [`packages/app/registerHandlers.ts`](../../packages/app/registerHandlers.ts) で明示的に組み立てられ、チェーン全体は 1 つの `bot.use` だけで登録されます。この層で update_id の記録と Bot 発言の流量制限を済ませたあと、[`packages/app/updatePreamble.ts`](../../packages/app/updatePreamble.ts) の前置チェーンに入ります。前置チェーンの各段は下図の順に次の段を同期的に呼び出し、実際に I/O に当たったとき（コールド身分のプリフェッチ、永続化やネットワークを待つ認領型 ingress、コマンドとメッセージのハンドラ）だけ Promise を返します。グループ状態は初期化ゲートで 1 回読んで同期的な段へ渡し、各 Promise の再開点では現在値を読み直します。スラッシュコマンド、漢字アクションコマンド、およびリアクション、メンバー増減、コールバック、インラインクエリなど通常のメッセージ以外の update は、それぞれ grammY の `Composer` として組み立てられ、前置チェーンが該当位置で呼び出します。
-メッセージのグローバルな処理順序は取得側の ACK 付き runner（[`packages/app/updateRunner.ts`](../../packages/app/updateRunner.ts)）によって保証されます。`UPDATE_POLL_LIMIT` と `UPDATE_POLL_TIMEOUT_SECONDS` で update を取得し、そのミドルウェアチェーンが完全に完了するまで次の `getUpdates` を呼び出さないことで、システム全体で直列処理を実現しています。
+すべての受信ミドルウェアは [`packages/app/registerHandlers.ts`](../../packages/app/registerHandlers.ts) で明示的に組み立てられ、単一の `bot.use` だけで登録されます：
+
+- **同期ファストパス**：最外層で `update_id` の記録と外部 Bot 発言のレート制限を行った後、[`packages/app/updatePreamble.ts`](../../packages/app/updatePreamble.ts) の前置チェーンへ入ります。各段は下図の順に次の段を同期呼び出しし、実 I/O（未キャッシュ身元のプリフェッチ、永続化やネットワークを待つ認領型 ingress、コマンド／メッセージハンドラ）に当たったときのみ `Promise` を返します。
+- **非同期境界での最新状態再読込**：グループ状態 `ChatState` は `/init` ゲートで 1 回読み取って同期段へ引き渡し、`Promise` の再開点ごとに最新値を読み直します。スラッシュコマンド、漢字アクションコマンド、および非メッセージ update（リアクション、メンバー増減、コールバック、インラインクエリ）は個別の grammY `Composer` として該当位置から呼び出されます。
+- **グローバル直列処理**：取得側の ACK 付き runner（[`packages/app/updateRunner.ts`](../../packages/app/updateRunner.ts)）は `UPDATE_POLL_LIMIT` と `UPDATE_POLL_TIMEOUT_SECONDS` で update を取得し、各 update のミドルウェアチェーンが完全に完了するまで次の `getUpdates` を発行しません。
 
 ```text
 [Telegram Update]
@@ -83,13 +88,13 @@ flowchart TD
  3. おみくじ署名レシート確認 ── インラインおみくじ結果の確定レシートを優先精算（転送メッセージも有効）
        │
        ▼
- 4. /init ゲート + プライベートチャットゲート ── /init enable 未実行グループの通常業務を遮断。プライベートチャットはスーパー管理者の /send のみ通過
+ 4. /init・個別・昇格ゲート ── 未初期化グループを遮断（保存済み /wed からの退室除去は実行）。個別チャットはスーパー管理者の /send のみ通過。migrate_to_chat_id 受信時は旧グループを gone として解体
        │
        ▼
- 5. ユーザー情報ウォームアップ ── update に含まれる未キャッシュの身元情報を一括補完
+ 5. /wed 観測・身元プリフェッチ ── /wed スライディングウィンドウへ発言者を記録（observeWedMembers）し、未キャッシュの可視身元を一括補完
        │
        ▼
- 6. プライベート /send 中継 ── アクティブな中継セッション中の通常メッセージを自動メッセージパイプラインへ直接バイパス
+ 6. ピッカー・/send 中継    ── Mini App ピッカーの users_shared / chat_shared を捕捉して終了。中継セッション中の通常メッセージは自動メッセージパイプラインへ直行
        │
        ▼
  7. 参加認証 Ingress     ── コマンド処理より前に配置。認証待ちメンバーの発言をすべて捕捉・追跡
@@ -201,21 +206,21 @@ AI の発火は 2 つの契機によって制御されます：
 
 エントリポイントの [`index.ts`](../../index.ts) は [`packages/app/lifecycle.ts`](../../packages/app/lifecycle.ts) の `ApplicationLifecycle` を組み立てて初期化を委譲します。各本番モジュールの import 自体は Worker の起動、タイマー登録、ネットワーク接続、ディスク書き込みなどの副作用を一切持ちません。`ApplicationLifecycle.init()` は以下のステップを順次実行します。各手順の厳密な制約は [04 実行時の正式な不変条件](04-invariants.md) を参照してください：
 
-0. **設定レイアウト検査**：`config/bot.ts` の読み込み時、`layout.ts` が `config/` のディレクトリ構造を検証します。ルート直下に設定ファイルが配置されていないこと、および `config/dynamic/` が存在することを確認した上で、`bot.json` を厳格にパースします。
+0. **設定レイアウト検査**：`config/bot.ts` の読み込み時、`layout.ts` が 3 階層のディレクトリホワイトリスト（`config/`、`config/static/`、`config/dynamic/`）を検証し、`config/dynamic/` が既存ディレクトリであることを確認した上で、`bot.json` を厳格にパースします。
 1. **データルート事前検査とインスタンスロック**：`acquireSingleInstanceLock` がデータルートの基本 I/O（ファイル作成・書き込み、fsync、同一ディレクトリ内ハードリンク、アトミック rename、ディレクトリ fsync）を事前検証し、`/proc/<pid>/stat` と boot ID に基づく `bot.lock` の単一インスタンスロックを取得します。いずれかの検証に失敗した場合は直ちに fail-closed で終了します。その後 Worker の致命的エラーコールバックを登録し、アバター、グループタイトル、翻訳、gag、wed、遅延コマンドの各ランタイムを初期化します。
 2. **グローバル状態と設定の事前検証**：
    - ディレクトリ直下に残存する孤立した一時ファイルをクリーンアップ。
-   - `memory/global/state.json` を厳格にデコードしてインメモリ状態を復元。データルート直下に `state.json` または `state.json.bak` が残存している場合は起動を拒否。
+   - `memory/mini-app-totp/totp.json`（存在時）と `memory/global/state.json` を厳格にデコードしてインメモリ状態を復元。データルート直下に旧 `state.json` または `state.json.bak` が残存している場合は起動を拒否。
    - 存在するすべての設定入力を事前検証。未設定の任意ファイルは機能単位の準備フラグで処理されますが、ファイルが存在しながら内容が不正な場合は直ちに起動を中止。
    - 検証済みの `assets.json` に基づき、ランダム画像ライブラリディレクトリを検査・準備（パーミッション、ファイル名、エントリ形式を確認）。
 3. **Disk I/O Worker の初期化とデータ復元**：
    - Disk I/O Worker は全永続化領域（データベース、ログ、AI キャッシュ使用量、スタンプ目録、運勢、認証記録、参加ログ、wed メンバー等）をまず読み取り専用で検査・厳格デコードし、整合性を確認した後に所有権を確立（adopt）。レシート返却と起動時メンテナンスタスクを実行し、設定タイムゾーンに基づく定期メンテナンス cron（`DISK_IO_MAINTENANCE_CRON`）を登録。
    - メインスレッドはグループ状態、グループ Q&A、wed メンバーのインメモリキャッシュを読み込み、Telegram クライアントを初期化し、スーパー管理者がブラックリストおよび `/delete_message` の削除対象に登録されていないことを確認した上で、発言者キャッシュと翻訳ターゲットを初期投入（シード）し、運勢状態と認証待ち記録を復元。
-4. **ハンドラー登録とハンドシェイク**：グローバルミドルウェアの登録、コマンドメニューの登録を行い、`bot.init()` で Telegram とハンドシェイク。
+4. **ハンドラー登録とハンドシェイク**：グローバルミドルウェアの登録、グループ用コマンドメニューの登録（`mini_app` 設定時はスーパー管理者個人チャットへの `MenuButtonWebApp` 設定を含む）を行い、`bot.init()` で Telegram とハンドシェイク。
 5. **業務 Worker の初期化とスケジューリング**：
    - AI Worker を初期化（前提設定が有効な場合のみ）し、会話メモリとスタンプ目録をハイドレーション。
    - ブラックリストのキック待ち outbox を読み込んだ後に Anti-Raid Worker を初期化し、認証およびロックダウンのミラー状態を復元。
-   - `cron.json` 定期タスクスケジューラと `config/dynamic/` のホットリロード監視を開始し、ブラックリスト再スキャンのスケジューラを準備。
+   - `cron.json` 定期タスクスケジューラ、`config/dynamic/` のホットリロード監視、任意の Mini App HTTP サーバー（`startMiniAppServer()`）、およびブラックリスト再スキャンのスケジューラを開始。
    - runner が新たな update の受信を開始する前に、管理者権限が確認済みの全グループに対してブラックリスト再スキャンを 1 回先行実行。
 6. **Update Runner の開始**：直列処理する update runner を起動し、wed メンバーの再確認をスケジュールし、最後に低優先度のグループタイトル非同期補完タスクを開始。
 
@@ -226,7 +231,7 @@ AI の発火は 2 つの契機によって制御されます：
 プロセスの停止処理は `ApplicationLifecycle`（`wait()` および `dispose()`）が一元的に統括し、正常終了・異常停止を問わず直列バリアに沿って安全にシャットダウンします（`wait()` では全体の停止予算安全網 `SHUTDOWN_TOTAL_BUDGET_MS` が適用されます）。各コンポーネントの停止順序とゲートは [`packages/app/lifecycle/shutdown.ts`](../../packages/app/lifecycle/shutdown.ts) の `SHUTDOWN_DRAIN_OWNERS` が厳密に定めています（詳細は [04 実行時の正式な不変条件](04-invariants.md) を参照）：
 
 1. **Quiesce（受付の遮断）**：
-   - グループタイトル補完、アバターキュー、翻訳、gag、wed の対話とメンバー再確認、遅延コマンド、定期タスクスケジューラ、ブラックリスト再スキャン、設定ホットリロード監視を順次停止。各コンポーネントは独立して完了処理され、いずれかで例外が発生した場合は最終 update offset のコミットが阻止されます。
+   - グループタイトル補完、アバターキュー、翻訳、gag、wed の対話とメンバー再確認、遅延コマンド、定期タスクスケジューラ、ブラックリスト再スキャン、設定ホットリロード監視を順次停止し、Mini App HTTP サーバー（`stopMiniAppServer()`）も停止します。メンテナンスタスクの停止で例外が発生した場合は、最終 update offset のコミットが阻止されます。
    - Telegram runner を停止し、新たな update の受信を遮断。
 2. **有界 Drain（インフライト処理の完了待機）**：
    - 処理中の update ハンドラーにキャンセレーションシグナルを通知し、制限時間内で完了を待機（タイムアウト時は処理中の update を中断し、最終 offset のコミットを阻止）。

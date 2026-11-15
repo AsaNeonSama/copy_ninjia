@@ -1,3 +1,4 @@
+/** AI 闲聊 Worker 侧的机器人语气文案读取入口。 */
 import { atmosphereState } from "../../cache/workers/aiChat/identity";
 import { BOT_ATMOSPHERES, DEFAULT_BOT_ATMOSPHERE } from "../../consts/bot";
 import { ATMOSPHERE_TEXTS } from "../../consts/atmosphere";

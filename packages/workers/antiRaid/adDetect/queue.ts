@@ -15,6 +15,7 @@ import {
   adDetectQueue,
   adDetectStopping,
   adDetectTickTimer,
+  customEmojiSetNames,
   inFlightAdDetectKeys,
   inFlightReferencedAdCleanupTasks,
   pendingAdMessages,
@@ -100,6 +101,22 @@ function candidateIdentityMetadata(
 }
 
 /**
+ * 判断消息束中是否已存在携带非空送检文本的条目（即当前发送者姓名已进入送检上下文）。
+ *
+ * @param entries 消息束现有的条目列表。
+ * @returns 任一条目 `text` 非空时返回 `true`。
+ */
+function hasTextEntry(
+  entries: readonly AdCandidateEntry[] | undefined
+): boolean {
+  if (entries === undefined) return false;
+  for (const entry of entries) {
+    if (entry.text.length > 0) return true;
+  }
+  return false;
+}
+
+/**
  * 接收并合并一条待判定候选消息，按准入策略入队或触发频道尾随广告删除。
  *
  * @param message 待检候选消息。
@@ -145,17 +162,25 @@ export function enqueueAdCandidate(
   const senderText: string = senderName.length === 0
     ? textWithLinks
     : textWithLinks.length === 0 ? senderName : `${senderName} ${textWithLinks}`;
-  const text: string = context === undefined
+  const rawText: string = context === undefined
     ? senderText
     : claimSampleContextParts(
       senderText,
       context,
       existing?.entries ?? EMPTY_AD_CANDIDATE_ENTRIES
     );
-  const directText: string = message.isForwarded ? senderName : senderText;
-  const onlyKnownName: boolean = text === senderName && knownSenderName !== undefined && (existing?.entries.length ?? 0) > 0;
+  // 无正文也无引用（纯贴纸），或只剩本串送检文本里已有的姓名时，本条没有可送检文本。
+  const text: string =
+    (textWithLinks.length === 0 && context === undefined) ||
+    (rawText === senderName && knownSenderName !== undefined && hasTextEntry(existing?.entries))
+      ? ""
+      : rawText;
+  const directText: string = text.length === 0
+    ? ""
+    : message.isForwarded ? senderName : senderText;
   const decision: AdCandidateDecision = admitAdCandidate({
-    textLength: onlyKnownName ? 0 : text.length,
+    textLength: text.length,
+    hasPackCandidate: message.stickerSetName !== undefined || message.customEmojiIds !== undefined,
     isChannel: message.isChannel,
     recentlyDisposed,
     blocked: message.blocked,
@@ -196,6 +221,8 @@ export function enqueueAdCandidate(
     receivedAt: now,
     withinReferencedWarning: referencedAdWarningStates.size > 0 &&
       hasActiveReferencedAdWarning(bundle.key, now),
+    stickerSetName: message.stickerSetName,
+    customEmojiIds: message.customEmojiIds,
     quote: context?.quote,
     replyTo: context?.replyTo,
   };
@@ -250,20 +277,29 @@ export function quiesceAdDetectQueue(): void {
 }
 
 /**
+ * 按键谓词同时从待检队列、在队集合与处置抑制表中移除匹配的发送者键。
+ *
+ * @param predicate 匹配目标发送者键的谓词函数。
+ */
+function clearAdDetectKeysWhere(predicate: (key: string) => boolean): void {
+  adDetectQueue.removeWhere(predicate);
+  for (const key of queuedAdDetectKeys) {
+    if (predicate(key)) queuedAdDetectKeys.delete(key);
+  }
+  recentlyDisposedAdKeys.forEach((_disposedAt: number, key: string): void => {
+    if (predicate(key)) recentlyDisposedAdKeys.delete(key);
+  });
+}
+
+/**
  * 清理指定群的待检队列、消息束、处置抑制记录与引用警告状态。
  *
  * @param chatId 目标群 ID。
  */
 export function clearChatAdDetect(chatId: number): void {
   const prefix: string = verificationKeyPrefix(chatId);
-  adDetectQueue.removeWhere((key: string): boolean => key.startsWith(prefix));
-  for (const key of queuedAdDetectKeys) {
-    if (key.startsWith(prefix)) queuedAdDetectKeys.delete(key);
-  }
+  clearAdDetectKeysWhere((key: string): boolean => key.startsWith(prefix));
   deletePendingAdBundlesInChat(chatId);
-  for (const key of recentlyDisposedAdKeys.keys()) {
-    if (key.startsWith(prefix)) recentlyDisposedAdKeys.delete(key);
-  }
   clearChatReferencedAdWarnings(chatId);
 }
 
@@ -274,15 +310,8 @@ export function clearChatAdDetect(chatId: number): void {
  */
 export function clearIdentityAdDetect(identityId: number): void {
   const suffix: string = verificationKeySuffix(identityId);
-  const belongsToIdentity = (key: string): boolean => key.endsWith(suffix);
-  adDetectQueue.removeWhere(belongsToIdentity);
-  for (const key of queuedAdDetectKeys) {
-    if (belongsToIdentity(key)) queuedAdDetectKeys.delete(key);
-  }
+  clearAdDetectKeysWhere((key: string): boolean => key.endsWith(suffix));
   deletePendingAdBundlesOfSender(identityId);
-  for (const key of recentlyDisposedAdKeys.keys()) {
-    if (belongsToIdentity(key)) recentlyDisposedAdKeys.delete(key);
-  }
   clearIdentityReferencedAdWarnings(identityId);
 }
 
@@ -330,7 +359,10 @@ export function startAdDetectQueue(
   adDetectTickTimer.current.unref();
 }
 
-/** 协作式停止：清掉 timer 与全部队列状态；强制 terminate 时随 Worker isolate 一并销毁。 */
+/**
+ * 协作式停止广告检测队列：清理批处理计时器与全部内存队列状态，并将 `adDetectStopping` 复位以便下次启动从干净状态起步；
+ * 强制 `terminate` 时随 Worker isolate 一并销毁。
+ */
 export function stopAdDetectQueue(): void {
   quiesceAdDetectQueue();
   adDetectPublishHolder.current = null;
@@ -338,12 +370,12 @@ export function stopAdDetectQueue(): void {
   adDetectQueue.clear();
   queuedAdDetectKeys.clear();
   recentlyDisposedAdKeys.clear();
+  customEmojiSetNames.clear();
   resetReferencedAdWarnings();
   clearPendingAdBundles();
   inFlightAdDetectKeys.clear();
   inFlightReferencedAdCleanupTasks.clear();
   adDetectSaturated.current = false;
   adDetectCapacitySaturated.current = false;
-  // stop 清掉全部状态，quiesce 置位的 adDetectStopping 一并归零，下一次 start 从干净状态起步。
   adDetectStopping.current = false;
 }

@@ -1,3 +1,7 @@
+/**
+ * AI 回复的有序发送窗口管理：允许同群多轮模型生成重叠运行，但所有对群发送动作必须按触发入站顺序
+ * 依次放行（直接轮当即放行，后续并行轮在模型阶段完成后排队等待前序轮次发送收尾）。
+ */
 import { replyDeliveryCounts, replyDeliveryTotal, replyDeliveryWindows } from "../../cache/workers/aiChat/replies";
 import { REPLY_DELIVERY_MAX_PER_CHAT, REPLY_DELIVERY_MAX_TOTAL } from "../../consts/aiChat/rateLimit";
 import { LinkedQueue } from "../../libs/linkedQueue";

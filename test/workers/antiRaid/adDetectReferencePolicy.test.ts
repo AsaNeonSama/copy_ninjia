@@ -158,6 +158,41 @@ describe("引用类广告的警告升级与处置抑制", () => {
     expect(disposeAdSender).toHaveBeenCalledTimes(1);
   });
 
+  test("警告后保留的频道无正文回复按剩余条目重新认领引文，被丢弃条目认领过的引用段回到送检文本", async () => {
+    classifyAdText.mockImplementation(async (text: string): Promise<AdVerdict> => ({
+      isAd: text.includes("日入过千"),
+      reason: "引用内容引流",
+    }));
+    warnReferencedAdSender.mockImplementationOnce(async (): Promise<TelegramWorkerTemporaryMessageResult> => {
+      // 556 的被引用段已被 1 号认领，入队时只剩被回复原文；本人直发内容为空。
+      enqueueAdCandidate(candidate({
+        senderId: -1005,
+        isChannel: true,
+        messageId: 556,
+        text: "",
+        sampleQuote: "日入过千 加V same",
+        sampleReplyTo: "回复原文",
+      }), 2_000);
+      expect(pendingAdBundle(-1001, -1005)?.entries[1]).toMatchObject({
+        text: "回复原文",
+        directText: "",
+      });
+      return { messageId: 555, sentAt: 3_000 };
+    });
+    enqueueAdCandidate(candidate({
+      senderId: -1005,
+      isChannel: true,
+      text: "第一次",
+      sampleQuote: "日入过千 加V same",
+    }), 1_000);
+
+    await runAdDetectBatch(1_000);
+
+    expect(warnReferencedAdSender).toHaveBeenCalledTimes(1);
+    expect(pendingAdBundle(-1001, -1005)?.entries.map((entry) => entry.text))
+      .toEqual(["日入过千 加V same 回复原文"]);
+  });
+
   test("公开警告结算后裁剪 pendingDeleteIds，仅保留晚于警告的消息 id 且条目为空时保留消息束", async () => {
     classifyAdText.mockImplementation(async (text: string): Promise<AdVerdict> => ({
       isAd: text.includes("日入过千"),
@@ -362,7 +397,7 @@ describe("引用类广告的警告升级与处置抑制", () => {
     expect(disposeAdSender).not.toHaveBeenCalled();
   });
 
-  test("命中后同窗口内抢跑进来的消息直接丢弃，不再攒出第二次处置", async () => {
+  test("命中后同窗口内抢跑进来的消息不再判定、单独删除，不再攒出第二次处置", async () => {
     classifyAdText.mockImplementation(async (): Promise<AdVerdict> => ({ isAd: true, reason: "引流" }));
     // 处置标记由判定结算路径按本地时钟落下，读取一侧使用同一把钟。
     const disposedAt: number = Date.now();
@@ -371,9 +406,10 @@ describe("引用类广告的警告升级与处置抑制", () => {
     expect(disposeAdSender).toHaveBeenCalledTimes(1);
     expect(recentlyDisposedAdKeys.has("-1001:7")).toBe(true);
 
-    // 封禁还没落地时他还能再说几句；这些消息直接丢弃，不重判。
+    // 处罚还没落地时他还能再说几句；禁言与只踢不封不撤回消息，这些消息不重判、单独删除。
     const stragglerAt: number = Date.now() + 500;
     enqueueAdCandidate(candidate({ messageId: 2, text: "还有名额" }), stragglerAt);
+    expect(deleteStragglerAdMessage).toHaveBeenCalledWith(-1001, 2);
     expect(pendingAdBundleCount.current).toBe(0);
     await runAdDetectBatch(stragglerAt);
     expect(disposeAdSender).toHaveBeenCalledTimes(1);
@@ -399,7 +435,7 @@ describe("引用类广告的警告升级与处置抑制", () => {
     expect(pendingAdBundleCount.current).toBe(0);
     expect(disposeAdSender).toHaveBeenCalledTimes(1);
 
-    // 真人目标走 revoke_messages，不需要这条补删。
+    // 没被处置过的真人照常入队，不走补删。
     enqueueAdCandidate(candidate({ messageId: 3, text: "加我微信" }), stragglerAt);
     await runAdDetectBatch(stragglerAt);
     expect(deleteStragglerAdMessage).toHaveBeenCalledTimes(1);
@@ -478,8 +514,8 @@ describe("引用类广告的警告升级与处置抑制", () => {
   });
 
   /**
-   * 已知管理员这道闸在 enqueueAdCandidate 里排在正文清洗之前（见那边的注释）。
-   * 下面四条验证提前返回不改变各种身份组合（isChannel / blocked / recentlyDisposed / 串里已有内容）的结局。
+   * 已知管理员门禁在 `enqueueAdCandidate` 内排在正文清洗之前；
+   * 以下四条验证提前返回不改变各种身份组合（`isChannel` / `blocked` / `recentlyDisposed` / 既有消息串）的结局。
    */
   test("中途被提为管理员：新消息被忽略，既有消息串原样不动", async () => {
     enqueueAdCandidate(candidate({ messageId: 1, text: "先说一句正常的" }), 1_000);
@@ -539,7 +575,7 @@ describe("引用类广告的警告升级与处置抑制", () => {
  * 每条都先把表填成有匹配条目的状态再调用。
  */
 describe("引用广告警告状态表自身的容量与回收", () => {
-  /** 造一条已进入五分钟窗口的 warned 记录，绕开发送链路直接落表。 */
+  /** 绕开发送链路直接向状态表写入一条处于有效窗口内的 warned 记录。 */
   function warned(key: string, warnedAt: number): void {
     const generation: number | undefined = beginReferencedAdWarning(key);
     expect(generation).toBeDefined();

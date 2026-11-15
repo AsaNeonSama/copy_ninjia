@@ -28,19 +28,15 @@ type WhiteMutationOutcome =
   | { readonly kind: "updated"; readonly result: SetWhitelistMembershipResult };
 
 /**
- * 处理 /white：超级管理员可新增或删除；持有 isCanWhiteOther 的普通白名单身份
- * 只能新增，且新增路径固定写入完整默认权限，不能选择或继承发起人的权限。
+ * 处理 `/white` 白名单成员增删指令：
+ * - **权限分级**：超级管理员可执行 `enable` 与 `disable`；持有 `isCanWhiteOther` 的普通白名单身份仅可执行
+ *   `enable`，且新增条目固定写入完整默认权限（不继承发起人权限）。
+ * - **增删幂等语义**：`enable` 仅在身份尚不在白名单时写入默认权限（重复执行不覆盖 `/permission` 已授予的单项权限）；
+ *   `disable` 删除整条白名单身份及其全部单项权限。两侧回执均区分「状态实际变更」与「原本已是目标状态」。
+ * - **特殊目标边界**：以超级管理员为目标时，`enable` 直接拒绝（其恒在白名单边界内），`disable` 放行以清理数据库残留条目
+ *   （回执 `superAdminDisableCleared` / `superAdminDisableNoEntry`）；目标为当前群自身身份（匿名管理员皮套）时拒绝
+ *   （见 `resolveCommandTarget` 的 `currentChatTargetText`）。
  *
- * enable 只在身份不存在时写入完整默认权限，重复执行不会覆盖 /permission
- * 已经授予的字段；disable 删除整条身份及其全部逐项权限。两个方向都会如实
- * 区分「真的改了」与「本来就是这样」。
- *
- * 以超级管理员为目标时两个方向不对称：enable 被拒（他恒在白名单边界内）；
- * disable 照常放行，清掉表里的残留条目，回执为 superAdminDisableCleared 或
- * superAdminDisableNoEntry。
- *
- * 目标是当前群自己的 identity（匿名管理员皮套）时拒绝，见 resolveCommandTarget
- * 的 currentChatTargetText。
  * @param ctx grammY 命令上下文。
  */
 export async function handleWhiteCommand(

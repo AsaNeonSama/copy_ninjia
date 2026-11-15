@@ -7,8 +7,7 @@ import { validateExistingDeploymentInputs } from "../../../packages/config/readi
 import { unacknowledgedChatStateWrites } from "../../../packages/cache/main/chatState";
 import { diskIORuntime } from "../../../packages/cache/main/diskIO";
 import { flushDiskIODomain, initDiskIO, loadPersistedData, terminateDiskIO } from "../../../packages/infra/diskIO";
-import { hydrateChatStateCache, queueChatStateWrite } from "../../../packages/infra/chatStateStorage";
-import { getOrCreateChatState } from "../../../packages/infra/storage/stateStore";
+import { getOrCreateChatState, hydrateChatStateCache, queueChatStateWrite } from "../../../packages/infra/chatStateStorage";
 import { CHAIN_CHAT_STATE_WRITES, CHAIN_WARMUP_OPERATIONS } from "../fullSuite/constants";
 import { benchmarkChatId } from "../fullSuite/fixture";
 import { assertBenchmarkRuntimeRoot } from "../fullSuite/mockRoot";

@@ -3,6 +3,7 @@ import type { TelegramApi } from "../../../types/telegramWorker";
 import { logger } from "../../../infra/logger";
 import { telegramApi } from "../../../infra/telegram";
 import { raceAbort } from "../../../libs/abortSignal";
+import { retainOnlyKeys } from "../../../libs/record";
 import { telegramSignal } from "../../../libs/telegramSignal";
 import { failedPacks, inflightStickerSets, stickerSetCache } from "../../../cache/workers/aiChat/stickers/sets";
 import { STICKER_SET_FAILURE_RETRY_MS } from "../../../consts/aiChat/stickers";
@@ -16,12 +17,10 @@ import { isPendingWithin } from "../../../libs/clockWindow";
  * @param activePacks 当前生效的白名单贴纸包短名称列表。
  */
 export function pruneStickerSets(activePacks: readonly string[]): void {
-  for (const pack of stickerSetCache.keys()) {
-    if (!activePacks.includes(pack)) stickerSetCache.delete(pack);
-  }
-  for (const pack of failedPacks.keys()) {
-    if (!activePacks.includes(pack)) failedPacks.delete(pack);
-  }
+  if (stickerSetCache.size === 0 && failedPacks.size === 0) return;
+  const active: ReadonlySet<string> = new Set(activePacks);
+  retainOnlyKeys(stickerSetCache, active);
+  retainOnlyKeys(failedPacks, active);
 }
 
 /** 本模块使用的 Telegram API 子集。 */

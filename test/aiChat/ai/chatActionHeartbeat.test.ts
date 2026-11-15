@@ -348,6 +348,21 @@ describe("chatActionHeartbeat", () => {
     await heartbeat.stop();
   });
 
+  test("进程刚启动 performance.now() 小于 intervalMs 时首次切挡仍立即发送", async () => {
+    const nowSpy = spyOn(performance, "now").mockReturnValue(12);
+    const sendTyping = mock(async (_chatId: number): Promise<boolean> => true);
+    const deps = dependencies(sendTyping, async () => true);
+    const heartbeat = startChatActionHeartbeat({ chatId: 654, messageThreadId: undefined, dependencies: deps });
+    try {
+      heartbeat.set("typing");
+      await settleBackgroundWork();
+      expect(sendTyping).toHaveBeenCalledTimes(1);
+    } finally {
+      nowSpy.mockRestore();
+      await heartbeat.stop();
+    }
+  });
+
   describe("状态之间的静默", () => {
     afterEach(() => {
       jest.useRealTimers();

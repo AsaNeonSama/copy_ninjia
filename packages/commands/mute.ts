@@ -113,21 +113,17 @@ async function rejectUnrestrictableTarget(
 }
 
 /**
- * 处理 /mute 指令：临时收走目标在本群的全部发言权限，到点由 Telegram 按
- * `until_date` 自动恢复；与刷屏禁言（workers/antiRaid/floodControl.ts）复用
- * 同一个 API 封装与权限集，本进程不排恢复计时器、不写任何持久化状态，提前
- * 解除走 /unmute。派发截止也共用同一条契约：`until_date` 是入队前算好的
- * 绝对时刻，两条路径都给 `muteChatMemberWithOutcome` 传 `dispatchTimeoutMs`，
- * 各自的预算见 MUTE_DISPATCH_MIN_REMAINING_MS 与 FLOOD_MUTE_DISPATCH_TIMEOUT_MS。
+ * 处理 `/mute` 指令：临时收走目标在本超级群的全部发言权限，到期由 Telegram 按 `until_date` 自动恢复。
  *
- * 参数形态：时长必填且必须是最后一个 token（`数字+m/h/d`，见
- * parseMuteDurationMs），目标用回复消息、@username 或用户 id 指定（时长带
- * 单位字母、id 是纯数字，形态互斥）。仅持有 isCanMute 的身份可用（超级管理员
- * 恒持有，见 infra/identityPolicy/whitelist.ts）；目标在白名单保护范围内（`isWhitelisted`，含超级
- * 管理员）时拒绝，与自动处置的排除边界一致（见 antiRaid/adDetect.ts）。
+ * - **执行与派发预算**：与刷屏禁言（`workers/antiRaid/floodControl.ts`）共用同一 API 封装与权限集，
+ *   本进程不挂恢复定时器、不写持久化状态（提前解除走 `/unmute`）。`until_date` 在入队前按绝对时刻算定，
+ *   并以 `durationMs - MUTE_DISPATCH_MIN_REMAINING_MS` 作为派发超时预算传给 `muteChatMemberWithOutcome`。
+ * - **参数与目标解析**：最后一个 token 须为时长（`数字+m/h/d`，见 `parseMuteDurationMs`）；目标支持回复消息、
+ *   `@username` 或正整数裸用户 ID（与带单位字母的时长形态互斥）。
+ * - **权限与保护边界**：仅持有 `isCanMute` 的身份可用（超级管理员恒持有，见 `infra/identityPolicy/whitelist.ts`）；
+ *   白名单身份（`isWhitelisted`，含超级管理员）拒绝禁言，口径与自动处置一致（见 `antiRaid/adDetect.ts`）。
+ * - **消息留存**：成功战报与失败提示均走 `sendCommandMessage` 默认 30 秒自动清理（见 `docs/cn/04-invariants.md`）。
  *
- * 成功战报与失败提示一样走 sendCommandMessage 的默认路径，自动清理（见
- * docs/cn/04-invariants.md）；`/mute` 不属于长期保留例外。
  * @param ctx grammY 命令上下文。
  */
 export async function handleMuteCommand(ctx: CommandContext<Context>): Promise<void> {

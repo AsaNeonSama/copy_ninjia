@@ -1,3 +1,7 @@
+/**
+ * 群聊逐字热区条目（`BufferedMessage`）与单跳回复引用的清洗、构造与快照形状归一化：
+ * 保证实时入站条目与启动恢复条目拥有完全一致的字段顺序与固定对象 shape。
+ */
 import { REPLY_REFERENCE_MAX_CHARS } from "../../consts/aiChat/memory";
 import { NON_TEXT_PLACEHOLDER } from "../../consts/auto";
 import { sanitizeInline, stripLeadingAtSigns, truncateInline } from "../../libs/text";

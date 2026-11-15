@@ -1,11 +1,10 @@
-import { installTemporaryMessageWorkerMock } from "./temporaryMessageWorkerMock";
-installTemporaryMessageWorkerMock();
 /**
- * 验证副作用解释器用例共用的替身、状态与隔离钩子：mock.module 装配、状态
- * 工厂与 beforeEach 复位。
+ * 入群验证副作用解释器测试共用的模块替身、状态构造器与逐用例复位钩子。
  */
 
-import { beforeEach, mock, spyOn } from "bun:test";
+import { installTemporaryMessageWorkerMock } from "./temporaryMessageWorkerMock";
+installTemporaryMessageWorkerMock();
+import { afterAll, beforeEach, mock, spyOn } from "bun:test";
 import { loggerStub } from "./loggerMock";
 import { checkingInviterOf } from "../../packages/states/verification/shared";
 import type { InlineKeyboardMarkup } from "grammy/types";
@@ -20,13 +19,6 @@ import type {
   VerificationTransition,
 } from "../../packages/types/states/verification";
 import { transitionVerification } from "../../packages/states/verification";
-
-/**
- * 副作用解释器里两条「踢人前先确认拉人者身份」的异步分支：管理员拉人豁免的
- * 异步核查（startAdminCheck）与超时踢人前的最终复核（recheckInviter）。两者都
- * 只在状态对象仍是同一引用时回投事件；身份未知不授权踢人，超时终核保留快照
- * 并沿终态执行预算退避。约束见 docs/cn/04-invariants.md。
- */
 
 export const dispatched: { userId: number; event: VerificationEvent }[] = [];
 export const kickedUserIds: number[] = [];
@@ -56,6 +48,7 @@ export const testState: {
   sendRejects: boolean;
   kickSucceeds: boolean;
   kickTargetAbsent: boolean;
+  kickForbidden: boolean;
   /** 模拟机器人是否具备删除验证消息的权限，可与踢人权限独立开关。 */
   deleteSucceeds: boolean;
   membershipPresent: boolean | undefined;
@@ -66,6 +59,7 @@ export const testState: {
   sendRejects: false,
   kickSucceeds: true,
   kickTargetAbsent: false,
+  kickForbidden: false,
   deleteSucceeds: true,
   membershipPresent: true,
   fetchedChatType: "supergroup",
@@ -83,9 +77,15 @@ export const getChat = mock(async (): Promise<{ type: "group" | "supergroup" }> 
 });
 export const telegramApi = { getChat, getChatAdministrators };
 
+const originalSelfDescriptor: PropertyDescriptor | undefined =
+  Object.getOwnPropertyDescriptor(globalThis, "self");
 Object.defineProperty(globalThis, "self", {
   configurable: true,
   value: { postMessage(_event: AntiRaidWorkerEvent): void {} },
+});
+afterAll((): void => {
+  if (originalSelfDescriptor === undefined) Reflect.deleteProperty(globalThis, "self");
+  else Object.defineProperty(globalThis, "self", originalSelfDescriptor);
 });
 
 mock.module("../../packages/infra/logger", () => ({
@@ -122,10 +122,11 @@ mock.module("../../packages/infra/telegram", () => ({
   },
   kickChatMemberWithOutcome: async (
     params: { userId: number; isSupergroup?: boolean }
-  ): Promise<"kicked" | "absent" | "failed"> => {
+  ): Promise<"kicked" | "absent" | "forbidden" | "failed"> => {
     kickedUserIds.push(params.userId);
     kickChatKinds.push(params.isSupergroup);
     if (testState.kickTargetAbsent) return "absent";
+    if (testState.kickForbidden) return "forbidden";
     return testState.kickSucceeds ? "kicked" : "failed";
   },
   probeChatMembership,
@@ -288,7 +289,7 @@ export function applyInPlaceEvent(event: VerificationEvent, onPublished: () => v
   return true;
 }
 
-/** 两个验证副作用用例文件共用的隔离钩子；每份都要登记一次。 */
+/** 注册入群验证副作用测试的逐用例复位钩子。 */
 export function installVerificationEffectsHooks(injected: VerificationEffectsDeps): void {
   deps.current = injected;
   beforeEach(() => {
@@ -319,6 +320,7 @@ export function installVerificationEffectsHooks(injected: VerificationEffectsDep
     testState.sendRejects = false;
     testState.kickSucceeds = true;
     testState.kickTargetAbsent = false;
+    testState.kickForbidden = false;
     testState.deleteSucceeds = true;
     traceDeleteOutcomes.length = 0;
     testState.membershipPresent = true;

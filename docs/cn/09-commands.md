@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <a href="content-table.md">📚 开发者文档首页</a> · <a href="08-images-and-cron.md">← 上一页：08 图库与定时任务</a> · <a href="10-performance.md">下一页：10 性能基准 →</a>
+  <a href="content-table.md">📚 开发者文档首页</a> · <a href="08-images-and-cron.md">← 上一页：08 图库与定时任务</a> · <a href="10-mini-app.md">下一页：10 Mini App 设置与推荐配置 →</a>
 </p>
 
 ---
@@ -32,7 +32,7 @@
 `/copy` 命令族与系统的随机复读功能共享相同的消息处理规则：
 - **文本与图注**：统一作为普通字符串处理，包含链接或 `@username` 的内容同样执行变换。纯文字消息会重新发出，链接与 `@username` 依然由 Telegram 客户端重新识别，并继承原消息的链接预览开关设置。
 - **样式实体丢弃**：粗体、下划线、隐藏链接、剧透遮罩、自定义表情等富文本样式不会保留；原消息中带有剧透遮罩的文字会以明文形式直接发出。
-- **富媒体处理**：图片、视频、文件、贴纸等媒体由 Telegram 服务端直接复制转发；若带有图注（Caption），则将图注替换为变换后的文本，机器人本地不下载任何文件。付费媒体（Paid Media）无法直接复制，仅转发文字图注。
+- **富媒体处理**：图片、视频、文件、贴纸等媒体由 Telegram 服务端直接复制转发；若带有图注（Caption），则将图注替换为变换后的文本，机器人本地不下载任何文件。付费媒体（Paid Media）无法直接复制，有图注时仅转发文字图注，无图注时忽略不发。
 - **纯非文本消息**：投票、骰子、地理位置、名片联系人等既没有文字也没有媒体文件的特殊消息，将原样转发。
 - **命令防循环拦截**：变换前或变换后的文本若命中 Telegram 可渲染的斜杠命令，整条消息不予发送。
 - **超长保护**：文本变换后若超出 Telegram 消息正文或图注的字数上限，整条消息不予发送。
@@ -127,7 +127,7 @@
 | `/clear_context` | `isCanClearContext` | 清空本群的 AI 上下文记忆（重置滚动逐字缓存与摘要，并将持久化字段置空）；使在途回复立即失效 |
 | `/mood query` | 群成员 | 查看当前 AI 的全局心情状态（不触发重抽；需已开启 AI 且模型配置正常） |
 | `/mood switch` | `isCanSwitchMood` | 立即重新随机抽取 AI 的全局心情（对所有群生效）并播报新心情名称 |
-| `/ad_detect enable\|disable` | `isCanControllAdDetectPermission` | 开启或关闭本群的智能广告检测；非受保护身份命中后按 `/block` 同等标准封禁并播报 |
+| `/ad_detect enable\|disable` | `isCanControllAdDetectPermission` | 开启或关闭本群的智能广告检测；非受保护身份命中后按 `ad_detect.json` 的处罚设置禁言、踢出或封禁并播报 |
 | `/flood_control enable\|disable` | `isCanControllFloodControlPermission` | 开启或关闭本群的防连续刷屏禁言（默认关闭） |
 | `/antiraid enable\|disable` | `isCanControllAntiRaidPermission` | 开启或关闭本群的入群验证挑战与防冲群私密模式（默认关闭） |
 | `/qa set` | `isCanControllQaPermission` | 发起问答录入表单，随后由发起者通过「问题:」「回答:」两条消息录入问答对并存盘 |
@@ -165,7 +165,7 @@
 
 #### 1. 人设与通知语气
 - 人设提示词属于全实例级的部署配置，不支持在群内通过命令按群独立切换。
-- AI 的人设内容默认读取项目根目录下的 `prompt/persona.md`；若文件不存在，则回落至内置的调侃雌小鬼人设。命令提示、权限说明、按钮文本、定时播报及 Inline 运势文案风格优先读取 `config/static/bot.json` 中的 `atmosphere` 配置（`mesugaki` 为调侃风，`normal` 为克制风）；若未显式配置，自定义人设默认采用 `normal`（克制风），内置人设采用 `DEFAULT_BOT_ATMOSPHERE`（调侃风）。
+- AI 的人设内容默认读取项目根目录下的 `prompt/persona.md`；若文件不存在，则回落至内置的调侃雌小鬼人设。命令提示、权限说明、按钮文本、定时播报及 Inline 运势文案风格优先读取 `config/static/bot.json` 中的 `atmosphere` 配置（`mesugaki` 为调侃风，`normal` 为克制风）；若未显式配置，自定义人设默认采用 `normal`（克制风），内置人设采用 `DEFAULT_BOT_ATMOSPHERE`（调侃风）。Mini App 控制台界面（含权限说明）不随此配置，固定使用雌小鬼语气。
 - 风格在服务启动时固定初始化，修改后需重启进程生效。
 - 启动时仅向 Telegram 注册群聊作用域的命令菜单，私聊窗口不显示命令菜单；私聊中仅响应超级管理员的 `/send` 中转命令，若配置了 `mini_app` 则在超级管理员私聊左下角挂载 `MenuButtonWebApp`（`App` 按钮）作为 Mini App 控制台入口。
 
@@ -188,7 +188,7 @@
 
 #### 4. 群问答：`/qa` 全生命周期
 - **表单录入交互**：
-  - 发送 `/qa set` 后，系统会为当前群开启问答录入表单会话（需具备 `isCanControllQaPermission` 权限）。表单开启后，仅接受该发起者本人发送的后续内容（支持频道身份与匿名管理员）。
+  - 发送 `/qa set` 后，系统会为当前群开启问答录入表单会话（需具备 `isCanControllQaPermission` 权限），并在开启论坛话题的超级群中绑定触发命令所在的话题（`message_thread_id`）。表单开启后，仅在同一群、同一论坛话题下接受该发起者本人发送的后续录入内容（支持频道身份与匿名管理员），其他话题中的消息不会被认领或删除。
   - 录入内容必须以行首的 `QA_QUESTION_LABELS`（`问题:` / `问题：`）或 `QA_ANSWER_LABELS`（`回答:` / `回答：` / `答案:` / `答案：`）为标识，可分两条消息发送，也可合并在一条消息中发送。
   - 回答内容中的 ```` ```json ```` 代码块会被原样字面存盘，后续触发直答时会原样发出；围栏本身计入字数限制 `CHAT_QA_ANSWER_MAX_CHARS`。
   - 问题整条、回答在代码块之外不能含有会显示成可点击命令的斜杠写法（如 `/start`、`/etc/hosts`）：与超长一样，该项不会被记录，表单保留并回执提示改写；代码块内的命令示例照常收下。
@@ -217,8 +217,14 @@
 - **命令语法**：`/delete_message <目标>` 开始删除，`/delete_message stop <目标>` 停止；目标支持回复消息、`@username`、纯数字用户 ID 与频道负数 ID，`stop` 不区分大小写。仅超级管理员本人可用，机器人须在本群持有删除消息权限；不接受机器人自身、当前群身份（匿名管理员）与超级管理员本人。
 - **删除范围**：只删除目标在命令之后于本群发出的新消息；Bot API 无法列出历史消息，命令之前的消息不受影响。发言带 `sender_chat` 时按该频道身份判定，否则按 `from` 判定。目标的消息先照常经过入群验证、广告检测与防刷屏计数，随后被认领，不再进入 gag、命令、AI 与复读，目标发出的命令也不执行。
 - **目标为其他 Bot**：需在 @BotFather 开启本机器人的 Bot-to-Bot Communication Mode 才能收到其发言。删除目标的发言先于其他 Bot 的入口限流判定：直接放行、不计入 `BOT_MESSAGE_ACTIVITY_LIMIT`，因此持续发言的目标 Bot 每条都会被删除；同一个 Bot 在未设为目标的群里照常计数。
-- **排队与删除**：目标每发一条消息就入队一条，进入主线程内存的待删队列（全部群合计上限 `DELETE_MESSAGE_QUEUE_MAX`），由唯一的消费循环经统一 Telegram 出站调用 `deleteMessages` 删除；请求在途期间同群连续到达的条目合为一批，单批不超过 `TELEGRAM_DELETE_MESSAGES_BATCH_MAX`。删除失败只记统一 Telegram 错误日志，不重试。队列已满时新消息照常被认领但不再入队，满队时记一行 warn，队列排空时再汇总丢弃条数。
-- **容量与持久化**：每群同时最多 `DELETE_MESSAGE_CHAT_TARGET_MAX` 个目标；目标以用户/频道 ID 列表保存在 SQLite `chat_states` 表对应群的 `deleteMessageTargets` JSONB 字段中，进程重启后继续生效。登记与 `stop` 都在落盘确认后才回执。`stop` 只撤销目标，已排队的条目照常删除；群被 `/init disable`、机器人离群或被撤管理员时撤销本群全部目标并落盘，同时丢弃本群尚未发出的条目。启动时若持久化的目标含本群自身 ID 或配置的超级管理员，拒绝启动；待删队列本身只在内存中。正常停机时待删队列在 Telegram 出站总闸关闭前排空，超出预算则丢弃剩余条目并记错误日志。开始、停止与各类拒绝回执按普通命令提示在 `COMMAND_MESSAGE_AUTO_DELETE_MS` 后自删。
+- **排队与删除**：
+  - 目标每发一条消息即入队一条，进入主线程内存待删队列（全实例上限 `DELETE_MESSAGE_QUEUE_MAX`），由单一消费循环经统一 Telegram 出站调用 `deleteMessages` 删除。
+  - 请求在途期间同群连续到达的条目自动合并为一批（单批不超过 `TELEGRAM_DELETE_MESSAGES_BATCH_MAX`）；删除失败仅记统一 Telegram 错误日志，不重试。
+  - 队列满载时新消息照常被认领但不再入队，满队瞬间记一行 warn，待队列排空时汇总输出丢弃条数。
+- **容量与持久化**：
+  - **持久化范围**：每群最多登记 `DELETE_MESSAGE_CHAT_TARGET_MAX` 个目标，以用户/频道 ID 列表保存在 SQLite `chat_states` 表的 `deleteMessageTargets` JSONB 字段中（重启后继续生效；待删队列本身仅驻留内存）。启动时若持久化目标含本群自身 ID 或超级管理员 ID，直接拒绝启动。
+  - **变更与清理**：登记与 `stop` 均在落盘确认后发送回执（按 `COMMAND_MESSAGE_AUTO_DELETE_MS` 自删）；`stop` 仅撤销目标，已入队条目照常删除。群被 `/init disable`、机器人离群或被撤管理员时，撤销本群全部目标并落盘，同时丢弃本群尚未发出的待删条目。
+  - **停机排空**：正常停机时待删队列在 Telegram 出站总闸关闭前排空；超出预算则丢弃剩余条目并记错误日志。
 
 #### 7. 黑名单：`/block`
 - **命令语法**：使用 `/block <目标> enable` 执行拉黑，使用 `/block <目标> disable` 解除拉黑。目标参数支持回复消息（含频道马甲消息）、`@username`、纯数字用户 ID，以及直接传入频道的负数 ID（裸传负数 ID 仅支持 `disable` 解封）。
@@ -227,10 +233,14 @@
 - **销号清理机制**：在后台巡检封禁过程中，若对某一目标的封禁探测连续 `BLOCKLIST_PARTICIPANT_INVALID_LIMIT` 次均被 Telegram 官方返回 `PARTICIPANT_ID_INVALID`（账号已注销），系统会自动将其判定为“已销号账号”，并从黑名单数据库中彻底注销该 ID。
 
 #### 8. 广告检测与防冲群
-- **`/ad_detect`（智能广告拦截）**：同一发送者在短时间内发送的消息会聚合为消息串，检测队列每隔 `AD_DETECT_QUEUE_TICK_MS` 抽取一批送入广告识别模型进行判定。一旦判定命中，立即按照 `/block` 同等标准执行永久拉黑并从群中踢出，同时在群内播发带有命中理由的封禁公告（按 `COMMAND_MESSAGE_AUTO_DELETE_MS` 自删）。纯网络代理节点链接（如 `vless://`、`vmess://`、`trojan://`、`ss://`）若不附带招募或营销导流文案，不会被误判为广告。
+- **`/ad_detect`（智能广告拦截）**：
+  - **三级串行判定**：同一发送者短时间内的连发消息先聚合为消息串，检测队列每隔 `AD_DETECT_QUEUE_TICK_MS` 抽取一批，依次按「贴纸包黑名单快路径（`sticker_black_list`）→ 自定义表情包黑名单（`emoji_black_list`，经主线程统一 Telegram 出站查询）→ AI 广告识别模型（`samples`）」判定。纯网络代理节点链接（如 `vless://`、`vmess://`、`trojan://`、`ss://`）不附带招募或营销导流文案时，不判为广告。
+  - **违规处置与播报**：任一环节命中后立即撤回涉事消息，并按 `ad_detect.json` 的 `punishment` 执行处罚（`mute` 在本群限时或永久禁言；`kick` 移出本群，按配置只踢不封、仅本群封禁，或写入永久黑名单并在全部受管群封禁；频道身份在全局封禁以外的设置下只撤回消息），同时在群内播发含命中理由与处罚结果的公告（按 `COMMAND_MESSAGE_AUTO_DELETE_MS` 自删）。
 - **`/flood_control`（防连续刷屏）**：单个用户在超级群的 `FLOOD_WINDOW_MS` 滑动时间窗口内发送的消息条数达到 `FLOOD_MESSAGE_LIMIT` 时，系统将立即对其执行 `FLOOD_MUTE_DURATION_MS` 时长的临时禁言，并在群内播报警告（按 `COMMAND_MESSAGE_AUTO_DELETE_MS` 自删）。群管理员（机器人除外）、频道身份不计入刷屏；拥有 `isCanBypassFloodControl` 权限的身份直接豁免。
 - **`/antiraid`（入群验证与私密模式）**：开启后，新成员入群需在 `VERIFICATION_TIMEOUT_MS` 限时内答对提醒里的三选一算术题（答错立即踢出、不封禁，机器人成员由管理员点「通过」作保）；在 `JOIN_WINDOW_MS` 内入群人数超过 `ANTI_RAID_PER_MINUTE_LIMIT` 时联动进入 `LOCKDOWN_MS` 私密防护。关闭该开关时，所有未完成的验证流程立即取消，发送的提醒消息同步撤回。广告拦截、防刷屏与全局黑名单不受此开关影响。
-- **`/batch_kick`（批量清理新入群成员）**：仅超级管理员可用。通过分析入群事件日志，在指定的时间区间内（如 `30m`、`2h`、`1d`，必须在 `BATCH_KICK_MIN_DURATION_MS` 与 `BATCH_KICK_MAX_DURATION_MS` 范围内）批量踢出新加入的成员。只执行踢出操作，不加入黑名单；白名单身份与已在黑名单的身份均会自动跳过。命令受理后先行回复受理确认，踢人操作在后台异步执行并在完成后发送最终战报。
+- **`/batch_kick`（批量清理新入群成员）**：
+  - **窗口与跳过规则**：仅超级管理员可用。基于入群事件日志，批量踢出指定时间区间（如 `30m`、`2h`、`1d`，须落在 `BATCH_KICK_MIN_DURATION_MS`～`BATCH_KICK_MAX_DURATION_MS` 内）新加入的超级群成员；只踢出、不拉黑，白名单身份与已在黑名单的身份自动跳过。
+  - **异步执行与生命周期取消**：命令受理后先行回复受理确认，后台分块异步执行并在完成后发送最终战报；预检或执行期间若本群发生 `/init disable`（含关闭后重开）、退群或失去管理员权限，在途批次立即静默停止且不再补发战报。
 
 #### 9. 私聊中转与语音代发：`/send`
 - 超级管理员在机器人私聊窗口中发送 `/send <群组 ID>` 开启中转；目标群须已执行 `/init enable`，系统会先验证目标群的可达性，开启后管理员在私聊发送的所有普通消息均会被原样转发至目标群组。
@@ -330,27 +340,34 @@
 
 ## 🖥️ Mini App 管理控制台：API 与权限边界
 
-当 `config/static/bot.json` 配置了可选的 `mini_app` 对象时，系统会启动本地 `Bun.serve` HTTP 服务（实现在 `packages/mini-app-api-server/`，前端在 `packages/mini-app-frontend/`），并在超级管理员私聊窗口左下角挂载 `MenuButtonWebApp`（`App` 按钮）。字段规范请参阅 [部署配置说明](../../config_example/README/zh.md#botjson)，完整设置方法与 Cloudflare Tunnel 推荐配置请参考 [11 Mini App 设置与推荐配置](11-mini-app.md)。
+当 `config/static/bot.json` 配置了可选的 `mini_app` 对象时，系统会启动本地 `Bun.serve` HTTP 服务（实现在 `packages/mini-app-api-server/`，前端在 `packages/mini-app-frontend/`），并在超级管理员私聊窗口左下角挂载 `MenuButtonWebApp`（`App` 按钮）。字段规范请参阅 [部署配置说明](../../config_example/README/zh.md#botjson)，完整设置方法与 Cloudflare Tunnel 推荐配置请参考 [10 Mini App 设置与推荐配置](10-mini-app.md)。
 
 ### 1. 认证与安全边界
-- **超级管理员独占（`SUPER_ADMIN_USER_ID`）**：全部业务 API 均只向配置的唯一超级管理员开放。每个请求先经 `headerGuard` 校验同源与凭据头形态，再经 `initData` 中间件执行 Telegram WebApp `initData` HMAC-SHA256 签名核验、45 分钟新鲜度检查与 `user.id === SUPER_ADMIN_USER_ID` 比对；除首屏预检（`GET /api/auth/precheck`）、登录（`POST /api/auth/login`）与登出（`POST /api/auth/logout`）外，其余业务 API 均额外要求有效的 45 分钟会话令牌（`X-Mini-App-Session`）。当请求携带仍在有效期内的会话令牌且距签发时刻超过 5 分钟（`MINI_APP_SESSION_REFRESH_THRESHOLD_MS`）时，服务端自动换发新令牌并将有效期顺延 45 分钟（`MINI_APP_SESSION_TTL_MS`），通过 `X-Mini-App-Session` 与 `X-Mini-App-Session-Expires-At` 响应头（及 `/api/auth/precheck` 响应体）下发给客户端，同时在会话续期期间放行静态 `initData.auth_date`，直至用户停止访问。换发后旧令牌在 5 分钟内仍可用于并发在途请求；服务端最多保留 `MINI_APP_SESSION_MAX`（8）个会话，每个会话只占一个槽位，满额时淘汰签发或刷新最早的会话。
-- **首屏凭据与锁定保护**：未绑定验证器时校验 `mini_app.password`；在控制台绑定 Google Authenticator (TOTP) 后（持久化于 `memory/mini-app-totp/totp.json`），登录优先校验当前 30 秒时间步的 6 位动态码。连续输错 3 次将锁定超级管理员 ID 30 分钟，转入锁定时向超级管理员私聊发送一次含解锁时间与来源 IP 的告警。
-- **受保护图库预览资源**：图库图片读取（`GET|HEAD /api/gallery/file/:fileName`）通过仅在登录或有效会话续接时派发的确定性 `assetToken` 鉴权，并支持 7 天不可变缓存与 `ETag` 304 协商。
+- **单页入口与前端包门禁（`MINI_APP_REJECT_HTML_PATH` / `MINI_APP_PAGE_GATE_COOKIE_NAME`）**：
+  - 单页路由（`/`、`/index.html` 及其子路径别名）与前端打包静态资源（`/chunk-*` 等，匹配 `MINI_APP_BUNDLE_ASSET_ROUTE_PATTERN`）统一由 [`packages/mini-app-api-server/auth/pageGate.ts`](../../packages/mini-app-api-server/auth/pageGate.ts) 把守。
+  - **未授权单页隔离**：未携带合法超级管理员 `initData` 请求头或有效 `MINI_APP_PAGE_GATE_COOKIE_NAME` 门禁 Cookie（`HttpOnly; SameSite=Lax`，有效期 45 分钟 `MINI_APP_PAGE_GATE_COOKIE_MAX_AGE_SECONDS`），或处于 30 分钟密码锁定期时，单页请求一律返回独立的 [`packages/mini-app-api-server/resource/reject.html`](../../packages/mini-app-api-server/resource/reject.html)（零外部请求；在 Telegram WebView 冷启动时从本地提取 `initData` 预检 `./api/auth/precheck` 换取门禁 Cookie 后单次重载）。
+  - **前端打包块保护**：未通过门禁或处于锁定期的打包块请求返回 `401`/`403` JSON，不下发完整前端包；已通过门禁的打包块返回 `MINI_APP_BUNDLE_CACHE_CONTROL`、`CDN-Cache-Control: no-store` 与 `MINI_APP_BUNDLE_VARY_HEADER_VALUE`。
+- **超级管理员独占与会话轮换（`SUPER_ADMIN_USER_ID`）**：
+  - 全部业务 API 仅向配置的唯一超级管理员开放。每个请求按路由静态鉴权策略（`MiniAppAuthPolicy`）由同步鉴权管道（`authorizeMiniAppRequest`）依次执行 `headerGuard` 同源与凭据头形态快路径校验，以及 Telegram WebApp `initData` 的 HMAC-SHA256 签名核验、45 分钟新鲜度检查与 `user.id === SUPER_ADMIN_USER_ID` 比对；除首屏预检（`GET /api/auth/precheck`）、登录（`POST /api/auth/login`）与登出（`POST /api/auth/logout`）外，其余业务 API 均额外要求有效的 45 分钟会话令牌（`X-Mini-App-Session`）。
+  - 请求携带有效会话令牌且距签发超过 5 分钟（`MINI_APP_SESSION_REFRESH_THRESHOLD_MS`）时，服务端自动换发新令牌并将有效期顺延 45 分钟（`MINI_APP_SESSION_TTL_MS`），经 `X-Mini-App-Session` 与 `X-Mini-App-Session-Expires-At` 响应头（及 `/api/auth/precheck` 响应体）下发，并在续期期间持续放行静态 `initData.auth_date`。旧令牌在 5 分钟内仍可用于并发在途请求；服务端最多保留 `MINI_APP_SESSION_MAX`（8）个会话，满额时淘汰签发或刷新最早的会话。
+- **首屏凭据与锁定保护**：未绑定验证器时校验 `mini_app.password`；绑定 Google Authenticator (TOTP) 后（持久化于 `memory/mini-app-totp/totp.json`），登录优先校验当前 30 秒时间步的 6 位动态码。连续输错 3 次锁定超级管理员 ID 30 分钟、清空会话并清除门禁 Cookie，转入锁定时向超级管理员私聊发送一次含解锁时间与来源 IP 的告警。
+- **受保护图库预览资源**：图库图片读取（`GET|HEAD /api/gallery/file/:fileName`）通过仅在登录或有效会话续接时派发的确定性 `assetToken` 鉴权（支持 7 天不可变缓存与 `ETag` `304` 协商），或通过超级管理员 `initData` 配对有效 45 分钟 `session` 会话令牌鉴权。
 
 ### 2. HTTP API 路由与能力对照
 
 | 路由 | 方法 | 权限与边界说明 |
 | :--- | :---: | :--- |
-| `/api/auth/precheck`<br>`/api/auth/login`<br>`/api/auth/logout` | `GET`<br>`POST`<br>`POST` | 校验 `initData` 签名与超级管理员身份，返回登录模式（`password` 或 `totp`）、续接或自动刷新（签发满 5 分钟）有效会话，或签发新 45 分钟 `sessionToken` 与 `assetToken`；登出时吊销请求头 `X-Mini-App-Session` 携带的会话（不刷新令牌，会话已失效时同样返回成功） |
-| `/api/totp`<br>`/api/totp/setup`<br>`/api/totp/enable`<br>`/api/totp/delete` | `GET`/`DELETE`<br>`POST` | 查询、生成待绑定密钥二维码、校验 6 位动态码启用或删除 Google Authenticator 验证器 |
+| `/`<br>`/index.html`<br>`/favicon.ico`<br>`/healthz` | `GET`/`HEAD` | `/` 与 `/index.html` 核验超级管理员门禁（通过返回按需物化的控制台 HTML，未授权或锁定时返回独立 `reject.html`）；打包块 `/chunk-*` 经门禁核验后以私有协商缓存返回；`/favicon.ico` 返回静态图标；`/healthz` 返回公开存活探针 `{ ok: true }` |
+| `/api/auth/precheck`<br>`/api/auth/login`<br>`/api/auth/logout` | `GET`<br>`POST`<br>`POST` | 核验 `initData` 与超级管理员身份，返回登录模式（`password` / `totp`）、续接或自动刷新（签发满 5 分钟）有效会话，或签发 45 分钟 `sessionToken` 与 `assetToken`（成功时签发/刷新门禁 Cookie，拒绝或锁定时清除）；`logout` 吊销 `X-Mini-App-Session` 携带的会话（已失效同样返回成功） |
+| `/api/totp`<br>`/api/totp/setup`<br>`/api/totp/enable`<br>`/api/totp/delete` | `GET`/`DELETE`<br>`POST` | 查询、生成待绑定密钥二维码、校验 6 位动态码启用或删除 Google Authenticator 验证器；启用、替换或删除验证器时自动吊销除当前请求会话以外的其余活跃会话 |
 | `/api/status`<br>`/api/mood`<br>`/api/mood/switch` | `GET`<br>`GET`<br>`POST` | 查询实时系统指标（运行时长、CPU 平均负载、内存 PSS、托管群数、活跃会话、AI 模型就绪状态、Telegram 出站门控），查询或手动重抽全局 AI 心情 |
-| `/api/chats`<br>`/api/chats/:chatId` | `GET` | 列出已开启 `/init` 的受管群摘要，或查询单群详情（含功能开关、热消息计数、静音/锁定剩余时长、Bot 在本群持有的管理员权限 `botPermissions`、1–24 小时各回溯窗口去重入群人数 `joinedCountsByHour` 及 `/batch_kick` 执行状态） |
+| `/api/chats`<br>`/api/chats/:chatId` | `GET` | 列出已开启 `/init` 的受管群摘要，或查询单群详情（功能开关、热消息计数、静音/锁定剩余时长、Bot 管理员权限 `botPermissions`、1–24 小时去重入群人数 `joinedCountsByHour` 及 `/batch_kick` 执行状态） |
 | `/api/chats/:chatId/messages` | `GET` | 分页查看并按关键字搜索该群内存热 256 缓冲区内的近期聊天记录 |
-| `/api/chats/:chatId/feature` | `POST` | 切换单群功能开关（`init`、`aiChat`、`translation`、`adDetect`、`floodControl`、`antiRaid`、`proxySend`）；关闭 `init` 与 `/init disable` 同序执行运行时拆除与状态清理，关闭 `antiRaid` 时运行时拆除失败回 `ANTI_RAID_DISABLED_TEARDOWN_FAILED`（开关已落盘，与 `/antiraid disable` 的回执同口径），开启 `proxySend` 与私聊 `/send` 共享单群唯一性约束 |
-| `/api/chats/:chatId/batch-kick` | `POST` | 按 `1..24` 小时回溯窗口在已确证的超级群触发本群 `/batch_kick` 批量清理新成员（优先读取 `chatIsSupergroupById`，未命中时经 `getChat` 探测并回填缓存；普通群以 `notSupergroup` 拒绝，`getChat` 探测失败以 `unavailable` 拒绝）；与群内 `/batch_kick` 命令共享 `batchKickChats` 单飞锁与后台执行器，完成后写入 `miniAppBatchKickCompletedByChat` 供前端轮询展示战报 |
+| `/api/chats/:chatId/feature` | `POST` | 切换单群开关（`init`、`aiChat`、`translation`、`adDetect`、`floodControl`、`antiRaid`、`proxySend`）；关闭 `init` 与 `/init disable` 同序拆除并清理状态，关闭 `antiRaid` 拆除失败回 `ANTI_RAID_DISABLED_TEARDOWN_FAILED`（开关已落盘），开启 `proxySend` 与私聊 `/send` 共享单群唯一性约束 |
+| `/api/chats/:chatId/batch-kick` | `POST` | 按 `1..24` 小时回溯窗口在已确证超级群触发 `/batch_kick`（读 `chatIsSupergroupById`，未命中经 `getChat` 探测回填；普通群回 `notSupergroup`，探测失败回 `unavailable`）；与群内命令共享 `batchKickChats` 单飞锁、`batchKickInFlightSeqByChat` 生命周期序号与后台执行器（跨 `/init disable` 即中止），结果存入 `miniAppBatchKickCompletedByChat`（删数据类群 teardown 清除，`lostAuthority` 保留） |
 | `/api/chats/:chatId/targets` | `GET`<br>`POST` | 查询或增删改本群的自定义问答对（`setQa`/`removeQa`）、追着删目标（`addDeleteTarget`/`removeDeleteTarget`）与追着翻目标（`addTranslateTarget`/`removeTranslateTarget`） |
-| `/api/identities/whitelist`<br>`/api/identities/permission`<br>`/api/identities/blocklist` | `GET`/`POST`<br>`POST`<br>`GET`/`POST` | 分页查询与搜索白名单/黑名单（经 `readIdentityPolicyEntries` 冷读且叠加未 ACK 内存写入，不污染主线程热策略 LRU，同时与主线程 `senderIdentity` 发送者缓存双向对齐展示元数据），添加/移出黑白名单，修改白名单条目的细粒度权限或一键全开（`enableAll`） |
-| `/api/picker/prepare`<br>`/api/picker/result` | `POST`<br>`GET` | 调用 Telegram `savePreparedKeyboardButton` 准备原生好友/联系人或频道选择器会话，并轮询 `users_shared`/`chat_shared` 导入回执（支持 `whitelist`、`blocklist`、`deleteMessage`、`translate` 四类目标列表） |
+| `/api/identities/whitelist`<br>`/api/identities/permission`<br>`/api/identities/blocklist` | `GET`/`POST`<br>`POST`<br>`GET`/`POST` | 按页码或游标分页查询、按名称/用户名/ID 模糊搜索黑白名单（经 `readIdentityPolicyEntries` 冷读并叠加未 ACK 内存写入，不污染主线程热策略 LRU，与 `senderIdentity` 缓存双向对齐展示资料）；添加/移出黑白名单，修改白名单单项权限或一键全开（`enableAll`） |
+| `/api/picker/prepare`<br>`/api/picker/result` | `POST`<br>`GET` | 调用 Telegram `savePreparedKeyboardButton` 准备原生联系人/频道选择器会话，并轮询 `users_shared`/`chat_shared` 导入回执（支持 `whitelist`、`blocklist`、`deleteMessage`、`translate`；群内目标预先核验 `/init`，未初始化返回 `CHAT_NOT_INITIALIZED`） |
 | `/api/gallery`<br>`/api/gallery/upload`<br>`/api/gallery/delete`<br>`/api/gallery/file/:fileName`<br>`/api/gallery/download/:fileName` | `GET`<br>`POST`<br>`POST`<br>`DELETE`<br>`GET`/`HEAD` | 分页浏览专用图库、按原始二进制上传入库（执行与 `/h_image add` 相同的 SHA-256 命名去重与尺寸预检）、删除或下载原图 |
 
 ### 3. 名单与群目标操作的冲突与边界守卫
@@ -368,6 +385,6 @@
 
 <div align="center">
 
-[← 上一页：08 图库与定时任务](08-images-and-cron.md) · [📚 开发者文档首页](content-table.md) · [⬆️ 回到顶部](#09-命令与行为参考) · [下一页：10 性能基准 →](10-performance.md)
+[← 上一页：08 图库与定时任务](08-images-and-cron.md) · [📚 开发者文档首页](content-table.md) · [⬆️ 回到顶部](#09-命令与行为参考) · [下一页：10 Mini App 设置与推荐配置 →](10-mini-app.md)
 
 </div>

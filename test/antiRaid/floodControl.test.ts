@@ -4,7 +4,7 @@ import { buildFloodCandidate } from "../../packages/antiRaid/floodControl";
 import type { FloodCandidateMessage } from "../../packages/types/antiRaid/protocol";
 import type { ChatState } from "../../packages/types/chatState";
 import { chatStateCache } from "../../packages/cache/main/chatState";
-import { getChatState } from "../../packages/infra/storage/stateStore";
+import { getChatState } from "../../packages/infra/chatStateStorage";
 
 import { SUPER_ADMIN_USER_ID } from "../../packages/config/bot";
 import { DEFAULT_WHITELIST_PERMISSIONS } from "../../packages/consts/whitelist";

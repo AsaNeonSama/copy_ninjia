@@ -875,6 +875,7 @@ describe("Telegram 主线程出站总闸", () => {
     expect(telegramRetryCategoryFor("answerWebAppQuery")).toBe("inline");
     expect(telegramRetryCategoryFor("sendChatAction")).toBe("chatAction");
     expect(telegramRetryCategoryFor("sendMessage")).toBe("message");
+    expect(telegramRetryCategoryFor("getCustomEmojiStickers")).toBe("query");
     expect(telegramRetryCategoryFor("getFile")).toBe("download");
     expect(telegramRetryCategoryFor("restrictChatMember")).toBe("restrict");
     expect(telegramRetryCategoryFor("deleteMessage")).toBe("delete");

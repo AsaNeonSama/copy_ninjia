@@ -1,14 +1,12 @@
+/**
+ * AI `agent` 核心配置不可用时主线程侧代理的行为测试（与 `mainMirrorRecovery.test.ts` 对照）：
+ * 配置未就绪时 `hydrateAiMemory` 仅把记忆载入主线程镜像而不删除未开启群的磁盘记录；
+ * 热重载补齐前提后，再由 `resumeAiChat` 按群开关投递给 Worker 或清理。
+ */
+
 import { getTimeZone } from "../../../packages/config/time";
 import type { TtsDailyUsage } from "../../../packages/types/aiChat/voiceMessage";
 import { diskIOStub } from "../../helpers/diskIOMock";
-/**
- * AI agent 核心配置不可用时主线程侧代理的行为。与 mainMirrorRecovery.test.ts
- * 是同一批入口的另一种进程状态，readiness mock 整文件生效，因此单独成文件。
- *
- * 配置不可用时 hydrate 不依据「本群没开 AI 闲聊」删除磁盘记忆，记忆只进镜像；
- * 热重载补齐前提后 resumeAiChat 才按群开关投递或删除。
- */
-
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { loggerStub } from "../../helpers/loggerMock";
 import { adoptStickerConfig } from "../../../packages/config/stickers";
@@ -60,12 +58,14 @@ mock.module("../../../packages/infra/diskIO", () => (diskIOStub({
 // 主线程 `global.ttsUsage` 镜像：启动与重建时灌回 Worker，ttsUsage 回执写入。
 const ttsUsageMirror: { current: TtsDailyUsage | null } = { current: null };
 mock.module("../../../packages/infra/storage/stateStore", () => ({
-  getChatState: (chatId: number) => ({ isAIChatEnabled: aiEnabledChats.has(chatId) }),
-  getChatStateCache: (): Map<number, unknown> =>
-    new Map([...aiEnabledChats].map((chatId: number): [number, unknown] => [chatId, {}])),
   activeCopyTargetIdIn: (): undefined => undefined,
   getTtsUsage: (): TtsDailyUsage | null => ttsUsageMirror.current,
   adoptTtsUsage: (usage: TtsDailyUsage): void => { ttsUsageMirror.current = usage; },
+}));
+mock.module("../../../packages/infra/chatStateStorage", () => ({
+  getChatState: (chatId: number) => ({ isAIChatEnabled: aiEnabledChats.has(chatId) }),
+  getChatStateCache: (): Map<number, unknown> =>
+    new Map([...aiEnabledChats].map((chatId: number): [number, unknown] => [chatId, {}])),
 }));
 
 const aiChat = await import("../../../packages/aiChat");

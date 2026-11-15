@@ -35,6 +35,7 @@ export interface ChatActionHeartbeatEntry {
   pendingSend: boolean;
   pendingSendDeduplicate: boolean;
   lastSentPhase: ChatActionPhase;
+  /** 最近一次成功发送状态时的 `performance.now()` 单调时钟时间戳（毫秒）；尚未发送时为 `Number.NEGATIVE_INFINITY`。 */
   lastSentAt: number;
   /** 静默期结束时刻（performance.now 口径）；此前不发任何状态请求。 */
   restUntil: number;

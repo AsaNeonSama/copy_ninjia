@@ -48,6 +48,9 @@ mock.module("../../packages/aiChat", () => ({
 mock.module("../../packages/antiRaid", () => ({ clearAdDetection }));
 mock.module("../../packages/commands/copy", () => ({ handleCopyCommand }));
 mock.module("../../packages/infra/storage/stateStore", () => ({
+  persistGlobalState: async (): Promise<void> => {},
+}));
+mock.module("../../packages/infra/chatStateStorage", () => ({
   getOrCreateChatState(chatId: number): Record<string, unknown> {
     let state = states.get(chatId);
     if (!state) {
@@ -65,7 +68,6 @@ mock.module("../../packages/infra/storage/stateStore", () => ({
   getChatState: (chatId: number): Record<string, unknown> => states.get(chatId) ?? {},
   getChatStateCache: (): ReadonlyMap<number, Record<string, unknown>> => states,
   persistChatState,
-  persistGlobalState: async (): Promise<void> => {},
 }));
 
 const { refuseIfConfigBroken } = await import("../../packages/commands/configGate");
@@ -118,13 +120,13 @@ describe("部署配置写坏时的 enable 拒绝", () => {
   });
 
   test("/ad_detect enable 点名示例清单", async () => {
-    adDetectVerdict = broken("config/dynamic/ad_samples.json");
+    adDetectVerdict = broken("config/dynamic/ad_detect.json");
     await handleAdDetectCommand(context("enable"));
 
     expect(states.size).toBe(0);
     expect(sendMessage).toHaveBeenLastCalledWith({
       chatId: -1001,
-      text: expect.stringContaining("config/dynamic/ad_samples.json"),
+      text: expect.stringContaining("config/dynamic/ad_detect.json"),
       replyToMessageId: 7,
     });
   });

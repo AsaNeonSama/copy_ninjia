@@ -16,7 +16,7 @@ import { VOICE_OGG_FILE_NAME } from "../../consts/aiChat/voiceMessage";
 import { getAgentDeploymentConfig } from "../../config/agent";
 import { logger } from "../../infra/logger";
 import { reportAiCacheUsage, warnAiUsageUnavailable } from "../../infra/aiCacheUsage";
-import { raceAbortOrThrow, signalWithTimeout } from "../../libs/abortSignal";
+import { runWithTimeoutSignal } from "../../libs/abortSignal";
 import { classifyAiTextFailure, finalizeAiTextResult } from "../ai/utils/textResult";
 import type { AiRequestFailureKind } from "../ai/utils/textResult";
 import { logAndClassifyProviderApiError } from "../ai/utils/mediaSupportError";
@@ -129,36 +129,33 @@ export async function transcribeOpenAiVoice(request: AiVoiceRequest): Promise<Ai
       type: request.clip.mime,
     });
     if (isVoiceRequestAborted(request)) return { ok: false, retryable: false };
-    const requestSignal: AbortSignal = signalWithTimeout(
-      request.signal,
-      OPENAI_REQUEST_TIMEOUTS_MS.media
-    );
-    requestSignal.throwIfAborted();
     const response: OpenAI.Audio.Transcriptions.TranscriptionCreateResponse =
-      await raceAbortOrThrow(
-        getOpenAiClient("media").audio.transcriptions.create(
-          {
-            file: upload,
-            model,
-            prompt: request.prompt,
-            response_format: "json",
-          },
-          { signal: requestSignal }
-        ).then((result: OpenAI.Audio.Transcriptions.TranscriptionCreateResponse): OpenAI.Audio.Transcriptions.TranscriptionCreateResponse => {
-          if (result.usage?.type === "duration") {
-            warnAiUsageUnavailable("media", "openai", "duration");
-          } else {
-            reportAiCacheUsage({
-              capability: "media", provider: "openai", model,
-              inputTokens: result.usage?.input_tokens,
-              cachedInputTokens: undefined,
-              outputTokens: result.usage?.output_tokens,
-            });
-          }
-          return result;
-        }),
-        requestSignal
-      );
+      await runWithTimeoutSignal({
+        signal: request.signal,
+        timeoutMs: OPENAI_REQUEST_TIMEOUTS_MS.media,
+        run: (requestSignal: AbortSignal): Promise<OpenAI.Audio.Transcriptions.TranscriptionCreateResponse> =>
+          getOpenAiClient("media").audio.transcriptions.create(
+            {
+              file: upload,
+              model,
+              prompt: request.prompt,
+              response_format: "json",
+            },
+            { signal: requestSignal }
+          ).then((result: OpenAI.Audio.Transcriptions.TranscriptionCreateResponse): OpenAI.Audio.Transcriptions.TranscriptionCreateResponse => {
+            if (result.usage?.type === "duration") {
+              warnAiUsageUnavailable("media", "openai", "duration");
+            } else {
+              reportAiCacheUsage({
+                capability: "media", provider: "openai", model,
+                inputTokens: result.usage?.input_tokens,
+                cachedInputTokens: undefined,
+                outputTokens: result.usage?.output_tokens,
+              });
+            }
+            return result;
+          }),
+      });
     return finalizeAiTextResult(request.normalize(response.text));
   } catch (error: unknown) {
     if (isVoiceRequestAborted(request)) return { ok: false, retryable: false };

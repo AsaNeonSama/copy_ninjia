@@ -219,14 +219,17 @@ export function selectAdBundleEntries(bundle: AdMessageBundle): AdBundleSelectio
 }
 
 /**
- * 将选中的消息条目拼接为按行连续编号的送检文本。
+ * 将选中的消息条目拼接为按行连续编号的送检文本；纯贴纸等无文本条目跳过后重新连续编号。
  * @param entries 选入本次送检的条目序列。
  * @returns 按行连续编号的完整送检文本。
  */
 export function formatAdBundleText(entries: readonly AdCandidateEntry[]): string {
-  return entries
-    .map((entry: AdCandidateEntry, index: number): string => `${index + 1}. ${entry.text}`)
-    .join("\n");
+  const lines: string[] = [];
+  for (const entry of entries) {
+    if (entry.text.length === 0) continue;
+    lines.push(`${lines.length + 1}. ${entry.text}`);
+  }
+  return lines.join("\n");
 }
 
 /**

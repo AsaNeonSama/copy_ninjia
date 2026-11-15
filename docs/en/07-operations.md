@@ -12,11 +12,11 @@
 
 ## Deployment Model
 
-Copy Ninjia uses a **single-instance long-polling** daemon architecture:
-- No inbound webhooks or reverse proxy ports required;
-- No external database services (such as MySQL or PostgreSQL) needed;
-- Permission policies and active chat states are stored locally in SQLite;
-- All other state is persisted as JSON or text files directly under the local data root.
+Copy Ninjia runs as a **single-instance long-polling** daemon:
+- Requires no inbound webhook port or reverse proxy for Telegram updates (only the optional Mini App console uses HTTPS ingress; see [10 Mini App](10-mini-app.md)).
+- Requires no external database service such as MySQL or PostgreSQL.
+- Stores identity policies and managed-chat runtime state in a local SQLite database.
+- Persists all other domain data as JSON or text files under the local data root.
 
 <a id="hardware-guidance"></a>
 
@@ -34,34 +34,34 @@ Copy Ninjia uses a **single-instance long-polling** daemon architecture:
   <tr>
     <td><nobr>🌱 <b>Starter</b></nobr><br><sub>(Low activity / text only)</sub></td>
     <td>2 vCPU / 2 GB RAM / Local SSD</td>
-    <td>Runs reliably for text. CPU contention between Workers may occur during peak multimodal loads; 2 GB swap is strongly recommended.</td>
+    <td>Runs reliably for text workloads. Workers may contend for CPU during multimodal bursts; 2 GB swap is strongly recommended.</td>
   </tr>
   <tr>
     <td><nobr>⚡ <b>Light Production</b></nobr><br><sub>(Few groups with AI)</sub></td>
     <td>4 vCPU / 2 GB RAM / Local SSD</td>
-    <td>Solid for text handling. 2 GB RAM is tight during rich-media bursts; configure 2 GB swap.</td>
+    <td>Stable for text traffic. 2 GB RAM leaves little headroom for concurrent media bursts; configure 2 GB swap.</td>
   </tr>
   <tr>
     <td><nobr>🌟 <b>Recommended Production</b></nobr><br><sub>(Moderately active groups)</sub></td>
     <td>4 vCPU / 4 GB RAM / Local SSD</td>
-    <td>Standard scale for groups with moderate daily message traffic, balancing stability and hardware costs (2 GB swap recommended).</td>
+    <td>Balanced production sizing for moderate daily message volume (2 GB swap recommended).</td>
   </tr>
   <tr>
     <td><nobr>🔥 <b>High-Load Production</b></nobr><br><sub>(All groups AI / heavy images)</sub></td>
     <td>4 vCPU / 8 GB RAM / Local SSD</td>
-    <td>Provides ample memory headroom for concurrent media downloads, Base64 transcoding, and image encoding.</td>
+    <td>Provides ample heap headroom for concurrent media downloads, Base64 encoding, and image transcoding.</td>
   </tr>
 </tbody>
 </table>
 
 > [!NOTE]
-> A single instance can manage up to `STATE_MANAGED_CHAT_LIMIT` chats simultaneously. Real bottlenecks arise from Telegram Bot API rate limits, model vendor quotas, and message throughput, not raw group member counts.
+> A single instance manages up to `STATE_MANAGED_CHAT_LIMIT` chats simultaneously. Practical ceilings come from Telegram Bot API rate limits, model provider quotas, and actual message/media throughput rather than raw group member counts.
 
 ---
 
 ### systemd Example
 
-We recommend managing the daemon with systemd:
+Manage the long-running service with systemd:
 
 ```ini
 [Unit]
@@ -85,31 +85,32 @@ WantedBy=multi-user.target
 
 #### Directory Permissions and Security Controls
 
-- **Pre-creating the data root**: When provisioning, create the dedicated user and data root first:
+- **Pre-creating the data root**: Provision a dedicated service user and data root directory first:
   ```bash
   sudo install -d -o copy-ninjia -g copy-ninjia -m 0750 /var/lib/copy-ninjia
   ```
-  In containerized environments, mount this directory as a persistent volume, ensuring ownership is configured by the host or an init container. Never store `memory/` or `database/` in ephemeral container layers.
-- **Automatic initialization and strict write protection**: At startup, the bot creates the data root, the subdirectories listed in `RUNTIME_SENSITIVE_DIRECTORY_NAMES` (`logs/`, `memory/`, `memory/global/`, with maximum mode `RUNTIME_DATA_ROOT_MAX_MODE` in `packages/consts/storage.ts`), and the initial `database/` (`IDENTITY_DATABASE_DIRECTORY_MODE` in `packages/consts/identityStorage.ts`), subject to process umask. None of these paths may be **symbolic links**.
-  - The data root and `RUNTIME_SENSITIVE_DIRECTORY_NAMES` must be owned by the runtime UID and cannot be more permissive than `RUNTIME_DATA_ROOT_MAX_MODE`. If write permissions (`w`) are granted to group or other, the application **refuses to start**.
+  In containerized deployments, mount the data root on a persistent volume with ownership configured on the host or by an init container. Never place `memory/` or `database/` on ephemeral container layers.
+- **Automatic initialization and strict write protection**:
+  - At startup, missing directories are created automatically: the data root and `RUNTIME_SENSITIVE_DIRECTORY_NAMES` (`logs/`, `memory/`, `memory/global/`) use ceiling `RUNTIME_DATA_ROOT_MAX_MODE` (`packages/consts/storage.ts`), and `database/` uses `IDENTITY_DATABASE_DIRECTORY_MODE` (`packages/consts/identityStorage.ts`), subject to process `umask`. **Symbolic links are rejected** across all of these paths.
+  - The data root and `RUNTIME_SENSITIVE_DIRECTORY_NAMES` must be owned by the runtime UID with mode no broader than `RUNTIME_DATA_ROOT_MAX_MODE`. Any `group` or `other` write bit (`w`) causes **immediate startup rejection**.
 
 > [!WARNING]
 > **Data Isolation in Multi-Tenant Environments**:
-> Newly created files under `memory/` use `PERSISTED_FILE_MODE` (`packages/consts/diskIO/common.ts`). If parent directories allow world read/execute (`RUNTIME_DATA_ROOT_MAX_MODE`), other local users on the server can read chat logs. On shared multi-user servers, restrict `other` permissions on the data root and `memory/`, and restrict existing files to owner-only or owner/group read access (the runtime preserves existing file permissions without overwriting them).
-> Configure `database/` with `IDENTITY_DATABASE_DIRECTORY_MODE` (optionally with the setgid bit for shared service groups); the main database file and its WAL/SHM sidecars are created with `IDENTITY_DATABASE_FILE_MODE`. **Never strip group write permissions recursively across the entire data root**, because `database/` requires group write access when shared by a service group. Keep `config/` strictly read-only.
+> New files under `memory/` are created with `PERSISTED_FILE_MODE` (`packages/consts/diskIO/common.ts`, `0644`). If parent directories leave `other` read/traverse bits open, other local accounts on a shared host can read group records. On multi-user hosts, tighten the data root and `memory/` to `0750` and existing files to `0600` or `0640` (runtime code preserves existing file modes).
+> Configure `database/` up to `IDENTITY_DATABASE_DIRECTORY_MODE` (`02770` with `setgid` when shared across a service group); the main database and WAL/SHM sidecars are created with `IDENTITY_DATABASE_FILE_MODE`. **Never run recursive `chmod 0750` across the entire data root**, because `database/` must retain group write access when shared by a service group. Keep `config/` read-only.
 
-- **Automated crash recovery**: If the bot crashes or exits unexpectedly, systemd restarts it automatically (`Restart=on-failure`). Pending verification state, lockdown timers, pending database writes, AI memory, and unacknowledged Telegram updates resume cleanly according to [04 Runtime Invariants](04-invariants.md#persistence).
+- **Automated crash recovery**: On an unexpected crash or non-zero exit, systemd restarts the process (`Restart=on-failure`). Pending join verifications, lockdown timers, identity writes, AI conversation memory, and unacknowledged Telegram updates recover deterministically per [04 Runtime Invariants](04-invariants.md#persistence).
 
 ---
 
 ### Binary Deployment
 
-Precompiled binary releases contain the `copy-ninjia` executable, `binary.json`, `package.json`, the installer script, cold-migration scripts, configuration and prompt templates, and schema migration SQL files. No `node_modules/` directory is needed because all runtime dependencies are bundled into the binary.
-- **Initial configuration**: Run `bash install.sh` inside the unpacked release directory to generate configurations and initialize an empty database via interactive prompts. Run `./copy-ninjia` directly for interactive foreground testing.
-- **systemd configuration**: Point `WorkingDirectory` to the release directory, and set `ExecStart` directly to the absolute path of the binary (without passing `start`). The target host does not even need Bun installed.
-- **Upgrades**: The automated installer downloads the Latest release archive and checksums into a fresh directory; it does not overwrite live production directories in place. Upgrades require stopping the service, creating external backups, validating checksums, and performing offline migrations: verify the new archive in a temporary directory, preserve existing configs and data roots, and swap the program files. Any leftover `node_modules/` directory in the deployment folder is safely ignored and can be deleted while the service is stopped.
-- **Offline cold migrations**: Migration scripts are located under `scripts/migrations/`. Inspect options by running `BUN_BE_BUN=1 ./copy-ninjia scripts/migrations/<script>.js --help`. The application entry point only accepts the current data format and does not perform live schema migrations.
-- For packaging details, see [05 Dev Workflow](05-dev-workflow.md#release).
+Official standalone binary archives bundle the `copy-ninjia` executable, `binary.json`, `package.json`, `install.sh`, cold-migration CLIs, configuration and prompt templates, and SQLite migration SQL files—no `node_modules/` directory is needed.
+- **Initial setup**: Run `bash install.sh` inside the extracted release directory to walk through config generation and empty database creation; run `./copy-ninjia` directly for foreground verification.
+- **systemd integration**: Set `WorkingDirectory` to the extracted directory and `ExecStart` to the absolute path of `copy-ninjia` (with no `start` argument). System-wide Bun does not need to be installed on the host.
+- **Version upgrades**: The one-liner installer downloads the Latest archive and SHA-256 into a fresh directory and never overwrites a live deployment in place. Upgrade by stopping the service, backing up externally, verifying the new archive in a staging directory, running any required cold migrations, and replacing program files while preserving live `config/` and data-root state. Any leftover `node_modules/` directory is ignored and can be removed while stopped.
+- **Cold-migration CLIs**: Packaged scripts live under `scripts/migrations/` and run via `BUN_BE_BUN=1 ./copy-ninjia scripts/migrations/<script>.js --help`. Production startup accepts only the current schema and never auto-migrates legacy formats.
+- For build and release packaging details, see [05 Dev Workflow](05-dev-workflow.md#release).
 
 ---
 
@@ -117,81 +118,98 @@ Precompiled binary releases contain the `copy-ninjia` executable, `binary.json`,
 
 ## Data Root
 
-All runtime data paths are derived from `COPY_NINJIA_DATA_ROOT` (defaults to the project root when unset; passing an empty string or whitespace causes startup rejection):
+Every runtime data path resolves under `COPY_NINJIA_DATA_ROOT` (defaults to the project root when unset; an explicit empty or whitespace-only value fails startup immediately):
 
 ### Calendar time zone
 
-Configure the system time zone in `config/static/bot.json` via `time_zone` (defaults to `DEFAULT_BOT_TIME_ZONE` in `packages/consts/bot.ts`). This value is loaded once at startup and is not refreshed dynamically. Scheduled tasks in `cron.json` can specify an independent `time_zone` to override the global setting.
+Set `time_zone` in `config/static/bot.json` (defaults to `DEFAULT_BOT_TIME_ZONE` in `packages/consts/bot.ts`). It is read once at startup and never hot-reloaded; individual tasks in `cron.json` can override it with their own `time_zone`.
 
-**Permanent time zone binding**: When the database is first initialized, `IDENTITY_DATABASE_TIME_ZONE_KEY` (`"time-zone"`) is persisted in the `storage_metadata` table inside `database/storage.sqlite`. From that point on, daily log cuts, fortune receipt signatures, temporary ad bypass allowances, and join-log retention periods are computed strictly within this bound time zone.
-If the `time_zone` in `bot.json` does not match the database marker at startup, the process terminates immediately, logging both `storage_metadata.time-zone` and the expected value. The installer runs this exact check before registering system services. Changing time zones on existing data roots is unsupported; restore `time_zone` to match the stored database marker to resume. Back up and restore `database/` and `memory/` together as an inseparable snapshot.
+**Permanent data-root time-zone binding**:
+- When `database/storage.sqlite` is initialized, `IDENTITY_DATABASE_TIME_ZONE_KEY` (`"time-zone"`) is recorded in `storage_metadata`. Daily file rollovers, fortune receipt HMAC keys, temporary ad-bypass quotas, and join-log windows all follow this bound time zone.
+- If `bot.json`'s `time_zone` disagrees with `storage_metadata.time-zone` at startup (or during `install.sh` preflight), the process aborts immediately and logs both values.
+- Existing data roots cannot change time zones; restore `time_zone` in `bot.json` to the recorded value to start. Always back up and restore `database/` and `memory/` together from the same point in time.
 
 ### 1. Global State: `memory/global/state.json`
-- **Responsibilities**: Stores the global repeat configuration `copy` (target user, mode, origin chat, and cooldown timer) and speech synthesis quota window `ttsUsage` (window start timestamp `windowStartedAt`, generated count `agentCount`, and reserved relay count `reserveCount`).
-- **Schema requirements**: Top-level keys must contain only the required `copy` object and an optional `ttsUsage` object. `copy.copiedUser` is mandatory (`null` when no user is targeted); `copy.copyMode` accepts omitted, `reverse`, or `nya`. When `ttsUsage` is present, `windowStartedAt`, `agentCount`, and `reserveCount` must all be non-negative integers, with at least one greater than 0. Missing files are treated as fresh deployments; malformed files or undeclared keys cause **immediate startup rejection**. The installer validates this file with equal strictness.
-- **Write pattern**: The main thread writes this file exclusively (writing to a temporary file + `fsync` + atomic `rename`). The Disk I/O Worker never accesses this directory. Modifications to `copy` flush to disk immediately; `ttsUsage` changes are coalesced and flushed in the background after `STATE_BACKGROUND_SAVE_DELAY_MS`. Clean shutdowns commit all pending writes; abrupt termination (`kill -9` or power failure) may lose uncoalesced quota increments.
-- **Manual editing**: Always stop the service and ensure the process has exited before making manual adjustments. Make an external backup via `mktemp -d` before editing. Never delete unrecognized fields, and verify JSON syntax against schema requirements before restarting.
-- **Root-level legacy check**: If legacy files like `state.json` or `state.json.bak` linger in the root of the data directory, the service and installer will refuse to start. Follow the [staged upgrade](#staged-upgrade) guide to reach version 17.2.1 and complete its migrations, then move these files out of the root.
-- **Mini App Authenticator: `memory/mini-app-totp/totp.json`** (optional, see [11 Mini App Setup and Recommended Configuration](11-mini-app.md)): When the SuperAdmin binds a single Google Authenticator (TOTP) secret in the Mini App console, the main thread atomically persists `{ version: 1, secret, createdAt }` (temporary file + `fsync` + `rename`, mode `0o600`). Loaded and strictly validated once at the startup composition root into an in-memory main-thread holder, and validated read-only with the same rules by the installer preflight (missing files are treated as unbound; non-regular files or malformed payloads refuse startup and installation), runtime verification and status queries perform zero disk I/O and only write to disk when adding, modifying, or deleting the authenticator.
+- **Responsibilities**: Persists global repeat settings `copy` (target user, mode, origin chat, cooldown timestamp) and the global TTS quota window `ttsUsage` (`windowStartedAt`, AI `agentCount`, reserved relay `reserveCount`).
+- **Schema rules**:
+  - Top-level keys allow only required `copy` and optional `ttsUsage` (unknown keys or malformed values **fail startup and installer preflight immediately**; a missing file starts clean).
+  - `copy.copiedUser` is required (`null` when idle), and `copy.copyMode` accepts omitted, `reverse`, or `nya`.
+  - When `ttsUsage` is present, `windowStartedAt`, `agentCount`, and `reserveCount` must all be non-negative integers with at least one greater than `0`.
+- **Write mechanics**: Owned exclusively by the main thread via temp-file + `fsync` + atomic `rename` (the Disk I/O Worker never touches this directory). `copy` flushes immediately; `ttsUsage` coalesces over `STATE_BACKGROUND_SAVE_DELAY_MS` and flushes cleanly on shutdown (`kill -9` or power loss can drop at most the uncoalesced window delta).
+- **Manual edits**: Stop the service, confirm process exit, back up outside the working tree with `mktemp -d`, preserve required fields, and validate against the schema before restarting.
+- **Root-level legacy guard**: Any leftover `state.json` or `state.json.bak` directly in the data root aborts both startup and `install.sh`. Complete the [staged upgrade](#staged-upgrade) through 17.2.1 first, then move those legacy files out of the data root.
+- **Mini App Authenticator: `memory/mini-app-totp/totp.json`** (optional; see [10 Mini App](10-mini-app.md)):
+  - Written atomically by the main thread (`0o600`, temp file + `fsync` + `rename`) as `{ version: 1, secret, createdAt }` when the SuperAdmin binds a Google Authenticator (TOTP) secret in the Mini App console.
+  - Loaded and validated once at startup into a main-thread holder (and checked read-only by `install.sh` preflight: missing = unbound; non-regular or malformed = rejected).
+  - Runtime TOTP verification and status queries perform zero disk I/O; disk writes occur only when binding, rotating, or deleting the authenticator.
 
 ### 2. Dedicated Image Library: `random_h_image_dir`
-- **Responsibilities**: Configured by `onlyPath.random_h_image_dir` in `config/dynamic/assets.json` (defaults to `RANDOM_H_IMAGE_DIR` in `packages/consts/ui/assets.ts`, resolved relative to the data root). The `/h_image` command and scheduled image tasks select images uniformly at random from this directory. Administrators can upload or delete files using `/h_image add` or the Mini App gallery.
-- **Naming requirements**: Every image filename must match `RANDOM_IMAGE_CONTENT_NAME_PATTERN` (the lowercase hex SHA-256 digest of its binary contents with an extension from `RANDOM_IMAGE_EXTENSIONS` in `packages/consts/imageGallery.ts`). Non-image files, folders, or documentation files are strictly forbidden.
-- **Startup preflight**: A missing directory is created automatically. At boot, the system scans the directory and populates the in-memory caches; invalid filenames, subdirectories, symlinks, or stray `RANDOM_IMAGE_TEMP_PREFIX` (`.h_image-add-*`) temporary files cause **startup failure**. Adding or removing valid images via `/h_image add` or the Mini App gallery updates the in-memory caches immediately without requiring a service restart; updating the directory path dynamically at runtime pre-validates the new target directory and refreshes the caches before switching. Images placed into the directory manually do not enter the in-memory caches; they join random drawing and the Mini App gallery only after a service restart (or a hot reload that switches to this directory). Manually deleted images are detected and dropped from the caches when they are drawn or read by the Mini App gallery.
+- **Responsibilities**: Path configured by `onlyPath.random_h_image_dir` in `config/dynamic/assets.json` (defaults to `RANDOM_H_IMAGE_DIR` in `packages/consts/ui/assets.ts`, relative to the data root). Serves uniform random draws for `/h_image` and default `cron.json` `rand_image` actions, and supports uploads/deletions via `/h_image add` and the Mini App gallery.
+- **Naming rules**: Every file must be a regular image whose basename matches `RANDOM_IMAGE_CONTENT_NAME_PATTERN` (lowercase hex SHA-256 of the file bytes plus an extension in `RANDOM_IMAGE_EXTENSIONS` from `packages/consts/imageGallery.ts`). Non-image files, subdirectories, and symlinks are forbidden.
+- **Startup scan and live cache sync**:
+  - Creates the directory if absent, then scans every entry into memory; invalid filenames, subdirectories, symlinks, or stray `RANDOM_IMAGE_TEMP_PREFIX` (`.h_image-add-*`) files **abort startup**.
+  - Adding or deleting compliant files through `/h_image add` or the Mini App gallery updates in-memory caches immediately without a restart; hot-reloading `random_h_image_dir` pre-validates the new directory before swapping caches.
+  - Files copied into the directory manually stay invisible to draws and the Mini App gallery until a service restart (or a hot reload switching to that directory); files deleted manually on disk are evicted from memory caches when next drawn or read by the gallery.
 
 ### 3. Group Marriage Candidates: `memory/wed/<chatId>.json`
-- **Responsibilities**: One sliding window of speaking members per chat, stored as an array of objects in entry order (e.g. `[{"id":5974478892,"enteredAt":1791770134683}]`), where `enteredAt` is the Unix millisecond timestamp at which the member entered the window. The main thread keeps a reusable `Map<number, number>` (member ID → entry time) for each group. The system manages up to `STATE_MANAGED_CHAT_LIMIT` chats, with a window capacity of `WED_MEMBER_LIMIT` per chat.
-- **Window rules**: When a member outside the window speaks as a personal account, they are appended with the current time (never earlier than the largest entry time already recorded). Members already in the window keep their entry time when they speak again. When the window is full, the member with the earliest entry time is evicted first.
-- **Validation rules**: The filename must be a canonical negative safe-integer chat ID. Each entry must contain exactly `id` and `enteredAt`; `id` must be a unique positive safe integer, `enteredAt` a non-negative safe integer that never decreases along the array, and the array may hold at most `WED_MEMBER_LIMIT` entries. Any violation fails startup checks, and the installer applies the same checks. Legacy files that are still arrays of member IDs must first go through the [/wed member window cold migration](#upgrade-wed-member-window).
-- **Persistence flow**: Once `FLUSH_MAX_ENTRIES` additions, deletions, or evictions accumulate or `FLUSH_INTERVAL_MS` passes since the first change, the main thread dispatches an atomic replacement job to the Disk I/O Worker. Running `/init disable` or removing the bot from a chat deletes the corresponding file permanently.
-- **Pruning departures**: Departed users are pruned via service messages, `chat_member` updates, and midnight sweeps (the latter two require bot administrator rights). In large supergroups where member lists are hidden and the bot lacks administrator privileges, departure events may not be received, meaning former members can remain in the pool; this is expected under Telegram API limitations.
+- **Responsibilities**: Per-chat sliding window of active speakers stored in entry order (for example `[{"id":5974478892,"enteredAt":1791770134683}]`, where `enteredAt` is Unix milliseconds). Backed on the main thread by a reusable `Map<number, number>` per chat, capped at `STATE_MANAGED_CHAT_LIMIT` chats and `WED_MEMBER_LIMIT` members per chat.
+- **Sliding-window rules**: A personal speaker not yet in the window is appended with the current timestamp (clamped so it never precedes the window's latest `enteredAt`); existing window members keep their original `enteredAt` on subsequent messages; when full, the earliest entry is evicted first.
+- **Validation rules**: Filenames must be canonical negative safe-integer chat IDs, and each item must have exact keys `{ id, enteredAt }` with unique positive safe-integer `id`, non-decreasing non-negative safe-integer `enteredAt`, and length at most `WED_MEMBER_LIMIT`. Violations abort startup and `install.sh`; 17.2.1 member-ID arrays must first run the [/wed member window cold migration](#upgrade-wed-member-window).
+- **Persistence**: Flushes via full atomic replacement on the Disk I/O Worker after `FLUSH_MAX_ENTRIES` mutations or `FLUSH_INTERVAL_MS`. Running `/init disable` or leaving the chat deletes the file.
+- **Departure pruning**: Left-member service messages, `chat_member` events, and daily midnight sweeps prune departed users (the latter two require bot admin rights; in large non-admin groups with hidden member lists, departed members can remain eligible due to Telegram API visibility limits).
 
 ### 4. Stickers and Fortunes: `memory/stickers/` and `memory/luck/`
-- **`memory/stickers/<pack>.json`**: Metadata cache for whitelisted sticker packs (including the schema `version` field), mapping `file_unique_id` to emojis, prompts, and pack digests. Missing entries can be reconciled from Telegram on demand; packs removed from configuration are pruned on startup.
-- **`memory/luck/<YYYY-MM-DD>.json`**: Daily fortune draw results in the bound time zone, keyed by user ID and containing fortune grades and query digests. Kept for the current day only.
-- **`memory/luck/receipt-secret.json`**: HMAC secret key used to verify the authenticity of fortune receipts (including the schema `version` field, the active date, and a hex key matching `LUCK_RECEIPT_SECRET_PATTERN`). **This file must be backed up and restored alongside daily fortune files**; deleting or regenerating it independently invalidates all outstanding receipts.
+- **`memory/stickers/<pack>.json`**: Cached catalog for whitelisted sticker packs (`version`, per-sticker `file_unique_id`, emoji, description, and pack summary). Missing files resync from Telegram on demand; packs removed from the whitelist are deleted on startup.
+- **`memory/luck/<YYYY-MM-DD>.json`**: Current day's fortune draws in the bound time zone, keyed by user ID with grade and query summary. Only today's file is retained.
+- **`memory/luck/receipt-secret.json`**: Daily HMAC key authenticating inline fortune receipts (`version`, date, and hex secret matching `LUCK_RECEIPT_SECRET_PATTERN`). **Always back up and restore this file together with today's fortune file**—deleting or regenerating it alone invalidates existing receipts.
 
 ### 5. Pending Verification and Join Logs: `memory/anti-raid/` and `memory/joinlog/`
-- **`memory/anti-raid/<YYYY-MM-DD>.json`**: Append-only log of join-verification Challenges, tracking active challenges, revisions, solved tombstones, and unconfirmed `kickPending` eviction tasks (evictions resume automatically across reboots). Steady-state operation retains only the current local day, compacting when append counts or file size hit `VERIFICATION_FILE_COMPACT_ENTRIES` or `VERIFICATION_FILE_COMPACT_BYTES`. If an earlier day file is still in the directory during compaction, tombstones are written for records that are active in the most recent such file but already settled, so a process exit before the old file is deleted cannot revive settled records on recovery. If the same most recent earlier day file fails to decode (invalid UTF-8 or not the current format) `VERIFICATION_PRIOR_DAY_DECODE_MAX_ATTEMPTS` times in a row, the running compaction renames it with `VERIFICATION_CORRUPT_DAY_FILE_SUFFIX` (`<YYYY-MM-DD>.json.corrupt`) and keeps it untouched for manual inspection, and the new day is written straight from the in-memory mirror; the renamed file no longer ends in `.json`, so startup recovery and old-day cleanup neither read nor delete it. A corrupt most recent earlier day file at startup still refuses startup.
-- **`memory/joinlog/<chatId>.<YYYY-MM-DD>.json`**: Accurate record of `chat_member` join events, queried by `/batch_kick` across a sliding time window.
-  - **Persistence**: Events are buffered in Disk I/O Worker memory, batch-appended to disk with `fsync` when `FLUSH_MAX_ENTRIES` events accumulate or `FLUSH_INTERVAL_MS` elapses. Unwritten logs are flushed before executing `/batch_kick` queries and during graceful shutdowns.
-  - **Retention lifecycle**: Retains the last `JOIN_LOG_FILE_RETENTION_DAYS` days in the configured time zone, ensuring full multi-day query coverage (automatically extended during daylight saving transitions). Stores up to `JOIN_LOG_MAX_USERS_PER_CHAT_DAY` newest members per chat per day. Logs are purged when `/init disable` is run or when the bot leaves the chat.
+- **`memory/anti-raid/<YYYY-MM-DD>.json`**: Append-only daily log of join-verification Challenges (`active` records, revisions, settled tombstones, and unconfirmed `kickPending` evictions resumed on restart).
+  - Steady state keeps only the current local day, compacting once appends or bytes reach `VERIFICATION_FILE_COMPACT_ENTRIES` or `VERIFICATION_FILE_COMPACT_BYTES`.
+  - During compaction, if an earlier day file still exists, tombstones are appended for records that were active in the newest prior-day file and are now settled, preventing settled challenges from reviving if the process exits before prior-day cleanup finishes.
+  - If that newest prior-day file fails decoding (invalid UTF-8 or schema mismatch) `VERIFICATION_PRIOR_DAY_DECODE_MAX_ATTEMPTS` consecutive times during live compaction, it is renamed with `VERIFICATION_CORRUPT_DAY_FILE_SUFFIX` (`<YYYY-MM-DD>.json.corrupt`) for manual inspection while the new day writes from the in-memory mirror (startup recovery and daily cleanup ignore `.corrupt` files, whereas a corrupt newest prior-day file encountered at cold startup still refuses startup).
+- **`memory/joinlog/<chatId>.<YYYY-MM-DD>.json`**: Authoritative `chat_member` join log queried across a sliding window by `/batch_kick`.
+  - **Persistence**: Buffered in the Disk I/O Worker and batch-appended with `fsync` at `FLUSH_MAX_ENTRIES` or `FLUSH_INTERVAL_MS`, with forced flushes before `/batch_kick` reads and during shutdown.
+  - **Retention**: Keeps at least `JOIN_LOG_FILE_RETENTION_DAYS` calendar days in the bound time zone (extended across short DST days) and at most `JOIN_LOG_MAX_USERS_PER_CHAT_DAY` newest joins per chat-day; purged on `/init disable` or bot departure.
 
 ### 6. Core Identity and Chat State: `database/storage.sqlite`
-Accompanied at runtime by SQLite temporary WAL (`-wal`) and shared memory (`-shm`) sidecars:
-- **Stored entities**: Primary SQLite database adhering to the current schema (`IDENTITY_DATABASE_SCHEMA_VERSION`):
-  - `storage_metadata`: Metadata table storing the keys in `IDENTITY_DATABASE_METADATA_KEYS` (`IDENTITY_DATABASE_SCHEMA_KEY` and `IDENTITY_DATABASE_TIME_ZONE_KEY`).
-  - `permission_list.policy`: Persistent user permission policies encoded as JSONB.
+Accompanied while open by SQLite WAL (`-wal`) and shared-memory (`-shm`) sidecars:
+- **Stored tables** (schema `IDENTITY_DATABASE_SCHEMA_VERSION`):
+  - `storage_metadata`: Holds `IDENTITY_DATABASE_METADATA_KEYS` (`IDENTITY_DATABASE_SCHEMA_KEY` and `IDENTITY_DATABASE_TIME_ZONE_KEY`).
+  - `permission_list.policy`: Persistent user permission policies stored as strict JSONB.
   - `blocklist_entries`: Authoritative global blocklist.
-  - `temporary_ad_bypass_entries`: Tracking records for temporary ad detection bypass credits.
-  - `pending_blocked_removals`: Queue of pending cross-group member eviction jobs.
-  - `chat_qa`: Group custom Q&A library, keyed by composite primary key `(chat_id, q)`.
-  - `chat_states`: Chat operational state table (up to `STATE_MANAGED_CHAT_LIMIT` rows). Contains required JSONB state (`status`, holding translation sessions `translate` capped at `TRANSLATE_CHAT_USER_LIMIT`) and optional `ai_context` (nullable JSONB snapshots of verbatim memory and summaries).
-- **Concurrency and transactions**: The Disk I/O Worker holds an exclusive read-write connection to the database. Startup strictly verifies database integrity, JSONB validity, schema versions, migration lineage, and constraint conflicts. Group state and AI snapshots hydrate from this connection.
-- **Shutdown close**: on a clean shutdown the Disk I/O Worker commits remaining writes, checkpoints the WAL back into the main database, truncates it, and closes the connection, so normally only `storage.sqlite` is left in `database/` after the service stops. If the process is killed, or the checkpoint is blocked by another reader (such as an externally opened SQLite editor), the `-wal` and `-shm` files stay in the directory. If the close cannot confirm that remaining writes were committed, the shutdown ends as `unsettled` with a non-zero exit, and the journal carries the matching `[diskIO]` error.
-- **Backup protocol**: Contains critical security and state data. **Always back up and restore the main database alongside its contemporaneous `-wal` and `-shm` sidecars (when present) as a single indivisible unit**. Never copy the `.sqlite` file in isolation.
+  - `temporary_ad_bypass_entries`: Accumulated temporary ad-detection bypass credits.
+  - `pending_blocked_removals`: Pending cross-chat ban enforcement queue.
+  - `chat_qa`: Per-chat Q&A pairs keyed by `(chat_id, q)`.
+  - `chat_states`: Up to `STATE_MANAGED_CHAT_LIMIT` managed-chat rows containing required `status` JSONB (including `translate` sessions capped at `TRANSLATE_CHAT_USER_LIMIT`) and nullable `ai_context` JSONB (verbatim dialogue memory and rolling summaries).
+- **Exclusive ownership**: Only the Disk I/O Worker opens `storage.sqlite` read-write. Startup runs SQLite integrity checks, JSONB decoding, schema/lineage verification, and mutual-exclusion checks before hydrating chat state and AI memory.
+- **Shutdown close**:
+  - On clean shutdown, the Disk I/O Worker commits pending writes, checkpoints and truncates the WAL into `storage.sqlite`, and closes the handle, leaving only `storage.sqlite` in `database/`.
+  - `-wal` and `-shm` remain on disk if the process was killed (`SIGKILL`) or if an external reader blocked checkpoint truncation.
+  - If shutdown cannot confirm all pending writes were committed, it exits non-zero as `unsettled` and logs a `[diskIO]` error.
+- **Backup rule**: **Always back up and restore `storage.sqlite` together with its contemporaneous `-wal` and `-shm` sidecars (when present) as a single atomic unit**—never copy `.sqlite` alone.
 
 ### 7. Ad Samples and AI Usage: `memory/ad-detected/` and `memory/ai-daily-usage/`
-- **`memory/ad-detected/sample.json`**: Captured raw messages triggered by the ad detection engine (including timestamp, original text, verdict reasons, and quoted context). Used purely for auditing; automatically rolls over to `sample.<date>[.<seq>].json` upon reaching `AD_SAMPLE_FILE_MAX_BYTES`. Archives are retained for `AD_SAMPLE_ARCHIVE_RETENTION_DAYS`.
-- **`memory/ai-daily-usage/usage.json`**: Model token and request counts (contains zero conversation text).
-  - **Data structure**: The root `summary` object tracks usage for the most recent completed calendar day (aggregated by capability, provider, and model name); all other keys represent individual unsummarized daily calls.
-  - **Capability coverage**: Tracks all capabilities listed in `AGENT_CAPABILITY_NAMES`.
+- **`memory/ad-detected/sample.json`**: Audit log of messages caught by ad detection (timestamp, raw text, verdict reason, context; sticker-only hits record the sticker pack short name). Rotates to `sample.<date>[.<seq>].json` at `AD_SAMPLE_FILE_MAX_BYTES` and prunes archives older than `AD_SAMPLE_ARCHIVE_RETENTION_DAYS`.
+- **`memory/ai-daily-usage/usage.json`**: Token and request counters containing zero message text:
+  - **Layout**: `summary` holds the most recently completed local calendar day grouped by capability, provider, and model; remaining entries record unsummarized calls for the current day.
+  - **Coverage**: Tracks every capability in `AGENT_CAPABILITY_NAMES`.
 
 ### 8. Logs and Instance Lock: `logs/` and `bot.lock`
-- **`logs/`**: English structured error log files written asynchronously in batches by the Disk I/O Worker.
-- **`bot.lock`** (along with `.guard` / `.recovery`): Linux `/proc`-based single-instance mutex lock ensuring only one live process binds to a data root.
+- **`logs/`**: English structured error logs written asynchronously in batches by the Disk I/O Worker.
+- **`bot.lock`** (plus `.guard` / `.recovery`): Linux `/proc`-backed single-instance lock guaranteeing at most one active process per data root.
 
 ---
 
 ### Data Root Management and Maintenance Scheduling
 
-- **Physical directory isolation**: The root of `memory/` contains no loose files; each domain owns an isolated subdirectory. Permissions and group state reside in `database/`.
-- **Read-only preflight checks**: The bot starts by scanning and strictly decoding all persistent files in read-only mode (including every file in the `joinlog/` retention window). Memory ownership is handed to functional modules only after all checks pass. The process then creates missing directories, clears orphan temporary files, and registers daily midnight cleanup jobs in the configured `time_zone`.
-- **Midnight maintenance cron**: On the daily midnight schedule (`DISK_IO_MAINTENANCE_CRON` in `packages/consts/diskIO/maintenance.ts`) in the configured time zone, the bot runs scheduled maintenance tasks in order: `/wed` membership validation, fortune rotation, log rotation, AI token usage aggregation, join-log expiration, ad sample rotation, Challenge log compaction, and ad bypass quota decay. Failures in one task do not disrupt subsequent tasks.
-- **Temporary files and memory state**:
-  - Temporary files created during atomic writes (`.<target>.<pid>.<uuid>.tmp`) are cleaned up automatically in normal operation. Abrupt termination may leave them on disk; startup checks log them and defer safe removal to post-startup maintenance routines.
-  - `storage.sqlite-wal` and `storage.sqlite-shm` are vital runtime files in SQLite WAL mode—**never delete them as temporary files**.
-  - Challenge timers, ad detection queues, and transient Telegram caches exist solely in memory and do not persist to disk across reboots.
+- **Directory isolation**: `memory/` holds no loose root files—every domain owns a dedicated subdirectory, while identity policies and chat states live in `database/`.
+- **Read-only startup preflight**: Startup scans and decodes every persisted file in read-only mode first (including all `joinlog/` files within the retention window), adopts state into memory only after every domain passes, then provisions missing directories, cleans orphan temp files, and schedules daily maintenance in `bot.json`'s `time_zone`.
+- **Midnight maintenance cron**: Runs daily at `00:00` (`DISK_IO_MAINTENANCE_CRON` in `packages/consts/diskIO/maintenance.ts`) in order: `/wed` member revalidation, fortune rollover, log rotation, AI token aggregation, join-log pruning, ad-sample cleanup, Challenge log compaction, and ad-bypass credit decay. An error in one task never aborts the rest.
+- **Temporary files vs. pure in-memory state**:
+  - Atomic-write temp files (`.<target>.<pid>.<uuid>.tmp`) left behind by hard crashes are logged without deletion during preflight and reclaimed by post-adoption maintenance.
+  - `storage.sqlite-wal` and `storage.sqlite-shm` are active SQLite WAL files—**never delete them as temp files**.
+  - Join-challenge countdown timers, pending ad-detection queues, and short-lived Telegram caches live purely in memory.
 
 ---
 
@@ -199,31 +217,36 @@ Accompanied at runtime by SQLite temporary WAL (`-wal`) and shared memory (`-shm
 
 ## Persistent Data Migration
 
-**The codebase contains zero legacy compatibility layers and never alters database schemas automatically at startup**. Schema migrations require stopping the bot and confirming that processes have exited. If a migration fails, keep external backups intact; never launch the new version prematurely, and never overwrite real configurations with `config_example/`.
+**Production code carries zero backward-compatibility branches and never auto-migrates schemas at startup**. Every migration runs offline after stopping the service and confirming process exit. If any step fails, preserve external backups and the staging state—never force-start the new version or overwrite live `config/` with `config_example/`.
 
-Before performing offline migrations, create an external backup via `mktemp -d` outside the repository tree. Back up all affected files, recording ownership, permissions, and SHA-256 hashes. Verify source and destination hashes inside `ready.json`. Ensure migrated data passes the new version's strict startup checks. Swap the files, restore correct ownership and permissions, and observe the service over at least two supervisor restart cycles (`active/running`, unchanged `NRestarts`, no journal errors) before purging external backups.
+Before any offline migration, create an external backup directory with `mktemp -d` outside the working tree, copy all affected files, and record paths, ownership, modes, and SHA-256 digests. After running a migration script, reconcile source and output SHA-256 hashes in `ready.json`, verify startup validation passes, restore original ownership and modes when swapping files in, and observe at least two supervisor restart intervals (`active/running`, unchanged `NRestarts`, zero non-zero journal exits) before removing external backups.
 
 ### Fresh Deployment Database Initialization
 
-When booting with a missing database, the bot halts with an error instead of guessing default configurations. Fresh deployments must initialize an empty database using the [identity storage initialization steps in 01 Getting Started](01-getting-started.md#initializing-identity-storage). The `install.sh` script executes this automatically if no database is found. The script safely refuses to overwrite existing databases.
+If `database/storage.sqlite` is missing at startup, the bot exits with an error instead of creating an implicit database. Fresh deployments initialize an empty current-schema database via the [identity storage initialization steps in 01 Getting Started](01-getting-started.md#initializing-identity-storage) (`install.sh` runs this automatically when no database exists, and the initializer refuses to overwrite an existing file).
 
 <a id="upgrade-wed-member-window"></a>
 
 ### /wed Member Window Cold Migration (Member ID Arrays → `{ id, enteredAt }`)
 
-Run the migration script at [`scripts/migrateWedMemberWindow.ts`](../../scripts/migrateWedMemberWindow.ts). This script rewrites `memory/wed/<chatId>.json` from the 17.2.1 member ID arrays into `{ id, enteredAt }` window arrays in entry order. Each chat keeps only the last (most recently entered) `WED_MEMBER_LIMIT` IDs in their original order, and every `enteredAt` is set to the migration start time; the overflow is dropped from the earliest end and counted as `truncatedMembers` in `ready.json`. The script only accepts 17.2.1 member files (at most `WED_MEMBER_WINDOW_SOURCE_LIMIT` unique positive safe-integer IDs per file, and no more than `STATE_MANAGED_CHAT_LIMIT` chat files); already migrated files, non-canonical filenames, and symbolic links are rejected, while non-`.json` leftovers such as `*.tmp` are not migrated. All other persistent files and JSON configs from 17.2.1 remain unchanged.
+Use [`scripts/migrateWedMemberWindow.ts`](../../scripts/migrateWedMemberWindow.ts) to convert `memory/wed/<chatId>.json` from 17.2.1 member-ID arrays into entry-ordered `{ id, enteredAt }` sliding-window arrays:
+- **Window conversion**: Keeps the last (most recent) `WED_MEMBER_LIMIT` IDs per chat in original order with `enteredAt` set to the migration start timestamp; older excess IDs are dropped from the front and counted under `truncatedMembers` in `ready.json`.
+- **Accepted inputs**: Accepts only 17.2.1 member-ID arrays (up to `WED_MEMBER_WINDOW_SOURCE_LIMIT` unique positive safe-integer IDs per file across at most `STATE_MANAGED_CHAT_LIMIT` chat files). Already migrated files, non-canonical filenames, and symlinks are rejected; non-`.json` files such as `*.tmp` are ignored.
+- **Other persistent files & `ad_samples.json` → `ad_detect.json` config change**:
+  - All other `memory/` subdirectories and `database/storage.sqlite` (Schema v13) from 17.2.1–18.2.0 use the same format and carry over directly.
+  - If `config/dynamic/ad_samples.json` is present (from 17.2.1–18.2.0), manually migrate it while stopped to `config/dynamic/ad_detect.json`—carrying over `samples` and adding required `punishment` (`mute` or `kick`), `sticker_black_list`, and `emoji_black_list`—and remove `ad_samples.json` (`packages/config/layout.ts` and `install.sh` reject `ad_samples.json`).
 
-1. **Stop service and back up**: Stop the service and confirm it is inactive. Back up the entire `memory/wed/` directory with its ownership, permissions, and SHA-256 manifest to an external directory, keeping the `memory/wed/` relative path under the backup root.
+1. **Stop service and back up**: Stop the service, confirm it is `inactive`, and back up `memory/wed/` (plus `config/` if migrating `ad_samples.json`) with ownership, modes, and SHA-256 manifest to an external directory preserving the `memory/wed/` relative path.
 2. **Execute the migration script**:
    ```bash
    bun run migrate:wed-member-window \
      --source-root /absolute/cold-backup \
      --output-root /absolute/new-staging-directory
    ```
-   Binary releases run `BUN_BE_BUN=1 ./copy-ninjia scripts/migrations/migrateWedMemberWindow.js` with the same arguments.
-3. **Verify migration output**: Inspect `ready.json` in the output directory, verifying the SHA-256 hashes in `sourceFiles` and `outputFiles` and confirming `chatCount`, `keptMembers`, `truncatedMembers`, and `enteredAt`. Output files are readable and writable only by the current account.
-4. **Replace the member files**: While the service is stopped, replace each deployed `memory/wed/<chatId>.json` with the migrated file, restore the original ownership and permissions from `sourceFiles`, and make sure the service account can write `memory/wed/` and its files.
-5. **Verify startup**: Start the bot and verify operation. Clean up temporary backups only after confirming stable execution.
+   Binary releases run `BUN_BE_BUN=1 ./copy-ninjia scripts/migrations/migrateWedMemberWindow.js` with the same flags.
+3. **Verify migration output**: Check `ready.json` in the output directory, reconciling SHA-256 digests in `sourceFiles` and `outputFiles` along with `chatCount`, `keptMembers`, `truncatedMembers`, and `enteredAt` (staged files are created readable/writable only by the current user).
+4. **Swap migrated files and update `ad_detect.json` if needed**: While stopped, replace each deployed `memory/wed/<chatId>.json` with its staged counterpart, restore ownership and modes from `sourceFiles`, and confirm the service user can write `memory/wed/`. If `config/dynamic/ad_samples.json` exists, convert it to `config/dynamic/ad_detect.json` (with `punishment`, `samples`, `sticker_black_list`, and `emoji_black_list`) and delete `ad_samples.json`.
+5. **Verify startup**: Start the service, observe two supervisor restart intervals cleanly, and only then remove external backups.
 
 ---
 
@@ -231,18 +254,18 @@ Run the migration script at [`scripts/migrateWedMemberWindow.ts`](../../scripts/
 
 ### Staged Upgrades from Older Layouts
 
-- **Deployments older than 17.2.1**: This release provides direct migration scripts exclusively for version 17.2.1. If running an earlier version, you must first upgrade to 17.2.1 and complete its migrations (16.3.2 runs the shared database cold migration `migrate:chat-persona-removal`; older versions first follow their own guides up to 16.3.2), verify that 17.2.1 boots stably, and then proceed with this release's [/wed member window cold migration](#upgrade-wed-member-window).
+- **Deployments older than 17.2.1**: Current cold-migration scripts accept only 17.2.1 inputs. Upgrade to 17.2.1 first and complete its migrations (16.3.2 runs `migrate:chat-persona-removal`; earlier versions step through their own guides up to 16.3.2), confirm 17.2.1 starts stably, and then stop the service to run this release's [/wed member window cold migration](#upgrade-wed-member-window) and manually migrate any `config/dynamic/ad_samples.json` to `config/dynamic/ad_detect.json` (adding `punishment`, `sticker_black_list`, and `emoji_black_list`, then deleting `ad_samples.json`).
 - **Major version path from 11.0.9 (Schema v8)**:
-  Run sequential cold migrations across isolated directories using tagged releases:
-  1. Commit `500e848fae`: Run `migrate:ai-context` (v8 → v9)
-  2. Tag `12.1.0`: Run `migrate:clear-context-permission` (v9 → v10)
-  3. Tag `13.0.2`: Run `migrate:h-image-add-permission` (v10 → v11) and `migrate:bot-config`
-  4. Tag `14.0.0`: Run `migrate:translate-sessions`
-  5. Tag `16.3.2`: Run `migrate:global-state` and `migrate:random-image-names`
-  6. Tag `17.2.1`: Run `migrate:chat-persona-removal` (v11 → v13)
-  7. Latest version: Run `migrate:wed-member-window`
+  Run each historical cold-migration edge sequentially in isolated checkouts:
+  1. Commit `500e848fae`: `migrate:ai-context` (v8 → v9)
+  2. Tag `12.1.0`: `migrate:clear-context-permission` (v9 → v10)
+  3. Tag `13.0.2`: `migrate:h-image-add-permission` (v10 → v11) and `migrate:bot-config`
+  4. Tag `14.0.0`: `migrate:translate-sessions`
+  5. Tag `16.3.2`: `migrate:global-state` and `migrate:random-image-names`
+  6. Tag `17.2.1`: `migrate:chat-persona-removal` (v11 → v13)
+  7. Latest version: `migrate:wed-member-window`, plus manual migration of any `config/dynamic/ad_samples.json` → `config/dynamic/ad_detect.json` (adding `punishment`, `sticker_black_list`, and `emoji_black_list`, then removing `ad_samples.json`)
 
-  *Tip*: You can also use the intermediate source archive `copy-ninjia-schema-v9-source-500e848f.tar.gz` attached to the 12.0.0 Release (SHA-256: `df6502625512d8fde136dc66d8470e1d4c977856e8a0bd3909b9b6c763c820f8`).
+  *Tip*: Step 1 can also use `copy-ninjia-schema-v9-source-500e848f.tar.gz` attached to the 12.0.0 Release (SHA-256: `df6502625512d8fde136dc66d8470e1d4c977856e8a0bd3909b9b6c763c820f8`).
 
 ---
 
@@ -250,39 +273,39 @@ Run the migration script at [`scripts/migrateWedMemberWindow.ts`](../../scripts/
 
 ## Startup Failures
 
-The application deliberately follows a **Fail-Fast** design. Any configuration or data inconsistency halts startup immediately, outputting the exact cause and field path. Fix the identified issue rather than trying to bypass checks:
+Startup follows a strict **Fail-Fast** contract: any config or persistence violation aborts before network polling starts and prints the offending file path, JSONPath/field, and expected shape. Fix the underlying data rather than bypassing checks:
 
 ### 1. Data-Root Preflight Failure
-- **Cause**: The data root, `memory/`, `memory/global/`, `logs/`, or `database/` contains symbolic links; directories are not owned by the runtime UID or have permissions broader than `RUNTIME_DATA_ROOT_MAX_MODE` (write bits for group/other); `database/` is broader than `IDENTITY_DATABASE_DIRECTORY_MODE` or lacks group write permissions when accessed by a shared service group; or the underlying filesystem lacks support for `fsync`, hard links, or atomic renames.
-- **Solution**: Stop the service and fix directory ownership and permissions so the data root and `RUNTIME_SENSITIVE_DIRECTORY_NAMES` are owned by the runtime UID with mode at most `RUNTIME_DATA_ROOT_MAX_MODE` (no group/other write bits), and `database/` uses `IDENTITY_DATABASE_DIRECTORY_MODE` (optionally with setgid). Ensure the data root resides on a standard local POSIX filesystem.
+- **Cause**: Symlinks under the data root, `memory/`, `memory/global/`, `logs/`, or `database/`; directory UID mismatch or permissions broader than `RUNTIME_DATA_ROOT_MAX_MODE` (`group`/`other` write bits); `database/` broader than `IDENTITY_DATABASE_DIRECTORY_MODE` or missing service-group write access; or a filesystem lacking `fsync`, hard links, or atomic `rename`.
+- **Solution**: Stop the service, set the data root and `RUNTIME_SENSITIVE_DIRECTORY_NAMES` to the runtime UID with mode `0750` (within `RUNTIME_DATA_ROOT_MAX_MODE`), set `database/` to `0750` or `02770` (within `IDENTITY_DATABASE_DIRECTORY_MODE`), and place the data root on a local POSIX filesystem.
 
 ### 2. `bot.lock` Refuses Startup
-- **Cause**: An active process bound to the same data root was detected (even with a different token), or the lock file is corrupt or formatted for an older version.
-- **Solution**: Follow troubleshooting steps in [`bot.lock` Refuses Startup](#botlock-refuses-startup).
+- **Cause**: Another live instance holds the data root (even under a different Bot Token), or `bot.lock` is malformed or from a legacy format.
+- **Solution**: Follow [`bot.lock` Refuses Startup](#botlock-refuses-startup) below.
 
 ### 3. Configuration Directory Layout Mismatch
-- **Cause**: Configuration files are located flat in the root of `config/` instead of subdirectories; an outdated `telegram.json` sits in `config/`; or `config/dynamic/` is missing.
-- **Solution**: Stop the service. Move `bot.json` and `g-auth.json` into `config/static/`, and place dynamic configurations into `config/dynamic/`. If a legacy `telegram.json` exists, complete the [staged upgrade](#staged-upgrade) using `migrate:bot-config`.
+- **Cause**: `config/`, `config/static/`, or `config/dynamic/` contains non-allowlisted entries (misplaced files, legacy `telegram.json` or `ad_samples.json`, dotfiles/swap/backup files, extra subdirectories, or broken symlinks), `config/dynamic/` is missing, or a config directory path is not a directory.
+- **Solution**: While stopped, leave only `bot.json` and `g-auth.json` in `config/static/`, leave only the 6 dynamic JSON configs in `config/dynamic/`, and move backups or stray files outside `config/`. For legacy `telegram.json`, follow the [staged upgrade](#staged-upgrade) (`migrate:bot-config`); for legacy `ad_samples.json`, manually migrate it to `config/dynamic/ad_detect.json` (preserving `samples` and adding required `punishment`, `sticker_black_list`, and `emoji_black_list`) and remove `ad_samples.json`.
 
 ### 4. Config Schema Validation Failure
-- **Cause**: Content in `config/{static,dynamic}/*.json` violates the schema (missing required fields, incorrect types, invalid enums, or undeclared keys).
-- **Solution**: Check the console log for the exact JSON error path and adjust the configuration. Detailed requirements are documented in the [deployment configuration guide](../../config_example/README/en.md).
+- **Cause**: A file in `config/{static,dynamic}/*.json` is missing required keys, has wrong types/bounds/enums, or includes unknown keys.
+- **Solution**: Fix the exact file and JSONPath reported in the startup error against the [Deployment Configuration Guide](../../config_example/README/en.md).
 
 ### 5. Identity Database Validation Failure
-- **Cause**: `storage.sqlite` is unwritable; the database file is corrupt; the database schema is outdated; the `time_zone` setting conflicts with the zone recorded in the database (the log states `storage_metadata.time-zone` and the expected value); or user IDs overlap between the blocklist and ad bypass whitelist.
-- **Solution**: For time zone mismatches, restore `time_zone` in `bot.json` to the database value. If the database is not on the current schema (for example a Schema v11 database from 16.3.2), follow the [staged upgrade](#staged-upgrade) to 17.2.1 and complete its migrations first. If the file is corrupt, restore the database and its matching `-wal`/`-shm` files from backup. Never overwrite with a blank database or edit SQLite tables manually.
+- **Cause**: `storage.sqlite` is unwritable or corrupt, its schema version is unmigrated, `bot.json` `time_zone` disagrees with `storage_metadata.time-zone`, or an ID appears in both the blocklist and temporary ad-bypass table.
+- **Solution**: Restore `time_zone` in `bot.json` to match `storage_metadata.time-zone`; for pre-v13 databases (such as v11 from 16.3.2), run the [staged upgrade](#staged-upgrade) through 17.2.1; for physical corruption, restore `storage.sqlite` together with its matching `-wal`/`-shm` sidecars from backup. Never overwrite with a blank DB or hand-edit rows.
 
 ### 6. Inconsistent Fortune Results and Receipt Key
-- **Cause**: The current day's fortune files and `receipt-secret.json` originate from different backup points, causing cryptographic signature verification to fail.
-- **Solution**: Stop the service and restore the entire `memory/luck/` directory from a single consistent backup. Never delete or regenerate the secret key in isolation.
+- **Cause**: Today's fortune file and `receipt-secret.json` come from mismatched backups, failing HMAC verification.
+- **Solution**: Stop the service and restore the entire `memory/luck/` directory from one consistent backup snapshot; never delete or regenerate `receipt-secret.json` by itself.
 
 ### 7. Invalid Global State File or Residual Legacy state.json
-- **Cause**: `memory/global/state.json` fails current schema parsing, or legacy `state.json` files linger in the data root.
-- **Solution**: Back up the file, identify the issue, and correct invalid fields. For legacy formats, follow the [staged upgrade](#staged-upgrade) to 17.2.1 and complete its migrations, then remove lingering files from the data root.
+- **Cause**: `memory/global/state.json` fails schema validation, or legacy `state.json` / `state.json.bak` remains in the data root.
+- **Solution**: Back up first, then fix invalid fields or run the [staged upgrade](#staged-upgrade) through 17.2.1 and move root-level legacy files out of the data root.
 
 ### 8. Invalid /wed Candidate Files
-- **Cause**: `memory/wed/<chatId>.json` does not match the current window format (for example it is still a 17.2.1 member ID array, lacks `enteredAt`, has decreasing entry times, or exceeds `WED_MEMBER_LIMIT` entries), or the filename is not a canonical chat ID.
-- **Solution**: After a stopped backup, run the [/wed member window cold migration](#upgrade-wed-member-window) for legacy member ID arrays; otherwise fix the file and field path named in the error, or restore from backup.
+- **Cause**: `memory/wed/<chatId>.json` fails window validation (for example, still a 17.2.1 member-ID array, missing `enteredAt`, decreasing `enteredAt`, or more than `WED_MEMBER_LIMIT` items) or has a non-canonical chat-ID filename.
+- **Solution**: Back up while stopped and run the [/wed member window cold migration](#upgrade-wed-member-window) for 17.2.1 ID arrays, or repair/restore the reported file from backup.
 
 ---
 
@@ -290,39 +313,39 @@ The application deliberately follows a **Fail-Fast** design. Any configuration o
 
 ### `bot.lock` Refuses Startup
 
-The system uses a Linux `/proc`-based instance lock matching `BOT_LOCK_LINE_PATTERN` (`v2:<pid>:<starttime>:<boot_id>:<sha256(token)>`, where `starttime` is read from `/proc/<pid>/stat`). The lock fails closed to guarantee data integrity:
+Instance locking uses Linux `/proc` with exact line format `BOT_LOCK_LINE_PATTERN` (`v2:<pid>:<starttime>:<boot_id>:<sha256(token)>`, reading `starttime` from field 22 of `/proc/<pid>/stat`) and fails closed:
 
-- **Active process conflict**: A process is deemed active if and only if its PID, starttime, and system boot ID all match. This indicates another instance is already running; stop the old instance first. Running multiple instances against the same data root is strictly prohibited.
-- **Stale locks from abnormal exits**: If an instance was terminated abruptly (`kill -9`) or the host rebooted, stale locks are detected and cleared automatically on the next startup or clean shutdown without manual intervention.
-- **Corrupt or legacy lock files**: The lock file must contain a single owner record in the current format followed by a newline; multiple lines, a mismatched format, or extra content make both acquisition and shutdown release refuse and leave the file untouched. The bot will not guess lock contents or attempt automatic upgrades. Once you have **verified that no related process is running**, manually delete the invalid lock file and restart.
-- **Failure to release lock on shutdown**: If the lock cannot be released during clean shutdown, the process logs an error and exits with a non-zero code. Check `/proc` mount options, directory write permissions, and leftover `.guard` files.
-- **Temporary file cleanup**: Temporary candidates (`.candidate.*`) and `.tmp` files generated during atomic hard-link locking are reclaimed automatically at startup once the previous owner is confirmed inactive.
+- **Live conflict**: An owner is treated as live if and only if PID, `starttime`, and host `boot_id` all match. Stop the running instance first—sharing a data root across live processes is forbidden.
+- **Stale lock after crash or reboot**: Locks left behind by `kill -9` or host reboots are recognized automatically and reclaimed on the next startup or shutdown.
+- **Corrupt or legacy lock file**: Anything other than a single current-format line plus newline causes both lock acquisition and shutdown release to refuse without modifying the file. After **confirming zero bot processes are running**, delete `bot.lock` manually and start again.
+- **Lock release error on shutdown**: Logs an error and exits non-zero; check `/proc` mount state, directory write permissions, and any leftover `.guard` file.
+- **Candidate cleanup**: Orphan `.candidate.*` hard-link lock candidates and `.tmp` files from inactive owners are cleaned up automatically during startup.
 
 > [!CAUTION]
-> The token hash inside the lock file only validates credential ownership; it does not provide multi-tenant data isolation. Running multiple distinct bots **requires configuring an independent `COPY_NINJIA_DATA_ROOT` for each bot**.
+> The token SHA-256 in `bot.lock` checks credential consistency for the single owner—it is not multi-tenant storage isolation. Running multiple bots on one host **requires a separate `COPY_NINJIA_DATA_ROOT` per bot**.
 
 ---
 
 ## Upgrades and Releases
 
-1. **Full pre-release validation**: Run the comprehensive release validation suite on the source tree (frozen lockfile, conventions, type checks, test coverage, fault injection, and binary compilation):
+1. **Pre-release gate**: On the source checkout, run the full validation pipeline (frozen lockfile, conventions, lint, typecheck, coverage, fault injection, and binary build):
    ```bash
    bun run release:check -- --version <tag>
    # Run security audits in networked environments
    bun run audit:release
    ```
-2. **Git status verification**: Before running Git commands, check `git status --short`, diffs against target revisions, and protected files via `git ls-files config .env g-auth.json`. Never overwrite deployment files with repository templates.
-3. **Work in an isolated working directory**: If systemd's `WorkingDirectory` points directly to the repository, perform builds and tests in an isolated git worktree or fresh clone, strictly sticking to `dev` and `master`. If upgrading in place, **stop the systemd service and confirm it is inactive**, back up deployment files and databases externally, and then pull and migrate.
-4. **Handle persistence changes**: If the update includes data format changes, execute the prescribed offline cold migrations.
-5. **Post-release observation**: Start the service only after verifying all configuration and state files. Monitor the instance across at least two supervisor restart cycles to confirm `ActiveState=active`, `SubState=running`, no growth in `NRestarts` from its baseline, and no non-zero exit codes in the system journal. Purge external backups only after all verifications pass.
+2. **Git hygiene check**: Before any Git operation, inspect `git status --short`, revision diffs, and `git ls-files config .env g-auth.json`. Never overwrite live `config/` with `config_example/`.
+3. **Isolated build checkout**: When systemd's `WorkingDirectory` points to the live checkout, build and test in a separate git worktree or clone using only `dev` and `master`. For in-place updates, **stop the systemd service and verify `inactive` first**, then create external backups before pulling or migrating.
+4. **Offline migrations**: Execute any required cold migrations and config updates while stopped.
+5. **Post-startup observation**: Start the service only after config and persistence validation succeed, then monitor at least two supervisor restart intervals (`ActiveState=active`, `SubState=running`, flat `NRestarts`, zero non-zero journal exits) before removing external backups.
 
 ### Installer Service and Backup Boundaries
 
-The `install.sh` installation script enforces several safeguards:
-- **Service state verification**: The installer requires existing services to be `inactive` (or `dead`) before touching any files. If the service is running, or if the unit file defines conflicting `ExecStart` commands, the script halts immediately.
-- **External backups**: Before replacing configuration or unit files, the installer creates an external backup outside the tree, verifying files against their SHA-256 hashes and logging ownership and permissions. Backups are cleaned up automatically only after service health checks pass; failed checks or foreground runs preserve backups and staging state completely.
-- **Environment variable consistency**: An unset `COPY_NINJIA_DATA_ROOT` resolves to the repository root. If set explicitly, both the systemd unit `Environment` and the installer environment must resolve to the identical absolute path. Units declaring `EnvironmentFiles` or setting `PassEnvironment`/`UnsetEnvironment` for this variable are rejected.
-- **Health monitoring window**: After startup, the installer monitors the service across the observation window computed by `service_observation_seconds` (`scripts/install/service.sh`) from systemd's `RestartUSec`, `RestartMaxDelayUSec`, and `RestartRandomizedDelayUSec` across two restart intervals plus a safety margin. If `NRestarts` grows, the process exits, logs become unreadable, or non-zero exits occur, the installer reports failure and offers rollback options.
+`install.sh` enforces strict operational guards:
+- **Stopped-service requirement**: Refuses to write if an existing systemd unit is active or declares multiple conflicting `ExecStart` directives.
+- **External SHA-256 backups**: Backs up existing configs and unit files outside the working tree with recorded ownership, modes, and verified SHA-256 hashes. Backups are removed only after post-start health observation passes; failed checks or foreground runs leave backups and staging state intact.
+- **Data-root environment parity**: Unset `COPY_NINJIA_DATA_ROOT` resolves to the project root; when explicitly set, the installer environment and existing unit `Environment=` must resolve to the exact same path. Non-empty `EnvironmentFiles` or `PassEnvironment` / `UnsetEnvironment` rules touching `COPY_NINJIA_DATA_ROOT` are rejected.
+- **Health observation window**: Computes `service_observation_seconds` (`scripts/install/service.sh`) from `RestartUSec`, `RestartMaxDelayUSec`, and `RestartRandomizedDelayUSec` (two effective restart intervals plus 2s) and fails the install if `NRestarts` increments, the unit leaves running state, journal reads fail, or non-zero exits appear.
 
 ---
 
@@ -330,32 +353,32 @@ The `install.sh` installation script enforces several safeguards:
 
 ### Key Log Characteristics and Troubleshooting
 
-- **Unified structured logging**: Located in `logs/`, asynchronously appended in batches by the Disk I/O Worker. All logs are in English to facilitate grepping and log collector ingestion.
-- **Worker thread self-healing**: If a Worker thread crashes, the main thread throttles restarts and spins up a replacement thread, re-initializing Worker state from memory snapshots.
-- **Fail-fast persistence shutdowns**: If underlying disk writes fail repeatedly and exhaust bounded retries, the bot terminates with a non-zero exit code to trigger a clean supervisor restart, preventing in-memory state from diverging from disk.
+- **Structured English logs**: Batched asynchronously into `logs/` by the Disk I/O Worker for straightforward `grep` and log-shipper filtering.
+- **Worker crash self-healing**: Unexpected Worker exits trigger rate-limited respawn and automatic snapshot re-hydration from the main thread.
+- **Fail-fast storage exits**: Persistent disk write failures that exhaust bounded retries exit non-zero so systemd restarts cleanly from durable state rather than running with diverged memory.
 
 #### Common Log Patterns
 
 - `Cron task "<name>" action #<n> (<type>) failed after <k> attempt(s)`:
-  A scheduled task reached terminal failure. Common causes:
-  - `403`: The bot was removed from the target chat or channel.
-  - `400`: The media URL is invalid, or the image/audio format is unsupported by Telegram.
-  - `local file ... is missing`: The local media asset path does not exist.
-  - `speech synthesis failed: ...`: Voice synthesis failed (`tts unconfigured` / `tts unsupported` indicate config mismatches; `worker unavailable` indicates the AI Worker is still initializing; `synthesis failed` / `timed out` indicate vendor API errors; `daily limit reached` means the current window quota is exhausted).
+  Scheduled action exhausted retries:
+  - `403`: Bot was kicked or lacks access in the target chat/channel.
+  - `400`: Invalid remote media URL or unsupported image/audio format.
+  - `local file ... is missing`: Configured local file path does not exist.
+  - `speech synthesis failed: ...`: TTS failure (`tts unconfigured` / `tts unsupported` = config mismatch; `worker unavailable` = AI Worker still starting; `synthesis failed` / `timed out` = upstream provider/network failure; `daily limit reached` = daily quota exhausted).
 - `/send TTS for chat <id> produced no voice: <reason>`:
-  Voice synthesis failed during superadmin private relay; causes match above. Superadmins receive error feedback directly in private chat, and the relay session remains open.
+  Superadmin private `/send` voice synthesis failed for the reasons above; the error is reported in DM and the relay session stays open.
 - `AI reply voice was not sent (chat <id>): <reason>`:
-  The `send_voice` tool failed to generate audio during an AI reply (API timeout, quota limit, etc.). Text replies continue to be sent normally.
+  `send_voice` failed during a group AI turn (timeout, quota exhaustion, etc.); text replies in the turn still deliver normally.
 - `Failed to probe chat membership ... PARTICIPANT_ID_INVALID`:
-  The blocklist sweep encountered a deleted Telegram account. When a user ID returns this error for `BLOCKLIST_PARTICIPANT_INVALID_LIMIT` consecutive checks, the system automatically purges the deleted ID from the blocklist.
+  Blocklist sweep hit a deleted Telegram account; after `BLOCKLIST_PARTICIPANT_INVALID_LIMIT` consecutive `PARTICIPANT_ID_INVALID` responses, the ID is automatically removed from the blocklist.
 - `Chat <id> was upgraded to supergroup <newId>; tearing down the old chat.`:
-  A managed group was upgraded to a supergroup, and the old chat id has been torn down as "chat no longer exists" (data purged, managed-chat slot freed). Run `/init enable` again in the new supergroup; the old settings are not carried over.
+  A managed basic group upgraded to a supergroup; the old chat ID was torn down as `gone` (state purged, slot freed). Run `/init enable` in the new supergroup.
 - `Chat <id> was gone|departed in <n> lookups <ms>ms apart; tearing it down.`:
-  At startup the title refresh confirmed several times in a row that a chat no longer exists (`gone`) or that the bot is no longer a member (`departed`), and tore it down. For a `departed` chat, a lockdown record that has not been restored yet is kept and restored automatically once the bot is back with the right to restrict members.
+  Startup title refresh confirmed across repeated lookups that a chat no longer exists (`gone`) or the bot left (`departed`), tearing it down (unrestored private-lockdown state on a `departed` chat is retained and restored once the bot rejoins with member-restriction rights).
 - `Chat <id> looked gone|departed at startup but lookup <n> disagreed; keeping it.`:
-  The first lookup looked unreachable but a later one disagreed (usually a transient Telegram error). Nothing is torn down this time; the next startup confirms again from scratch.
+  Initial startup lookup failed transiently while a follow-up check disagreed; teardown is skipped and re-evaluated on the next boot.
 - `Gemini context cache API ... create rejected (<n>/<max>): 400`:
-  Gemini returned HTTP 400 when attempting to create a context cache. This usually means the context contains fewer tokens than the required minimum, or parameters are invalid. The system waits for `GEMINI_CONTEXT_CACHE_REJECTION_RETRY_AFTER_MS` before retrying; after `GEMINI_CONTEXT_CACHE_MAX_REJECTIONS` consecutive failures, caching is disabled for that content. Regular chat replies continue to function normally without caching.
+  Gemini rejected context-cache creation with HTTP 400 (typically below minimum token count or unsupported parameters). Retries back off for `GEMINI_CONTEXT_CACHE_REJECTION_RETRY_AFTER_MS` and stop for that payload after `GEMINI_CONTEXT_CACHE_MAX_REJECTIONS` rejections while uncached chat calls continue uninterrupted.
 
 ---
 

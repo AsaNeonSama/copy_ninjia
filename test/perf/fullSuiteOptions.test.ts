@@ -21,7 +21,7 @@ describe("全量基准 CLI 选项", () => {
         value: FullSuiteReport
       ): Promise<readonly string[]> => {
         pageReports.push(value);
-        return ["docs/cn/10-performance.md", "docs/en/10-performance.md"];
+        return ["docs/cn/11-performance.md", "docs/en/11-performance.md"];
       },
       writePerformanceResultEntry: async (
         params: WritePerformanceResultEntryParams

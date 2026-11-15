@@ -1,3 +1,4 @@
+/** AI 闲聊 Worker 侧的部署配置热重载接管入口。 */
 import { ensureStickerCatalogs, pruneStickerCatalogs } from "../../aiChat/ai/stickers/catalog";
 import { pruneStickerSets } from "../../aiChat/ai/stickers/sets";
 import { refreshMood } from "../../aiChat/ai/mood";

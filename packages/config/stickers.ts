@@ -1,8 +1,10 @@
 import { defaultStickerConfigCache } from "../cache/perThread/config";
-import { MAX_CONFIGURED_STICKER_PACKS, STICKER_PACK_NAME_PATTERN } from "../consts/aiChat/stickers";
+import { MAX_CONFIGURED_STICKER_PACKS } from "../consts/aiChat/stickers";
 import { STICKERS_CONFIG_PATH } from "../consts/paths";
 import { hasExactKeys, isPlainRecord } from "../libs/record";
-import { invalidInput, readJsonInput } from "../libs/inputValidation";
+import { invalidInput } from "../libs/inputValidation";
+import { ensureConfigSnapshot, loadJsonConfig } from "./snapshotHolder";
+import { parseStickerPackNames } from "./stickerPackNames";
 import type { StickerConfig } from "../types/config";
 
 /**
@@ -18,23 +20,14 @@ export function parseStickerConfig(
   if (!isPlainRecord(value) || !hasExactKeys(value, ["packs"]) || !Array.isArray(value.packs)) {
     return invalidInput(sourcePath, "$", "exactly { packs: string[] }");
   }
-  if (value.packs.length > MAX_CONFIGURED_STICKER_PACKS) {
-    return invalidInput(sourcePath, "$.packs", `an array with at most ${MAX_CONFIGURED_STICKER_PACKS} entries`);
-  }
-
-  const packs: string[] = [];
-  const seen: Set<string> = new Set();
-  for (let index: number = 0; index < value.packs.length; index++) {
-    const entry: unknown = value.packs[index];
-    const pack: string = typeof entry === "string" ? entry.trim() : "";
-    if (!STICKER_PACK_NAME_PATTERN.test(pack)) {
-      return invalidInput(sourcePath, `$.packs[${index}]`, "a valid Telegram sticker pack short name");
-    }
-    if (seen.has(pack)) return invalidInput(sourcePath, `$.packs[${index}]`, "unique");
-    seen.add(pack);
-    packs.push(pack);
-  }
-  return { packs };
+  return {
+    packs: parseStickerPackNames({
+      entries: value.packs,
+      sourcePath,
+      fieldPath: "$.packs",
+      maxEntries: MAX_CONFIGURED_STICKER_PACKS,
+    }),
+  };
 }
 
 /**
@@ -42,11 +35,11 @@ export function parseStickerConfig(
  * @returns 已通过校验的贴纸包配置。
  */
 export async function loadStickerConfig(): Promise<StickerConfig> {
-  return parseStickerConfig(await readJsonInput(STICKERS_CONFIG_PATH), STICKERS_CONFIG_PATH);
+  return loadJsonConfig(STICKERS_CONFIG_PATH, parseStickerConfig);
 }
 
 /**
- * 接管已经严格校验的贴纸配置快照：启动预检、Worker 初始化消息或 config/dynamic/ 热重载。
+ * 接管已经严格校验的贴纸配置快照：Worker 初始化消息或 config/dynamic/ 热重载。
  * null 只来自主线程热重载，表示部署方删除了该文件。
  * @param config 已校验的贴纸包配置，或表示文件已移除的 null。
  */
@@ -56,8 +49,7 @@ export function adoptStickerConfig(config: StickerConfig | null): void {
 
 /** 启动预检填充默认路径快照；重复调用只读 holder。 */
 export async function ensureStickerConfig(): Promise<void> {
-  if (defaultStickerConfigCache.current !== null) return;
-  adoptStickerConfig(await loadStickerConfig());
+  await ensureConfigSnapshot(defaultStickerConfigCache, loadStickerConfig);
 }
 
 /**

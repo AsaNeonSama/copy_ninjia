@@ -1,7 +1,7 @@
 import { telegramSignal } from "../libs/telegramSignal";
 import { chatAtmosphere } from "../infra/atmosphere";
 import type { CommandContext, Context } from "grammy";
-import { disableChatStateSwitch, getActiveProxySendTarget, getChatState, getOrCreateChatState, persistChatState } from "../infra/storage/stateStore";
+import { disableChatStateSwitch, getActiveProxySendTarget, getChatState, getOrCreateChatState, persistChatState } from "../infra/chatStateStorage";
 import { logApiError, replyCommandNotice } from "../infra/telegram";
 import { bot } from "../infra/telegram/mainClient";
 import {
@@ -50,10 +50,7 @@ export async function handleSendCommand(ctx: CommandContext<Context>): Promise<v
     return;
   }
 
-  // 目标群必须已 `/init enable`，否则只回一句提示。
-  //
-  // 这里只读现有状态，不创建 chat_states 记录，也不触发 /init enable 的容量闸。
-  // 判定在 getChat 之前，未纳管的目标不探测可达性。
+  // 只读检查目标群是否已 `/init enable`，不创建 chat_states 记录、不消耗受管群容量；未纳管目标不发起 getChat 探测。
   if (getChatState(targetChatId).isInitEnabled !== true) {
     await replyCommandNotice(ctx, chatAtmosphere().NOTICE_TEXTS.proxyNotInitialized(targetChatId));
     return;
@@ -74,6 +71,7 @@ export async function handleSendCommand(ctx: CommandContext<Context>): Promise<v
     return;
   }
 
+  // 跨 getChat 异步往返后复核目标群仍处于启用态，且未并发开启其他中转会话。
   if (getChatState(targetChatId).isInitEnabled !== true) {
     await replyCommandNotice(ctx, chatAtmosphere().NOTICE_TEXTS.proxyNotInitialized(targetChatId));
     return;

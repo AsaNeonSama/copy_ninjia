@@ -6,19 +6,23 @@ import {
   MINI_APP_MAX_INIT_DATA_LENGTH,
   MINI_APP_TMA_AUTH_PREFIX,
 } from "../../consts/miniApp";
-import type { MiniAppMiddleware, MiniAppRouteContext } from "../../types/miniApp";
+import type { MiniAppRouteContext } from "../../types/miniApp/server";
 import { accessErrorResponse } from "../libs/response";
+import type { AccessErrorResponseParams } from "../libs/response";
+import { firstForwardedHost } from "../libs/request";
 import { deriveMiniAppPublicUrlParts } from "../libs/routePath";
 
 /**
  * 校验请求头中的 `Origin` 或 `Referer` URL 是否与当前 Mini App 源站或反向代理 Host 同源。
  * @param rawUrl 待核验的 `Origin` 或 `Referer` 原始头值。
- * @param ctx 路由请求上下文。
+ * @param request HTTP 请求对象。
+ * @param parsedRequestUrl 调用方已解析好的请求 `URL`（缺省时按需以 `URL.parse` 解析 `request.url`）。
  * @returns 同源合法时返回 `true`，伪造或跨源时返回 `false`。
  */
-function isAllowedRequestOriginUrl(
+export function isAllowedRequestOriginUrl(
   rawUrl: string,
-  ctx: Readonly<MiniAppRouteContext>
+  request: Request,
+  parsedRequestUrl?: URL
 ): boolean {
   const trimmed: string = rawUrl.trim();
   if (trimmed.length === 0 || trimmed.toLowerCase() === "null") {
@@ -32,24 +36,17 @@ function isAllowedRequestOriginUrl(
     return false;
   }
   const candidateHost: string = parsedOrigin.host.toLowerCase();
-  const headers: Headers = ctx.request.headers;
-  const rawForwardedHost: string | null = headers.get("x-forwarded-host");
-  if (rawForwardedHost !== null) {
-    const commaIndex: number = rawForwardedHost.indexOf(",");
-    const firstForwardedHost: string = (
-      commaIndex >= 0 ? rawForwardedHost.slice(0, commaIndex) : rawForwardedHost
-    )
-      .trim()
-      .toLowerCase();
-    if (firstForwardedHost.length > 0 && candidateHost === firstForwardedHost) {
-      return true;
-    }
+  const headers: Headers = request.headers;
+  const forwardedHost: string | null = firstForwardedHost(headers);
+  if (forwardedHost !== null && candidateHost === forwardedHost.toLowerCase()) {
+    return true;
   }
   const hostHeader: string = headers.get("host")?.trim().toLowerCase() ?? "";
   if (hostHeader.length > 0 && candidateHost === hostHeader) {
     return true;
   }
-  const reqUrlHost: string = ctx.url.host.toLowerCase();
+  const reqUrlHost: string =
+    (parsedRequestUrl ?? URL.parse(request.url))?.host.toLowerCase() ?? "";
   if (reqUrlHost.length > 0 && candidateHost === reqUrlHost) {
     return true;
   }
@@ -61,34 +58,139 @@ function isAllowedRequestOriginUrl(
 }
 
 /**
- * 在鉴权链最开头对请求头与凭据载体形态执行 O(1) 快路径严格校验：拦截非同源 `Sec-Fetch-Site`、
- * 直接导航/非预期 `Sec-Fetch-Mode` 与 `Sec-Fetch-Dest`、跨源 `Origin`/`Referer`，
- * 以及缺失、双头不一致或畸形的 Telegram WebApp `initData` 请求头。
- * @param ctx 路由请求上下文。
- * @param allowQueryAuth 是否允许在 `GET`/`HEAD` 请求中从查询参数提取凭据。
- * @returns 快路径拦截命中时返回 `401` 或 `403` 诊断响应，通过时返回 `null`。
+ * 判断 `Sec-Fetch-Site` 请求头是否明确指示非同源跨站请求。
+ * @param headers HTTP 请求头对象。
+ * @returns 存在非空且不属于 `"same-origin"`、`"same-site"`、`"none"` 的值时返回 `true`。
  */
-function verifyMiniAppRequestHeadersFast(
-  ctx: Readonly<MiniAppRouteContext>,
-  allowQueryAuth: boolean
-): Response | null {
-  const request: Request = ctx.request;
-  const headers: Headers = request.headers;
-
+export function hasDisallowedSecFetchSite(headers: Headers): boolean {
   const secFetchSite: string | null = headers.get("sec-fetch-site")?.trim().toLowerCase() ?? null;
-  if (
+  return (
     secFetchSite !== null &&
     secFetchSite.length > 0 &&
     secFetchSite !== "same-origin" &&
     secFetchSite !== "same-site" &&
     secFetchSite !== "none"
+  );
+}
+
+/**
+ * 判断子资源请求的 `Sec-Fetch-Mode` 或 `Sec-Fetch-Dest` 是否属于直接文档导航或嵌套容器加载。
+ * @param headers HTTP 请求头对象。
+ * @returns 命中导航或文档/框架嵌入模式时返回 `true`。
+ */
+export function hasDisallowedSubresourceFetchMetadata(headers: Headers): boolean {
+  const secFetchMode: string | null = headers.get("sec-fetch-mode")?.trim().toLowerCase() ?? null;
+  const secFetchDest: string | null = headers.get("sec-fetch-dest")?.trim().toLowerCase() ?? null;
+  return (
+    secFetchMode === "navigate" ||
+    secFetchMode === "nested-navigate" ||
+    secFetchMode === "websocket" ||
+    secFetchDest === "document" ||
+    secFetchDest === "iframe" ||
+    secFetchDest === "frame" ||
+    secFetchDest === "object" ||
+    secFetchDest === "embed"
+  );
+}
+
+/**
+ * 提取并做基础形态校验的请求头凭据（`X-Telegram-Init-Data` 与 `Authorization: tma <initData>`）：
+ * - 两个请求头均缺省或全空白时返回 `null`；
+ * - 形态合法且未超长、不含控制字符、具备 `hash=` 与 `auth_date=` 时返回去空白后的 `initData`；
+ * - 认证方案非 `tma`、双头内容不一致或字符串畸形时返回对应的拒绝参数。
+ * @param headers HTTP 请求头对象。
+ * @returns 通过基础校验的 `initData`、双头均缺省时的 `null`，或拒绝参数。
+ */
+export function extractVerifiedMiniAppHeaderInitData(
+  headers: Headers
+): string | Readonly<AccessErrorResponseParams> | null {
+  const rawInitHeader: string | null = headers.get(MINI_APP_INIT_DATA_HEADER);
+  const trimmedInitHeader: string = rawInitHeader !== null ? rawInitHeader.trim() : "";
+  const rawAuthHeader: string | null = headers.get("authorization");
+  let trimmedAuthInitData: string = "";
+
+  if (rawAuthHeader !== null && rawAuthHeader.trim().length > 0) {
+    const trimmedAuth: string = rawAuthHeader.trim();
+    if (!trimmedAuth.toLowerCase().startsWith(MINI_APP_TMA_AUTH_PREFIX)) {
+      return {
+        status: 401,
+        code: "MISSING_INIT_DATA",
+        reason: "missing_init_data",
+        error: "MISSING_INIT_DATA",
+      };
+    }
+    trimmedAuthInitData = trimmedAuth.slice(MINI_APP_TMA_AUTH_PREFIX.length).trim();
+  }
+
+  if (
+    trimmedInitHeader.length > 0 &&
+    trimmedAuthInitData.length > 0 &&
+    trimmedInitHeader !== trimmedAuthInitData
   ) {
-    return accessErrorResponse(request, {
-      status: 403,
-      code: "CROSS_SITE_FORBIDDEN",
-      reason: "forbidden_user",
-      error: "CROSS_SITE_FORBIDDEN",
-    });
+    return {
+      status: 401,
+      code: "INVALID_SIGNATURE",
+      reason: "invalid_signature",
+      error: "INVALID_SIGNATURE",
+    };
+  }
+
+  const headerInitData: string =
+    trimmedInitHeader.length > 0 ? trimmedInitHeader : trimmedAuthInitData;
+  if (headerInitData.length === 0) {
+    return null;
+  }
+  if (
+    headerInitData.length > MINI_APP_MAX_INIT_DATA_LENGTH ||
+    MINI_APP_CONTROL_CHARS_PATTERN.test(headerInitData) ||
+    !headerInitData.includes("hash=") ||
+    !headerInitData.includes("auth_date=")
+  ) {
+    return {
+      status: 401,
+      code: "MALFORMED_INIT_DATA",
+      reason: "malformed_init_data",
+      error: "MALFORMED_INIT_DATA",
+    };
+  }
+  return headerInitData;
+}
+
+/** 网关请求头与凭据形态快路径校验结果（携带已提取的请求头与查询串 `initData`）。 */
+export type MiniAppHeaderGuardResult =
+  | {
+    readonly ok: true;
+    readonly headerInitData: string | null;
+    readonly queryInitData: string;
+  }
+  | { readonly ok: false; readonly response: Response };
+
+/**
+ * 在鉴权管道入口对请求头与凭据形态做同步前置校验：
+ * 1. 拦截跨站 `Sec-Fetch-Site`、直接导航或非预期容器的 `Sec-Fetch-Mode`/`Sec-Fetch-Dest`/`Accept`，以及跨源 `Origin`/`Referer`；
+ * 2. 校验请求头中的 `initData` 形态：存在且合法时直接返回 `headerInitData`；`allowQueryAuth` 为 `false` 且请求头缺失时立即返回 `401 MISSING_INIT_DATA`；
+ * 3. `allowQueryAuth` 为 `true` 且未带请求头 `initData` 时放行进入查询参数鉴权，并在 `GET`/`HEAD` 下预检 `?initData=` 的基础形态。
+ * @param ctx 路由请求上下文。
+ * @param allowQueryAuth 是否允许在 `GET`/`HEAD` 请求中从查询参数提取凭据。
+ * @returns 拦截命中时返回 `401` 或 `403` 诊断响应；通过时返回提取出的 `headerInitData` 与 `queryInitData`。
+ */
+export function verifyMiniAppRequestHeadersFast(
+  ctx: Readonly<MiniAppRouteContext>,
+  allowQueryAuth: boolean
+): MiniAppHeaderGuardResult {
+  const request: Request = ctx.request;
+  const headers: Headers = request.headers;
+
+  if (hasDisallowedSecFetchSite(headers)) {
+    return {
+      ok: false,
+      response: accessErrorResponse(request, {
+        status: 403,
+        code: "CROSS_SITE_FORBIDDEN",
+        reason: "forbidden_user",
+        error: "CROSS_SITE_FORBIDDEN",
+      }),
+    };
   }
 
   const secFetchMode: string | null = headers.get("sec-fetch-mode")?.trim().toLowerCase() ?? null;
@@ -100,12 +202,15 @@ function verifyMiniAppRequestHeadersFast(
       secFetchMode === "websocket" ||
       (secFetchDest !== null && secFetchDest.length > 0 && secFetchDest !== "empty")
     ) {
-      return accessErrorResponse(request, {
-        status: 403,
-        code: "DIRECT_NAVIGATION_FORBIDDEN",
-        reason: "forbidden_user",
-        error: "DIRECT_NAVIGATION_FORBIDDEN",
-      });
+      return {
+        ok: false,
+        response: accessErrorResponse(request, {
+          status: 403,
+          code: "DIRECT_NAVIGATION_FORBIDDEN",
+          reason: "forbidden_user",
+          error: "DIRECT_NAVIGATION_FORBIDDEN",
+        }),
+      };
     }
     const accept: string | null = headers.get("accept")?.toLowerCase() ?? null;
     if (
@@ -113,131 +218,107 @@ function verifyMiniAppRequestHeadersFast(
       accept.includes("text/html") &&
       !accept.includes("application/json")
     ) {
-      return accessErrorResponse(request, {
+      return {
+        ok: false,
+        response: accessErrorResponse(request, {
+          status: 403,
+          code: "DIRECT_NAVIGATION_FORBIDDEN",
+          reason: "forbidden_user",
+          error: "DIRECT_NAVIGATION_FORBIDDEN",
+        }),
+      };
+    }
+  } else if (hasDisallowedSubresourceFetchMetadata(headers)) {
+    return {
+      ok: false,
+      response: accessErrorResponse(request, {
         status: 403,
         code: "DIRECT_NAVIGATION_FORBIDDEN",
         reason: "forbidden_user",
         error: "DIRECT_NAVIGATION_FORBIDDEN",
-      });
-    }
-  } else if (
-    secFetchMode === "navigate" ||
-    secFetchMode === "nested-navigate" ||
-    secFetchDest === "document" ||
-    secFetchDest === "iframe" ||
-    secFetchDest === "frame" ||
-    secFetchDest === "object" ||
-    secFetchDest === "embed"
-  ) {
-    return accessErrorResponse(request, {
-      status: 403,
-      code: "DIRECT_NAVIGATION_FORBIDDEN",
-      reason: "forbidden_user",
-      error: "DIRECT_NAVIGATION_FORBIDDEN",
-    });
+      }),
+    };
   }
 
   const originHeader: string | null = headers.get("origin");
   if (
     originHeader !== null &&
     originHeader.trim().length > 0 &&
-    !isAllowedRequestOriginUrl(originHeader, ctx)
+    !isAllowedRequestOriginUrl(originHeader, request, ctx.url)
   ) {
-    return accessErrorResponse(request, {
-      status: 403,
-      code: "CROSS_SITE_FORBIDDEN",
-      reason: "forbidden_user",
-      error: "CROSS_SITE_FORBIDDEN",
-    });
+    return {
+      ok: false,
+      response: accessErrorResponse(request, {
+        status: 403,
+        code: "CROSS_SITE_FORBIDDEN",
+        reason: "forbidden_user",
+        error: "CROSS_SITE_FORBIDDEN",
+      }),
+    };
   }
 
   const refererHeader: string | null = headers.get("referer");
   if (
     refererHeader !== null &&
     refererHeader.trim().length > 0 &&
-    !isAllowedRequestOriginUrl(refererHeader, ctx)
+    !isAllowedRequestOriginUrl(refererHeader, request, ctx.url)
   ) {
-    return accessErrorResponse(request, {
-      status: 403,
-      code: "CROSS_SITE_FORBIDDEN",
-      reason: "forbidden_user",
-      error: "CROSS_SITE_FORBIDDEN",
-    });
+    return {
+      ok: false,
+      response: accessErrorResponse(request, {
+        status: 403,
+        code: "CROSS_SITE_FORBIDDEN",
+        reason: "forbidden_user",
+        error: "CROSS_SITE_FORBIDDEN",
+      }),
+    };
   }
 
-  const rawInitHeader: string | null = headers.get(MINI_APP_INIT_DATA_HEADER);
-  const trimmedInitHeader: string = rawInitHeader !== null ? rawInitHeader.trim() : "";
-  const rawAuthHeader: string | null = headers.get("authorization");
-  let trimmedAuthInitData: string = "";
+  const headerInitCheck: string | Readonly<AccessErrorResponseParams> | null =
+    extractVerifiedMiniAppHeaderInitData(headers);
+  if (typeof headerInitCheck === "string") {
+    return { ok: true, headerInitData: headerInitCheck, queryInitData: "" };
+  }
+  if (headerInitCheck !== null) {
+    return {
+      ok: false,
+      response: accessErrorResponse(request, headerInitCheck),
+    };
+  }
 
-  if (rawAuthHeader !== null && rawAuthHeader.trim().length > 0) {
-    const trimmedAuth: string = rawAuthHeader.trim();
-    if (!trimmedAuth.toLowerCase().startsWith(MINI_APP_TMA_AUTH_PREFIX)) {
-      return accessErrorResponse(request, {
+  if (!allowQueryAuth) {
+    return {
+      ok: false,
+      response: accessErrorResponse(request, {
         status: 401,
         code: "MISSING_INIT_DATA",
         reason: "missing_init_data",
         error: "MISSING_INIT_DATA",
-      });
-    }
-    trimmedAuthInitData = trimmedAuth.slice(MINI_APP_TMA_AUTH_PREFIX.length).trim();
+      }),
+    };
   }
 
-  if (
-    trimmedInitHeader.length > 0 &&
-    trimmedAuthInitData.length > 0 &&
-    trimmedInitHeader !== trimmedAuthInitData
-  ) {
-    return accessErrorResponse(request, {
-      status: 401,
-      code: "INVALID_SIGNATURE",
-      reason: "invalid_signature",
-      error: "INVALID_SIGNATURE",
-    });
-  }
-
-  const headerInitData: string =
-    trimmedInitHeader.length > 0 ? trimmedInitHeader : trimmedAuthInitData;
-  if (headerInitData.length > 0) {
+  if (ctx.method === "GET" || ctx.method === "HEAD") {
+    const queryInitData: string = ctx.url.searchParams.get("initData")?.trim() ?? "";
     if (
-      headerInitData.length > MINI_APP_MAX_INIT_DATA_LENGTH ||
-      MINI_APP_CONTROL_CHARS_PATTERN.test(headerInitData) ||
-      !headerInitData.includes("hash=") ||
-      !headerInitData.includes("auth_date=")
+      queryInitData.length > 0 &&
+      (queryInitData.length > MINI_APP_MAX_INIT_DATA_LENGTH ||
+        MINI_APP_CONTROL_CHARS_PATTERN.test(queryInitData) ||
+        !queryInitData.includes("hash=") ||
+        !queryInitData.includes("auth_date="))
     ) {
-      return accessErrorResponse(request, {
-        status: 401,
-        code: "MALFORMED_INIT_DATA",
-        reason: "malformed_init_data",
-        error: "MALFORMED_INIT_DATA",
-      });
+      return {
+        ok: false,
+        response: accessErrorResponse(request, {
+          status: 401,
+          code: "MALFORMED_INIT_DATA",
+          reason: "malformed_init_data",
+          error: "MALFORMED_INIT_DATA",
+        }),
+      };
     }
-    return null;
+    return { ok: true, headerInitData: null, queryInitData };
   }
 
-  if (!allowQueryAuth) {
-    return accessErrorResponse(request, {
-      status: 401,
-      code: "MISSING_INIT_DATA",
-      reason: "missing_init_data",
-      error: "MISSING_INIT_DATA",
-    });
-  }
-
-  return null;
-}
-
-/**
- * 创建位于每条受保护鉴权链最开头的请求头与凭据形态快路径拦截中间件。
- * @param allowQueryAuth 是否允许在 `GET`/`HEAD` 请求中从查询参数提取凭据。
- * @returns 构造好的 `MiniAppMiddleware`。
- */
-export function createMiniAppHeaderGuardMiddleware(
-  allowQueryAuth: boolean
-): MiniAppMiddleware {
-  return (
-    ctx: Readonly<MiniAppRouteContext>,
-    next: () => Response | Promise<Response>
-  ): Response | Promise<Response> =>
-    verifyMiniAppRequestHeadersFast(ctx, allowQueryAuth) ?? next();
+  return { ok: true, headerInitData: null, queryInitData: "" };
 }

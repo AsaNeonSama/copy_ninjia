@@ -297,7 +297,7 @@ async function checkCredentialIsolation(): Promise<void> {
 }
 
 /** 校验安装测试夹具的所有子路径均位于独立专属临时根目录内。 */
-async function checkFixtureRoots(): Promise<void> {
+export async function checkFixtureRoots(): Promise<void> {
   const fixture: InstallerFixture = await createFixture();
   for (const path of [
     fixture.worktree,
@@ -316,22 +316,29 @@ async function checkFixtureRoots(): Promise<void> {
   );
 }
 
-try {
-  await checkServiceProtection();
-  await checkServiceDataRoot();
-  await checkServiceObservation();
-  await checkStagingPermissionFailureCleanup();
-  await checkTelegramRollback();
-  await checkInterruptedResume();
-  for (const atmosphere of [undefined, "mesugaki", "normal"]) {
-    await checkSuccessfulReplacement(atmosphere);
+/** 运行全部安装隔离验证场景，并在完成后清理临时夹具根目录。 */
+export async function runInstallIsolationCheck(): Promise<void> {
+  try {
+    await checkServiceProtection();
+    await checkServiceDataRoot();
+    await checkServiceObservation();
+    await checkStagingPermissionFailureCleanup();
+    await checkTelegramRollback();
+    await checkInterruptedResume();
+    for (const atmosphere of [undefined, "mesugaki", "normal"]) {
+      await checkSuccessfulReplacement(atmosphere);
+    }
+    await checkFirstFillMode();
+    await checkSymlinkTopologyPreserved();
+    await checkUnverifiedJournalBackupRetention();
+    await checkCredentialIsolation();
+    await checkFixtureRoots();
+    console.log("Install isolation check passed.");
+  } finally {
+    cleanupFixtures();
   }
-  await checkFirstFillMode();
-  await checkSymlinkTopologyPreserved();
-  await checkUnverifiedJournalBackupRetention();
-  await checkCredentialIsolation();
-  await checkFixtureRoots();
-  console.log("Install isolation check passed.");
-} finally {
-  cleanupFixtures();
+}
+
+if (import.meta.main) {
+  await runInstallIsolationCheck();
 }

@@ -1,3 +1,4 @@
+/** `install.sh` 下载引导入口、Tag 树对象校验与全新建库流程测试。 */
 import { afterEach, expect, test } from "bun:test";
 import { mkdirSync } from "node:fs";
 import { rename } from "node:fs/promises";

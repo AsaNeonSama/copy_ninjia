@@ -19,7 +19,10 @@ const executor: PrioritizedBoundedTaskRunner = createPrioritizedBoundedTaskRunne
 const probeWaits: { current: number } = { current: 0 };
 
 /**
- * 媒体下载、转码与描述解析共用有界任务执行器单例：模块加载时创建，任务提交时进入队列并在结算时释放；并发上限为 MEDIA_DESCRIPTION_MAX_CONCURRENCY，排队与冷探测等待合计上限为 MEDIA_DESCRIPTION_MAX_PENDING（满额拒绝新排队任务），Worker 重建后从空队列重新创建。
+ * 媒体下载、转码与描述解析共用有界任务执行器单例：
+ * - 模块加载时创建，任务提交时进入队列并在结算时释放；
+ * - 并发上限为 `MEDIA_DESCRIPTION_MAX_CONCURRENCY`，排队与冷探测等待合计上限为 `MEDIA_DESCRIPTION_MAX_PENDING`
+ *   （满额拒绝新排队任务），Worker 重建后从空队列重新创建。
  */
 export const mediaTaskRunner: PrioritizedBoundedTaskRunner = {
   get activeCount(): number { return executor.activeCount; },

@@ -1,10 +1,16 @@
-import { beforeEach, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, expect, mock, test } from "bun:test";
 import { bufferedMessageFixture } from "../../helpers/aiMemoryFixtures";
 import { AI_MEMORY_MAX_CHATS } from "../../../packages/consts/aiChat/memory";
 import { STATE_MANAGED_CHAT_LIMIT } from "../../../packages/consts/storage";
 
+const originalSelfDescriptor: PropertyDescriptor | undefined =
+  Object.getOwnPropertyDescriptor(globalThis, "self");
 const postMessageMock = mock((..._args: unknown[]): void => {});
-(globalThis as unknown as { self: { postMessage: typeof postMessageMock } }).self = { postMessage: postMessageMock };
+Object.defineProperty(globalThis, "self", { configurable: true, writable: true, value: { postMessage: postMessageMock } });
+afterAll((): void => {
+  if (originalSelfDescriptor === undefined) Reflect.deleteProperty(globalThis, "self");
+  else Object.defineProperty(globalThis, "self", originalSelfDescriptor);
+});
 
 const memoryCache = await import("../../../packages/cache/workers/aiChat/memory");
 const moodCache = await import("../../../packages/cache/workers/aiChat/mood");

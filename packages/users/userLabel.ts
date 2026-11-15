@@ -3,24 +3,20 @@ import type { CachedUser } from "../types/chatState";
 import { joinPersonName, sanitizeDisplayName } from "../libs/text";
 
 /**
- * 生成用于回复文本中的、人类可读的用户/频道标签。当目标没有公开 @username 时
- * （例如是通过回复其消息而非 username 缓存解析出来的）退化为使用
- * first_name/title。
- * @param user 要生成标签的用户/频道。
+ * 生成回复文本中的可读用户或频道标签：优先返回 `@username`，无公开用户名时退化为清洗后的 `title` 或 `first_name`。
+ * @param user 要生成标签的用户或频道。
  * @param atmosphere 本进程的氛围文案。
  * @returns 格式化后的用户或频道显示标签。
  */
 export function formatUserLabel(user: CachedUser, atmosphere: AtmosphereTexts): string {
   if (user.username) return `@${user.username}`;
-  // title / first_name 是用户可控内容，同样要清洗后才拼进机器人的句子；
-  // username 由 Telegram 限定字符集，直接用。
+  // title 与 first_name 由用户自定义，拼入机器人回复前须经 sanitizeDisplayName 清洗。
   if (user.isChannel) return sanitizeDisplayName(user.title ?? "") || atmosphere.NOTICE_TEXTS.unknownChannel;
   return sanitizeDisplayName(user.first_name ?? "") || atmosphere.NOTICE_TEXTS.unknownUser;
 }
 
 /**
- * 命令回执里的发起人标签。命令消息既无 `sender_chat`/频道 `chat` 也无 `from` 而拿不到发起人时，
- * 退化为氛围文案里的「未知发起人」措辞；其余情况与 formatUserLabel 一致。
+ * 生成命令回执中的发起人标签；消息缺失可用发送者身份时返回氛围文案的「未知发起人」兜底称呼。
  * @param actor 已解析的发起人；消息不带可用发送者身份时为 undefined。
  * @param atmosphere 本进程的氛围文案。
  * @returns 发起人显示标签或未知发起人兜底文案。
@@ -30,13 +26,9 @@ export function formatActorLabel(actor: CachedUser | undefined, atmosphere: Atmo
 }
 
 /**
- * 接受裸 id 的管理命令回执里的目标标签。
- *
- * 目标带有 `username`、`first_name` 或 `title` 任一字段时直接复用 formatUserLabel；
- * 仅含裸 id 的最小身份（按裸 id 执行命令且缓存未命中）则按氛围文案的 userIdLabel /
- * channelIdLabel 格式化为带 id 的称呼。`/gag`、`/ungag`、`/delete_message`、
- * `/block disable`、`/permission` 与 `/white` 都接受负数 id，回执据此区分用户与频道，
- * `/block disable` 还据此选择对应的解封接口。
+ * 生成接受裸 ID 的管理命令回执目标标签：
+ * - 带有 `username`、`first_name` 或 `title` 任一字段时复用 `formatUserLabel`；
+ * - 仅含裸 ID 的最小身份时按 `isChannel` 格式化为带频道或用户 ID 的称呼。
  * @param user 目标用户或频道身份；接受仅含 id（及可选 isChannel）的最小身份。
  * @param atmosphere 本进程的氛围文案。
  * @returns 优先带用户名或名称、无名称字段时带 ID 的目标显示标签。

@@ -1,3 +1,4 @@
+/** `packages/cache/` 线程归属头注与豁免登记反向核对门禁测试。 */
 import { describe, expect, test } from "bun:test";
 import {
   collectCacheOwnerHeaderProblems,

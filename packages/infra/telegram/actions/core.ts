@@ -138,7 +138,7 @@ export interface RunPermissionAwareTelegramActionParams {
   signal?: AbortSignal;
   /**
    * 领域先认领这次错误：返回 true 表示已经归类完毕，本函数不再按权限解释、
-   * 也不记 API 错误日志。`/batch_kick` 的「目标本来就不在群」就是这种结局。
+   * 也不记 API 错误日志（如 `/batch_kick` 认领「目标已不在群」）。
    */
   claimError?: (error: unknown) => boolean;
 }

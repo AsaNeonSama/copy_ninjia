@@ -1,3 +1,7 @@
+/**
+ * 单轮 AI 回复的用户侧提示词分段组装器：结合中期摘要、逐字热区转录与触发上下文，
+ * 生成 `referenceMemory`、`currentConversation`（含前缀缓存稳定切点）与 `replyTask` 三个区块。
+ */
 import type { BoundedDeque } from "../../libs/boundedDeque";
 import {
   buildColdMemoryBlock,

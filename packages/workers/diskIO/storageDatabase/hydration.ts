@@ -1,3 +1,6 @@
+/**
+ * 共享 SQLite 启动两阶段恢复：第一阶段只读全库严格校验（`inspect`），第二阶段打开唯一可写连接并水合快照（`adopt`）。
+ */
 import {
   removalRowTargets,
   resetStorageDatabaseCache,

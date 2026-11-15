@@ -12,6 +12,7 @@ import {
   deleteEphemeralMessageWithOutcome,
   editMessageText,
   kickChatMemberWithOutcome,
+  muteChatMemberPermanentlyWithOutcome,
   muteChatMemberWithOutcome,
   probeChatAdmin,
   probeChatMembership,
@@ -541,6 +542,25 @@ describe("Telegram 常规动作封装", () => {
       "restrictChatMember",
       {}
     )))).toBe("failed");
+  });
+
+  test("永久禁言收走全部发言权限，不带 until_date，并区分权限拒绝", async () => {
+    const restrictMock = mock(async (..._args: unknown[]) => true as const);
+    const api = { restrictChatMember: restrictMock } as unknown as TelegramApi;
+
+    expect(await muteChatMemberPermanentlyWithOutcome({ chatId: -1001, userId: 7, api })).toBe("muted");
+    // 第四个实参是空 other：Telegram 按永久限制处理。
+    expect(restrictMock).toHaveBeenCalledWith(-1001, 7, MUTED_CHAT_PERMISSIONS, {}, undefined);
+
+    restrictMock.mockImplementationOnce(async (): Promise<true> => {
+      throw new GrammyError(
+        "Call to 'restrictChatMember' failed!",
+        { ok: false, error_code: 400, description: "Bad Request: not enough rights to restrict/unrestrict chat member" },
+        "restrictChatMember",
+        {}
+      );
+    });
+    expect(await muteChatMemberPermanentlyWithOutcome({ chatId: -1001, userId: 7, api })).toBe("forbidden");
   });
 
   test("解除禁言发还全部发言权限，不带 until_date", async () => {

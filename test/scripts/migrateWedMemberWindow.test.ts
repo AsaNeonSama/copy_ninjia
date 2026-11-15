@@ -1,3 +1,4 @@
+/** `migrate:wed-member-window` 冷迁移脚本的正常滑窗截断、中断保留与非法输入拒绝测试。 */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdirSync, symlinkSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";

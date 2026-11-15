@@ -86,14 +86,14 @@ curl -fsSL https://raw.githubusercontent.com/AsaNeonSama/copy_ninjia/master/inst
 
 > [!TIP]
 > **Installer Flow & Safeguards** (matches `install.sh` step indicators; see [07 Operations](07-operations.md)):
-> 1. **Platform Check**: Verifies a Linux environment, readable `/proc`, and a controlling terminal (`/dev/tty`).
-> 2. **Target Repository & Binary Resolution**: Checks the script directory, current directory, and target directory for an existing installation; otherwise clones the latest Release tag or downloads and verifies the platform-matched binary bundle (x64/arm64, glibc/musl).
+> 1. **Platform Check**: Verifies a Linux environment, readable `/proc`, and an interactive terminal (`/dev/tty`).
+> 2. **Target Repository & Binary Resolution**: Checks the script directory, current directory, and target directory for an existing deployment; otherwise clones the latest Release tag or downloads and SHA-256-verifies the platform-matched binary bundle (x64/arm64, glibc/musl).
 > 3. **Toolchain & Bun**: Ensures the pinned Bun version (`packageManager` in `package.json`) is installed in source mode, or uses the bundled binary in binary mode.
 > 4. **Dependencies**: Runs `bun install --frozen-lockfile` in source mode (skipped in binary mode).
-> 5. **Configuration Directory Layout**: Rejects misplaced files or legacy global state/database files, then copies only missing configuration templates (`agent.json`, `g-auth.json`, and `cron.json` are left for interactive/manual setup; existing files are never overwritten).
-> 6. **Interactive Configuration Wizard**: Prompts for required `config/static/bot.json` fields and, when `config/dynamic/agent.json` is absent, walks through each AI capability (including custom `base_url` endpoints). Modifying existing configs takes an external backup first and atomically replaces files only after strict validation passes.
-> 7. **Database Initialization**: Verifies `database/storage.sqlite` in read-only mode against `bot.json`'s `time_zone` if it already exists, or initializes a fresh schema and writes the time-zone marker.
-> 8. **Service Registration & Health Check**: Configures and starts `copy-ninjia.service` under systemd (or runs in the foreground when systemd is unavailable), verifies `active/running` status without restart loops or abnormal exits, and cleans up the temporary backup.
+> 5. **Configuration Directory Layout**: Enforces the three-level `config/` directory whitelist (`config/` allows only `static/` and `dynamic/`, and each subdirectory allows only its declared files; legacy files such as `ad_samples.json`, misplaced entries, hidden/backup/swap files, or root-level `state.json`/`storage.sqlite` abort immediately). Copies only missing templates without overwriting existing files (`agent.json`, `g-auth.json`, and `cron.json` are left for wizard or manual setup).
+> 6. **Interactive Configuration Wizard**: Prompts for required `config/static/bot.json` fields and, when `config/dynamic/agent.json` is absent, walks through each AI capability (including custom `base_url` endpoints). Edits to existing configs take an external backup first and atomically replace files only after strict validation passes.
+> 7. **Database Initialization**: Validates an existing `database/storage.sqlite` in read-only mode against `bot.json`'s `time_zone`, or bootstraps a fresh schema and stamps the time-zone marker.
+> 8. **Service Registration & Health Check**: Registers and starts `copy-ninjia.service` under systemd (or runs in the foreground when systemd is unavailable), confirms `active/running` status without restart loops or non-zero exits, and cleans up the temporary backup.
 
 ### Manual Source Installation
 
@@ -130,7 +130,7 @@ Core bot credentials and administrator ownership are declared in `config/static/
   - The Telegram numeric user ID of the primary operator.
   - **Privilege Boundary**: Holds all system permissions inherently. Does not need to be added to the SQLite allowlist table.
   - **Exemption Protections**: Completely exempt from rate limits and cooldowns (copying, image generation, etc.). Cannot be targeted by `/block`, `/mute`, `/delete_message`, `/batch_kick`, or AI `abuse_mark`.
-  - **Exclusive Authority**: Commands like `/init`, `/batch_kick`, `/delete_message`, `/permission` assignments, `/white disable`, and `/send` are strictly restricted to this user ID.
+  - **Exclusive Authority**: Commands such as `/init`, `/batch_kick`, `/delete_message`, `/permission` assignments, `/white disable`, private `/send` relays, and the Mini App management console are restricted exclusively to this user ID.
 - **`atmosphere`** (optional, enum: `"mesugaki"` | `"normal"`)
   - Sets the communication tone for system notices, menus, and help messages (`mesugaki` for teasing tone, `normal` for clean/restrained tone).
   - Explicit configuration takes precedence. If omitted, custom personas use `normal` tone by default, while the built-in persona uses `mesugaki`.
@@ -139,9 +139,13 @@ Core bot credentials and administrator ownership are declared in `config/static/
   - Trimmed and case-normalized via Temporal (aliases are preserved).
   - **Data Root Binding**: The initial setup permanently stamps this time zone into `database/storage.sqlite`. Changing `time_zone` on an existing data root will be rejected at startup to prevent time-series corruption.
 - **`mini_app`** (optional, object: `{ url: string, port: number, host?: string, password: string }`)
-  - Configures the SuperAdmin-exclusive Telegram Mini App management console; when omitted, no HTTP server, routes, or private-chat menu button are registered.
-  - **Field Requirements**: `url` is the required public `https://` URL (supports subpath prefixes); `port` is the required local listening port (an integer in `MINI_APP_PORT_MIN`–`MINI_APP_PORT_MAX`, set to `3000` in the example config); `host` is optional and defaults to `MINI_APP_DEFAULT_HOST` (`"127.0.0.1"`); `password` is the required first-screen access password (non-placeholder string containing at least 6 digits `0-9`; remove the `mini_app` section when copying from `config_example/` manually without using the Mini App).
-  - **Runtime & Authentication**: Starts a local `Bun.serve` HTTP console, attaches `MenuButtonWebApp` (`App`) to the SuperAdmin's private chat, enforces two-tier authentication (`initData` signature + first-screen credential), and supports optional Google Authenticator TOTP binding persisted at `memory/mini-app-totp/totp.json`. See [11 Mini App Setup and Recommended Configuration](11-mini-app.md) for full setup, Cloudflare Tunnel configuration, session renewal/lockout rules, and TOTP binding.
+  - Configures the SuperAdmin-only Telegram Mini App management console. When omitted, no HTTP server, routes, or private-chat menu button are registered.
+  - **Fields**:
+    - `url` (required): Public `https://` URL (subpath prefixes supported).
+    - `port` (required): Local listening port (`MINI_APP_PORT_MIN`–`MINI_APP_PORT_MAX` integer; `3000` in the example config).
+    - `host` (optional): Local bind address, defaulting to `MINI_APP_DEFAULT_HOST` (`"127.0.0.1"`).
+    - `password` (required): First-screen access password (non-placeholder string containing at least 6 digits `0-9`; remove the `mini_app` section if copying `config_example/static/bot.json` manually without enabling the Mini App).
+  - **Runtime & Authentication**: Starts a local `Bun.serve` HTTP console, attaches `MenuButtonWebApp` (`App`) to the SuperAdmin's private chat, enforces two-tier authentication (`initData` signature + first-screen credential), and supports optional Google Authenticator TOTP 2FA persisted at `memory/mini-app-totp/totp.json`. See [10 Mini App Setup and Recommended Configuration](10-mini-app.md).
 
 ---
 
@@ -159,7 +163,7 @@ config/
     ├── assets.json         # Paths for avatars, thumbnails, and dedicated image library
     ├── stickers.json       # Whitelisted sticker packs
     ├── mood.json           # AI mood tiers and weight distribution
-    ├── ad_samples.json     # Reference spam and advertisement text samples
+    ├── ad_detect.json      # Ad punishment, reference ad samples, and sticker/emoji blacklists
     └── cron.json           # Scheduled tasks and periodic broadcasts (optional)
 ```
 
@@ -188,8 +192,14 @@ config/
 - **`config/dynamic/mood.json`** ([Example](../../config_example/dynamic/mood.json))
   - Configures the AI mood tiers `moods`. Each mood defines a `name`, positive integer `weight`, and character `instruction`. Weights must strictly sum to `MOOD_WEIGHT_TOTAL`.
 
-- **`config/dynamic/ad_samples.json`** ([Example](../../config_example/dynamic/ad_samples.json))
-  - Provides reference text samples for few-shot spam classification. Each entry must not exceed `AD_SAMPLE_MAX_CHARS` characters, up to `MAX_CONFIGURED_AD_SAMPLES` entries.
+- **`config/dynamic/ad_detect.json`** ([Example](../../config_example/dynamic/ad_detect.json))
+  - Configures ad disposal, few-shot classifier samples, and fast-path pack blacklists:
+    - `punishment`: Disposal applied after an ad verdict, specifying **exactly one** of `mute` or `kick`:
+      - `mute`: Mutes the sender in the triggering chat — permanently when `permanent: true`, or for `duration` otherwise.
+      - `kick`: Removes the sender from the triggering chat — without banning when `block: false`, or banning either in that chat only (`block_scope: "chat"`) or across all managed chats via the permanent blocklist (`block_scope: "global"`).
+      - Channel identities have only their offending messages deleted under every setting except a `"global"` block.
+    - `samples`: Few-shot reference texts for the AI ad classifier. After whitespace normalization and trimming, each entry must be non-empty, at most `AD_SAMPLE_MAX_CHARS` characters, and unique (up to `MAX_CONFIGURED_AD_SAMPLES` entries).
+    - `sticker_black_list` & `emoji_black_list`: Blacklisted sticker pack and custom emoji pack short names, checked in that order **before** AI classification. Trimmed entries must match `STICKER_PACK_NAME_PATTERN` and be unique (up to `MAX_CONFIGURED_AD_BLACKLIST_PACKS` per list); any match skips the AI classifier and applies `punishment` directly.
 
 - **`config/dynamic/agent.json`** ([Example](../../config_example/dynamic/agent.json))
   - Declares all AI model capabilities under the top-level `agent` object. Each capability is isolated and configured independently:

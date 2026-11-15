@@ -1,3 +1,4 @@
+/** `install.sh` 产物通过生产启动总闸与运行时数据目录权限校验测试。 */
 import { afterEach, describe, expect, test } from "bun:test";
 import { lstatSync, mkdirSync, symlinkSync } from "node:fs";
 import type { Stats } from "node:fs";

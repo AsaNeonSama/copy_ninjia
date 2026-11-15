@@ -1,3 +1,4 @@
+/** `install.sh` 交互配置问卷、凭据输入校验与配置生成端到端测试。 */
 import { afterEach, describe, expect, test } from "bun:test";
 import { chmodSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";

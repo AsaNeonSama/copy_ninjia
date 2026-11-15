@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import type { Bot } from "grammy";
 import { registerCommandMenu } from "../../packages/app/commandMenu";
 import { chatStateCache } from "../../packages/cache/main/chatState";
-import { getOrCreateChatState } from "../../packages/infra/storage/stateStore";
+import { getOrCreateChatState } from "../../packages/infra/chatStateStorage";
 import { ATMOSPHERE_TEXTS } from "../../packages/consts/atmosphere";
 import { BOT_COMMANDS } from "../../packages/consts/atmosphere/teasing/commands";
 import { logger } from "../../packages/infra/logger";

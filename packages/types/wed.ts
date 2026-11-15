@@ -19,7 +19,7 @@ export interface WedSession {
   busy: boolean;
 }
 
-/** 在途头像查询；按群记录新发言，防止旧查询结论删除新观察到的候选。 */
+/** 在途头像探测状态；按群记录探测期间观测到该成员新发言的群 ID，探测结算时跳过这些群的候选移除。 */
 export interface WedAvatarProbe {
   readonly observedChats: Set<number>;
 }

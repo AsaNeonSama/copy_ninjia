@@ -60,7 +60,7 @@ Telegram 官方仅对 ASCII 字符开头的命令自动生成 `bot_command` 实�
 - **手动补齐前置检查**：因为中文动作命令注册在全自动流水线之前，Handler 内部需要主动调用 `isBotOwnMessage`、`needsBotOwnMessageWait` 与 `waitForBotOwnMessage` 处理机器人自身发出的消息，并通过 `updateCachedIdentity` 刷新发送者的本地身份缓存。
 - **消息保留与自删规则**：动作成功后的回复需要长期保留，调用 `sendCommandMessage` 时需显式指定 `preserveInGroup: true` 并传入当前触发话题 `messageThreadId`；若参数不合法或用户触发 `/x` 用法提示，则走默认的 `COMMAND_MESSAGE_AUTO_DELETE_MS` 自动删除。
 - **菜单展示与占位命令**：由于 Telegram 客户端菜单只支持 ASCII 字符，我们在菜单中使用 ASCII 占位符 `/x` 作为中文动作命令的用法展示，并专门注册 `handleCjkActionUsageCommand` 回复使用说明。
-- **滑动窗口限流**：由于无法依赖 Telegram 原生菜单约束，中文命令极易被连续刷屏。必须配合滑动窗口限流机制（通过 `libs/slidingWindowRateLimit.ts` 结合 `CJK_ACTION_RATE_LIMIT_WINDOW_MS` 和 `CJK_ACTION_RATE_LIMIT_MAX_CALLS_PER_WINDOW`）限制单群调用频率。
+- **滑动窗口限流**：通过 `libs/slidingWindowRateLimit.ts` 结合 `CJK_ACTION_RATE_LIMIT_WINDOW_MS`、`CJK_ACTION_RATE_LIMIT_MAX_CALLS_PER_WINDOW` 与 `packages/cache/main/cjkAction.ts`（`tryConsumeCjkActionRateLimit`）限制全实例全局调用频率，超额请求直接静默丢弃。
 
 ---
 
@@ -81,7 +81,7 @@ Telegram 发送富文本支持 MarkdownV2 与 Entities 两种机制，二者在�
 
 ## 换成别的语言：不做 i18n，请自行 fork
 
-系统所有面向用户的固定文案与提示均为简体中文，`packages/consts/atmosphere/` 下提供了“调侃/雌小鬼风格（teasing）”与“常规克制风格（plain）”两套实现。
+系统所有面向用户的固定文案与提示均为简体中文，`packages/consts/atmosphere/` 下提供了“调侃/雌小鬼风格（teasing）”与“常规克制风格（plain）”两套实现。Mini App 控制台界面不在此列：前端三语文案（`packages/mini-app-frontend/i18n/`）固定使用雌小鬼语气，不随 `atmosphere` 切换。
 
 - 固定提示与格式化函数统一由文案字典维护，Telegram entities 偏移量基于最终渲染生成的文本计算。
 - 动作命令（如 `/咬`）的匹配词与回复模版独立存储。
@@ -161,7 +161,7 @@ Telegram 发送富文本支持 MarkdownV2 与 Entities 两种机制，二者在�
 - **语音工具说明**：内置说明位于 `packages/consts/aiChat/prompts/tools.ts` 的 `VOICE_LANGUAGE_PROMPTS`（内含中、英、日三版）；在项目根目录放置 `prompt/voice_tool.md` 后，重启即可完整覆盖 `send_voice` 工具的主体描述，参数与文案仍根据 `bot_language` 选取。模板参考 [`prompt_example/voice_tool.md`](../../prompt_example/voice_tool.md)。
 - **提示词示例校验**：`prompt_example/` 随版本一起分发，测试 `test/config/promptExamples.test.ts` 会严格校验示例能被 `loadPromptFile` 解析。`voice_tool.md` 中的额度、单轮上限与字符限制必须与代码常量保持一致，语言必须与 `config_example/dynamic/agent.json` 的 `bot_language` 保持一致。调整相关常量时需同步更新示例。
 - **配置文件分层**：开发时只修改被 Git 忽略的 `config/` 真实文件；`config_example/` 仅用作格式参照，不得直接作为工作数据。
-  - `config/dynamic/` 下的文件支持运行时热重载（`assets.json`、`ad_samples.json`、`agent.json`、`mood.json`、`stickers.json`、`cron.json`）。
+  - `config/dynamic/` 下的文件支持运行时热重载（`assets.json`、`ad_detect.json`、`agent.json`、`mood.json`、`stickers.json`、`cron.json`）。
   - `config/static/` 下的文件修改后需要重启进程生效（`bot.json`、`g-auth.json`）。
 - **表情与黑白名单**：AI 允许发送的表情符号由常量 `AI_REACTION_EMOJIS` 约束。黑名单与权限白名单权威存储在 SQLite 数据库中，不通过 JSON 文件维护。
 
@@ -169,10 +169,11 @@ Telegram 发送富文本支持 MarkdownV2 与 Entities 两种机制，二者在�
 
 ## 新增部署 JSON 配置
 
-1. 在 `packages/config/<domain>.ts` 中为新增配置编写严格的解析与校验逻辑（明确必填/可选字段、取值范围，严禁忽略未声明的未知字段）。
-2. 在 `config_example/static/` 或 `config_example/dynamic/` 中补充对应的脱敏示例文件，并同步更新三语的 `config_example/README/` 说明。
-3. 如果配置需要支持动态热重载，在 `packages/config/reload.ts` 中注册重载逻辑与广播通知机制。
-4. 同步更新三语环境搭建文档中的配置说明。
+1. **声明路径、目录白名单与严格解析器**：在 [`packages/consts/paths.ts`](../../packages/consts/paths.ts) 中声明路径常量，在 [`packages/config/layout.ts`](../../packages/config/layout.ts) 的 `STATIC_ALLOWED_NAMES` 或 `DYNAMIC_ALLOWED_NAMES` 三级目录白名单中登记文件名，并在 `packages/config/<domain>.ts` 中编写严格的 schema 解析与校验逻辑（明确必填/可选字段与取值范围，严禁忽略未声明的未知字段）。
+2. **接入启动预检与测试预加载**：在 [`packages/config/readiness.ts`](../../packages/config/readiness.ts) 的 `validateExistingDeploymentInputs` 中接入启动校验；若测试沙盒需要默认挂载该配置快照，同步更新 [`test/preloadEnv.ts`](../../test/preloadEnv.ts) 与 [`test/preload.ts`](../../test/preload.ts)。
+3. **补充模板与安装器规则**：在 `config_example/static/` 或 `config_example/dynamic/` 中补充脱敏示例文件并更新三语 `config_example/README/` 说明；若示例含占位凭据或虚拟会话 ID、首次运行 `install.sh` 时不应自动复制，同步在 [`scripts/install/runtime.sh`](../../scripts/install/runtime.sh) 的模板循环中跳过该文件名。
+4. **接入动态热重载**：若归属 `config/dynamic/`，同时在 [`packages/config/reload.ts`](../../packages/config/reload.ts) 与 [`packages/app/configReload.ts`](../../packages/app/configReload.ts) 中注册重载读取、Worker 快照推送与功能就绪状态（readiness）重算逻辑。
+5. **同步环境搭建文档**：更新三语 `01-getting-started.md` 中的配置说明。
 
 ---
 

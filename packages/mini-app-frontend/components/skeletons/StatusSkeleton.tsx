@@ -5,13 +5,13 @@ import {
 } from "../../consts/miniApp";
 
 /**
- * 渲染实时状态页专属骨架屏（1:1 对应顶部 5 项指标卡、CPU 环形图、全宽三栏内存进度卡与 6 项默认收起的能力折叠行）。
+ * 渲染实时状态页加载骨架屏（对应顶部 5 项指标卡、CPU 仪表环、三栏内存进度卡与 6 项子系统能力折叠行）。
  *
  * @returns React 节点
  */
 export function StatusSkeleton(): React.JSX.Element {
   return (
-    <div className="skeleton-detail-wrap" aria-busy="true">
+    <div className="skeleton-detail-wrap" aria-busy="true" aria-hidden="true">
       <div className="card">
         <div className="skeleton-row-between">
           <div
@@ -30,8 +30,8 @@ export function StatusSkeleton(): React.JSX.Element {
               style={{ width: "52%", height: "11px" }}
             />
             <div
-              className="skeleton-line"
-              style={{ width: "68%", height: "20px", borderRadius: "6px" }}
+              className="skeleton-line skeleton-stat-value"
+              style={{ width: "68%" }}
             />
             <div
               className="skeleton-line"
@@ -46,8 +46,8 @@ export function StatusSkeleton(): React.JSX.Element {
                   style={{ width: "58%", height: "11px" }}
                 />
                 <div
-                  className="skeleton-line"
-                  style={{ width: "64%", height: "20px", borderRadius: "6px" }}
+                  className="skeleton-line skeleton-stat-value"
+                  style={{ width: "64%" }}
                 />
                 <div
                   className="skeleton-line"
@@ -63,8 +63,8 @@ export function StatusSkeleton(): React.JSX.Element {
               style={{ width: "56%", height: "11px" }}
             />
             <div
-              className="skeleton-line"
-              style={{ width: "42%", height: "20px", borderRadius: "6px" }}
+              className="skeleton-line skeleton-stat-value"
+              style={{ width: "42%" }}
             />
             <div
               className="skeleton-line"
@@ -77,8 +77,8 @@ export function StatusSkeleton(): React.JSX.Element {
               style={{ width: "54%", height: "11px" }}
             />
             <div
-              className="skeleton-line"
-              style={{ width: "38%", height: "20px", borderRadius: "6px" }}
+              className="skeleton-line skeleton-stat-value"
+              style={{ width: "38%" }}
             />
             <div
               className="skeleton-line"
@@ -97,12 +97,12 @@ export function StatusSkeleton(): React.JSX.Element {
               />
             </div>
             <div
-              className="skeleton-line"
-              style={{ width: "48%", height: "20px", borderRadius: "6px" }}
+              className="skeleton-line skeleton-stat-value"
+              style={{ width: "48%" }}
             />
             <div
               className="skeleton-line"
-              style={{ width: "100%", height: "6px" }}
+              style={{ height: "6px" }}
             />
             <div
               className="skeleton-line"
@@ -118,36 +118,18 @@ export function StatusSkeleton(): React.JSX.Element {
                       className="skeleton-line"
                       style={{ width: "56%", height: "10px" }}
                     />
-                    <div
-                      className="skeleton-line"
-                      style={{
-                        width: "74%",
-                        height: "15px",
-                        borderRadius: "5px",
-                      }}
-                    />
+                    <div className="skeleton-line skeleton-memory-value" />
                   </div>
                 )
               )}
             </div>
             <div className="memory-bar-section">
-              <div
-                className="skeleton-line"
-                style={{ width: "100%", height: "10px" }}
-              />
+              <div className="skeleton-line" />
               <div className="memory-legend-grid">
                 {MINI_APP_STATUS_SKELETON_MEMORY_INDICES.map(
                   (idx: number): React.JSX.Element => (
                     <div key={idx} className="memory-legend-item">
-                      <div
-                        className="skeleton-line"
-                        style={{
-                          width: "7px",
-                          height: "7px",
-                          borderRadius: "50%",
-                          flexShrink: 0,
-                        }}
-                      />
+                      <div className="skeleton-line skeleton-legend-dot" />
                       <div
                         className="skeleton-line"
                         style={{ width: "44%", height: "10px" }}
@@ -158,6 +140,7 @@ export function StatusSkeleton(): React.JSX.Element {
                           width: "36%",
                           height: "10px",
                           marginLeft: "auto",
+                          marginRight: "3px",
                         }}
                       />
                     </div>
@@ -181,21 +164,11 @@ export function StatusSkeleton(): React.JSX.Element {
             (idx: number): React.JSX.Element => (
               <div key={idx} className="cap-block skeleton-cap-row">
                 <div className="cap-header-main">
+                  <div className="skeleton-line skeleton-dot-chip" />
                   <div
-                    className="skeleton-line"
-                    style={{
-                      width: "8px",
-                      height: "8px",
-                      borderRadius: "50%",
-                      flexShrink: 0,
-                    }}
-                  />
-                  <div
-                    className="skeleton-line"
+                    className="skeleton-line skeleton-cap-title"
                     style={{
                       width: `${idx % 2 === 0 ? 44 : 54}%`,
-                      height: "13px",
-                      borderRadius: "5px",
                     }}
                   />
                   <div
@@ -208,15 +181,7 @@ export function StatusSkeleton(): React.JSX.Element {
                     className="skeleton-line skeleton-badge-pill"
                     style={{ width: "52px", height: "20px" }}
                   />
-                  <div
-                    className="skeleton-line"
-                    style={{
-                      width: "24px",
-                      height: "24px",
-                      borderRadius: "7px",
-                      flexShrink: 0,
-                    }}
-                  />
+                  <div className="skeleton-line skeleton-chevron-box" />
                 </div>
               </div>
             )

@@ -212,10 +212,9 @@ export function resolvePreviewCardScrollTarget(
 }
 
 /**
- * 解析折叠面板收起时的视口回落目标：当前滚动位置超过收起后的最大滚动距离时，滚动位置从收起开始按二次缓出回落，
- * 在最大滚动距离降到回落终点的那一进度（`settleProgress`）以零速度落到终点；任一帧的滚动位置都不超过当帧的最大滚动距离，
- * 浏览器不截断滚动位置，上下内容的速度全程连续。锚点为折叠容器自身，目标为其顶部下移回落量；
- * 回落量不超过 `MINI_APP_EXPAND_SCROLL_MIN_DELTA_PX` 或宿主缺少视口接口时返回 `null`。
+ * 解析折叠面板收起时的视口回落目标：
+ * 当前滚动位置超出收起后的最大可滚动距离时，以折叠容器自身为锚点按二次缓出同步回落，在页面最大可滚动距离降至终点的那一进度（`settleProgress`）以零速度落定，全程不超过当帧最大可滚动距离；
+ * 回落量不超过 `MINI_APP_EXPAND_SCROLL_MIN_DELTA_PX` 或宿主缺少视口滚动接口时返回 `null`。
  *
  * @param gridElement 收起中的折叠外层容器节点
  * @param removedHeightPx 本次收起将收掉的高度
@@ -254,7 +253,7 @@ export function resolveCollapseClampScrollTarget(
 }
 
 /**
- * 开始一次锚点跟滚：每次 `step` 读取锚点实时视口位置，按缓动进度把文档视口即时滚到使锚点位于
+ * 开始一次锚点跟滚：每次 `step` 读取锚点实时视口位置，按 `MINI_APP_FLIP_COLLAPSE_EASING_POINTS` 三次贝塞尔缓动进度把文档视口即时滚到使锚点位于
  * `fromTop → toTop` 插值处（插值方式见 `ViewportAnchorScrollTarget.settleProgress`）；期间用户触摸或滚轮输入即停止跟滚，把视口交还给用户。
  *
  * @param target 跟滚目标
@@ -296,7 +295,7 @@ export function startViewportAnchorScroll(
 }
 
 /**
- * 以折叠面板统一时长 `MINI_APP_FLIP_COLLAPSE_DURATION_MS` 与同一缓动曲线独立执行一次锚点跟滚（不伴随折叠动画时使用）。
+ * 以折叠面板统一时长 `MINI_APP_FLIP_COLLAPSE_DURATION_MS` 与 `MINI_APP_FLIP_COLLAPSE_EASING_POINTS` 三次贝塞尔缓动曲线独立执行一次锚点跟滚（不伴随折叠动画时使用）。
  *
  * @param target 跟滚目标
  * @returns 取消函数（停止逐帧滚动并移除用户输入监听）

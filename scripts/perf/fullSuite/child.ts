@@ -22,9 +22,7 @@ export interface SpawnChildOptions {
 }
 
 /**
- * 跑一个子进程并把 stdout 解析成 JSON。
- *
- * 以下情形都会抛出而不是返回部分结果：非零退出、超时、stdout 不是合法 JSON。
+ * 启动基准测量子进程并将 `stdout` 解析为 JSON；非零退出、超时或 `stdout` 非合法 JSON 时直接抛出错误。
  * @param options 子进程参数、环境变量覆盖、诊断标签、超时时间与 stderr 回调。
  * @returns 从子进程 stdout 解析出的结构化结果。
  */
@@ -59,7 +57,6 @@ export async function spawnJsonChild<TResult>({
   }
   const stdout: string = await stdoutPromise;
   const stderr: string = await stderrPromise;
-  // 超时先于退出码判定。
   if (timedOut) {
     throw new Error(
       `${label}: benchmark child exceeded ${timeoutMs} ms and was killed. ${stderr.trim()}`

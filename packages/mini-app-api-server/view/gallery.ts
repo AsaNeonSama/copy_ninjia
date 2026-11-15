@@ -26,7 +26,7 @@ import type {
   MiniAppGalleryPage,
   MiniAppGalleryUploadResult,
   ResolvedMiniAppGalleryFile,
-} from "../../types/miniApp";
+} from "../../types/miniApp/gallery";
 import type {
   RandomImageEntry,
   RandomImageGalleryCacheEntry,
@@ -35,7 +35,7 @@ import type {
 
 /**
  * 分页读取当前配置的图库目录（`getAssetConfig().randomHImageDirectory`）内的图片列表：
- * 直接按内存修改时间降序缓存（`randomImageGalleryCache`）切出当前页切片（不重复扫描或排序），再仅对当前页的图片文件执行 `lstat` 读取元数据；目录不存在或为空时原样返回空列表，不自动创建目录。
+ * 从按修改时间降序排列的内存缓存切出当前页后，仅对当前页图片执行 `lstat` 读取元数据；目录不存在或为空时返回空列表，不自动创建目录。
  * @param pageRaw 请求页码（从 1 开始，缺省为 1）。
  * @param pageSizeRaw 请求每页张数（缺省为 `MINI_APP_GALLERY_DEFAULT_PAGE_SIZE`）。
  * @returns 图库分页视图。
@@ -104,7 +104,7 @@ export async function listMiniAppGalleryPage(
 }
 
 /**
- * 解码并校验图库文件名，防止路径穿越、空串、隐藏文件或非法字符。
+ * 解码并校验图库文件名，拒绝路径穿越、空串、隐藏文件或非法字符。
  * @param rawFileName URL 路径参数或请求体中的原始文件名。
  * @returns 校验通过的文件名；解码失败或文件名不合法时返回 `null`。
  */
@@ -126,9 +126,9 @@ function normalizeSafeGalleryFileName(rawFileName: string): string | null {
 }
 
 /**
- * 校验并解析图库目录内的单张图片文件路径，防止路径穿越、隐藏文件读取或符号链接越权。
+ * 校验并解析图库目录内的单张图片文件路径，阻断路径穿越、隐藏文件读取与符号链接越权。
  * @param rawFileName URL 路径参数中的原始文件名。
- * @returns 通过安全校验的文件路径、MIME 与字节大小；文件不存在或文件名不合法时返回 `null`。
+ * @returns 通过安全校验的文件路径、MIME、字节大小与包含 `mtimeMs` 的 `ETag`；文件不存在或文件名不合法时返回 `null`。
  */
 export async function readMiniAppGalleryFile(
   rawFileName: string
@@ -147,7 +147,7 @@ export async function readMiniAppGalleryFile(
     filePath: entry.filePath,
     mimeType: entry.mimeType,
     sizeBytes: entry.sizeBytes,
-    etag: `"gallery-${decodedName}-${entry.sizeBytes}"`,
+    etag: `"gallery-${decodedName}-${entry.sizeBytes}-${entry.mtimeMs}"`,
   };
 }
 

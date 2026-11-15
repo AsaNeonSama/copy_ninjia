@@ -1,5 +1,7 @@
 import { memo, useEffect, useState } from "react";
 import type React from "react";
+import { useStore } from "zustand";
+import { useShallow } from "zustand/react/shallow";
 import { MINI_APP_SEARCH_DEBOUNCE_MS } from "../consts/miniApp";
 import { getMiniAppTranslations } from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
@@ -12,48 +14,73 @@ import {
 } from "../resource";
 import { useMiniAppStore } from "../store/app";
 import type { MiniAppUiStoreState } from "../store/app";
-import type { MiniAppIdentitiesStoreState } from "../store/identities";
+import type {
+  MiniAppIdentitiesStore,
+  MiniAppIdentitiesStoreState,
+} from "../store/identities";
 import type { MiniAppLanguage } from "../types/miniApp";
 import { AddModeButtonList } from "./AddModeButtonList";
 import { CollapseGrid } from "./animations/CollapseGrid";
 import { useClosingSnapshot } from "./animations/useDelayedUnmount";
 
+/** `IdentitySearchAndAddCard` 顶部搜索栏与折叠添加抽屉订阅的状态与动作切片。 */
+type IdentitySearchAndAddCardSlice = Pick<
+  MiniAppIdentitiesStoreState,
+  | "searchInput"
+  | "addMenuOpen"
+  | "idFormOpen"
+  | "idInput"
+  | "busyAction"
+  | "setSearchInput"
+  | "commitSearchQuery"
+  | "clearSearch"
+  | "toggleAddMenu"
+  | "selectAddMode"
+  | "closeIdForm"
+  | "setIdInput"
+  | "addById"
+>;
+
 /** `IdentitySearchAndAddCard` 组件属性参数。 */
 export interface IdentitySearchAndAddCardProps {
-  /** 黑白名单与权限矩阵状态仓库快照。 */
-  readonly state: MiniAppIdentitiesStoreState;
+  /** 黑白名单与权限矩阵状态仓库实例；卡片按切片自订阅。 */
+  readonly store: MiniAppIdentitiesStore;
 }
 
 /**
- * 比较搜索与添加卡片所需的状态切片是否一致，使防抖词提交、列表加载或展开/收起列表项的权限抽屉时不触发本卡片重渲染。
+ * 从黑白名单仓库提取顶部搜索与折叠添加卡片所需切片。
  *
- * @param prev 上一次属性
- * @param next 本次属性
- * @returns 状态切片未变化时返回 `true`
+ * @param state 黑白名单完整状态快照
+ * @returns 搜索与添加卡片切片
  */
-function areIdentitySearchAndAddCardPropsEqual(
-  prev: Readonly<IdentitySearchAndAddCardProps>,
-  next: Readonly<IdentitySearchAndAddCardProps>
-): boolean {
-  const a: MiniAppIdentitiesStoreState = prev.state;
-  const b: MiniAppIdentitiesStoreState = next.state;
-  return (
-    a.searchInput === b.searchInput &&
-    a.addMenuOpen === b.addMenuOpen &&
-    a.idFormOpen === b.idFormOpen &&
-    a.idInput === b.idInput &&
-    a.busyAction === b.busyAction
-  );
+function selectIdentitySearchAndAddCardSlice(
+  state: MiniAppIdentitiesStoreState
+): IdentitySearchAndAddCardSlice {
+  return {
+    searchInput: state.searchInput,
+    addMenuOpen: state.addMenuOpen,
+    idFormOpen: state.idFormOpen,
+    idInput: state.idInput,
+    busyAction: state.busyAction,
+    setSearchInput: state.setSearchInput,
+    commitSearchQuery: state.commitSearchQuery,
+    clearSearch: state.clearSearch,
+    toggleAddMenu: state.toggleAddMenu,
+    selectAddMode: state.selectAddMode,
+    closeIdForm: state.closeIdForm,
+    setIdInput: state.setIdInput,
+    addById: state.addById,
+  };
 }
 
 /**
- * 渲染黑白名单顶部的防抖搜索栏与折叠式三合一添加抽屉卡片（含按 ID 输入内联展开区）。
+ * 按切片订阅黑白名单仓库，渲染顶部的防抖搜索栏与折叠式三合一添加抽屉卡片（含按 ID 输入内联展开区）。
  *
- * @param props 组件属性
+ * @param props 状态仓库引用
  * @returns React 节点
  */
 function IdentitySearchAndAddCardView({
-  state,
+  store,
 }: IdentitySearchAndAddCardProps): React.JSX.Element {
   const language: MiniAppLanguage = useMiniAppStore(
     (uiState: MiniAppUiStoreState): MiniAppLanguage => uiState.language
@@ -73,7 +100,10 @@ function IdentitySearchAndAddCardView({
     closeIdForm,
     setIdInput,
     addById,
-  }: MiniAppIdentitiesStoreState = state;
+  }: IdentitySearchAndAddCardSlice = useStore(
+    store,
+    useShallow(selectIdentitySearchAndAddCardSlice)
+  );
   const [isComposing, setIsComposing]: [
     boolean,
     React.Dispatch<React.SetStateAction<boolean>>
@@ -231,7 +261,7 @@ function IdentitySearchAndAddCardView({
   );
 }
 
-/** 按搜索与添加抽屉相关状态切片浅比较跳过重渲染的顶部搜索与添加卡片。 */
+/** 仓库引用不变时跳过父级重渲染的顶部搜索与添加卡片（卡片内部按切片自订阅）。 */
 export const IdentitySearchAndAddCard: React.MemoExoticComponent<
   typeof IdentitySearchAndAddCardView
-> = memo(IdentitySearchAndAddCardView, areIdentitySearchAndAddCardPropsEqual);
+> = memo(IdentitySearchAndAddCardView);

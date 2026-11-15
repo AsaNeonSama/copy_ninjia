@@ -1,3 +1,4 @@
+/** 群聊 Telegram 提示统一延迟删除边界与豁免登记门禁测试。 */
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";

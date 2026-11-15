@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, jest, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, jest, mock, test } from "bun:test";
 import {
   LOCKDOWN_KICK_DEDUPE_MS,
   VERIFICATION_REVISION_CAPACITY,
@@ -15,9 +15,15 @@ import { verificationKey } from "../../../packages/libs/verificationKey";
 
 const workerEvents: AntiRaidWorkerEvent[] = [];
 const effects: VerificationEffect[] = [];
+const originalSelfDescriptor: PropertyDescriptor | undefined =
+  Object.getOwnPropertyDescriptor(globalThis, "self");
 Object.defineProperty(globalThis, "self", {
   configurable: true,
   value: { postMessage(event: AntiRaidWorkerEvent): void { workerEvents.push(event); } },
+});
+afterAll((): void => {
+  if (originalSelfDescriptor === undefined) Reflect.deleteProperty(globalThis, "self");
+  else Object.defineProperty(globalThis, "self", originalSelfDescriptor);
 });
 mock.module("../../../packages/workers/antiRaid/verificationEffects", () => ({
   runVerificationEffects: async (params: RunVerificationEffectsParams): Promise<void> => {

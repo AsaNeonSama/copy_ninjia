@@ -131,16 +131,13 @@ function findActiveGagSenderSession(
 }
 
 /**
- * 命令前的消息入口：被 gag 的活动目标发出的普通带文本/图注消息，以及失效或冒用的
- * gag inline 结果消息均在此认领并删除；活动目标通过本 bot 发出的合法 gag inline 消息
- * 与不含可删文本的纯媒体消息则放行（但仍更新话题与消息计数）。
- * 频道 inline 结果必须由主页标记与 `sender_chat.id` 同时绑定发言频道，并由 fragment 与
- * `message.chat.id` 同时绑定超级群；用户分支对应核对主页标记、群 ID 与 `from.id`。
+ * 群消息前置认领入口（挂载于 `app/updatePreamble.ts` 前置链）：
+ * - **认领与删除**：处于活动 gag 会话的目标发送的普通文本/带图注消息，以及跨群、过期或身份不匹配的
+ *   gag inline 结果消息，均在此处删除并认领（返回 `true`）。
+ * - **放行范围**：活动目标通过本机器人发出的合法 gag inline 发言（用户核对主页标记、群 ID 与 `from.id`；
+ *   频道核对主页标记、群 ID fragment 与 `sender_chat.id`）以及无文本纯媒体消息均放行（返回 `false`），同时更新话题与消息计数。
+ * - **同步快路径**：无会话且不含 gag inline 标记，或有会话但无需删除/到期结算的消息均同步返回 `false`，不分配 Promise。
  *
- * 认领判定全部同步完成，只有真要删消息或结束过期会话时才返回 Promise：本群没有会话、
- * 这条也不是本 bot 发出的旧 gag inline 结果时，判定只有一次 Map 查询与一次 via_bot/entity
- * 检查；本群有会话时，不认领的消息（非目标发言人等）同样同步返回 false。本 handler 挂在
- * 每条群消息之前（见 app/updatePreamble.ts 的前置链）。
  * @param message 入站消息对象。
  * @param botId 当前机器人用户 ID。
  * @returns 消息被 gag 认领并删除时返回 true，放行时返回 false（含异步收尾后的结果）。

@@ -1,3 +1,4 @@
+/** 常量目录字面量联合数组表 `exhaustiveList` 穷尽构造与子集白名单门禁测试。 */
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";

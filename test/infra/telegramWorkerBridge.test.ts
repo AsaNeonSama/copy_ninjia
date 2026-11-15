@@ -175,6 +175,11 @@ describe("Telegram Worker 双工代理", () => {
         payload: { chat_id: -1001, user_id: 7 },
       },
       {
+        method: "getCustomEmojiStickers",
+        args: [["emoji-1"], signal],
+        payload: { custom_emoji_ids: ["emoji-1"] },
+      },
+      {
         method: "getStickerSet",
         args: ["pack", signal],
         payload: { name: "pack" },
@@ -530,6 +535,7 @@ describe("主线程 Telegram Worker 能力边界", () => {
       { owner: "antiRaid", method: "deleteMessages" },
       { owner: "antiRaid", method: "getChatAdministrators" },
       { owner: "antiRaid", method: "getChatMember" },
+      { owner: "antiRaid", method: "getCustomEmojiStickers" },
       { owner: "antiRaid", method: "restrictChatMember" },
       { owner: "antiRaid", method: "setChatPermissions" },
       { owner: "antiRaid", method: "unbanChatMember" },

@@ -1,17 +1,20 @@
 import { NO_LOCKDOWN_EFFECTS } from "../../consts/antiRaid/lockdown";
 import {
-  announcementCleanupEffects,
+  appendAnnouncementCleanup,
   restoringOf,
   suppressRetrigger,
 } from "./shared";
 import type {
+  LockdownEffect,
   LockdownMachineEvent,
   LockdownState,
   LockdownTransition,
 } from "../../types/states/lockdown";
 
 /**
- * 本轮 intent 落盘成功：APPLYING 才允许改 Telegram，其余阶段释放等待中的动作。
+ * 本轮意图落盘成功：
+ * - `applying`（`prepared`）阶段派发 `commitApply` 收紧群权限；
+ * - `restoring` / `reconciling` 阶段释放等待落盘回执的恢复或重新收紧动作。
  * @param state 当前群聊的私密模式状态，未激活时为 undefined。
  * @param event 状态落盘成功回执事件。
  * @returns 释放等待动作后的状态转移结果。
@@ -49,8 +52,8 @@ export function handleStatePersisted(
 }
 
 /**
- * 本轮 intent 确定无法写入 SQLite：一律按故障安全策略放弃或解除私密模式并恢复群权限。
- * 提交未派发时撤销占位；可能在途或已生效的权限限制立即发起恢复，不再等待落盘回执。
+ * 本轮意图确定无法写入 SQLite：按故障安全策略放弃或解除私密模式并恢复群权限。
+ * 提交尚未派发时撤销占位；可能在途或已生效的权限限制立即发起恢复，不再等待落盘回执。
  * @param state 当前群聊的私密模式状态，未激活时为 undefined。
  * @param event 状态落盘失败通知事件。
  * @returns 执行故障安全撤销或立即恢复群权限的状态转移结果。
@@ -65,19 +68,18 @@ export function handlePersistFailed(
       return { next: state, effects: NO_LOCKDOWN_EFFECTS };
     }
     if (!state.commitStarted) {
+      const effects: LockdownEffect[] = [{ kind: "reportUnlock" }];
+      appendAnnouncementCleanup(effects, state);
+      effects.push(suppressRetrigger("persistFailed"));
       return {
         next: undefined,
-        effects: [
-          { kind: "reportUnlock" },
-          ...announcementCleanupEffects(state),
-          suppressRetrigger("persistFailed"),
-        ],
+        effects,
       };
     }
   }
   if (state.intentId !== event.intentId) return { next: state, effects: NO_LOCKDOWN_EFFECTS };
   if (state.kind === "restoring") {
-    // 本来就等着落盘回执去恢复：回执永远不会来了，直接恢复。
+    // 处于等待落盘回执的恢复阶段时直接发起权限恢复。
     if (!state.restoreAfterPersist) return { next: state, effects: NO_LOCKDOWN_EFFECTS };
     return {
       next: { ...state, restoreAfterPersist: false },

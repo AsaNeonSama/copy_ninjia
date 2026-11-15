@@ -1,11 +1,11 @@
+/**
+ * Anthropic Messages 响应解析辅助：提取文本、函数调用、检索次数与来源、回退摘要及脱敏收尾详情。
+ */
+
 import type Anthropic from "@anthropic-ai/sdk";
 import { EMPTY_FUNCTION_CALLS } from "../../consts/aiChat/tools";
 import { finishDetailsJson } from "../ai/utils/finishDetails";
 import type { AiFunctionCall, AiWebSearchSource } from "../../types/aiChat/provider";
-
-/**
- * Anthropic Messages 响应解析辅助：提取文本、函数调用、检索次数与来源、回退摘要及脱敏收尾详情。
- */
 
 /**
  * 拼接响应中全部 `text` 块的正文。

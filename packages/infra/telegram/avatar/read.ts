@@ -59,7 +59,7 @@ function startProfilePhotosRequest(targetId: number, signal?: AbortSignal): Prof
 }
 
 /**
- * 只复用与当前 ChatPhoto 匹配的用户头像；查询失败或历史未匹配时交回下载路径。
+ * 只复用与当前 ChatPhoto 匹配的用户头像；查询失败或头像列表未命中时交回下载路径。
  * @param request 已并发启动的用户头像列表请求。
  * @param current getChat 返回的当前头像标识。
  * @param signal 请求取消信号。

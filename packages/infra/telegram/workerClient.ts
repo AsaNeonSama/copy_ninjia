@@ -209,6 +209,13 @@ export const workerTelegramApi: TelegramWorkerApi = {
       payload: { chat_id: chatId, user_id: userId },
     }, asSignal(signal));
   },
+  getCustomEmojiStickers: (...args: Parameters<Api["getCustomEmojiStickers"]>): ReturnType<Api["getCustomEmojiStickers"]> => {
+    const [customEmojiIds, signal]: Parameters<Api["getCustomEmojiStickers"]> = args;
+    return requestCall({
+      method: "getCustomEmojiStickers",
+      payload: { custom_emoji_ids: customEmojiIds },
+    }, asSignal(signal));
+  },
   getStickerSet: (...args: Parameters<Api["getStickerSet"]>): ReturnType<Api["getStickerSet"]> => {
     const [name, signal]: Parameters<Api["getStickerSet"]> = args;
     return requestCall({ method: "getStickerSet", payload: { name } }, asSignal(signal));

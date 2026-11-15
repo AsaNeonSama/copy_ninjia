@@ -1,6 +1,7 @@
 import { memo, useRef, useState } from "react";
 import type React from "react";
 import { buildMiniAppGalleryImageUrl } from "../api/galleryFile";
+import { MINI_APP_HOVER_SUPPRESS_RELEASE_DELTA_PX } from "../consts/miniApp";
 import {
   blurEventCurrentTarget,
   formatGalleryFileSize,
@@ -61,10 +62,10 @@ function GalleryGridListView({
     string | null,
     React.Dispatch<React.SetStateAction<string | null>>
   ] = useState<string | null>(null);
-  const clickCoordsRef: React.RefObject<{
-    readonly x: number;
-    readonly y: number;
-  }> = useRef<{ readonly x: number; readonly y: number }>({ x: -1, y: -1 });
+  const clickCoordsRef: React.RefObject<{ x: number; y: number }> = useRef<{
+    x: number;
+    y: number;
+  }>({ x: -1, y: -1 });
 
   const clearHoverSuppressionOnLeave = (fileName: string): void => {
     if (
@@ -84,8 +85,10 @@ function GalleryGridListView({
       downloadingFileName === null &&
       deletingFileName === null &&
       suppressedHoverFileName === fileName &&
-      (Math.abs(event.clientX - clickCoordsRef.current.x) > 4 ||
-        Math.abs(event.clientY - clickCoordsRef.current.y) > 4)
+      (Math.abs(event.clientX - clickCoordsRef.current.x) >
+        MINI_APP_HOVER_SUPPRESS_RELEASE_DELTA_PX ||
+        Math.abs(event.clientY - clickCoordsRef.current.y) >
+          MINI_APP_HOVER_SUPPRESS_RELEASE_DELTA_PX)
     ) {
       setSuppressedHoverFileName(null);
     }
@@ -162,10 +165,8 @@ function GalleryGridListView({
                   event: React.MouseEvent<HTMLButtonElement>
                 ): void => {
                   event.stopPropagation();
-                  clickCoordsRef.current = {
-                    x: event.clientX,
-                    y: event.clientY,
-                  };
+                  clickCoordsRef.current.x = event.clientX;
+                  clickCoordsRef.current.y = event.clientY;
                   blurEventCurrentTarget(event);
                   handleCardDownload(item.fileName);
                 }}
@@ -192,10 +193,8 @@ function GalleryGridListView({
                   event: React.MouseEvent<HTMLButtonElement>
                 ): void => {
                   event.stopPropagation();
-                  clickCoordsRef.current = {
-                    x: event.clientX,
-                    y: event.clientY,
-                  };
+                  clickCoordsRef.current.x = event.clientX;
+                  clickCoordsRef.current.y = event.clientY;
                   blurEventCurrentTarget(event);
                   handleCardDelete(item.fileName);
                 }}

@@ -1,3 +1,7 @@
+/**
+ * 临时私密模式运行时与状态机解释器（Anti-Raid Worker 侧）：
+ * 驱动 `packages/states/lockdown.ts` 状态转移、管理到期与重试计时器、协调主线程 write-ahead 持久化回执并接管崩溃恢复快照（约束见 `docs/cn/04-invariants.md`）。
+ */
 import { workerAtmosphere } from "./atmosphere";
 import {
   nextLockdownIntentId,

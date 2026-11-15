@@ -5,7 +5,7 @@ import {
   BOT_MESSAGE_ACTIVITY_TTL_MS,
 } from "../consts/botMessage";
 import type { BotMessageActivity } from "../types/botMessage";
-import { getChatState } from "./storage/stateStore";
+import { getChatState } from "./chatStateStorage";
 import type { Message, User } from "grammy/types";
 
 /**

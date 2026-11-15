@@ -52,7 +52,10 @@ export const DISK_IO_FLUSH_TIMEOUT_MS: number = 15_000;
 export const DISK_IO_STORAGE_CLOSE_TIMEOUT_MS: number = 1_500;
 /** 正常停机等待全局状态文件写入的预算。 */
 export const STATE_FLUSH_TIMEOUT_MS: number = 3_000;
-/** 正常停机时头像、gag、问答表单、/wed、延迟命令、cron、目标消息待删、延迟删除与 Telegram 出站各 owner 的排空预算，也是等待后台维护收尾的预算（见 app/lifecycle/shutdown.ts 的 SHUTDOWN_DRAIN_OWNERS）。 */
+/**
+ * 正常停机时头像、gag、问答表单、/wed、延迟命令、cron、目标消息待删、延迟删除与 Telegram 出站
+ * 各 owner 的排空预算，也是等待后台维护收尾的预算（见 app/lifecycle/shutdown.ts 的 SHUTDOWN_DRAIN_OWNERS）。
+ */
 const BACKGROUND_MAINTENANCE_TIMEOUT_MS: number = 3_000;
 
 /** 单次 Google Translation RPC 的上限；也是正常停机时翻译排空与关闭客户端各自的预算（NORMAL_FLUSH_TIMEOUTS.translateMs）。 */

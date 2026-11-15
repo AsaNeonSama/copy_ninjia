@@ -13,8 +13,8 @@ export interface PutIdentityPolicyRowOptions {
 }
 
 /**
- * 写入一条原始名单行，绕过生产写入路径的编码与校验。只供损坏数据回归测试
- * 构造严格启动输入；生产代码没有「按表名写任意 data」这条入口。
+ * 绕过生产写入编码与校验，直接向名单表写入原始行数据。
+ * 仅供严格启动校验测试构造损坏或越界输入；生产代码不提供按表名写入任意 `data` 的入口。
  */
 export function putIdentityPolicyRow({
   database,

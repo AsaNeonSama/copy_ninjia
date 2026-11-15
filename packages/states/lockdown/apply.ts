@@ -1,13 +1,14 @@
 import { LOCKDOWN_MS, NO_LOCKDOWN_EFFECTS } from "../../consts/antiRaid/lockdown";
 import {
   activeOf,
-  announcementCleanupEffects,
+  appendAnnouncementCleanup,
   preparedOf,
   preparingOf,
   restoringOf,
   suppressRetrigger,
 } from "./shared";
 import type {
+  LockdownEffect,
   LockdownMachineEvent,
   LockdownState,
   LockdownTransition,
@@ -73,9 +74,12 @@ export function handleApplyPreparationFailed(
   if (state?.kind !== "applying" || state.stage !== "preparing") {
     return { next: state, effects: NO_LOCKDOWN_EFFECTS };
   }
+  const effects: LockdownEffect[] = [];
+  appendAnnouncementCleanup(effects, state);
+  effects.push(suppressRetrigger("preparationFailed"));
   return {
     next: undefined,
-    effects: [...announcementCleanupEffects(state), suppressRetrigger("preparationFailed")],
+    effects,
   };
 }
 
@@ -90,13 +94,12 @@ export function handleApplyCommitPreparationFailed(
   if (state?.kind !== "applying" || state.stage !== "prepared") {
     return { next: state, effects: NO_LOCKDOWN_EFFECTS };
   }
+  const effects: LockdownEffect[] = [{ kind: "reportUnlock" }];
+  appendAnnouncementCleanup(effects, state);
+  effects.push(suppressRetrigger("commitPreparationFailed"));
   return {
     next: undefined,
-    effects: [
-      { kind: "reportUnlock" },
-      ...announcementCleanupEffects(state),
-      suppressRetrigger("commitPreparationFailed"),
-    ],
+    effects,
   };
 }
 

@@ -1,3 +1,6 @@
+/**
+ * 入群验证终态执行许可请求桥（Anti-Raid Worker 侧）：经双工桥向主线程申请进程级验证终态动作的执行尝试配额。
+ */
 import { requestMainThread } from "../../libs/workerDuplex";
 import type {
   AntiRaidWorkerRequest,

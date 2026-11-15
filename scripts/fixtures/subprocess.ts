@@ -33,11 +33,8 @@ export interface CapturedTerminalCommandOptions extends CapturedCommandOptions {
 const TERMINAL_END_OF_INPUT: string = "\x04";
 
 /**
- * 以 Bun.spawn 运行命令，先开始读取 stdout 与 stderr，再等待退出，两路输出读完后返回。
- * 被信号结束时退出码为 128 加信号值。供测试与夹具收集外部命令的退出码和完整输出；
- * 不向子进程提供 stdin。
- *
- * 使用异步 Bun.spawn，不使用 Bun.spawnSync。
+ * 以异步 `Bun.spawn` 启动外部命令（关闭 `stdin`），并发读取 `stdout`/`stderr` 直至进程退出后汇总返回；
+ * 进程被信号终止时退出码按 `128 + 信号值` 换算。
  *
  * @param options 外部命令执行选项
  * @returns 包含退出码、标准输出与标准错误文本的结果对象

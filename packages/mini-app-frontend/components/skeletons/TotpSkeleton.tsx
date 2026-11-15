@@ -1,13 +1,13 @@
 import type React from "react";
 
 /**
- * 渲染验证器管理卡片首次加载时的骨架（标题、徽章、两行说明与操作按钮占位）。
+ * 渲染验证器管理卡片加载时的骨架占位（标题条、状态徽章、双行说明条与操作按钮占位）。
  *
  * @returns React 节点
  */
 export function TotpSkeleton(): React.JSX.Element {
   return (
-    <div className="card auth-gate-skeleton" aria-busy="true">
+    <div className="card auth-gate-skeleton" aria-busy="true" aria-hidden="true">
       <div className="skeleton-row-between">
         <div className="skeleton-line skeleton-title-bar" />
         <div className="skeleton-line skeleton-badge-pill" />

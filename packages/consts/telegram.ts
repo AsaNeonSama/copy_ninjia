@@ -40,8 +40,10 @@ export const AVATAR_FETCH_TIMEOUT_MS: number = 15_000;
 export const AVATAR_FETCH_MAX_ATTEMPTS: number = 3;
 /** 复制目标头像（Bot API 文件下载与 t.me 页面兜底）读入内存的最大字节数，与公开主页的上限各自独立。 */
 export const AVATAR_MAX_DOWNLOAD_BYTES: number = 10 * 1024 * 1024;
-/** 上传头像字节时附带的文件名（设置机器人静态头像、命令头像图与 /wed 结果图共用）。Bot API 只按字节内容
- *  判格式，这个名字仅出现在 multipart 的 filename 字段里。 */
+/**
+ * 上传头像字节时附带的文件名（设置机器人静态头像、命令头像图与 /wed 结果图共用）。
+ * Bot API 只按字节内容判格式，这个名字仅出现在 multipart 的 filename 字段里。
+ */
 export const BOT_PROFILE_PHOTO_FILE_NAME: string = "avatar.jpg";
 /** 上传 MP4 动态头像时附带的文件名，仅出现在 multipart 的 filename 字段里。所属模块：infra/telegram/avatar/shared.ts。 */
 export const BOT_PROFILE_ANIMATION_FILE_NAME: string = "avatar.mp4";
@@ -195,6 +197,12 @@ export const TELEGRAM_DOCUMENT_UPLOAD_MAX_BYTES: number = 50 * 1024 * 1024;
 export const TELEGRAM_DELETE_MESSAGES_BATCH_MAX: number = 100;
 
 /**
+ * `getCustomEmojiStickers` 单次能带的 custom_emoji_id 数上限，Bot API 官方上限（1..200）。
+ * 所属模块：packages/antiRaid/adCandidate.ts 与 packages/workers/antiRaid/adDetect/verdict.ts。
+ */
+export const TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS: number = 200;
+
+/**
  * 发送调度器全部聊天合计允许排队的发送请求数（不含各聊天在途的那一条）；超出即拒绝新请求。
  * 与 TELEGRAM_429_RETRY_QUEUE_MAX 分开计数。所属模块：infra/telegram/sendLane.ts 与 infra/telegram/sendScheduler.ts。
  */
@@ -205,7 +213,9 @@ export const TELEGRAM_MESSAGE_GLOBAL_PENDING_MAX: number = 8_192;
  * 取 TELEGRAM_MESSAGE_GLOBAL_PENDING_MAX 的固定倍数。非发送类在 outboundQueue 的退避域里等待，
  * 入队时按本值拒绝；发送类的 429 等待放回发送调度器的聊天车道队首，不按本值拒绝（已受
  * TELEGRAM_MESSAGE_GLOBAL_PENDING_MAX 约束），但同样计入 retryPendingCount，占用非发送类的额度。
- * 本值是内存硬顶，超出即拒绝并交还领域 owner，不承担持久化。所属模块：infra/telegram/outboundQueue.ts、infra/telegram/outboundLifecycle.ts、infra/telegram/outboundRetryPolicy.ts 与 mini-app-api-server/view/status.ts。
+ * 本值是内存硬顶，超出即拒绝并交还领域 owner，不承担持久化。
+ * 所属模块：infra/telegram/outboundQueue.ts、infra/telegram/outboundLifecycle.ts、
+ * infra/telegram/outboundRetryPolicy.ts 与 mini-app-api-server/view/status.ts。
  */
 export const TELEGRAM_429_RETRY_QUEUE_MAX: number = 4 * TELEGRAM_MESSAGE_GLOBAL_PENDING_MAX;
 /**

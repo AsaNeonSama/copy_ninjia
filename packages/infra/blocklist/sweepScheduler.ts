@@ -10,7 +10,7 @@ import {
   blocklistSweepState,
 } from "../../cache/main/blocklist";
 import { logger } from "../logger";
-import { getChatStateCache } from "../storage/stateStore";
+import { getChatStateCache } from "../chatStateStorage";
 import { hasAnyBlockedIdentity } from "../identityStorage";
 import { isManagedAdminChat, isSweepSlotFree } from "./sweepEligibility";
 import type { ChatState } from "../../types/chatState";

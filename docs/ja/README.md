@@ -43,8 +43,8 @@
 <p align="center">
   <a href="#pure-ai-development"><img src="https://img.shields.io/badge/Code-100%25_AI--written-e91e63?style=flat-square" alt="100% AI-written"></a>
   <a href="#pure-ai-development"><img src="https://img.shields.io/badge/Audits-Claude_/_Gemini_/_Grok-6d4aff?style=flat-square" alt="Audited"></a>
-  <a href="05-dev-workflow.md"><img src="https://img.shields.io/badge/Tests-7001_Passed-2ea44f?style=flat-square" alt="Tests"></a>
-  <a href="05-dev-workflow.md"><img src="https://img.shields.io/badge/Coverage-98.13%25-2ea44f?style=flat-square" alt="Coverage"></a>
+  <a href="05-dev-workflow.md"><img src="https://img.shields.io/badge/Tests-7200_Passed-2ea44f?style=flat-square" alt="Tests"></a>
+  <a href="05-dev-workflow.md"><img src="https://img.shields.io/badge/Coverage-97.58%25-2ea44f?style=flat-square" alt="Coverage"></a>
   <a href="../../LICENSES/LICENSE"><img src="https://img.shields.io/badge/License-MIT-007ec6?style=flat-square" alt="License: MIT"></a>
 </p>
 
@@ -62,48 +62,48 @@
 
 ## 🧬 純 AI 開発
 
-このリポジトリの production コード、テストケース、そして README 自体も、すべて AI が書いています：
+このリポジトリの本番コード、テストケース、そしてこの README 自体も、すべて AI が執筆しています：
 
 <table width="100%">
 <thead>
   <tr>
     <th width="18%" align="left">工程</th>
-    <th width="32%" align="left">担当者</th>
+    <th width="32%" align="left">担当</th>
     <th width="50%" align="left">役割</th>
   </tr>
 </thead>
 <tbody>
   <tr>
-    <td><nobr>📐 <b>設計</b></nobr></td>
+    <td><nobr>📐 <b>アーキテクチャ設計</b></nobr></td>
     <td><b>AsaNeonSama</b></td>
-    <td>システム境界、Worker 分割、永続化・復元戦略の決定</td>
+    <td>システム境界、マルチ Worker 分割、永続化および障害復旧戦略を設計・裁定</td>
   </tr>
   <tr>
     <td><nobr>⌨️ <b>実装</b></nobr></td>
     <td><b>Claude</b> · <b>Gemini</b> · <b>Grok</b></td>
-    <td>100% の production コード、テスト、ドキュメントを作成</td>
+    <td>本番業務コード、自動テストスイート、3 言語ドキュメントを 100% 作成</td>
   </tr>
   <tr>
-    <td><nobr>🧾 <b>レビュー</b></nobr></td>
+    <td><nobr>🧾 <b>コミットレビュー</b></nobr></td>
     <td><nobr><b>AsaNeonSama</b> × AI</nobr></td>
-    <td>全コミットを人間と AI が共同レビューしたうえで取り込み</td>
+    <td>すべてのコミットを人間と AI がペアで検証してからマージ</td>
   </tr>
   <tr>
-    <td><nobr>🔬 <b>監査</b></nobr></td>
+    <td><nobr>🔬 <b>全リポジトリ監査</b></nobr></td>
     <td><b>Claude</b> · <b>Gemini</b> · <b>Grok</b></td>
-    <td>リポジトリ全体の交差レビューを重ね、指摘項目を堅牢化コミットへ即時還元</td>
+    <td>リポジトリ全体の交差コード監査を重ね、検出事項を防御的コミットへ即時反映</td>
   </tr>
   <tr>
     <td><nobr>🛰️ <b>安全演習</b></nobr></td>
     <td>同上の先端モデル群</td>
-    <td>クラッシュ復元・競合・悪意ある入力・資源枯渇などのシナリオ演習をすべて通過</td>
+    <td>クラッシュ復旧、並行競合、悪意ある入力、リソース枯渇などの実運用シナリオを検証</td>
   </tr>
 </tbody>
 </table>
 
-毎回のコミットレビュー、先端モデルによるリポジトリ全体の監査、安全演習から得た知見を、新たな権威的不変条件としてコードへ直接反映しています。
+コミット単位の共同レビューからリポジトリ全体の交差監査・安全演習に至るまで、得られた知見はすべて実行時の正式な不変条件としてコードに定着させています。
 
-<p align="right"><sub><a href="#copy-ninjia">⬆️ ページ上部へ</a></sub></p>
+<p align="right"><sub><a href="#copy-ninjia">⬆️ トップへ戻る</a></sub></p>
 
 ## 🧪 プロジェクト品質
 
@@ -111,13 +111,13 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="../../public/coverage_dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="../../public/coverage_light.svg">
-    <img alt="bun run test:coverage — 7001 件のテストが全て成功 / テストファイル 588 件 / expect() 呼び出し 456,453 回 / 関数カバレッジ 97.57% / 行カバレッジ 98.13%" src="../../public/coverage_light.svg" width="780">
+    <img alt="bun run test:coverage — 7200 件のテストが全て成功 / テストファイル 605 件 / expect() 呼び出し 463,493 回 / 関数カバレッジ 96.85% / 行カバレッジ 97.58%" src="../../public/coverage_light.svg" width="780">
   </picture>
 </p>
 
-ベンチマークの計測値（コールド/ホットパス · 総スループットと総 I/O · エンドツーエンドのチェーン遅延）は **[📊 10 パフォーマンスベンチマーク](10-performance.md)** にあります。
+ベンチマークの計測値（コールド/ホットパス · 総スループットと総 I/O · エンドツーエンドのチェーン遅延）は **[📊 11 パフォーマンスベンチマーク](11-performance.md)** に掲載しています。
 
-<p align="right"><sub><a href="#copy-ninjia">⬆️ ページ上部へ</a></sub></p>
+<p align="right"><sub><a href="#copy-ninjia">⬆️ トップへ戻る</a></sub></p>
 
 <a id="features"></a>
 
@@ -163,7 +163,7 @@
 </td>
 <td align="left" valign="top" width="33%">
   <p><b>💒 グループ内抽選</b><br>
-  <sub>グループ内で発言歴のあるメンバーをランダムに抽選し、アバターを表示。</sub></p>
+  <sub>直近に発言したグループメンバーから相手をランダム抽選し、対話型カードでアバターを表示。</sub></p>
 </td>
 </tr>
 <tr>
@@ -177,7 +177,7 @@
 </td>
 <td align="left" valign="top" width="33%">
   <p><b>📮 広告検出</b><br>
-  <sub>連続メッセージを束ねて広告判定し、該当メッセージを即時削除・処分。</sub></p>
+  <sub>連続メッセージを束ねて広告判定し、該当メッセージを即時削除して、設定に応じて禁言・キック・BAN。</sub></p>
 </td>
 </tr>
 <tr>
@@ -205,17 +205,17 @@
 </td>
 <td align="left" valign="top" width="33%">
   <p><b>🎨 ペルソナと通知口調</b><br>
-  <sub>内蔵のメスガキ口調を <code>prompt/persona.md</code> で差し替え可能（<a href="../../prompt_example/persona.md">例</a>）。通知口調は明示設定を優先し、省略時はカスタム設定なら標準、内蔵設定ならメスガキ口調を採用。</sub></p>
+  <sub>内蔵の小悪魔調ペルソナは <code>prompt/persona.md</code> で差し替え可能。システム通知の口調も独立して設定可能。</sub></p>
 </td>
 </tr>
 <tr>
 <td align="left" valign="top" width="33%">
-  <p><b>🤐 発言制限</b><br>
-  <sub>/gag の対象者は専用ボタンから変形テキストのみ送信可能。期限切れや解除で通常状態に復帰。</sub></p>
+  <p><b>🤐 発言制限 (/gag)</b><br>
+  <sub>対象者の直接入力を制限し、専用ボタン経由で文字が変形されたテキストのみ送信可能に。</sub></p>
 </td>
 <td align="left" valign="top" width="33%">
-  <p><b>🫧 CJK アクション</b><br>
-  <sub>/咬 や /贴贴 などの漢字アクションコマンドを実行。事前登録は不要。</sub></p>
+  <p><b>🫧 漢字アクションコマンド</b><br>
+  <sub>/咬 や /贴贴 などの漢字アクション（<code>CJK_ACTION_COMMAND_PATTERN</code>）を事前登録なしで実行。</sub></p>
 </td>
 <td align="left" valign="top" width="33%">
   <p><b>🌊 連投対策</b><br>
@@ -247,7 +247,7 @@
 | Claude | 90%± |
 
 > [!TIP]
-> Google モデルのキャッシュ率が低い問題は、明示的キャッシュと暗黙的キャッシュの排他性、および暗黙的キャッシュの有効期限が制御不能である点に起因します。キャッシュ率が気になる場合は他のモデルをご利用ください。ただし、実際の会話セッションにおける品質や応答効果は Gemini が最も優れています。
+> Gemini のキャッシュヒット率が低いのは、明示的キャッシュと暗黙的キャッシュが排他であり、暗黙的キャッシュの有効期限もサーバー側で制御できないためです。キャッシュ効率を重視する場合は他社モデルを、会話の自然さや表現力を重視する場合は Gemini を選択してください。
 
 ### ボイス・画像・記憶
 
@@ -260,39 +260,47 @@
 </thead>
 <tbody>
   <tr>
-    <td><nobr>🎙️ <b>AI ボイス</b></nobr></td>
-    <td>音色と文ごとの口調を設定可能。1 ターンにつき最大 <code>MAX_VOICES_PER_REPLY</code> 件、セリフの長さの上限は <code>VOICE_TEXT_MAX_CHARS</code>（UTF-16 コード単位）。送信成功後にセリフを記憶。</td>
+    <td><nobr>🎙️ <b>AI ボイス生成</b></nobr></td>
+    <td>音色と発話ごとの口調を設定可能。1 ターン最大 <code>MAX_VOICES_PER_REPLY</code> 件、セリフ長上限は <code>VOICE_TEXT_MAX_CHARS</code>（UTF-16 コード単位）で、送信成功後に会話記憶へ自動記録。</td>
   </tr>
   <tr>
-    <td><nobr>📢 <b>管理者・定時ボイス</b></nobr></td>
-    <td><code>/send</code> と cron で TTS リソースを共有し、セリフの長さの上限は <code>VOICE_OPERATOR_TEXT_MAX_CHARS</code>（UTF-16 コード単位）。複数グループへの定時ボイス配信は 1 回だけ合成し、Telegram <code>file_id</code> を再利用。</td>
+    <td><nobr>📢 <b>管理者中継・定時ボイス</b></nobr></td>
+    <td><code>/send</code> と cron 定時タスクは専用の予約 TTS 枠を共有し、セリフ長上限は <code>VOICE_OPERATOR_TEXT_MAX_CHARS</code>（UTF-16 コード単位）。複数グループへの定時配信は 1 回だけ合成し、Telegram の <code>file_id</code> を再利用。</td>
   </tr>
   <tr>
-    <td><nobr>🖼️ <b>画像の記憶</b></nobr></td>
-    <td>AI 生成画像は実際の内容を記録。<code>/wed</code>、<code>/h_image</code>、定時画像はプレースホルダーを記録し、返信時に画像認識。</td>
+    <td><nobr>🖼️ <b>画像のマルチモーダル記憶</b></nobr></td>
+    <td>AI 生成画像は実際の画面内容を記録。<code>/wed</code>、<code>/h_image</code>、定時画像はまずプレースホルダーを記録し、メンバーがその画像へ返信したときにのみ画像認識を実行。</td>
   </tr>
 </tbody>
 </table>
 
-- **TTS 音声設定**：`config/dynamic/agent.json` で `agent.tts` の明示設定が必要です（Google、OpenAI 互換 `audio/speech`、xAI Grok `/tts` に対応。Google は `base_url` によるゲートウェイ経由も可能）。任意の `bot_language`（`en` / `zh` / `ja`、既定 `TTS_DEFAULT_BOT_LANGUAGE`）で AI ボイスのセリフの言語を指定できます。プロジェクトルートの `prompt/voice_tool.md` で AI `send_voice` のツール説明全体を置き換えられます（再起動後に反映。例は [`prompt_example/voice_tool.md`](../../prompt_example/voice_tool.md)）。AI 返信の合成には `bot_language` に従って読み上げ言語指定が自動で追加されます。`style` は `/send`・cron と共用で声質だけを書きます。`bot_language` を変えるときは `style` と `voice_tool.md` も同じ言語に変えることを推奨します。
-- **枠の独立管理**：`daily_limit`（既定 `TTS_DEFAULT_DAILY_LIMIT`）のうち `daily_reserve_quota`（既定 `TTS_DEFAULT_DAILY_RESERVE_QUOTA`）を管理者と cron 用に予約し、残りを AI 音声に割り当てます。両方の回数は独立して数え、カウントウィンドウ（`TTS_USAGE_WINDOW_MS`）はその中の最初のリクエストから起算され、ウィンドウ終了後の次のリクエストで新しいウィンドウが始まり、まとめてゼロに戻ります。
-- **コンテキスト記録規則**：`/send` による中継メッセージや定時テキスト/音声は AI 記憶に自動記録されません。画像の自動記録は、グループで AI が有効かつ非復唱状態の場合に動作します。詳細は [12 よくある質問](12-faq.md)。
+- **TTS 音声設定**：`config/dynamic/agent.json` の `agent.tts` で設定します：
+  - **対応プロバイダ**：Google ネイティブ、OpenAI 互換 `audio/speech`、xAI Grok `/tts` に対応（Google は `base_url` によるリバースプロキシ／ゲートウェイ経由も可能）。
+  - **セリフ言語**：任意の `bot_language`（`TTS_BOT_LANGUAGES`：`en` / `zh` / `ja`、既定 `TTS_DEFAULT_BOT_LANGUAGE`）で AI ボイスの言語を指定でき、AI 返信の合成時には言語指定が自動付与されます。
+  - **説明文とスタイルの同期**：プロジェクトルートの `prompt/voice_tool.md` を配置すると `send_voice` のツール説明全体を上書きできます（再起動後に反映。例は [`prompt_example/voice_tool.md`](../../prompt_example/voice_tool.md)）。`style` は `/send`・cron と共用されるため声質のみを記述し、`bot_language` を変更する際は `style` と `voice_tool.md` もあわせて調整してください。
+- **クォータの独立管理**：
+  - 日次総枠 `daily_limit`（既定 `TTS_DEFAULT_DAILY_LIMIT`）のうち `daily_reserve_quota`（既定 `TTS_DEFAULT_DAILY_RESERVE_QUOTA`）を `/send` と cron 専用の予約枠とし、残りを AI 会話に割り当てます。
+  - 両枠は独立してカウントされ、互いに枠を消費しません。集計ウィンドウ（`TTS_USAGE_WINDOW_MS`）はウィンドウ内の最初のリクエストから起算され、満了後の最初のリクエストで両カウンタがリセットされます。
+- **記憶への記録境界**：`/send` による中継メッセージと定時タスクの送信内容は AI の会話文脈に記録されません。グループ内画像の自動記録は、グループで AI チャットが有効かつ非復唱状態のときにのみ動作します。詳細は [12 よくある質問](12-faq.md) を参照してください。
 
-各機能の挙動・設定・境界は **[📚 開発者ドキュメント](content-table.md)** を参照してください。
+各機能の詳しい仕様・設定・境界は **[📚 開発者ドキュメント](content-table.md)** を参照してください。
 
-<p align="right"><sub><a href="#copy-ninjia">⬆️ ページ上部へ</a></sub></p>
+<p align="right"><sub><a href="#copy-ninjia">⬆️ トップへ戻る</a></sub></p>
 
 <a id="commands-and-permissions"></a>
 
 ## 🎮 コマンドと権限
 
-コマンドは入口と権限レベルで認可されます：
+コマンドは明確な 3 段階の権限レベルに分かれています：
 
-- **一般グループメンバー**：復唱、翻訳、アクション、`/info` 照会、`/wed` 抽選、`/h_image` 閲覧などの基本チャット機能。
-- **身元権限キー（`isCanXxx`）**：グループ管理・運用コマンド。`/bot_status`、`/mute` / `/unmute`、`/gag`、`/block`、`/h_image add` および各機能スイッチ。
-- **スーパー管理者（`SUPER_ADMIN_USER_ID`）**：`/init`、`/permission` の権限変更、`/white disable` によるホワイトリスト削除、現在のグループでの `/batch_kick`、指定身分の新しい発言を削除する `/delete_message`、個別チャットでの `/send` 中継および左下の `App` メニューボタン（`MenuButtonWebApp`）から開く Mini App 管理コンソール。`isCanWhiteOther` を持つホワイトリストの身元も、`/white enable` でデフォルト権限のメンバーを追加できます。
+- **一般グループメンバー**：復唱、グループ別翻訳、漢字アクション、`/info` 照会、`/wed` 抽選、`/h_image` 閲覧などの日常チャット機能は、すべてのメンバーがそのまま利用できます。
+- **身元権限キー（`isCanXxx`）**：`/bot_status`、`/mute` / `/unmute`、`/gag`、`/block`、`/h_image add`、および各機能の有効／無効スイッチなどの管理コマンド。細粒度の権限キーで身元ごとに付与します。
+- **スーパー管理者専用（`SUPER_ADMIN_USER_ID`）**：
+  - `/init` によるグループ初期化、`/permission` の権限付与、`/white disable` によるホワイトリスト削除、新規参加者をまとめて退出させる `/batch_kick`、指定対象の新規発言を自動削除する `/delete_message`。
+  - 個別チャットでの `/send` 中継、および左下の `App` メニューボタン（`MenuButtonWebApp`）から開く Mini App 管理コンソール。
+  - `isCanWhiteOther` を持つホワイトリストメンバーも `/white enable` でメンバーを追加できますが、付与できるのは既定の基本権限のみです。
 
-画像ライブラリと cron タスクの設定・使い方は [08 画像ライブラリと定時タスク](08-images-and-cron.md)、Mini App の設定と Cloudflare Tunnel 推奨構成は [11 Mini App の設定方法と推奨構成](11-mini-app.md)、コールド移行手順は [運用マニュアル](07-operations.md) を参照してください。
+画像ライブラリと cron タスクの設定・使い方は [08 画像ライブラリと定時タスク](08-images-and-cron.md)、Mini App の設定と Cloudflare Tunnel 推奨構成は [10 Mini App の設定方法と推奨構成](10-mini-app.md)、コールド移行手順は [運用マニュアル](07-operations.md) を参照してください。
 
 全コマンド一覧と権限マトリクスは **[📖 09 コマンドと挙動リファレンス](09-commands.md)** にあります。
 
@@ -379,7 +387,7 @@ Copy Ninjia のアーキテクチャ概要、モジュールマップ、実行�
 <tbody>
   <tr>
     <td><nobr>🚀 <b>初回実行</b></nobr></td>
-    <td>依存関係、deployment 設定、Telegram API 権限および初回起動</td>
+    <td>環境構築、デプロイ設定、Telegram API 権限と初回起動</td>
     <td align="center"><nobr><a href="01-getting-started.md">📖 01 環境構築</a></nobr></td>
   </tr>
   <tr>
@@ -404,7 +412,7 @@ Copy Ninjia のアーキテクチャ概要、モジュールマップ、実行�
   </tr>
   <tr>
     <td><nobr>🛠️ <b>機能の追加・変更</b></nobr></td>
-    <td>コマンド追加、パラメータ調整、AI ツール追加および schema 変更のレシピ</td>
+    <td>コマンド追加、パラメータ調整、AI ツール追加およびスキーマ変更のレシピ</td>
     <td align="center"><nobr><a href="06-modification-guide.md">📖 06 変更レシピ</a></nobr></td>
   </tr>
   <tr>
@@ -423,14 +431,14 @@ Copy Ninjia のアーキテクチャ概要、モジュールマップ、実行�
     <td align="center"><nobr><a href="09-commands.md">📖 09 コマンドリファレンス</a></nobr></td>
   </tr>
   <tr>
-    <td><nobr>📊 <b>計測値を見る</b></nobr></td>
-    <td>コールド/ホットパス、総スループットと総 I/O、エンドツーエンドのチェーン遅延のリリースベンチマーク</td>
-    <td align="center"><nobr><a href="10-performance.md">📖 10 パフォーマンス</a></nobr></td>
-  </tr>
-  <tr>
     <td><nobr>🖥️ <b>Mini App コンソール</b></nobr></td>
     <td><code>mini_app</code> の設定、Cloudflare Tunnel による推奨公開構成、二段階認証と TOTP バインド</td>
-    <td align="center"><nobr><a href="11-mini-app.md">📖 11 Mini App の設定方法と推奨構成</a></nobr></td>
+    <td align="center"><nobr><a href="10-mini-app.md">📖 10 Mini App の設定方法と推奨構成</a></nobr></td>
+  </tr>
+  <tr>
+    <td><nobr>📊 <b>計測値を見る</b></nobr></td>
+    <td>コールド/ホットパス、総スループットと総 I/O、エンドツーエンドのチェーン遅延のリリースベンチマーク</td>
+    <td align="center"><nobr><a href="11-performance.md">📖 11 パフォーマンス</a></nobr></td>
   </tr>
   <tr>
     <td><nobr>❓ <b>返信がないとき</b></nobr></td>
@@ -488,8 +496,11 @@ Copy Ninjia のアーキテクチャ概要、モジュールマップ、実行�
 BotFather で `/setcommands` を手動設定する必要はありません。Bot は起動時に設定された通知口調でコマンドメニューを自動登録します（通知口調を省略しカスタムペルソナを配置した場合は通常版メニューを使用）。メニューはグループチャットにのみ表示されます。個別チャットはスーパー管理者の `/send` のみ受け付けるため、通常メニューは表示されません。
 
 > [!WARNING]
-> **Bot-to-Bot 通信モードの注意点**：
-> このモードを有効にすると、管理者権限を持つかプライバシーモードを無効にしたグループで他の Bot の通常メッセージを受信できます。他の Bot から届いたメッセージはグローバルな入口制限を通ります。継続して活動する各 Bot の最初の `BOT_MESSAGE_ACTIVITY_LIMIT` 件だけを業務処理へ渡し、それ以降は通知せずに無視します。発言が `BOT_MESSAGE_ACTIVITY_TTL_MS` なければカウントをリセットします。記録できる他の Bot は最大 `BOT_MESSAGE_ACTIVITY_MAX_ENTRIES` 件で、満杯の間は新しい Bot のメッセージを無視します。この Bot 自身のメッセージと、そのグループの `/delete_message` 対象の発言は記録も遮断もしません（後者はすべて削除します）。詳しくは [dispatch の不変条件](04-invariants.md) を参照してください。
+> **Bot-to-Bot 通信モードの仕様**：
+> - 有効化すると、Bot が管理者であるかプライバシーモードを無効化したグループで、外部 Bot の通常メッセージを受信できます。
+> - 外部 Bot の発言はグローバルな入口レート制限を通過します。継続して活動する各 Bot の最初の `BOT_MESSAGE_ACTIVITY_LIMIT` 件のみを業務処理へ通し、超過分はサイレントに無視します。`BOT_MESSAGE_ACTIVITY_TTL_MS` の無発言が続くとカウントはリセットされます。
+> - 追跡できる外部 Bot は最大 `BOT_MESSAGE_ACTIVITY_MAX_ENTRIES` 件で、上限に達している間は未登録の新しい Bot の発言を無視します。
+> - この Bot 自身の発言と、該当グループの `/delete_message` 対象の発言はこの制限の対象外です（後者はすべて削除されます）。詳細は [04 実行時の正式な不変条件](04-invariants.md) を参照してください。
 
 ### グループ内の管理者権限
 
@@ -509,7 +520,7 @@ Bot をグループ管理者に昇格させ、利用したい機能に応じて�
   </tr>
   <tr>
     <td><nobr>🚫 <b>メンバーの制限と BAN</b></nobr></td>
-    <td>参加認証未完了者のキック、Anti-Raid 非公開化、<code>/block enable|disable</code>、<code>/mute</code> / <code>/unmute</code>、<code>/batch_kick</code>、連投ミュート、広告処分 BAN。</td>
+    <td>参加認証未完了者のキック、Anti-Raid 非公開化、<code>/block enable|disable</code>、<code>/mute</code> / <code>/unmute</code>、<code>/batch_kick</code>、連投ミュート、広告の処罰（禁言・キック・BAN）。</td>
   </tr>
 </tbody>
 </table>

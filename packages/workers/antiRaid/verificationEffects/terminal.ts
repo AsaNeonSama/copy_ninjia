@@ -1,3 +1,7 @@
+/**
+ * 入群验证超时终核与驱逐终态执行（Anti-Raid Worker 侧）：
+ * 执行拉人者管理员终核（`checkingInviter`），以及验证超时、待验证期刷屏或答错触发的验证消息清理、成员踢出与结果播报（`expelling`）。
+ */
 import { workerAtmosphere } from "../atmosphere";
 import type { TelegramWorkerTemporaryMessageResult } from "../../../types/telegramWorker";
 import { sendTemporaryMessageFromMain } from "../../../infra/telegram/workerClient";

@@ -1,6 +1,14 @@
+/**
+ * Mini App 服务端集成测试共用的 Disk I/O 内存夹具、Telegram `initData` 签名构造器与超级管理员请求头工厂。
+ */
+
 import { mock } from "bun:test";
 import { BLOCKLIST_SWEEP_PAGE_SIZE } from "../../packages/consts/identityStorage";
-import { MINI_APP_WEB_APP_DATA_SECRET_SEED } from "../../packages/consts/miniApp";
+import {
+  MINI_APP_INIT_DATA_HEADER,
+  MINI_APP_SESSION_HEADER,
+  MINI_APP_WEB_APP_DATA_SECRET_SEED,
+} from "../../packages/consts/miniApp";
 import type {
   AiMemoryDeletedPersistedReply,
   DiskBusinessMessage,
@@ -81,6 +89,22 @@ async function readFixtureIdentityPolicies(ids: readonly number[]): Promise<Iden
 
 /** Mini App 集成测试共享的 `readIdentityPolicies` 桩函数；用例可用 mockImplementationOnce 模拟冷读失败。 */
 export const readIdentityPoliciesMock = mock(readFixtureIdentityPolicies);
+
+/**
+ * 按夹具行表回答身份主键游标页读取。
+ * @param table 身份策略表名。
+ * @param afterId 上一页游标。
+ * @returns 游标分页结果。
+ */
+async function readFixtureIdentityIdPage(
+  table: IdentityPolicyTable,
+  afterId: number | null
+): Promise<IdentityIdPage> {
+  return idPage(table === "whitelist" ? miniAppTestWhitelistRows : miniAppTestBlocklistRows, afterId);
+}
+
+/** Mini App 集成测试共享的 `readIdentityIdPage` 桩函数。 */
+export const readIdentityIdPageMock = mock(readFixtureIdentityIdPage);
 
 /**
  * 幂等安装 Mini App 服务端测试共用的 `packages/infra/diskIO` 模块替身，使多文件同进程运行与 `--isolate` 具有一致的回执监听。
@@ -167,11 +191,7 @@ export function installMiniAppTestDiskIOMock(): void {
         );
       },
       readIdentityPolicies: readIdentityPoliciesMock,
-      readIdentityIdPage: async (
-        table: IdentityPolicyTable,
-        afterId: number | null
-      ): Promise<IdentityIdPage> =>
-        idPage(table === "whitelist" ? miniAppTestWhitelistRows : miniAppTestBlocklistRows, afterId),
+      readIdentityIdPage: readIdentityIdPageMock,
       relayLogMessage: (): boolean => true,
     })
   );
@@ -189,6 +209,8 @@ export function resetMiniAppTestDiskIOState(): void {
   miniAppTestJoinLogState.onFlushDiskIODomain = undefined;
   readIdentityPoliciesMock.mockReset();
   readIdentityPoliciesMock.mockImplementation(readFixtureIdentityPolicies);
+  readIdentityIdPageMock.mockReset();
+  readIdentityIdPageMock.mockImplementation(readFixtureIdentityIdPage);
 }
 
 /**
@@ -232,4 +254,46 @@ export function buildSignedTestInitData(params: {
   }
   searchParams.set("hash", hashHex);
   return searchParams.toString();
+}
+
+/** 构造超级管理员测试请求头的参数。 */
+export interface SuperAdminHeadersOptions {
+  /** 当前生效的 Bot Token。 */
+  readonly botToken: string;
+  /** 超级管理员数字 ID。 */
+  readonly superAdminUserId: number;
+  /** 本次会话令牌。 */
+  readonly sessionToken: string;
+  /** 可选附加用户名（如 `"super_admin"`）。 */
+  readonly username?: string;
+  /** 可选 `Content-Type` 头（如 `"application/json"`）。 */
+  readonly contentType?: string;
+}
+
+/**
+ * 构造携带当前 `BOT_TOKEN`、`SUPER_ADMIN_USER_ID` 签名与密码会话令牌的测试请求头。
+ * @param options 令牌、用户与可选附加头字段参数。
+ * @returns 请求头字典。
+ */
+export function buildSuperAdminHeaders({
+  botToken,
+  superAdminUserId,
+  sessionToken,
+  username,
+  contentType,
+}: SuperAdminHeadersOptions): Record<string, string> {
+  const initData: string = buildSignedTestInitData({
+    botToken,
+    authDate: Math.floor(Date.now() / 1000),
+    user: {
+      id: superAdminUserId,
+      first_name: "SuperAdmin",
+      ...(username === undefined ? {} : { username }),
+    },
+  });
+  return {
+    [MINI_APP_INIT_DATA_HEADER]: initData,
+    [MINI_APP_SESSION_HEADER]: sessionToken,
+    ...(contentType === undefined ? {} : { "Content-Type": contentType }),
+  };
 }

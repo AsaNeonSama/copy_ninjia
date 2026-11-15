@@ -1,3 +1,7 @@
+/**
+ * Anti-Raid Worker 上报事件的主线程分发器：处理私密模式对账落盘、入群验证镜像同步、
+ * 容量超限熔断、黑名单移除结算、广告命中处置与邮箱排空屏障回执。
+ */
 import {
   pendingLockdownPersistence,
   persistedLockdownFingerprints,
@@ -18,7 +22,7 @@ import {
   getOrCreateChatState,
   persistChatState,
   saveChatStateInBackground,
-} from "../../infra/storage/stateStore";
+} from "../../infra/chatStateStorage";
 import type { AntiRaidWorkerEvent } from "../../types/antiRaid/events";
 import type { AntiRaidWorkerMessage } from
   "../../types/antiRaid/protocol";

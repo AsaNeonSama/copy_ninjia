@@ -60,8 +60,8 @@ mock.module("../../packages/infra/logger", () => ({
   logger: loggerStub({ warn: loggerWarn, error: loggerError }),
 }));
 mock.module("../../packages/commands/targetResolution", () => ({ resolveCommandTarget }));
-const realStateStore = await import("../../packages/infra/storage/stateStore");
-mock.module("../../packages/infra/storage/stateStore", () => ({ ...realStateStore, persistChatState }));
+const realChatStateStorage = await import("../../packages/infra/chatStateStorage");
+mock.module("../../packages/infra/chatStateStorage", () => ({ ...realChatStateStorage, persistChatState }));
 
 const {
   assertSuperAdminNotDeleteMessageTarget,
@@ -79,7 +79,7 @@ const {
 } = await import("../../packages/cache/main/deleteMessage");
 const { botAtmosphereState } = await import("../../packages/cache/main/atmosphere");
 const { chatStateCache } = await import("../../packages/cache/main/chatState");
-const { getChatState, getOrCreateChatState } = await import("../../packages/infra/storage/stateStore");
+const { getChatState, getOrCreateChatState } = await import("../../packages/infra/chatStateStorage");
 
 /** 与前置链一致：按消息所在群读一次群状态快照，再交给删除 ingress。 */
 function handleDeleteMessageIngress(message: Message): boolean {

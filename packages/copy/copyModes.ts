@@ -4,8 +4,7 @@ import { NYA_SUFFIX } from "../consts/copyModes";
 import { splitGraphemes } from "../libs/text";
 
 /**
- * 按 Unicode 扩展字形簇（grapheme cluster）反转字符串，避免 emoji / 代理对 /
- * 组合符号被拆散导致乱码。
+ * 按 Unicode 扩展字形簇（grapheme cluster）反转字符串，保持 emoji、代理对与组合字符完整。
  * @param text 待反转的文本。
  * @returns 按字形簇反转后的字符串。
  */
@@ -14,9 +13,8 @@ function reverseText(text: string): string {
 }
 
 /**
- * 给尚未以 NYA_SUFFIX 结尾的文本追加空格与 NYA_SUFFIX。安全校验由调用方负责
- * （见 auto/message/echo.ts 对变换前后两串的 containsRenderableCommand 守卫），结果以
- * 不带实体、不设 parse_mode 的字符串发出（正文或新图注）。
+ * 为尚未以 `NYA_SUFFIX` 结尾的文本追加空格与 `NYA_SUFFIX`。
+ * 可渲染命令拦截由调用方（`auto/message/echo.ts`）负责；返回值按纯文本字符串发出（不带实体、不设 `parse_mode`）。
  * @param text 待追加后缀的文本。
  * @returns 追加后缀后的文本。
  */

@@ -1,3 +1,6 @@
+/**
+ * Anti-Raid Worker 侧的群关联频道查询与 TTL 缓存：识别讨论组是否绑定关联频道，供评论区预入群豁免判定使用。
+ */
 import { telegramSignal } from "../../libs/telegramSignal";
 import { logger } from "../../infra/logger";
 import { telegramApi } from "../../infra/telegram";

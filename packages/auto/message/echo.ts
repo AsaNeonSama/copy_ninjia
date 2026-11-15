@@ -22,9 +22,9 @@ export interface EchoMessageParams {
 }
 
 /**
- * 将消息复读回所在聊天（`/copy` 系与随机复读）。文字与图注一律按字符串处理：有模式时
- * 变换，没有模式时原样使用，链接、@ 与格式实体不单独处理；发送经 copy/echo.ts 的
- * sendEchoPayload（纯文字重新发送，媒体复制并换图注）。
+ * 将消息复读回所在会话（`/copy` 系列与随机复读）：
+ * - 文字与图注统一按纯字符串处理（有模式时做变体变换，不保留原格式实体），经 `copy/echo.ts` 的 `sendEchoPayload` 发出。
+ * - 原文或变换后的文本只要包含可渲染命令片段，或变换后超出正文/图注长度上限，均整条丢弃（不退回原样复制）。
  *
  * @param params 复读上下文（含目标会话 `chatId`、源消息 `message`、变体模式 `mode` 与可选话题 `messageThreadId`）。
  */
@@ -34,15 +34,12 @@ export async function echoMessage({
   mode,
   messageThreadId,
 }: EchoMessageParams): Promise<void> {
-  // 正文与 caption 均检查是否含可点击命令片段。
   const source: string | undefined = message.text ?? message.caption;
   if (source !== undefined && containsRenderableCommand(source)) return;
 
   const text: string | undefined = source === undefined ? undefined : applyCopyModeTransform(source, mode);
   if (text !== undefined) {
-    // 变换后的输出串再次检查是否含可点击命令片段；命中即整条丢弃，不退化成原样复制。
     if (containsRenderableCommand(text)) return;
-    // 变换后超过长度上限时整条丢弃。
     const limit: number = typeof message.text === "string" ? TELEGRAM_MESSAGE_MAX_CHARS : TELEGRAM_CAPTION_MAX_CHARS;
     if (text.length > limit) return;
   }

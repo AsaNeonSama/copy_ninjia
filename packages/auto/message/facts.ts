@@ -57,13 +57,11 @@ export function resolveSpeaker(message: Message): AiSpeakerSnapshot {
 }
 
 /**
- * 一次遍历实体数组同时判定两个提及事实（提及本机器人、提及他人）；正文与媒体
- * caption 共用同一套 entity 判定。两个事实以局部布尔值累计，按组合返回
- * consts/auto.ts 的共享只读常量之一（没有 entity 表时返回 NO_MENTION_FACTS），
- * 不分配对象；调用方只读字段，不比较对象身份。
+ * 单次遍历消息实体（正文 `entities` 或媒体 `caption_entities`），同时判定「是否提及本机器人」与
+ * 「是否提及他人」，并返回 `consts/auto.ts` 中的共享只读常量（无实体表时返回 `NO_MENTION_FACTS`）。
  *
- * 完整落在正文内且 `entity.length > botMentionLength` 的实体直接记为提及他人，不物化子串；
- * 其余实体切片折小写后与 `@` 加 `botUsernameLower` 比对（参考实现对拍见 `test/auto/messageFacts.test.ts`）。
+ * 完整落在文本内且长度大于 `@<botUsername>` 的 `mention` 实体直接记为提及他人；其余实体切片转小写后
+ * 与 `@<botUsername>` 比对（对拍见 `test/auto/messageFacts.test.ts`）。
  *
  * @param message Telegram 入站消息
  * @param botId 本机器人用户 ID
@@ -282,6 +280,9 @@ export function pickAnimationVisionSource(animation: Animation): TelegramVisionS
 
 /**
  * 随机复读前过滤没有可复制载荷的服务消息。
+ *
+ * 带图注的付费媒体（`paid_media`）经 `message.caption` 命中并在 `copy/echo.ts` 按纯文本发送；
+ * 无图注的 `paid_media` 与 `live_photo`、`rich_message`、`game`、`checklist` 等不在此范围内，返回 `false`。
  *
  * @param message Telegram 入站消息
  * @returns 是否包含可复制的消息载荷

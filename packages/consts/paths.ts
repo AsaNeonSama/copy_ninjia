@@ -92,8 +92,8 @@ export const PERSONA_PATH: string = join(PROJECT_ROOT, PROMPT_DIR_NAME, PERSONA_
 export const VOICE_TOOL_PROMPT_PATH: string = join(PROJECT_ROOT, PROMPT_DIR_NAME, VOICE_TOOL_PROMPT_FILE_NAME);
 
 /**
- * 部署配置目录；测试显式指向临时数据根下的 config_example/ 副本。顶层只放 static/ 与
- * dynamic/ 两个子目录，按生效方式分开存放部署文件；顶层的部署文件名一律由
+ * 部署配置目录；测试显式指向临时数据根下的 config_example/{static,dynamic} 副本。顶层只允许
+ * static/ 与 dynamic/ 两个子目录，两层子目录也只允许各自的部署文件；其余任何条目一律由
  * config/layout.ts 拒绝启动。
  */
 export const CONFIG_ROOT: string = resolve(
@@ -111,10 +111,10 @@ export const DYNAMIC_CONFIG_DIR: string = join(CONFIG_ROOT, DYNAMIC_CONFIG_DIR_N
 export const STICKERS_CONFIG_PATH: string = join(DYNAMIC_CONFIG_DIR, "stickers.json");
 /** AI 心情档位配置（文案、base weight、天气/时段倍率；可选、可热重载），见 packages/config/mood.ts。 */
 export const MOOD_CONFIG_PATH: string = join(DYNAMIC_CONFIG_DIR, "mood.json");
-/** 广告检测的部署者示例清单（纯字符串数组；可选、可热重载），见 packages/config/adSamples.ts。 */
-export const AD_SAMPLES_CONFIG_PATH: string = join(DYNAMIC_CONFIG_DIR, "ad_samples.json");
+/** 广告检测的部署配置（处罚设置、样本清单与贴纸包/表情包黑名单；可选、可热重载），见 packages/config/adDetectConfig.ts。 */
+export const AD_DETECT_CONFIG_PATH: string = join(DYNAMIC_CONFIG_DIR, "ad_detect.json");
 
-/** Bot token、超级管理员 ID 与默认通知风格的必填部署配置文件（静态，修改后须重启）。 */
+/** Bot token、超级管理员 ID、通知风格、默认时区与可选 Mini App 配置的静态部署文件（修改后须重启）。 */
 export const BOT_CONFIG_PATH: string = join(STATIC_CONFIG_DIR, "bot.json");
 
 /**
@@ -160,6 +160,18 @@ export const MINI_APP_FAVICON_PATH: string = join(
   "favicon.ico"
 );
 /**
+ * Mini App 服务端在未授权访问单页路由时返回的独立拒绝页 HTML 文件路径。源码运行时以仓库为根，
+ * 二进制运行时以部署工作目录为根（由 `scripts/build.ts` 复制进发行包）。
+ * 不变量：内联脚本在运行期保持只读不变，请求诊断字段仅通过 `<body>` 的 `data-*` 属性注入。所属模块：`packages/mini-app-api-server/handlers/page.ts`。
+ */
+export const MINI_APP_REJECT_HTML_PATH: string = join(
+  PROJECT_ROOT,
+  "packages",
+  "mini-app-api-server",
+  "resource",
+  "reject.html"
+);
+/**
  * SQLite 运行时数据库目录；与 memory/ 平级，只由 Disk I/O Worker 和显式迁移脚本访问。
  */
 export const DATABASE_DIR: string = join(RUNTIME_DATA_ROOT, DATABASE_DIR_NAME);
@@ -189,11 +201,11 @@ export const JOIN_LOG_MEMORY_DIR: string = join(MEMORY_DIR, "joinlog");
 /**
  * 广告检测命中样本的旁路目录，与 memory/ 下其余子目录同级。
  * 它**不是运行时状态**：进程不读样本内容，启动成功后的维护只扫描目录项，
- * 清理孤儿临时文件与过期归档；内容用于优化 config/dynamic/ad_samples.json。
+ * 清理孤儿临时文件与过期归档；内容用于优化 config/dynamic/ad_detect.json。
  */
 export const AD_SAMPLE_MEMORY_DIR: string = join(MEMORY_DIR, "ad-detected");
 /**
- * 判定命中并触发封禁的原始样本，追加写入，进程不把其内容用于业务判断（追加游标
+ * 判定命中并触发处置的原始样本，追加写入，进程不把其内容用于业务判断（追加游标
  * 重建时的读回校验除外）。涨过
  * AD_SAMPLE_FILE_MAX_BYTES 时整份改名成 `sample.<配置时区的日期>.json` 归档，
  * 归档按 AD_SAMPLE_ARCHIVE_RETENTION_DAYS 保留。

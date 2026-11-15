@@ -6,8 +6,18 @@ import {
   RANDOM_ECHO_MODES,
 } from "../../packages/consts/auto";
 import { ATMOSPHERE_TEXTS } from "../../packages/consts/atmosphere";
-import { RELEASE_PLATFORMS, RELEASE_REQUIRED_FILES, RELEASE_VERSION_PATTERN } from "../../packages/consts/release";
-import { LOGGER_HTTP_URL_PATTERN } from "../../packages/consts/logger";
+import {
+  RELEASE_BUNDLED_PATHS,
+  RELEASE_PLATFORMS,
+  RELEASE_REQUIRED_FILES,
+  RELEASE_VERSION_PATTERN,
+} from "../../packages/consts/release";
+import { LOGGER_HTTP_URL_PATTERN, LOGGER_SENSITIVE_FIELD_NAMES } from "../../packages/consts/logger";
+import {
+  AI_CACHE_SUMMARY_ALLOWED_FIELDS,
+  AI_CACHE_TOKEN_ROW_ALLOWED_FIELDS,
+  AI_CACHE_TOTALS_ALLOWED_FIELDS,
+} from "../../packages/consts/diskIO/aiCache";
 import { STORAGE_MIGRATION_LINEAGE } from "../../packages/consts/identityStorage";
 import { AI_WORKER_JOB_ABORTED, AI_WORKER_JOB_TIMED_OUT, AI_WORKER_JOB_UNAVAILABLE } from "../../packages/consts/aiChat/workerJob";
 import { VOICE_LANGUAGE_PROMPTS } from "../../packages/consts/aiChat/prompts/tools";
@@ -18,12 +28,22 @@ import type { PreparedReplyAction, ReplyActionChains, ReplyToolset } from "../..
 function assertReleaseAndLogConstantsReadonly(): void {
   // @ts-expect-error 发行平台表禁止调用方增删。
   RELEASE_PLATFORMS.push("mock-platform");
+  // @ts-expect-error 发行包随带源码资产路径表禁止调用方增删。
+  RELEASE_BUNDLED_PATHS.push("mock-bundled");
   // @ts-expect-error 必需入口表禁止调用方增删。
   RELEASE_REQUIRED_FILES.push("mock-entry");
   // @ts-expect-error 版本表达式的游标禁止调用方改写。
   RELEASE_VERSION_PATTERN.lastIndex = 1;
   // @ts-expect-error 日志 URL 表达式的游标禁止调用方改写。
   LOGGER_HTTP_URL_PATTERN.lastIndex = 1;
+  // @ts-expect-error 日志敏感字段名表禁止调用方增删。
+  LOGGER_SENSITIVE_FIELD_NAMES.push("mock-field");
+  // @ts-expect-error AI 用量 token 行允许字段表禁止调用方增删。
+  AI_CACHE_TOKEN_ROW_ALLOWED_FIELDS.push("mockField");
+  // @ts-expect-error AI 用量合计允许字段表禁止调用方增删。
+  AI_CACHE_TOTALS_ALLOWED_FIELDS.push("mockField");
+  // @ts-expect-error AI 用量汇总允许字段表禁止调用方增删。
+  AI_CACHE_SUMMARY_ALLOWED_FIELDS.push("mockField");
 }
 void assertReleaseAndLogConstantsReadonly;
 
@@ -52,6 +72,18 @@ function assertAiWorkerJobFailuresReadonly(): void {
   AI_WORKER_JOB_TIMED_OUT.ok = true;
 }
 void assertAiWorkerJobFailuresReadonly;
+
+function assertAdPunishmentActionsReadonly(): void {
+  // @ts-expect-error 全局封禁处罚动作禁止调用方改写。
+  AD_PUNISHMENT_BLOCK_GLOBAL.kind = "kick";
+  // @ts-expect-error 仅删消息处罚动作禁止调用方改写。
+  AD_PUNISHMENT_DELETE_ONLY.kind = "kick";
+  // @ts-expect-error 本群封禁处罚动作禁止调用方改写。
+  AD_PUNISHMENT_BAN_CHAT.kind = "kick";
+  // @ts-expect-error 移出本群处罚动作禁止调用方改写。
+  AD_PUNISHMENT_KICK.kind = "banChat";
+}
+void assertAdPunishmentActionsReadonly;
 
 /** 回复工具集、已接纳动作与调用链 owner 是构造后只读的句柄。 */
 function assertReplyToolHandlesReadonly(
@@ -118,6 +150,27 @@ import {
   DISK_IO_RESPAWN_PRIORITIES,
 } from "../../packages/consts/diskIO/common";
 import { HOT_PATH_GC_CPU_BUDGETS } from "../../packages/consts/performance";
+import {
+  AGENT_BASE_URL_POLICY,
+  HTTP_OR_HTTPS_CONFIG_URL_POLICY,
+  HTTPS_CONFIG_URL_POLICY,
+} from "../../packages/consts/configUrl";
+
+function assertConfigUrlPoliciesReadonly(): void {
+  // @ts-expect-error AI base_url URL 策略容器与协议列表必须在编译期保持只读。
+  AGENT_BASE_URL_POLICY.allowLoopbackHttp = false;
+  // @ts-expect-error allowedProtocols 只读数组不允许就地追加。
+  AGENT_BASE_URL_POLICY.allowedProtocols.push("http:");
+  // @ts-expect-error 仅 https URL 策略容器与协议列表必须在编译期保持只读。
+  HTTPS_CONFIG_URL_POLICY.rejectUserInfo = true;
+  // @ts-expect-error allowedProtocols 只读数组不允许就地追加。
+  HTTPS_CONFIG_URL_POLICY.allowedProtocols.push("http:");
+  // @ts-expect-error http(s) URL 策略容器与协议列表必须在编译期保持只读。
+  HTTP_OR_HTTPS_CONFIG_URL_POLICY.rejectFragment = true;
+  // @ts-expect-error allowedProtocols 只读数组不允许就地追加。
+  HTTP_OR_HTTPS_CONFIG_URL_POLICY.allowedProtocols.push("https:");
+}
+void assertConfigUrlPoliciesReadonly;
 
 function assertGcCpuBudgetsReadonly(): void {
   // @ts-expect-error CPU 分档表不允许调用方增删规则。
@@ -182,10 +235,22 @@ import { WEATHER_CODE_DESCRIPTIONS } from "../../packages/consts/weather";
 import { BOT_CHAT_PERMISSION_LABELS } from "../../packages/consts/botAdmin";
 import { BOT_STATUS_FEATURE_LABELS } from "../../packages/consts/botStatus";
 import { CHAT_FEATURE_SWITCHES } from "../../packages/consts/chatFeatureSwitch";
-import { getChatState } from "../../packages/infra/storage/stateStore";
+import { getChatState } from "../../packages/infra/chatStateStorage";
 
 import * as Media from "../../packages/consts/aiChat/media";
-import { AD_DETECT_JSON_SCHEMA, EMPTY_AD_CANDIDATE_ENTRIES } from "../../packages/consts/antiRaid/adDetect";
+import {
+  AD_BLOCK_SCOPES,
+  AD_DETECT_CONFIG_KEYS,
+  AD_DETECT_JSON_SCHEMA,
+  AD_PUNISHMENT_BAN_CHAT,
+  AD_PUNISHMENT_BLOCK_GLOBAL,
+  AD_PUNISHMENT_DELETE_ONLY,
+  AD_PUNISHMENT_KEYS,
+  AD_PUNISHMENT_KICK,
+  AD_PUNISHMENT_KICK_KEYS,
+  AD_PUNISHMENT_MUTE_KEYS,
+  EMPTY_AD_CANDIDATE_ENTRIES,
+} from "../../packages/consts/antiRaid/adDetect";
 import {
   CHANNEL_COMMENT_JOIN_EXEMPTION,
   IDENTITY_JOIN_EXEMPTION,
@@ -395,7 +460,7 @@ test("各命令的目标解析文案表不可写入", () => {
 });
 
 /**
- * 这几张表是从「每次调用现造」抽出来的；逐张确认提示里念的是自己那条命令。
+ * 逐张确认表情互动动作提示里使用的是各自命令名。
  */
 test("目标解析文案念的是各自的命令名", () => {
   for (const [command, texts] of [
@@ -633,6 +698,16 @@ function assertAdDetectSchemaReadonly(): void {
   AD_DETECT_JSON_SCHEMA.properties.ad.type = "boolean";
   // @ts-expect-error 广告检测 Schema 的必填字段清单不可扩容。
   AD_DETECT_JSON_SCHEMA.required.push("extra");
+  // @ts-expect-error ad_detect.json 顶层字段闭集不允许调用方增删。
+  AD_DETECT_CONFIG_KEYS.push("extra");
+  // @ts-expect-error punishment 字段闭集不允许调用方增删。
+  AD_PUNISHMENT_KEYS.push("extra");
+  // @ts-expect-error punishment.mute 字段闭集不允许调用方增删。
+  AD_PUNISHMENT_MUTE_KEYS.push("extra");
+  // @ts-expect-error punishment.kick 字段闭集不允许调用方增删。
+  AD_PUNISHMENT_KICK_KEYS.push("extra");
+  // @ts-expect-error 封禁范围取值表不允许调用方增删。
+  AD_BLOCK_SCOPES.push("chat");
 }
 void assertAdDetectSchemaReadonly;
 
@@ -645,10 +720,14 @@ function assertStorageMigrationLineageReadonly(): void {
 void assertStorageMigrationLineageReadonly;
 
 import {
+  MINI_APP_API_AUTH_POLICY,
   MINI_APP_CHAT_TARGETS_MUTATION_ACTIONS,
   MINI_APP_FEATURE_KEYS,
+  MINI_APP_GALLERY_DOWNLOAD_AUTH_POLICY,
+  MINI_APP_INIT_DATA_AUTH_POLICY,
   MINI_APP_PICKER_SUBJECT_KINDS,
   MINI_APP_PICKER_TARGET_LISTS,
+  MINI_APP_PROTECTED_ASSET_AUTH_POLICY,
   MINI_APP_TRANSLATE_LANGUAGES,
 } from "../../packages/consts/miniApp";
 import {
@@ -656,11 +735,19 @@ import {
   MINI_APP_CHATS_PAGE_SIZE_OPTIONS,
   MINI_APP_CHAT_TARGET_KINDS as FRONTEND_MINI_APP_CHAT_TARGET_KINDS,
   MINI_APP_FEATURE_KEYS as FRONTEND_MINI_APP_FEATURE_KEYS,
+  MINI_APP_FLIP_BOUNDARY_CLASS_NAMES,
+  MINI_APP_FLIP_BOUNDARY_TAG_NAMES,
+  MINI_APP_FLIP_COLLAPSE_EASING_POINTS,
+  MINI_APP_FLIP_FADE_INNER_GRID_CLASS_NAMES,
+  MINI_APP_FLIP_TRIGGER_CLASS_NAMES,
+  MINI_APP_FOLLOW_SCROLL_ABORT_EVENTS,
   MINI_APP_GALLERY_PAGE_SIZE_OPTIONS,
   MINI_APP_IDENTITY_ADD_MODES,
   MINI_APP_IDENTITY_PAGE_SIZE_OPTIONS,
   MINI_APP_LANGUAGES,
   MINI_APP_MESSAGES_PAGE_SIZE_OPTIONS,
+  MINI_APP_STATUS_SKELETON_CAPABILITY_INDICES,
+  MINI_APP_STATUS_SKELETON_MEMORY_INDICES,
   MINI_APP_TAB_KEYS,
   MINI_APP_TARGETS_SKELETON_ROW_INDICES,
   MINI_APP_THEME_MODES,
@@ -679,6 +766,14 @@ import {
 function assertMiniAppConstantsReadonly(): void {
   // @ts-expect-error Mini App 功能开关键闭集禁止调用方增删。
   MINI_APP_FEATURE_KEYS.push("init");
+  // @ts-expect-error Mini App 仅 initData 鉴权策略禁止调用方改写。
+  MINI_APP_INIT_DATA_AUTH_POLICY.allowQueryAuth = true;
+  // @ts-expect-error Mini App 受保护资源鉴权策略禁止调用方改写。
+  MINI_APP_PROTECTED_ASSET_AUTH_POLICY.allowQueryAuth = false;
+  // @ts-expect-error Mini App 业务 API 鉴权策略禁止调用方改写。
+  MINI_APP_API_AUTH_POLICY.requireSession = false;
+  // @ts-expect-error Mini App 图库下载鉴权策略禁止调用方改写。
+  MINI_APP_GALLERY_DOWNLOAD_AUTH_POLICY.allowVerifiedAssetTokenBypass = true;
   // @ts-expect-error 前端功能开关键闭集禁止调用方增删。
   FRONTEND_MINI_APP_FEATURE_KEYS.push("init");
   // @ts-expect-error 前端白名单权限键全集禁止调用方增删。
@@ -711,6 +806,22 @@ function assertMiniAppConstantsReadonly(): void {
   MINI_APP_CHAT_TARGETS_MUTATION_ACTIONS.push("setQa");
   // @ts-expect-error 群内目标弹窗数据条目骨架行序号表禁止调用方增删。
   MINI_APP_TARGETS_SKELETON_ROW_INDICES.push(3);
+  // @ts-expect-error 折叠动画缓动控制点元组禁止调用方改写。
+  MINI_APP_FLIP_COLLAPSE_EASING_POINTS[0] = 0.5;
+  // @ts-expect-error 折叠遍历边界标签集合禁止调用方增删。
+  MINI_APP_FLIP_BOUNDARY_TAG_NAMES.push("DIV");
+  // @ts-expect-error 折叠遍历边界类名集合禁止调用方增删。
+  MINI_APP_FLIP_BOUNDARY_CLASS_NAMES.push("extra");
+  // @ts-expect-error 配对触发器回退类名集合禁止调用方增删。
+  MINI_APP_FLIP_TRIGGER_CLASS_NAMES.push("extra");
+  // @ts-expect-error 默认开启内层透明度渐变的折叠类名集合禁止调用方增删。
+  MINI_APP_FLIP_FADE_INNER_GRID_CLASS_NAMES.push("extra");
+  // @ts-expect-error 程序跟滚中断事件名列表禁止调用方增删。
+  MINI_APP_FOLLOW_SCROLL_ABORT_EVENTS.push("keydown");
+  // @ts-expect-error 实时状态骨架能力行序号表禁止调用方增删。
+  MINI_APP_STATUS_SKELETON_CAPABILITY_INDICES.push(6);
+  // @ts-expect-error 实时状态骨架内存卡片序号表禁止调用方增删。
+  MINI_APP_STATUS_SKELETON_MEMORY_INDICES.push(3);
   // @ts-expect-error 名单分页档位列表禁止调用方增删。
   MINI_APP_IDENTITY_PAGE_SIZE_OPTIONS.push(50);
   // @ts-expect-error 图库分页档位列表禁止调用方增删。
@@ -732,7 +843,7 @@ function assertMiniAppConstantsReadonly(): void {
 }
 void assertMiniAppConstantsReadonly;
 
-import type { MiniAppBunRouteTable } from "../../packages/types/miniApp";
+import type { MiniAppBunRouteTable } from "../../packages/types/miniApp/server";
 /** `routes/` 各领域路由表片段是模块级共享常量，路径键与各路径下的 HTTP 方法表都不可改写。 */
 function assertMiniAppBunRouteTableReadonly(routes: MiniAppBunRouteTable): void {
   // @ts-expect-error 路由表片段禁止调用方增删或替换路径。

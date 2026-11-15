@@ -1,18 +1,13 @@
 /**
- * `/block enable` 与 `/block disable` 在同一身份黑名单串行区里的执行边界（commands/block.ts、
- * commands/unblock.ts）。
- *
- * handler 完成权限与目标校验后调用：先按命令到达顺序在同一身份的串行区
- * （cache/main/blocklist.ts 的 blocklistIdentityMutationRunner）占位，名单写入与落盘确认
- * （prepare）、跨群封禁或解封与回执（fanOut）都在这个串行位里依次执行，同一身份先后几条命令与
- * 广告处置按到达顺序落定。
- *
- * 串行位空闲时 prepare 在发起 update 内执行完，名单结论先于该 update 结束落定；有更早的同身份
- * 处置在途时 prepare 随扇出一起延后，update 不等它，结束时名单尚未改动。扇出交给延迟命令执行器
- * （./deferredCommands.ts）的 background 档，update runner 不等各群的 Telegram 请求；执行器满额
- * 或已停止接纳时就地执行，也排在仍在执行器里等待的同身份处置之后。任务在开跑前或等串行位
- * 期间被停机撤销时释放串行位并记错误日志，未执行的名单写入与扇出不再执行、回执不再发出；
- * 名单已写入的 `/block enable` 由启动后的全名单补扫按名单封禁。
+ * `/block enable` 与 `/block disable` 在单身份黑名单串行槽内的执行边界（`commands/block.ts`、`commands/unblock.ts`）：
+ * - **按身份串行排序**：handler 完成权限与目标校验后，按命令到达顺序在目标身份的串行槽
+ *   （`cache/main/blocklist.ts` 的 `blocklistIdentityMutationRunner`）占位；名单写入与落盘确认（`prepare`）、
+ *   跨群封禁/解封与回执（`fanOut`）均在该槽位内依次执行，与同身份后续命令及广告处置严格保序。
+ * - **空闲同步写入 vs 繁忙延后**：串行槽空闲时，`prepare` 在发起 update 内直接跑完，update 结束前名单结论已落定；
+ *   若已有更早的同身份处置在途，`prepare` 随 `fanOut` 一并延后，不阻塞当前 update。
+ * - **后台扇出与停机取消**：`fanOut` 提交至延迟命令执行器（`./deferredCommands.ts`）的 `background` 档运行，
+ *   执行器满额或已关闭接纳时退回当前上下文等待串行槽就地执行。任务在开跑前或等槽位期间若被停机取消，
+ *   立即释放串行槽并记错误日志，不再执行剩余步骤或发回执；名单已写入的 `/block enable` 由下次启动后的全名单补扫兜底封禁。
  */
 
 import { blocklistIdentityMutationRunner } from "../cache/main/blocklist";

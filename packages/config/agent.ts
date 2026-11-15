@@ -250,10 +250,9 @@ export function requireAgentCapabilityConfig(capability: AgentGeneralCapability)
 }
 
 /**
- * 本 isolate 当前的 `agent.tts` 配置；文件、对话核心能力段或 tts 段缺省时为 undefined。
- * 只读 holder，不读盘。主线程的 `/send` 代发 TTS、cron `send_voice` 与 cron.json 的
- * 交叉校验据此判定语音合成是否已配置，`/send` 的额度提示读它的 dailyReserveQuota；AI Worker 的
- * 语音余量与余量行读它的 dailyLimit 与 dailyReserveQuota。
+ * 读取当前线程已接管的 `agent.tts` 配置快照（不读盘）；文件、对话核心段或 `tts` 段缺省时返回 `undefined`。
+ * - 主线程据此判定 `/send` 代发 TTS、cron `send_voice` 及 `cron.json` 交叉校验的语音合成可用性，并读取 `dailyReserveQuota`。
+ * - AI Worker 据此读取 `dailyLimit` 与 `dailyReserveQuota` 计算语音配额余量。
  * @returns 当前线程的语音合成能力配置，未配置时返回 undefined。
  */
 export function agentTtsConfig(): AgentTtsCapabilityConfig | undefined {

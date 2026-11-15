@@ -1,3 +1,7 @@
+/**
+ * 黑名单补扫与启动恢复测试共用的模块替身、Worker 回执构造器与逐用例复位钩子。
+ */
+
 import type {
   IdentityPolicyRawReadResult,
   IdentityIdPage,
@@ -7,11 +11,6 @@ import type { FlushResult } from "../../packages/types/lifecycle";
 import { diskIOReplyStub, diskIOStub } from "./diskIOMock";
 import type { DiskIORespawnListener } from "../../packages/types/diskIO/messages";
 import type { IdentityStoragePersistedReply } from "../../packages/types/diskIO/replies";
-/**
- * 黑名单清扫与启动恢复各用例文件共用的替身、状态与隔离钩子：mock.module
- * 装配、Worker 回执工厂与 beforeEach 复位。
- */
-
 import { beforeEach, expect, mock } from "bun:test";
 import { unacknowledgedRemovalBytes, unacknowledgedRemovalWrites } from "../../packages/cache/main/identityStorage";
 import { unwrittenRemovalDiagnostics } from "../../packages/cache/main/blocklist";
@@ -112,7 +111,7 @@ mock.module("../../packages/infra/diskIO", () => (diskIOStub({
   // /block 只等黑名单这一个领域的落盘回执（见 confirmBlocklistPersisted）。
   flushDiskIODomain: async (): Promise<{ result: FlushResult }> => ({ result: "flushed" }),
 })));
-mock.module("../../packages/infra/storage/stateStore", () => ({
+mock.module("../../packages/infra/chatStateStorage", () => ({
   getChatStateCache: (): ReadonlyMap<number, Record<string, unknown>> => states,
   getChatState: (chatId: number): Record<string, unknown> => states.get(chatId) ?? {},
   getOrCreateChatState: (chatId: number): Record<string, unknown> => {
@@ -223,7 +222,7 @@ export function setBlocklistIdReads(
   blocklistIdPageSource.current = implementation;
 }
 
-/** 四个黑名单用例文件共用的隔离钩子；每份都要登记一次。 */
+/** 注册黑名单补扫测试的逐用例复位钩子。 */
 export function installBlocklistSweepHooks(injected: BlocklistSweepDeps): void {
   deps.current = injected;
   beforeEach(() => {

@@ -32,7 +32,7 @@ readonly SERVICE_UNIT_PATH="/etc/systemd/system/${SERVICE_NAME}.service"
 readonly CLONE_TARGET="${COPY_NINJIA_DIR:-copy_ninjia}"
 INSTALL_MODE="${COPY_NINJIA_INSTALL_MODE:-}"
 
-# 所有交互输入都从控制终端读取，不使用标准输入。
+# 所有交互输入均直接从控制终端 /dev/tty 读取。
 readonly TTY_DEVICE="/dev/tty"
 
 step() { printf '\n==> %s\n' "$1"; }

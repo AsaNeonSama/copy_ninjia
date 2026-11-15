@@ -1,3 +1,4 @@
+/** 常量目录对象元素常量表编译期不可变性断言门禁测试。 */
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";

@@ -1,9 +1,14 @@
 import { useCallback, useEffect } from "react";
 import type React from "react";
+import { useStore } from "zustand";
+import { useShallow } from "zustand/react/shallow";
+import { InlineNoticeCollapse } from "../components/animations/CollapseGrid";
 import {
   BlocklistEntryRowList,
+  useRetainedClosingWhitelistItems,
   WhitelistEntryRowList,
 } from "../components/IdentityListRows";
+import type { RetainedClosingWhitelistState } from "../components/IdentityListRows";
 import { IdentitySearchAndAddCard } from "../components/IdentitySearchAndAddCard";
 import { IdentitySubtabsBar } from "../components/IdentitySubtabsBar";
 import { PaginationBar } from "../components/PaginationBar";
@@ -15,7 +20,7 @@ import {
 } from "../consts/miniApp";
 import { getMiniAppTranslations } from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
-import { useComponentStore } from "../libs/componentStore";
+import { useComponentStoreApi } from "../libs/componentStore";
 import {
   AlertSvgIcon,
   CloseSvgIcon,
@@ -23,8 +28,79 @@ import {
 import { useMiniAppStore } from "../store/app";
 import type { MiniAppUiStoreState } from "../store/app";
 import { createIdentitiesStore } from "../store/identities";
-import type { MiniAppIdentitiesStoreState } from "../store/identities";
+import type {
+  MiniAppIdentitiesStore,
+  MiniAppIdentitiesStoreState,
+} from "../store/identities";
 import type { MiniAppLanguage } from "../types/miniApp";
+
+/** `IdentitiesPage` 列表与分页视图订阅的状态与动作切片（隔离搜索输入与折叠表单草稿重渲染）。 */
+type IdentitiesPageViewSlice = Pick<
+  MiniAppIdentitiesStoreState,
+  | "subTab"
+  | "debouncedQuery"
+  | "duplicateAlertText"
+  | "busyAction"
+  | "loadingList"
+  | "whitelistPageNumber"
+  | "whitelistPageSize"
+  | "whitelistPage"
+  | "selectedEntryId"
+  | "blocklistPageNumber"
+  | "blocklistPageSize"
+  | "blocklistPage"
+  | "whitelistTotal"
+  | "blocklistTotal"
+  | "loadCurrentList"
+  | "selectSubTab"
+  | "dismissDuplicateAlert"
+  | "removeWhitelist"
+  | "removeBlocklist"
+  | "togglePermissionDrawer"
+  | "closePermissionDrawer"
+  | "setWhitelistPageNumber"
+  | "setWhitelistPageSize"
+  | "setBlocklistPageNumber"
+  | "setBlocklistPageSize"
+>;
+
+/**
+ * 从黑白名单仓库提取 `IdentitiesPage` 主列表与分页视图所需的切片（不含 `searchInput` 与添加抽屉草稿）。
+ *
+ * @param state 黑白名单完整状态快照
+ * @returns 主列表与分页切片
+ */
+function selectIdentitiesPageViewState(
+  state: MiniAppIdentitiesStoreState
+): IdentitiesPageViewSlice {
+  return {
+    subTab: state.subTab,
+    debouncedQuery: state.debouncedQuery,
+    duplicateAlertText: state.duplicateAlertText,
+    busyAction: state.busyAction,
+    loadingList: state.loadingList,
+    whitelistPageNumber: state.whitelistPageNumber,
+    whitelistPageSize: state.whitelistPageSize,
+    whitelistPage: state.whitelistPage,
+    selectedEntryId: state.selectedEntryId,
+    blocklistPageNumber: state.blocklistPageNumber,
+    blocklistPageSize: state.blocklistPageSize,
+    blocklistPage: state.blocklistPage,
+    whitelistTotal: state.whitelistTotal,
+    blocklistTotal: state.blocklistTotal,
+    loadCurrentList: state.loadCurrentList,
+    selectSubTab: state.selectSubTab,
+    dismissDuplicateAlert: state.dismissDuplicateAlert,
+    removeWhitelist: state.removeWhitelist,
+    removeBlocklist: state.removeBlocklist,
+    togglePermissionDrawer: state.togglePermissionDrawer,
+    closePermissionDrawer: state.closePermissionDrawer,
+    setWhitelistPageNumber: state.setWhitelistPageNumber,
+    setWhitelistPageSize: state.setWhitelistPageSize,
+    setBlocklistPageNumber: state.setBlocklistPageNumber,
+    setBlocklistPageSize: state.setBlocklistPageSize,
+  };
+}
 
 /**
  * 黑白名单与权限矩阵管理页面（支持 0.5s 防抖按名称搜索、折叠式三合一添加菜单、重复添加拦截提示与权限抽屉）。
@@ -36,7 +112,7 @@ export function IdentitiesPage(): React.JSX.Element {
     (state: MiniAppUiStoreState): MiniAppLanguage => state.language
   );
   const t: Readonly<MiniAppTranslations> = getMiniAppTranslations(language);
-  const storeState: MiniAppIdentitiesStoreState = useComponentStore(createIdentitiesStore);
+  const store: MiniAppIdentitiesStore = useComponentStoreApi(createIdentitiesStore);
   const {
     subTab,
     debouncedQuery,
@@ -63,7 +139,10 @@ export function IdentitiesPage(): React.JSX.Element {
     setWhitelistPageSize,
     setBlocklistPageNumber,
     setBlocklistPageSize,
-  }: MiniAppIdentitiesStoreState = storeState;
+  }: IdentitiesPageViewSlice = useStore(
+    store,
+    useShallow(selectIdentitiesPageViewState)
+  );
 
   useEffect((): void => {
     void loadCurrentList();
@@ -86,6 +165,16 @@ export function IdentitiesPage(): React.JSX.Element {
     [loadCurrentList]
   );
 
+  const whitelistContextKey: string = `${subTab}:${whitelistPage?.page ?? whitelistPageNumber}:${whitelistPage?.pageSize ?? whitelistPageSize}:${debouncedQuery}`;
+  const {
+    items: renderedWhitelistItems,
+    closingEntryId,
+  }: RetainedClosingWhitelistState = useRetainedClosingWhitelistItems(
+    whitelistPage?.items ?? [],
+    subTab === "whitelist" ? selectedEntryId : null,
+    whitelistContextKey
+  );
+
   return (
     <section className="animate-fade-in">
       <IdentitySubtabsBar
@@ -96,16 +185,16 @@ export function IdentitiesPage(): React.JSX.Element {
         onRefresh={reloadList}
       />
 
-      {duplicateAlertText !== null
-        ? (
-          <div className="duplicate-alert-banner animate-fade-in" role="alert">
+      <InlineNoticeCollapse activeValue={duplicateAlertText}>
+        {(alertText: string): React.JSX.Element => (
+          <div className="duplicate-alert-banner" role="alert">
             <div className="duplicate-alert-content">
               <AlertSvgIcon size={18} />
               <div>
                 <div className="duplicate-alert-title">
                   {t.identities.duplicateBannerTitle}
                 </div>
-                <div className="duplicate-alert-desc">{duplicateAlertText}</div>
+                <div className="duplicate-alert-desc">{alertText}</div>
               </div>
             </div>
             <button
@@ -116,10 +205,10 @@ export function IdentitiesPage(): React.JSX.Element {
               <CloseSvgIcon size={14} />
             </button>
           </div>
-        )
-        : null}
+        )}
+      </InlineNoticeCollapse>
 
-      <IdentitySearchAndAddCard state={storeState} />
+      <IdentitySearchAndAddCard store={store} />
 
       {subTab === "whitelist"
         ? (
@@ -132,7 +221,7 @@ export function IdentitiesPage(): React.JSX.Element {
               )
               : null}
 
-            {!loadingList && whitelistPage !== null && whitelistPage.items.length === 0
+            {!loadingList && whitelistPage !== null && renderedWhitelistItems.length === 0
               ? (
                 <div className="empty">
                   {debouncedQuery.length > 0
@@ -142,11 +231,11 @@ export function IdentitiesPage(): React.JSX.Element {
               )
               : null}
 
-            {!loadingList && whitelistPage !== null && whitelistPage.items.length > 0 ? (
+            {!loadingList && whitelistPage !== null && renderedWhitelistItems.length > 0 ? (
               <WhitelistEntryRowList
-                items={whitelistPage.items}
-                permissionDescriptors={whitelistPage.permissionDescriptors}
+                items={renderedWhitelistItems}
                 selectedEntryId={selectedEntryId}
+                closingEntryId={closingEntryId}
                 busyAction={busyAction}
                 t={t}
                 onTogglePermissionDrawer={togglePermissionDrawer}

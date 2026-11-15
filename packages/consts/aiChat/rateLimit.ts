@@ -5,7 +5,7 @@ import { MINUTE_MS } from "../time";
 export const AI_REPLY_ACTIVITY_WINDOW_MS: number = 60 * 60 * 1000;
 /** 冷群随机搭话概率的初始分母；当前消息入窗后再参与递减。 */
 export const AI_REPLY_PROBABILITY_BASE_INITIAL: number = 125;
-/** 高活跃群随机搭话概率的分母下限，防止概率随消息数无限提高。 */
+/** 高活跃群随机搭话概率的分母下限；所属模块：auto/message/aiReplyActivity.ts。 */
 export const AI_REPLY_PROBABILITY_BASE_MIN: number = 10;
 /** 达到封底后更旧的时刻已不影响概率。 */
 export const AI_REPLY_ACTIVITY_MAX_TIMESTAMPS: number =

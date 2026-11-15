@@ -6,7 +6,7 @@ import type { StorageDatabase, StorageDatabaseReader } from "../../types/storage
 import type { StoredTemporaryAdBypassActivity } from "../../types/temporaryAdBypass";
 
 /**
- * 通过预编译语句按 ID 列表批量读取临时广告免检已提交行（单批不超过 IDENTITY_PREFETCH_CHUNK_MAX_ENTRIES）。
+ * 通过预编译语句按 ID 列表读取临时广告免检已提交行；单 ID 走主键等值语句，多 ID 走批量查询（不超过 IDENTITY_PREFETCH_CHUNK_MAX_ENTRIES）。
  * @param reader 共享存储数据库的预编译读取句柄。
  * @param ids 待读取的身份主键 ID 列表。
  * @returns 命中行的临时广告免检活跃度记录列表。
@@ -16,6 +16,11 @@ export function readStoredTemporaryAdBypassActivities(
   ids: readonly number[]
 ): readonly StoredTemporaryAdBypassActivity[] {
   if (ids.length === 0) return [];
+  if (ids.length === 1) {
+    const row: StoredTemporaryAdBypassActivity | undefined =
+      reader.temporaryAdBypassActivityById.get({ id: ids[0]! });
+    return row === undefined ? [] : [row];
+  }
   if (ids.length > IDENTITY_PREFETCH_CHUNK_MAX_ENTRIES) {
     throw new Error(
       `Temporary ad bypass reads accept at most ${IDENTITY_PREFETCH_CHUNK_MAX_ENTRIES} IDs.`

@@ -11,7 +11,7 @@ import type {
   ChatToggleFeature,
 } from "../../packages/types/chatState";
 import type { ConfigReadiness, ConfigReadinessCache } from "../../packages/types/config";
-import type { MiniAppFeatureToggleResult } from "../../packages/types/miniApp";
+import type { MiniAppFeatureToggleResult } from "../../packages/types/miniApp/chats";
 import {
   installMiniAppTestDiskIOMock,
   miniAppTestJoinLogState,
@@ -32,7 +32,7 @@ const {
   getChatStateCache,
   getOrCreateChatState,
   purgeChatStateExceptLockdown,
-} = await import("../../packages/infra/storage/stateStore");
+} = await import("../../packages/infra/chatStateStorage");
 const { setManagedChatFeature } = await import(
   "../../packages/mini-app-api-server/view/chats/toggle"
 );

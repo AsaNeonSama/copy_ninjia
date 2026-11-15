@@ -1,10 +1,13 @@
+/** `install.sh` 对配置目录白名单、旧持久化格式及数据库 schema/时区的前置拦截测试。 */
 import { afterEach, expect, test } from "bun:test";
 import { mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { Database } from "bun:sqlite";
 import { DEFAULT_BOT_TIME_ZONE } from "../../packages/consts/bot";
-import { STATIC_CONFIG_DIR_NAME } from "../../packages/consts/configLayout";
+import { LEGACY_AD_SAMPLES_CONFIG_NAME } from "../../packages/consts/antiRaid/adDetect";
+import { DYNAMIC_CONFIG_DIR_NAME, STATIC_CONFIG_DIR_NAME } from "../../packages/consts/configLayout";
 import { IDENTITY_DATABASE_SCHEMA_VERSION, IDENTITY_DATABASE_TIME_ZONE_KEY } from "../../packages/consts/identityStorage";
+import { AD_DETECT_CONFIG_PATH, BOT_CONFIG_PATH } from "../../packages/consts/paths";
 import { bootstrapStorageDatabase } from "../../packages/database/interact/initialization";
 import { readMigrationFileSnapshot } from "../../scripts/fixtures/migrationFiles";
 import type { MigrationFileSnapshot } from "../../scripts/fixtures/migrationFiles";
@@ -28,6 +31,45 @@ test("仍是 12.1.0 身份入口时安装器拒绝启动并指向 13.x 分阶段
   expect(result.output).not.toContain("INSTALL_API");
   expect(await readMigrationFileSnapshot(path)).toEqual(before);
   expect(await Bun.file(join(fixture.configRoot, STATIC_CONFIG_DIR_NAME, "bot.json")).exists()).toBeFalse();
+  expect(await Bun.file(join(fixture.runtimeRoot, "database/storage.sqlite")).exists()).toBeFalse();
+  expect(await Bun.file(fixture.outboundLog).text()).not.toContain("systemctl:guarded:start");
+}, 30_000);
+
+test("config/dynamic/ 仍有 ad_samples.json 时安装器拒绝并提示手工迁移，不补入示例文件或创建数据库", async (): Promise<void> => {
+  const fixture: InstallerFixture = await createFixture(true);
+  const botConfigName: string = basename(BOT_CONFIG_PATH);
+  const adDetectConfigName: string = basename(AD_DETECT_CONFIG_PATH);
+  const path: string = join(fixture.configRoot, DYNAMIC_CONFIG_DIR_NAME, LEGACY_AD_SAMPLES_CONFIG_NAME);
+  await Bun.write(path, JSON.stringify({ samples: ["旧版广告样本"] }));
+  const before: MigrationFileSnapshot | null = await readMigrationFileSnapshot(path);
+  const result: InstallerRunResult = await runInstaller(fixture, []);
+  expect(result.exitCode).not.toBe(0);
+  expect(result.output).toContain(`absent after manual migration to ${adDetectConfigName}`);
+  expect(result.output).toContain(adDetectConfigName);
+  expect(result.output).not.toContain("INSTALL_API");
+  expect(await readMigrationFileSnapshot(path)).toEqual(before);
+  expect(await Bun.file(join(fixture.configRoot, STATIC_CONFIG_DIR_NAME, botConfigName)).exists()).toBeFalse();
+  expect(await Bun.file(join(fixture.configRoot, DYNAMIC_CONFIG_DIR_NAME, adDetectConfigName)).exists()).toBeFalse();
+  expect(await Bun.file(join(fixture.runtimeRoot, "database/storage.sqlite")).exists()).toBeFalse();
+  expect(await Bun.file(fixture.outboundLog).text()).not.toContain("systemctl:guarded:start");
+}, 30_000);
+
+test.each([
+  "extra.txt",
+  join(STATIC_CONFIG_DIR_NAME, "bot.json.bak"),
+  join(DYNAMIC_CONFIG_DIR_NAME, ".agent.json.swp"),
+])("config/ 下存在多余条目 %s 时安装器拒绝，不补入示例文件或创建数据库", async (relativePath: string): Promise<void> => {
+  const fixture: InstallerFixture = await createFixture(true);
+  const path: string = join(fixture.configRoot, relativePath);
+  await Bun.write(path, "unexpected");
+  const before: MigrationFileSnapshot | null = await readMigrationFileSnapshot(path);
+  const result: InstallerRunResult = await runInstaller(fixture, []);
+  expect(result.exitCode).not.toBe(0);
+  expect(result.output).toContain("absent (only ");
+  expect(result.output).not.toContain("INSTALL_API");
+  expect(await readMigrationFileSnapshot(path)).toEqual(before);
+  expect(await Bun.file(join(fixture.configRoot, STATIC_CONFIG_DIR_NAME, basename(BOT_CONFIG_PATH))).exists()).toBeFalse();
+  expect(await Bun.file(join(fixture.configRoot, DYNAMIC_CONFIG_DIR_NAME, basename(AD_DETECT_CONFIG_PATH))).exists()).toBeFalse();
   expect(await Bun.file(join(fixture.runtimeRoot, "database/storage.sqlite")).exists()).toBeFalse();
   expect(await Bun.file(fixture.outboundLog).text()).not.toContain("systemctl:guarded:start");
 }, 30_000);

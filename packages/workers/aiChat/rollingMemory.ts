@@ -37,7 +37,9 @@ declare const self: Worker;
 /** 群滚动消息缓存的写入、块边界轮换触发、LRU 淘汰及快照序列化与恢复。 */
 
 /**
- * 将缓存条目推入目标群滚动缓存、登记 message_id 索引，并在块边界触发轮换。
+ * 将缓存条目推入目标群滚动缓存、登记 message_id 索引，并在块边界触发两阶段摘要轮换：
+ * 首块满 `COMPACT_BATCH_SIZE` 条时预生成待晋升摘要；满 `VERBATIM_CONTEXT_MAX` 条时滑出最旧块、
+ * 将上一轮待晋升摘要推入中期记忆，并预压缩新的尾部块（见 docs/cn/04-invariants.md）。
  *
  * @param chatId 群聊 ID
  * @param entry 待推入热区的缓冲消息条目

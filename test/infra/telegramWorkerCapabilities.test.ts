@@ -126,7 +126,8 @@ test("每个 JSON 方法逐 owner 验证允许与拒绝，主线程专属方法�
   const permissions: Readonly<Record<TelegramWorkerJsonCall["method"], readonly boolean[]>> = {
     answerCallbackQuery: [false, true], banChatMember: [false, true], banChatSenderChat: [false, true],
     deleteMessage: [false, true], deleteMessages: [false, true], getChat: [false, true],
-    getChatAdministrators: [false, true], getChatMember: [false, true], getStickerSet: [true, false],
+    getChatAdministrators: [false, true], getChatMember: [false, true],
+    getCustomEmojiStickers: [false, true], getStickerSet: [true, false],
     restrictChatMember: [false, true], sendChatAction: [true, false], sendMessage: [true, true],
     sendSticker: [true, false], setChatPermissions: [false, true], setMessageReaction: [true, false],
     unbanChatMember: [false, true],

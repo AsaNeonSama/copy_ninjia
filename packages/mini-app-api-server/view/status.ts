@@ -19,7 +19,7 @@ import {
   readBotProcessStatus,
   readHostOtherMemoryBytes,
 } from "../../infra/processStatus";
-import { getChatStateCache } from "../../infra/storage/stateStore";
+import { getChatStateCache } from "../../infra/chatStateStorage";
 import { telegramOutboundStats } from "../../infra/telegram/outboundLifecycle";
 import { isTerminalVerificationPhase } from "../../states/verification/shared";
 import type { MoodOption } from "../../types/aiChat/mood";
@@ -36,7 +36,7 @@ import type {
   MiniAppCapabilityDetailItem,
   MiniAppCapabilityStatus,
   MiniAppStatusView,
-} from "../../types/miniApp";
+} from "../../types/miniApp/server";
 
 /** 构建单个配置槽位状态条目的入参。 */
 interface BuildCapabilityStatusParams {

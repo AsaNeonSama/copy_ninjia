@@ -37,6 +37,9 @@ mock.module("../../packages/infra/logger", () => ({
   logger: loggerStub(),
 }));
 mock.module("../../packages/infra/storage/stateStore", () => ({
+  flushStateToDisk: async (): Promise<FlushResult> => "flushed",
+}));
+mock.module("../../packages/infra/chatStateStorage", () => ({
   clearChatStateField: (): boolean => false,
   disableChatStateSwitch: (): boolean => false,
   getChatState: (chatId: number) => unmanagedChatIds.has(chatId)
@@ -45,7 +48,6 @@ mock.module("../../packages/infra/storage/stateStore", () => ({
   getChatStateCache: () => new Map(),
   getOrCreateChatState: () => ({}),
   persistChatState: async (): Promise<void> => {},
-  flushStateToDisk: async (): Promise<FlushResult> => "flushed",
   saveChatStateInBackground: (): void => {},
 }));
 mock.module("../../packages/infra/telegram/actions", () => ({
@@ -116,7 +118,7 @@ const {
   handleChatMemberUpdate,
   handleVerificationCallback,
 } = await import("../../packages/antiRaid");
-const { getChatState } = await import("../../packages/infra/storage/stateStore");
+const { getChatState } = await import("../../packages/infra/chatStateStorage");
 
 /** 与前置链一致：按消息所在群读一次群状态快照，再交给入群守卫 ingress。 */
 function handleAntiRaidMessageIngress(message: Message, botId: number): boolean | Promise<boolean> {

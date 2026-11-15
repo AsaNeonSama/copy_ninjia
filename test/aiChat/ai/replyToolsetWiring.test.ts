@@ -1,12 +1,10 @@
 /**
- * 按次回复工具集的装配与分派：联网检索与函数工具同时挂载、反应动作的预占与完成计数、
- * 动作数的提示上限与执行硬顶、回复目标与论坛话题落点、工具声明在各种触发下逐字节恒定、
- * 群问答工具接线，以及贴纸工具共享本轮菜单与状态的分派；另核对行动总则与发送、语音
- * 工具提示的关键约束，以及三者按 `agent.tts.bot_language` 取同一份台词语言文案、send_voice 说明
- * 在接管 prompt/voice_tool.md 后改用其正文。
+ * 按次回复工具集（`createReplyToolset`）的装配与分派测试：
+ * - 联网检索与函数工具同时挂载、反应动作预占与完成计数、动作数提示上限与执行硬上限；
+ * - 回复目标与论坛话题落点、工具声明跨触发条件逐字节恒定、群问答工具接线与贴纸工具状态共享；
+ * - 行动总则与发送/语音工具提示的约束对齐：按 `agent.tts.bot_language` 选取一致的台词语言文案，接管 `prompt/voice_tool.md` 后改用自定义正文。
  *
- * Telegram 出站与停顿替身见 test/helpers/replyToolsetMocks.ts；send_message 的手滑、去重与
- * 命令守卫见 replyToolsetSendMessage.test.ts。
+ * Telegram 出站与 `sleep` 替身见 `test/helpers/replyToolsetMocks.ts`；`send_message` 参数去重与命令守卫见 `replyToolsetSendMessage.test.ts`。
  */
 import {
   resetReplyToolsetMocks,

@@ -1,3 +1,4 @@
+/** 文档与徽章声明的测试覆盖率及用例断言数一致性门禁测试。 */
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";

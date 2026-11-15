@@ -19,7 +19,7 @@ flowchart TD
     classDef main stroke:#8e75ff,stroke-width:2.5px;
     classDef worker stroke:#3b82f6,stroke-width:2px;
 
-    MAIN["🧵 Main Thread<br/>• Acknowledged update runner (strict serial processing)<br/>• Sole real Telegram client + unified outbound gate<br/>• State facade + StateStore (memory/global/state.json)"]:::main
+    MAIN["🧵 Main Thread<br/>• Acknowledged update runner (strict serial processing)<br/>• Sole real Telegram client + unified outbound gate<br/>• Optional Mini App HTTP server (Bun.serve)<br/>• State facade + StateStore (memory/global/state.json)"]:::main
     AI["🤖 AI Worker<br/>• Multi-turn tool calling (pluggable model providers)<br/>• Rolling verbatim memory · summary compression · mood state machine"]:::worker
     RAID["🛡️ Anti-Raid Worker<br/>• Join verification and private mode lockdown state machines<br/>• Global blocklist enforcement · ad classifier model"]:::worker
     DISK["💾 Disk I/O Worker<br/>• storage.sqlite transactional persistence<br/>• Serialized disk writes for logs, snapshots, fortunes, and member pools"]:::worker
@@ -34,13 +34,13 @@ The system strictly follows the principle of **Single Ownership**: every piece o
 ### Division of Labor Across Four Threads
 
 - **🧵 Main Thread**
-  - **Networking & Coordination**: Hosts the long-polling Telegram update runner, maintains the sole grammY Bot instance, orchestrates the unified outbound request gate, and supervises all three Worker threads.
+  - **Networking & Coordination**: Runs the acknowledged long-polling Telegram update runner, holds the sole grammY Bot instance, enforces the unified outbound request gate, hosts the optional SuperAdmin Mini App `Bun.serve` HTTP console (`packages/mini-app-api-server/`), and supervises all three Worker threads.
   - **Authoritative In-Memory Mirrors**:
     - `cache/main/storage.ts`: Mirrored global state (`memory/global/state.json`) for copying targets and daily speech synthesis usage.
     - `cache/main/assets.ts`: Hot snapshot of `config/dynamic/assets.json` (avatars, thumbnails, image library path).
     - `cache/main/chatState.ts`: Hot read cache for `chat_states` (up to `STATE_MANAGED_CHAT_LIMIT` managed chats: feature switches, lockdown records, permission snapshots, titles, relays, and translation sessions).
-  - **Direct State Writing**: Atomically updates `state.json` via the `StateStore` business facade.
-  - **Proxy Execution for Telegram**: Handles all Telegram Bot API calls and media downloads requiring bot identity on behalf of workers. AI and Anti-Raid Workers call external model provider APIs directly.
+  - **Direct State Writing**: Atomically updates `memory/global/state.json` via the `StateStore` facade and `memory/mini-app-totp/totp.json` when TOTP 2FA is bound or unbound in the Mini App.
+  - **Proxy Execution for Telegram**: Handles all Telegram Bot API calls and media downloads requiring bot credentials on behalf of workers. AI and Anti-Raid Workers call external model provider APIs directly.
 
 - **🤖 AI Worker**
   - **Exclusive State**: Conversational memory (verbatim hot window + cold rolling summaries), reply admission quotas, media description queues, global AI mood, and whitelisted sticker catalogs.
@@ -57,7 +57,9 @@ The system strictly follows the principle of **Single Ownership**: every piece o
 
 ### Module Boundaries and Worker Supervision
 
-- **Thin Public Decoupling**: [`packages/aiChat/index.ts`](../../packages/aiChat/index.ts) and [`packages/antiRaid/index.ts`](../../packages/antiRaid/index.ts) serve as stateless public facades. AI supervision resides in [`workerBridge.ts`](../../packages/aiChat/workerBridge.ts) and message ingress in [`messageIngress.ts`](../../packages/aiChat/messageIngress.ts); Anti-Raid supervision is managed by [`workerBridge/controller.ts`](../../packages/antiRaid/workerBridge/controller.ts) and durable delivery by [`durableDelivery.ts`](../../packages/antiRaid/durableDelivery.ts).
+- **Thin Public Decoupling**: [`packages/aiChat/index.ts`](../../packages/aiChat/index.ts) and [`packages/antiRaid/index.ts`](../../packages/antiRaid/index.ts) serve as stateless public facades:
+  - AI module: [`workerBridge.ts`](../../packages/aiChat/workerBridge.ts) manages Worker lifecycle and state mirrors, while [`messageIngress.ts`](../../packages/aiChat/messageIngress.ts) handles message intake and dispatch.
+  - Anti-Raid module: [`workerBridge/controller.ts`](../../packages/antiRaid/workerBridge/controller.ts) supervises the Worker, while [`durableDelivery.ts`](../../packages/antiRaid/durableDelivery.ts) guarantees durable state delivery.
 - **Pure State Transition Separation**: Verification logic is strictly partitioned across join, pending, terminal, disable, and adopt phases (in `packages/states/verification/`); lockdown logic is partitioned across apply, persistence, restore, announcement, and adopt phases (in `packages/states/lockdown/`).
 - **Supervision & Recovery Mechanism**:
   - AI and Anti-Raid Workers utilize [`packages/infra/supervisedWorker.ts`](../../packages/infra/supervisedWorker.ts), which throttles restarts within a rate-limited restart budget on crashes and replays the latest state mirror from the main thread.
@@ -67,7 +69,11 @@ The system strictly follows the principle of **Single Ownership**: every piece o
 
 ## The Journey of a Message
 
-All incoming update handlers are explicitly registered in [`packages/app/registerHandlers.ts`](../../packages/app/registerHandlers.ts), and the whole chain is registered through a single `bot.use`: that layer records the update ID and applies the bot-message limit, then enters the preamble chain in [`packages/app/updatePreamble.ts`](../../packages/app/updatePreamble.ts). Each preamble step calls the next one synchronously in the order shown below and returns a Promise only when it actually hits I/O (prefetching cold identities, a claiming ingress waiting on persistence or the network, command and message handlers). The chat state is read once at the init gate and passed down the synchronous steps; every Promise resume point re-reads the current value. Slash commands, CJK action commands, and non-message updates such as reactions, member changes, and inline callbacks are built as grammY `Composer`s that the preamble calls at their positions. Global message ordering is enforced by the acknowledged update polling runner ([`packages/app/updateRunner.ts`](../../packages/app/updateRunner.ts)): it fetches updates using `UPDATE_POLL_LIMIT` and `UPDATE_POLL_TIMEOUT_SECONDS` and awaits full middleware completion before requesting the next batch.
+All incoming update handlers are wired explicitly in [`packages/app/registerHandlers.ts`](../../packages/app/registerHandlers.ts) through a single `bot.use` entry point:
+
+- **Synchronous Fast Path**: The outer middleware records `update_id` and enforces inbound bot rate limiting before entering [`packages/app/updatePreamble.ts`](../../packages/app/updatePreamble.ts). Each preamble stage invokes the next stage synchronously in the order below, returning a `Promise` only when hitting real I/O (cold-identity prefetching, claiming ingresses awaiting persistence/network, or command and message handlers).
+- **Fresh State Across Async Boundaries**: The group's `ChatState` is read once at the `/init` gate and passed through synchronous stages; every `Promise` continuation re-reads the latest state snapshot. Slash commands, CJK action commands, and non-message updates (reactions, member changes, inline queries, callback buttons) are mounted as dedicated grammY `Composer`s invoked at their exact positions.
+- **Global Serial Ordering**: [`packages/app/updateRunner.ts`](../../packages/app/updateRunner.ts) polls Telegram using `UPDATE_POLL_LIMIT` and `UPDATE_POLL_TIMEOUT_SECONDS`, awaiting full middleware completion on every update before issuing the next `getUpdates` call.
 
 ```text
 [Telegram Update]
@@ -82,13 +88,13 @@ All incoming update handlers are explicitly registered in [`packages/app/registe
  3. Signed Fortune Receipt   ── Resolves inline draw confirmation receipts immediately
        │
        ▼
- 4. /init & Private Gateways ── Blocks uninitialized groups; private chat strictly permits super-admin /send
+ 4. /init, Private & Upgrade ── Blocks uninitialized groups (still removing departing /wed members); permits only SuperAdmin /send in private chat; tears down old chat as gone on migrate_to_chat_id
        │
        ▼
- 5. Identity Warm-Up         ── Prefills in-memory identity caches for all visible participants in this update
+ 5. /wed Pool & Identity Warm── Records active speakers in the /wed sliding window (observeWedMembers) and prefetches uncached visible identities
        │
        ▼
- 6. Private /send Relay      ── Active private relay sessions route non-command messages directly to group dispatch
+ 6. Picker & /send Relay     ── Claims Mini App picker users_shared / chat_shared messages; routes active private /send relay messages straight to the automatic pipeline
        │
        ▼
  7. Join Verification Ingress── Runs before commands; captures and evaluates messages from unverified users
@@ -200,22 +206,22 @@ The model can execute multiple tool calls within a single round. All visible sid
 
 The entry point [`index.ts`](../../index.ts) solely delegates to [`ApplicationLifecycle`](../../packages/app/lifecycle.ts). Merely importing modules never starts background workers, timers, or network connections. `ApplicationLifecycle.init()` orchestrates startup sequentially:
 
-0. **Configuration Layout Verification**: When `config/bot.ts` is imported, `layout.ts` ensures deployment files are organized strictly in `config/static/` and `config/dynamic/`.
+0. **Configuration Layout Verification**: When `config/bot.ts` is imported, `layout.ts` enforces the three-level directory whitelist across `config/`, `config/static/`, and `config/dynamic/` and verifies `config/dynamic/` is an existing directory before strictly parsing `bot.json`.
 1. **Data Root Preflight & Instance Locking**: `acquireSingleInstanceLock` tests data root capabilities (writable, fsync, same-directory hard-links, atomic renames, directory fsync), then acquires the `/proc`-based `bot.lock` single-instance lock. It then registers the worker fatal callback and initializes avatar, chat title, translation, gag, wed, and deferred command runtimes.
 2. **Global State & Configuration Preflight**:
    - Cleans up orphaned temporary files from previous unexpected terminations.
-   - Restores and strictly validates `memory/global/state.json` via `StateStore` (rejecting any legacy `state.json` or `state.json.bak` in the data root).
+   - Restores and strictly validates `memory/mini-app-totp/totp.json` (when present) and `memory/global/state.json` via `StateStore` (rejecting any legacy `state.json` or `state.json.bak` in the data root).
    - Validates all dynamic and static deployment JSON inputs.
    - Verifies permissions and filenames in the dedicated random image library directory.
 3. **Disk I/O Worker Initialization & Data Recovery**:
    - Disk I/O Worker performs a read-only integrity scan across all persistence domains (database, logs, AI cache usage, sticker catalogs, fortune records, verification records, join logs, wed member pools).
    - Once all domains validate cleanly, it adopts ownership, runs startup maintenance, and schedules the daily maintenance cron (`DISK_IO_MAINTENANCE_CRON`) in the configured time zone.
    - The main thread loads in-memory caches (chat states, Q&A pairs, wed members), initializes the Telegram client, verifies that `super_admin_user_id` is neither on the blocklist nor targeted by `/delete_message`, seeds sender identity and translation target caches, and restores fortune state and pending verification records.
-4. **Handler Registration & Telegram Handshake**: Mounts global middlewares, registers command menus, and executes `bot.init()`.
+4. **Handler Registration & Telegram Handshake**: Mounts global middlewares, registers group command menus (and attaches `MenuButtonWebApp` in the SuperAdmin's private chat when `mini_app` is configured), and executes `bot.init()`.
 5. **Business Worker Initialization & Scheduling**:
    - Launches AI Worker (when core AI config is ready) and hydrates conversation context and sticker catalogs.
    - Loads the blocklist kick outbox, then launches Anti-Raid Worker and restores verification and lockdown mirrors.
-   - Starts the `cron.json` scheduler, `config/dynamic/` hot-reload file watchers, and the blocklist sweep scheduler.
+   - Starts the `cron.json` scheduler, `config/dynamic/` hot-reload file watchers, the optional Mini App HTTP server (`startMiniAppServer()`), and the blocklist sweep scheduler.
    - Performs an initial blocklist sweep across groups where admin rights are confirmed before accepting new updates.
 6. **Start Update Runner**: Starts the serial update polling runner, schedules wed member review, and starts low-priority asynchronous group title hydration.
 
@@ -226,7 +232,7 @@ The entry point [`index.ts`](../../index.ts) solely delegates to [`ApplicationLi
 Shutdown is managed centrally by `ApplicationLifecycle` (`wait()` and `dispose()`) along sequential barriers defined by `SHUTDOWN_DRAIN_OWNERS` in [`packages/app/lifecycle/shutdown.ts`](../../packages/app/lifecycle/shutdown.ts) (guarded by the overall shutdown safety net `SHUTDOWN_TOTAL_BUDGET_MS` in `wait()`):
 
 1. **Quiesce (Close Ingress Gates)**:
-   - Stops group title hydration, avatar queue, translation, gag, wed interactions and member review, deferred commands, scheduled cron tasks, blocklist sweeps, and configuration hot-reload watchers. Any exception withholds the final update offset acknowledgement.
+   - Stops group title hydration, avatar queue, translation, gag, wed interactions and member review, deferred commands, scheduled cron tasks, blocklist sweeps, and configuration hot-reload watchers, and stops the Mini App HTTP server (`stopMiniAppServer()`). Any maintenance quiesce failure withholds the final update offset acknowledgement.
    - Stops the Telegram update runner to prevent pulling new updates.
 2. **Bounded Drain (Drain In-Flight Work)**:
    - Signals cancellation to in-flight update handlers and waits within a bounded deadline (aborting and withholding offset acknowledgement on timeout), then awaits pending group title hydration tasks.

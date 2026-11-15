@@ -42,3 +42,14 @@ export function hasOnlyKeys(value: Record<string, unknown>, keys: readonly strin
   }
   return true;
 }
+
+/**
+ * 原地删除可变 Map 中不在 `keep` 集合内的条目。
+ * @param map 待裁剪的可变键值映射。
+ * @param keep 允许保留的键集合。
+ */
+export function retainOnlyKeys<K>(map: Map<K, unknown>, keep: ReadonlySet<K>): void {
+  for (const key of map.keys()) {
+    if (!keep.has(key)) map.delete(key);
+  }
+}

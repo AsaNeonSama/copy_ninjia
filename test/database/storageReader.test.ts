@@ -96,6 +96,7 @@ function idBatches(stored: readonly number[]): readonly (readonly number[])[] {
     ABSENT_IDS,
     [stored[0]!, stored[0]!, ...ABSENT_IDS, ...stored],
     [stored[stored.length - 1]!],
+    [ABSENT_IDS[0]!],
   ];
 }
 
@@ -147,8 +148,11 @@ describe("database/interact/reader 预编译读语句", () => {
       for (let round: number = 0; round < 3; round++) {
         expect(requireStorageDatabaseReader()).toBe(first);
         readStoredIdentityPolicies(first, "whitelist", WHITELIST_IDS);
+        readStoredIdentityPolicies(first, "whitelist", [WHITELIST_IDS[0]!]);
         readStoredIdentityPolicies(first, "blocklist", BLOCKLIST_IDS);
+        readStoredIdentityPolicies(first, "blocklist", [BLOCKLIST_IDS[0]!]);
         readStoredTemporaryAdBypassActivities(first, BYPASS_IDS);
+        readStoredTemporaryAdBypassActivities(first, [BYPASS_IDS[0]!]);
         readStoredChatStateIds(first);
       }
       expect(prepare.mock.calls.length).toBe(preparedCount);

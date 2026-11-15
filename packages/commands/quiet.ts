@@ -1,18 +1,18 @@
 import { chatAtmosphere } from "../infra/atmosphere";
 import type { CommandContext, Context } from "grammy";
 import type { ChatState } from "../types/chatState";
-import { clearChatStateField, getChatState, getOrCreateChatState, persistChatState } from "../infra/storage/stateStore";
+import { clearChatStateField, getChatState, getOrCreateChatState, persistChatState } from "../infra/chatStateStorage";
 import { replyCommandNotice } from "../infra/telegram";
 import { DURATION_UNIT_MS, QUIET_DEFAULT_MINUTES, QUIET_MAX_MINUTES, QUIET_MIN_MINUTES, QUIET_MINUTES_PATTERN } from "../consts/commands";
 import { isQuietUntilActive } from "../libs/chatState";
 
 /**
- * 处理 /quiet 指令：让机器人在本群安静一段时间——期间不触发 AI 随机插话、
- * 洗澡触发词回复和随机复读这些主动行为；回复机器人 / @ 机器人的 AI 必回、
- * 各类指令、以及 /copy 锁定目标的复读不受影响，对话缓存也照常累积。
- * 时长参数为十进制整数分钟数（QUIET_MINUTES_PATTERN），缺省 QUIET_DEFAULT_MINUTES，
- * 其它形态回用法提示；超出 QUIET_MIN_MINUTES ~ QUIET_MAX_MINUTES 的整数收敛到边界。
- * 静默期内重复使用只回执剩余分钟数，不续时、不重新计时；提前解除或重设时长要先 /unquiet。
+ * 处理 `/quiet` 指令：让机器人在本群进入临时静默期。
+ * - **抑制与保留范围**：静默期内暂停 AI 随机插话、洗澡触发词回复与随机复读；回复/`@` 机器人的 AI 必回、
+ *   各类命令、`/copy` 锁定目标复读及上下文记录照常运行。
+ * - **时长参数**：接受十进制正整数分钟数（`QUIET_MINUTES_PATTERN`），缺省取 `QUIET_DEFAULT_MINUTES`，
+ *   非法形态回复用法提示；超出 `[QUIET_MIN_MINUTES, QUIET_MAX_MINUTES]` 的整数夹紧至边界。
+ * - **重复调用语义**：静默期内再次调用仅回执剩余分钟数，不续期也不重置计时；提前解除或重设时长须先执行 `/unquiet`。
  * @param ctx grammY 命令上下文。
  */
 export async function handleQuietCommand(ctx: CommandContext<Context>): Promise<void> {

@@ -16,7 +16,15 @@ mock.module("../../packages/infra/telegram", (): Record<string, unknown> => ({
 const { deleteQaForm }: typeof QaNotices = await import("../../packages/commands/qa/notices");
 
 function session(): QaFormSession {
-  return { chatId: -1001, openedById: 42, formMessageId: 55, q: undefined, a: undefined, timer: null };
+  return {
+    chatId: -1001,
+    openedById: 42,
+    formMessageId: 55,
+    messageThreadId: undefined,
+    q: undefined,
+    a: undefined,
+    timer: null,
+  };
 }
 
 beforeEach((): void => {

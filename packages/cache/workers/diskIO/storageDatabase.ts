@@ -102,13 +102,26 @@ export const pendingChatQaWrites: Map<number, Map<string, PendingChatQaWrite>> =
 /** pendingChatQaWrites 的内层条目总数：新增（chatId, question）键时递增，事务提交清空或 resetStorageDatabaseCache 时归零；单例标量，Worker 重建后从零重新累计。 */
 export const pendingChatQaEntryCount: { current: number } = { current: 0 };
 
-/** AI 上下文未提交写入表（chatId -> 最新快照或删除）：workers/diskIO/aiMemoryStorage.ts 按 revision 校验通过后经 storageDatabase/aiContext.ts 覆盖写入，事务提交成功或 resetStorageDatabaseCache 时清空；容量上限为 AI_MEMORY_MAX_CHATS，Worker 重建后由主线程重放最新快照与未确认删除。 */
+/**
+ * AI 上下文未提交写入表（`chatId` -> 最新快照或删除）：
+ * `workers/diskIO/aiMemoryStorage.ts` 按 revision 校验通过后经 `storageDatabase/aiContext.ts` 覆盖写入，
+ * 事务提交成功或 `resetStorageDatabaseCache` 时清空；容量上限为 `AI_MEMORY_MAX_CHATS`，
+ * Worker 重建后由主线程重放最新快照与未确认删除。
+ */
 export const pendingAiContextWrites: Map<number, PendingAiContextWrite> = new Map();
 
-/** 已受理（含已提交与未提交）待踢任务行的目标快照表（removalId -> RemovalRowTargets）：启动 adoptStorageDatabase 从 SQLite 灌入，运行期随 blocklistRemovalWrite 增删，resetStorageDatabaseCache 时清空；容量上限为 BLOCKLIST_REMOVAL_OUTBOX_MAX_ENTRIES，Worker 重建后从 SQLite 与主线程重放恢复。 */
+/**
+ * 已受理（含已提交与未提交）待踢任务行的目标快照表（`removalId` -> `RemovalRowTargets`）：
+ * 启动 `adoptStorageDatabase` 从 SQLite 灌入，运行期随 `blocklistRemovalWrite` 增删，`resetStorageDatabaseCache` 时清空；
+ * 容量上限为 `BLOCKLIST_REMOVAL_OUTBOX_MAX_ENTRIES`，Worker 重建后从 SQLite 与主线程重放恢复。
+ */
 export const removalRowTargets: Map<number, RemovalRowTargets> = new Map();
 
-/** Worker 重建后主线程镜像重放期间的事务提交暂缓开关：收到 storageFlushHold 消息时写入布尔值，为 true 时暂缓满批、定时与即时提交并将群状态/群问答聚合校验延后到解除暂挂时执行，Worker 重建或 resetStorageDatabaseCache 时重置为 false；单例布尔值。 */
+/**
+ * Worker 重建后主线程镜像重放期间的事务提交暂缓开关：
+ * 收到 `storageFlushHold` 消息时写入布尔值，为 `true` 时暂缓满批、定时与即时提交并将群状态/群问答聚合校验延后到解除暂挂时执行；
+ * Worker 重建或 `resetStorageDatabaseCache` 时重置为 `false`；单例布尔值。
+ */
 export const storageFlushHold: { current: boolean } = { current: false };
 
 /** 未提交写入的定时事务刷盘 timer 单例（间隔 IDENTITY_WRITE_FLUSH_INTERVAL_MS）：首条未提交写入到达时启动，事务提交或 resetStorageDatabaseCache 时清除；Worker 重建后从 null 开始。 */

@@ -1,3 +1,7 @@
+/**
+ * 入群验证提醒投递管理（Anti-Raid Worker 侧）：
+ * 按验证键维护唯一提醒投递 owner，构造算术题与管理员审批内联键盘，并在发送失败时于验证期限内退避重发（约束见 `docs/cn/04-invariants.md`）。
+ */
 import type { AtmosphereTexts } from "../../types/atmosphere";
 import { workerAtmosphere } from "./atmosphere";
 import { logger } from "../../infra/logger";

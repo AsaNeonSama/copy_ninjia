@@ -1,9 +1,12 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import type React from "react";
+import { useStore } from "zustand";
+import { useShallow } from "zustand/react/shallow";
 import {
   CHAT_QA_MAX_PER_CHAT,
   DELETE_MESSAGE_CHAT_TARGET_MAX,
   MINI_APP_CHAT_TARGET_KINDS,
+  MINI_APP_LANG_MENU_CLOSE_ANIMATION_MS,
   MINI_APP_TARGETS_MODAL_CLOSE_MS,
   TRANSLATE_CHAT_USER_LIMIT,
 } from "../consts/miniApp";
@@ -11,13 +14,20 @@ import { getMiniAppTranslations } from "../i18n";
 import { CloseSvgIcon, PlusSvgIcon, RefreshSvgIcon } from "../resource";
 import { useMiniAppStore } from "../store/app";
 import type { MiniAppUiStoreState } from "../store/app";
-import type { MiniAppChatsStoreState } from "../store/chats";
+import type { MiniAppChatsStore, MiniAppChatsStoreState } from "../store/chats";
 import type {
   MiniAppChatDetail,
   MiniAppChatTargetKind,
   MiniAppChatTargetsView,
   MiniAppLanguage,
 } from "../types/miniApp";
+import type {
+  ChatTargetsMemberAddFormSlice,
+  ChatTargetsMemberPanelsSlice,
+  ChatTargetsModalShellSlice,
+  ChatTargetsQaEditorFormSlice,
+  ChatTargetsQaPanelSlice,
+} from "../types/chatTargets";
 import type { MiniAppTranslations } from "../types/miniAppI18n";
 import { CollapseGrid, TriggerCollapseGrid } from "./animations/CollapseGrid";
 import {
@@ -43,8 +53,8 @@ import {
 
 /** `ChatTargetsModal` 组件入参。 */
 export interface ChatTargetsModalProps {
-  /** `ChatsPage` 持有的状态与动作快照。 */
-  readonly state: MiniAppChatsStoreState;
+  /** `ChatsPage` 持有的受管群状态仓库实例。 */
+  readonly store: MiniAppChatsStore;
 }
 
 /**
@@ -84,71 +94,411 @@ export function resolveTargetKindCounts(
 }
 
 /**
- * 渲染受管群详情页的「目标与问答」管理弹窗（支持问答对、删发言目标、翻译目标的查看、新增与删除）。
+ * 生成目标弹窗子面板在激活态或退场过渡期的视图状态：激活态直接返回实时 `state`；
+ * 退场期间返回关闭前捕获的表单与列表快照，并将 `translateLangMenuOpen` 置为 `false`。
  *
- * @param props 组件属性
- * @returns React 节点或 `null`
+ * @param state 当前实时 store 状态切片
+ * @param snapshotState 关闭前最后一次有效展开态捕获的快照切片
+ * @param isClosing 当前弹窗是否处于退场过渡期
+ * @returns 供弹窗外框或子面板渲染使用的状态切片
  */
-export function ChatTargetsModal({
-  state,
-}: ChatTargetsModalProps): React.JSX.Element | null {
-  const language: MiniAppLanguage = useMiniAppStore(
-    (s: MiniAppUiStoreState): MiniAppLanguage => s.language
-  );
-  const t: Readonly<MiniAppTranslations> = getMiniAppTranslations(language);
+export function resolveChatTargetsModalPanelState<
+  T extends { readonly translateLangMenuOpen: boolean }
+>(state: T, snapshotState: T, isClosing: boolean): T {
+  if (!isClosing) {
+    return state;
+  }
+  return {
+    ...snapshotState,
+    translateLangMenuOpen: false,
+  };
+}
 
+/** `syncChatTargetsModalCloseReset` 关闭卸载后重置高度记录引用的参数接口。 */
+export interface SyncChatTargetsModalCloseResetOptions {
+  /** 弹窗当前是否处于激活或退场挂载阶段。 */
+  readonly isModalOpen: boolean;
+  /** 上一次渲染的目标类别引用。 */
+  readonly prevTabRef: React.RefObject<MiniAppChatTargetKind | null>;
+  /** 上一次是否已加载目标数据的标记引用。 */
+  readonly prevHadTargetsRef: React.RefObject<boolean>;
+  /** 上一次记录的内容像素高度引用。 */
+  readonly lastHeightRef: React.RefObject<number>;
+}
+
+/**
+ * 在目标弹窗退场动画完成卸载后清空 `TabHeightSizer` 的上次标签、注水标志与高度记录引用。
+ *
+ * @param options 弹窗挂载标志与高度记录引用
+ */
+export function syncChatTargetsModalCloseReset({
+  isModalOpen,
+  prevTabRef,
+  prevHadTargetsRef,
+  lastHeightRef,
+}: SyncChatTargetsModalCloseResetOptions): void {
+  if (!isModalOpen) {
+    prevTabRef.current = null;
+    prevHadTargetsRef.current = false;
+    lastHeightRef.current = 0;
+  }
+}
+
+/** `ChatTargetsModalDialog` 对话框视图的属性参数：外框消费上层传入的外框切片，顶部表单与列表子面板经 `store` 按切片自订阅。 */
+interface ChatTargetsModalDialogProps {
+  /** 受管群状态仓库实例。 */
+  readonly store: MiniAppChatsStore;
+  /** 当前实时弹窗外框切片。 */
+  readonly state: ChatTargetsModalShellSlice;
+  /** 关闭前捕获的弹窗外框快照切片。 */
+  readonly snapshotState: ChatTargetsModalShellSlice;
+  /** 当前展示的目标类别。 */
+  readonly displayModalKind: MiniAppChatTargetKind;
+  /** 当前展示的群详情快照。 */
+  readonly displayChatDetail: Readonly<MiniAppChatDetail>;
+  /** 当前展示的群目标管理清单快照。 */
+  readonly displayChatTargets: Readonly<MiniAppChatTargetsView> | null;
+  /** 当前展示的目标清单加载标记。 */
+  readonly displayLoadingTargets: boolean;
+  /** 弹窗是否正处于退场收起阶段。 */
+  readonly isClosing: boolean;
+  /** 语言下拉外部遮罩是否挂载。 */
+  readonly displayLangBackdropOpen: true | null;
+  /** 语言下拉外部遮罩是否处于退场阶段。 */
+  readonly langBackdropClosing: boolean;
+  /** 当前语言的翻译字典。 */
+  readonly t: Readonly<MiniAppTranslations>;
+  /** 弹窗滚动体节点引用。 */
+  readonly modalBodyRef: React.RefObject<ScrollableModalBodyElement | null>;
+  /** 高度过渡外层节点引用。 */
+  readonly sizerRef: React.RefObject<MeasurableBodyElement | null>;
+  /** 高度过渡内层面板节点引用。 */
+  readonly paneRef: React.RefObject<MeasurableBodyElement | null>;
+  /** 上一次记录的内容像素高度引用。 */
+  readonly lastHeightRef: React.RefObject<number>;
+  /** 上一次渲染的目标类别引用。 */
+  readonly prevTabRef: React.RefObject<MiniAppChatTargetKind | null>;
+  /** 上一次是否已加载目标数据的标记引用。 */
+  readonly prevHadTargetsRef: React.RefObject<boolean>;
+  /** 平滑滚动弹窗内容至顶部的回调。 */
+  readonly onScrollToTop: () => void;
+}
+
+/**
+ * 从受管群仓库提取弹窗外框渲染所需切片。
+ *
+ * @param state 受管群完整状态快照
+ * @returns 弹窗外框切片
+ */
+function selectChatTargetsModalShellState(
+  state: MiniAppChatsStoreState
+): ChatTargetsModalShellSlice {
+  return {
+    activeTargetsModal: state.activeTargetsModal,
+    chatDetail: state.chatDetail,
+    chatTargets: state.chatTargets,
+    loadingTargets: state.loadingTargets,
+    mutatingTargets: state.mutatingTargets,
+    translateLangMenuOpen: state.translateLangMenuOpen,
+    qaEditorOpen: state.qaEditorOpen,
+    targetAddMenuOpen: state.targetAddMenuOpen,
+    openQaEditor: state.openQaEditor,
+    openTargetAddMenu: state.openTargetAddMenu,
+    closeTranslateLangMenu: state.closeTranslateLangMenu,
+    switchTargetsModalTab: state.switchTargetsModalTab,
+    closeTargetsModal: state.closeTargetsModal,
+    loadChatTargets: state.loadChatTargets,
+  };
+}
+
+/**
+ * 从受管群仓库提取问答对折叠编辑表单切片。
+ *
+ * @param state 受管群完整状态快照
+ * @returns 问答对编辑表单切片
+ */
+function selectQaEditorFormSlice(
+  state: MiniAppChatsStoreState
+): ChatTargetsQaEditorFormSlice {
+  return {
+    chatTargets: state.chatTargets,
+    mutatingTargets: state.mutatingTargets,
+    qaEditorOpen: state.qaEditorOpen,
+    qaQuestionInput: state.qaQuestionInput,
+    qaAnswerInput: state.qaAnswerInput,
+    qaEditSourceQuestion: state.qaEditSourceQuestion,
+    closeQaEditor: state.closeQaEditor,
+    setQaQuestionInput: state.setQaQuestionInput,
+    setQaAnswerInput: state.setQaAnswerInput,
+    submitQaPair: state.submitQaPair,
+  };
+}
+
+/**
+ * 从受管群仓库提取成员目标折叠添加表单切片。
+ *
+ * @param state 受管群完整状态快照
+ * @returns 成员目标添加表单切片
+ */
+function selectMemberAddFormSlice(
+  state: MiniAppChatsStoreState
+): ChatTargetsMemberAddFormSlice {
+  return {
+    mutatingTargets: state.mutatingTargets,
+    targetAddMenuOpen: state.targetAddMenuOpen,
+    targetIdFormOpen: state.targetIdFormOpen,
+    deleteTargetInput: state.deleteTargetInput,
+    translateTargetInput: state.translateTargetInput,
+    translateLanguageInput: state.translateLanguageInput,
+    translateLangMenuOpen: state.translateLangMenuOpen,
+    closeTargetAddMenu: state.closeTargetAddMenu,
+    selectTargetAddMode: state.selectTargetAddMode,
+    setDeleteTargetInput: state.setDeleteTargetInput,
+    setTranslateTargetInput: state.setTranslateTargetInput,
+    setTranslateLanguageInput: state.setTranslateLanguageInput,
+    toggleTranslateLangMenu: state.toggleTranslateLangMenu,
+    submitDeleteTarget: state.submitDeleteTarget,
+    submitTranslateTarget: state.submitTranslateTarget,
+  };
+}
+
+/**
+ * 从受管群仓库提取问答对列表面板切片。
+ *
+ * @param state 受管群完整状态快照
+ * @returns 问答对列表切片
+ */
+function selectQaPanelSlice(
+  state: MiniAppChatsStoreState
+): ChatTargetsQaPanelSlice {
+  return {
+    chatTargets: state.chatTargets,
+    loadingTargets: state.loadingTargets,
+    mutatingTargets: state.mutatingTargets,
+    fillQaPairForEdit: state.fillQaPairForEdit,
+    removeQaPair: state.removeQaPair,
+  };
+}
+
+/**
+ * 从受管群仓库提取成员目标列表面板切片。
+ *
+ * @param state 受管群完整状态快照
+ * @returns 成员目标列表切片
+ */
+function selectMemberPanelsSlice(
+  state: MiniAppChatsStoreState
+): ChatTargetsMemberPanelsSlice {
+  return {
+    chatTargets: state.chatTargets,
+    loadingTargets: state.loadingTargets,
+    mutatingTargets: state.mutatingTargets,
+    removeDeleteTarget: state.removeDeleteTarget,
+    removeTranslateTarget: state.removeTranslateTarget,
+  };
+}
+
+/**
+ * 按切片浅比较订阅受管群仓库；激活态返回实时切片，退场期间返回关闭前缓存的最后一次激活态切片。
+ *
+ * @param store 受管群状态仓库实例
+ * @param selector 模块级切片选择器
+ * @param isClosing 弹窗是否正处于退场收起阶段
+ * @returns 激活态返回实时切片，退场期间返回关闭前最后一次激活态切片
+ */
+function useRetainedPanelSlice<T>(
+  store: MiniAppChatsStore,
+  selector: (state: MiniAppChatsStoreState) => T,
+  isClosing: boolean
+): T {
+  const liveSlice: T = useStore(store, useShallow(selector));
+  const lastActiveSliceRef: React.RefObject<T> = useRef<T>(liveSlice);
+  if (!isClosing) {
+    lastActiveSliceRef.current = liveSlice;
+  }
+  return isClosing ? lastActiveSliceRef.current : liveSlice;
+}
+
+/** 连接态子面板共用的仓库与退场状态属性。 */
+interface ConnectedTargetsPanelBaseProps {
+  /** 受管群状态仓库实例。 */
+  readonly store: MiniAppChatsStore;
+  /** 弹窗是否正处于退场收起阶段。 */
+  readonly isClosing: boolean;
+  /** 当前语言的翻译字典。 */
+  readonly t: Readonly<MiniAppTranslations>;
+}
+
+/**
+ * 仅订阅问答对编辑表单切片的轻量连接包装器（退场期间沿用最近一次激活态切片）。
+ *
+ * @param props 仓库与退场状态属性
+ * @returns React 节点
+ */
+function ConnectedChatTargetsQaEditorForm({
+  store,
+  isClosing,
+  t,
+}: ConnectedTargetsPanelBaseProps): React.JSX.Element {
+  const panelState: ChatTargetsQaEditorFormSlice = useRetainedPanelSlice(
+    store,
+    selectQaEditorFormSlice,
+    isClosing
+  );
+  return (
+    <ChatTargetsQaEditorForm state={panelState} isClosing={isClosing} t={t} />
+  );
+}
+
+/**
+ * 仅订阅成员目标添加表单切片的轻量连接包装器（退场期间沿用最近一次激活态切片并关闭翻译语言下拉）。
+ *
+ * @param props 目标类别、仓库与退场状态属性
+ * @returns React 节点
+ */
+function ConnectedChatTargetsMemberAddForm({
+  kind,
+  store,
+  isClosing,
+  t,
+}: ConnectedTargetsPanelBaseProps & {
+  /** 成员目标类别。 */
+  readonly kind: "deleteMessage" | "translate";
+}): React.JSX.Element {
+  const retainedSlice: ChatTargetsMemberAddFormSlice = useRetainedPanelSlice(
+    store,
+    selectMemberAddFormSlice,
+    isClosing
+  );
+  const panelState: ChatTargetsMemberAddFormSlice =
+    resolveChatTargetsModalPanelState(retainedSlice, retainedSlice, isClosing);
+  return (
+    <ChatTargetsMemberAddForm
+      kind={kind}
+      state={panelState}
+      isClosing={isClosing}
+      t={t}
+    />
+  );
+}
+
+/**
+ * 仅订阅问答对列表切片的轻量连接包装器（退场期间沿用最近一次激活态切片）。
+ *
+ * @param props 仓库、退场状态与置顶滚动回调
+ * @returns React 节点
+ */
+function ConnectedChatTargetsQaPanel({
+  store,
+  isClosing,
+  t,
+  onScrollToTop,
+}: ConnectedTargetsPanelBaseProps & {
+  /** 点击编辑后平滑滚动弹窗内容区至顶部的回调。 */
+  readonly onScrollToTop: () => void;
+}): React.JSX.Element {
+  const panelState: ChatTargetsQaPanelSlice = useRetainedPanelSlice(
+    store,
+    selectQaPanelSlice,
+    isClosing
+  );
+  return (
+    <ChatTargetsQaPanel
+      state={panelState}
+      isClosing={isClosing}
+      t={t}
+      onScrollToTop={onScrollToTop}
+    />
+  );
+}
+
+/**
+ * 仅订阅成员目标列表切片的轻量连接包装器（退场期间沿用最近一次激活态切片）。
+ *
+ * @param props 目标类别、群详情、仓库与退场状态属性
+ * @returns React 节点
+ */
+function ConnectedChatTargetsMemberPanels({
+  kind,
+  chatDetail,
+  store,
+  isClosing,
+  t,
+}: ConnectedTargetsPanelBaseProps & {
+  /** 成员目标类别。 */
+  readonly kind: "deleteMessage" | "translate";
+  /** 当前展示的群详情快照。 */
+  readonly chatDetail: Readonly<MiniAppChatDetail>;
+}): React.JSX.Element {
+  const panelState: ChatTargetsMemberPanelsSlice = useRetainedPanelSlice(
+    store,
+    selectMemberPanelsSlice,
+    isClosing
+  );
+  return (
+    <ChatTargetsMemberPanels
+      kind={kind}
+      chatDetail={chatDetail}
+      state={panelState}
+      isClosing={isClosing}
+      t={t}
+    />
+  );
+}
+
+/**
+ * 渲染受管群「目标与问答」弹窗的遮罩层、头部操作栏、标签栏、顶部折叠表单与目标列表面板。
+ *
+ * @param props 对话框展示状态与节点引用
+ * @returns React 节点
+ */
+function ChatTargetsModalDialog({
+  store,
+  state,
+  snapshotState,
+  displayModalKind,
+  displayChatDetail,
+  displayChatTargets,
+  displayLoadingTargets,
+  isClosing,
+  displayLangBackdropOpen,
+  langBackdropClosing,
+  t,
+  modalBodyRef,
+  sizerRef,
+  paneRef,
+  lastHeightRef,
+  prevTabRef,
+  prevHadTargetsRef,
+  onScrollToTop,
+}: ChatTargetsModalDialogProps): React.JSX.Element {
   const {
     activeTargetsModal,
-    chatDetail,
-    chatTargets,
-    loadingTargets,
-    mutatingTargets,
-    qaEditorOpen,
-    targetAddMenuOpen,
     openQaEditor,
     openTargetAddMenu,
+    closeTranslateLangMenu,
     switchTargetsModalTab,
     closeTargetsModal,
     loadChatTargets,
-  }: MiniAppChatsStoreState = state;
+  }: ChatTargetsModalShellSlice = state;
 
-  const modalBodyRef: React.RefObject<ScrollableModalBodyElement | null> =
-    useRef<ScrollableModalBodyElement | null>(null);
-  const sizerRef: React.RefObject<MeasurableBodyElement | null> =
-    useRef<MeasurableBodyElement | null>(null);
-  const paneRef: React.RefObject<MeasurableBodyElement | null> =
-    useRef<MeasurableBodyElement | null>(null);
-  const lastHeightRef: React.RefObject<number> = useRef<number>(0);
-  const prevTabRef: React.RefObject<MiniAppChatTargetKind | null> =
-    useRef<MiniAppChatTargetKind | null>(activeTargetsModal);
-  const prevHadTargetsRef: React.RefObject<boolean> = useRef<boolean>(
-    chatTargets !== null
-  );
-
-  const {
-    displayValue: displayModalKind,
-    isClosing,
-  }: Readonly<DelayedUnmountState<MiniAppChatTargetKind>> = useDelayedUnmount(
-    activeTargetsModal,
-    MINI_APP_TARGETS_MODAL_CLOSE_MS
-  );
-
-  const isModalOpen: boolean =
-    displayModalKind !== null && chatDetail !== null;
-  useModalBodyScrollLock(isModalOpen);
-
-  const handleScrollToTop: () => void = useCallback((): void => {
-    scrollModalBodyToTop(modalBodyRef.current);
-  }, []);
-
-  if (displayModalKind === null || chatDetail === null) {
-    return null;
-  }
+  const panelState: ChatTargetsModalShellSlice =
+    resolveChatTargetsModalPanelState<ChatTargetsModalShellSlice>(
+      state,
+      snapshotState,
+      isClosing
+    );
 
   const [activeCount, activeMax]: readonly [number, number] =
-    resolveTargetKindCounts(displayModalKind, chatDetail, chatTargets);
+    resolveTargetKindCounts(
+      displayModalKind,
+      displayChatDetail,
+      displayChatTargets
+    );
   const isTopFormOpen: boolean =
-    displayModalKind === "qa" ? qaEditorOpen : targetAddMenuOpen;
+    displayModalKind === "qa"
+      ? panelState.qaEditorOpen
+      : panelState.targetAddMenuOpen;
   const openTopFormButtonLabel: string =
     displayModalKind === "qa"
       ? t.chats.qaOpenEditorButton
@@ -161,17 +511,33 @@ export function ChatTargetsModal({
       className={`confirm-backdrop chat-targets-backdrop ${isClosing ? "closing" : ""}`}
       role="dialog"
       aria-modal="true"
+      aria-hidden={isClosing}
       aria-label={t.chats.targetsKindLabel[displayModalKind]}
       onClick={(): void => {
-        if (!mutatingTargets && !isClosing) {
+        if (!panelState.mutatingTargets && !isClosing) {
           closeTargetsModal();
         }
       }}
     >
+      {displayLangBackdropOpen !== null ? (
+        <div
+          className={`chat-targets-lang-backdrop ${langBackdropClosing ? "closing" : ""}`}
+          aria-hidden="true"
+          onClick={(event: React.SyntheticEvent<HTMLDivElement>): void => {
+            event.stopPropagation();
+            if (!langBackdropClosing) {
+              closeTranslateLangMenu();
+            }
+          }}
+        />
+      ) : null}
       <div
         className={`chat-targets-modal ${isClosing ? "closing" : ""}`}
         onClick={(event: React.SyntheticEvent<HTMLDivElement>): void => {
           event.stopPropagation();
+          if (panelState.translateLangMenuOpen) {
+            closeTranslateLangMenu();
+          }
         }}
       >
         <div className="chat-targets-modal-header">
@@ -181,7 +547,7 @@ export function ChatTargetsModal({
             </div>
             <div className="chat-targets-modal-sub">
               {t.chats.targetsModalSubtitle(
-                chatDetail.title,
+                displayChatDetail.title,
                 activeCount,
                 activeMax
               )}
@@ -191,23 +557,32 @@ export function ChatTargetsModal({
             <button
               type="button"
               className="btn icon-btn"
-              disabled={loadingTargets || mutatingTargets || isClosing}
+              disabled={displayLoadingTargets || panelState.mutatingTargets}
+              tabIndex={isClosing ? -1 : undefined}
               onClick={(): void => {
-                void loadChatTargets();
+                if (isClosing) {
+                  return;
+                }
+                void loadChatTargets(false);
               }}
             >
               <RefreshSvgIcon
                 size={14}
-                className={loadingTargets ? "spin-icon" : ""}
+                className={displayLoadingTargets ? "spin-icon" : ""}
               />
               <span>{t.chats.targetsRefreshButton}</span>
             </button>
             <button
               type="button"
               className="btn icon-btn"
-              disabled={mutatingTargets || isClosing}
+              disabled={panelState.mutatingTargets}
+              tabIndex={isClosing ? -1 : undefined}
               aria-label={t.chats.targetsCloseButton}
-              onClick={closeTargetsModal}
+              onClick={(): void => {
+                if (!isClosing) {
+                  closeTargetsModal();
+                }
+              }}
             >
               <CloseSvgIcon size={14} />
               <span>{t.chats.targetsCloseButton}</span>
@@ -219,7 +594,11 @@ export function ChatTargetsModal({
           {MINI_APP_CHAT_TARGET_KINDS.map(
             (kind: MiniAppChatTargetKind): React.JSX.Element => {
               const [count, max]: readonly [number, number] =
-                resolveTargetKindCounts(kind, chatDetail, chatTargets);
+                resolveTargetKindCounts(
+                  kind,
+                  displayChatDetail,
+                  displayChatTargets
+                );
               const isActive: boolean = displayModalKind === kind;
               return (
                 <button
@@ -227,9 +606,10 @@ export function ChatTargetsModal({
                   type="button"
                   role="tab"
                   aria-selected={isActive}
+                  tabIndex={isClosing ? -1 : undefined}
                   className={`chat-targets-tab ${isActive ? "active" : ""}`}
                   onClick={(): void => {
-                    if (kind === activeTargetsModal) {
+                    if (isClosing || kind === activeTargetsModal) {
                       return;
                     }
                     const currentHeight: number =
@@ -266,13 +646,14 @@ export function ChatTargetsModal({
           className="chat-targets-modal-body"
         >
           <TabHeightSizer
-            activeTab={activeTargetsModal}
-            hasTargets={chatTargets !== null && !loadingTargets}
+            activeTab={displayModalKind}
+            hasTargets={displayChatTargets !== null && !displayLoadingTargets}
             sizerRef={sizerRef}
             paneRef={paneRef}
             lastHeightRef={lastHeightRef}
             prevTabRef={prevTabRef}
             prevHadTargetsRef={prevHadTargetsRef}
+            isClosing={isClosing}
           >
             <div className="chat-targets-qa-editor-shell">
               <TriggerCollapseGrid
@@ -284,11 +665,18 @@ export function ChatTargetsModal({
                 <button
                   type="button"
                   className="btn primary icon-btn chat-targets-qa-open-btn"
-                  disabled={mutatingTargets}
-                  tabIndex={isTopFormOpen ? -1 : 0}
-                  onClick={
-                    displayModalKind === "qa" ? openQaEditor : openTargetAddMenu
-                  }
+                  disabled={panelState.mutatingTargets}
+                  tabIndex={isTopFormOpen || isClosing ? -1 : 0}
+                  onClick={(): void => {
+                    if (isClosing) {
+                      return;
+                    }
+                    if (displayModalKind === "qa") {
+                      openQaEditor();
+                    } else {
+                      openTargetAddMenu();
+                    }
+                  }}
                 >
                   <PlusSvgIcon size={14} />
                   <span>{openTopFormButtonLabel}</span>
@@ -303,11 +691,16 @@ export function ChatTargetsModal({
                 fadeInner
               >
                 {displayModalKind === "qa" ? (
-                  <ChatTargetsQaEditorForm state={state} t={t} />
+                  <ConnectedChatTargetsQaEditorForm
+                    store={store}
+                    isClosing={isClosing}
+                    t={t}
+                  />
                 ) : (
-                  <ChatTargetsMemberAddForm
+                  <ConnectedChatTargetsMemberAddForm
                     kind={displayModalKind}
-                    state={state}
+                    store={store}
+                    isClosing={isClosing}
                     t={t}
                   />
                 )}
@@ -316,16 +709,18 @@ export function ChatTargetsModal({
 
             <div key={displayModalKind} className="chat-targets-tab-content">
               {displayModalKind === "qa" ? (
-                <ChatTargetsQaPanel
-                  state={state}
+                <ConnectedChatTargetsQaPanel
+                  store={store}
+                  isClosing={isClosing}
                   t={t}
-                  onScrollToTop={handleScrollToTop}
+                  onScrollToTop={onScrollToTop}
                 />
               ) : (
-                <ChatTargetsMemberPanels
+                <ConnectedChatTargetsMemberPanels
                   kind={displayModalKind}
-                  chatDetail={chatDetail}
-                  state={state}
+                  chatDetail={displayChatDetail}
+                  store={store}
+                  isClosing={isClosing}
                   t={t}
                 />
               )}
@@ -334,5 +729,122 @@ export function ChatTargetsModal({
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * 渲染受管群详情页的「目标与问答」管理弹窗，支持查看、新增与删除问答对、删发言目标和翻译目标。
+ * 外框消费 `ChatTargetsModalShellSlice`，顶部表单与列表子面板各自按切片订阅 `store`；关闭弹窗、离开详情或切群时保留快照完成退场动画，翻译语言下拉的外部点击遮罩与弹窗面板同级挂载于遮罩层内。
+ *
+ * @param props 组件属性
+ * @returns React 节点或 `null`
+ */
+export function ChatTargetsModal({
+  store,
+}: ChatTargetsModalProps): React.JSX.Element | null {
+  const language: MiniAppLanguage = useMiniAppStore(
+    (s: MiniAppUiStoreState): MiniAppLanguage => s.language
+  );
+  const t: Readonly<MiniAppTranslations> = getMiniAppTranslations(language);
+
+  const liveShellSlice: ChatTargetsModalShellSlice = useStore(
+    store,
+    useShallow(selectChatTargetsModalShellState)
+  );
+  const {
+    activeTargetsModal,
+    chatDetail,
+    chatTargets,
+    translateLangMenuOpen,
+  }: ChatTargetsModalShellSlice = liveShellSlice;
+
+  const modalBodyRef: React.RefObject<ScrollableModalBodyElement | null> =
+    useRef<ScrollableModalBodyElement | null>(null);
+  const sizerRef: React.RefObject<MeasurableBodyElement | null> =
+    useRef<MeasurableBodyElement | null>(null);
+  const paneRef: React.RefObject<MeasurableBodyElement | null> =
+    useRef<MeasurableBodyElement | null>(null);
+  const lastHeightRef: React.RefObject<number> = useRef<number>(0);
+  const prevTabRef: React.RefObject<MiniAppChatTargetKind | null> =
+    useRef<MiniAppChatTargetKind | null>(activeTargetsModal);
+  const prevHadTargetsRef: React.RefObject<boolean> = useRef<boolean>(
+    chatTargets !== null
+  );
+  const lastActiveShellRef: React.RefObject<ChatTargetsModalShellSlice> =
+    useRef<ChatTargetsModalShellSlice>(liveShellSlice);
+
+  const isModalActive: boolean =
+    activeTargetsModal !== null && chatDetail !== null;
+  if (isModalActive) {
+    lastActiveShellRef.current = liveShellSlice;
+  }
+
+  const {
+    displayValue: displayModalKind,
+    isClosing,
+  }: Readonly<DelayedUnmountState<MiniAppChatTargetKind>> = useDelayedUnmount(
+    isModalActive ? activeTargetsModal : null,
+    MINI_APP_TARGETS_MODAL_CLOSE_MS
+  );
+  const snapshotShell: ChatTargetsModalShellSlice = isModalActive
+    ? liveShellSlice
+    : lastActiveShellRef.current;
+  const displayChatDetail: MiniAppChatDetail | null = snapshotShell.chatDetail;
+  const displayChatTargets: MiniAppChatTargetsView | null =
+    snapshotShell.chatTargets;
+  const displayLoadingTargets: boolean = snapshotShell.loadingTargets;
+  const isLangMenuActive: boolean =
+    isModalActive &&
+    activeTargetsModal === "translate" &&
+    translateLangMenuOpen;
+  const {
+    displayValue: displayLangBackdropOpen,
+    isClosing: langBackdropClosing,
+  }: Readonly<DelayedUnmountState<true>> = useDelayedUnmount(
+    isLangMenuActive ? true : null,
+    MINI_APP_LANG_MENU_CLOSE_ANIMATION_MS
+  );
+
+  const isModalOpen: boolean =
+    displayModalKind !== null && displayChatDetail !== null;
+  useModalBodyScrollLock(isModalOpen);
+  useEffect((): void => {
+    syncChatTargetsModalCloseReset({
+      isModalOpen,
+      prevTabRef,
+      prevHadTargetsRef,
+      lastHeightRef,
+    });
+  }, [isModalOpen]);
+
+  const handleScrollToTop: () => void = useCallback((): void => {
+    scrollModalBodyToTop(modalBodyRef.current);
+  }, []);
+
+  if (displayModalKind === null || displayChatDetail === null) {
+    return null;
+  }
+
+  return (
+    <ChatTargetsModalDialog
+      store={store}
+      state={liveShellSlice}
+      snapshotState={snapshotShell}
+      displayModalKind={displayModalKind}
+      displayChatDetail={displayChatDetail}
+      displayChatTargets={displayChatTargets}
+      displayLoadingTargets={displayLoadingTargets}
+      isClosing={isClosing}
+      displayLangBackdropOpen={displayLangBackdropOpen}
+      langBackdropClosing={langBackdropClosing}
+      t={t}
+      modalBodyRef={modalBodyRef}
+      sizerRef={sizerRef}
+      paneRef={paneRef}
+      lastHeightRef={lastHeightRef}
+      prevTabRef={prevTabRef}
+      prevHadTargetsRef={prevHadTargetsRef}
+      onScrollToTop={handleScrollToTop}
+    />
   );
 }

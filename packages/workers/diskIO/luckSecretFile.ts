@@ -1,3 +1,6 @@
+/**
+ * 运势回执日级密钥文件的严格校验、恢复与跨日原子轮换（Disk I/O Worker 侧）。
+ */
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { LUCK_RECEIPT_SECRET_PATTERN } from "../../consts/luckReceipt";

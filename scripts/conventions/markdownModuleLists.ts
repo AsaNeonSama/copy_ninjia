@@ -6,7 +6,7 @@ import { withoutMarkdownCodeFences } from "./markdownSource";
  * 文档里「目录清单」写法的存在性核对。
  *
  * `docs/<lang>/03-directory-map.md` 用「`<目录>/`（`a.ts`、`b.ts`）」列一个目录的代表文件。
- * 这些名字既不是 Markdown 链接（`checkMarkdownLocalLinks` 的核对对象），也不在源码注释里
+ * 这些名字既不是 Markdown 链接（`checkMarkdownLocalLinksFromText` 的核对对象），也不在源码注释里
  * （`collectCommentReferenceProblems` 的核对对象），由本模块核对。
  *
  * 判据只做一件事：括号里点名的文件在那个目录下还在不在。歧义一律放过：
@@ -87,39 +87,55 @@ export function collectSourceDirectories(
   return directories;
 }
 
+/** 基于已读取 Markdown 正文核对目录清单的参数。 */
+export interface MarkdownModuleListCheckOptions {
+  /** 仓库根目录绝对路径。 */
+  readonly projectRoot: string;
+  /** 被检查 Markdown 文件的绝对路径。 */
+  readonly path: string;
+  /** 被检查 Markdown 文件的原始正文。 */
+  readonly source: string;
+  /** 仓库源码目录绝对路径列表。 */
+  readonly directories: readonly string[];
+  /** 已确认存在的绝对路径集合；命中时跳过 `exists()` 系统调用。 */
+  readonly existingPaths?: ReadonlySet<string>;
+}
+
 /**
- * 核对一份 Markdown 里全部目录清单点名的文件是否仍然存在。
+ * 基于已读取的 Markdown 文本核对全部目录清单点名的文件是否仍然存在。
  *
- * @param projectRoot 仓库根目录绝对路径
- * @param path 被检查 Markdown 文件的绝对路径
- * @param directories 仓库源码目录绝对路径列表
+ * @param options Markdown 正文、源码目录列表与可选存在文件集合
  * @returns 目录清单中缺失文件的违规信息列表
  */
-export async function collectMarkdownModuleListProblems(
-  projectRoot: string,
-  path: string,
-  directories: readonly string[]
-): Promise<readonly string[]> {
+export async function collectMarkdownModuleListProblemsFromText({
+  projectRoot,
+  path,
+  source,
+  directories,
+  existingPaths,
+}: MarkdownModuleListCheckOptions): Promise<readonly string[]> {
   const problems: string[] = [];
-  const source: string = withoutMarkdownCodeFences(await Bun.file(path).text());
-  for (const match of source.matchAll(DIRECTORY_LIST_PATTERN)) {
+  const searchable: string = withoutMarkdownCodeFences(source);
+  for (const match of searchable.matchAll(DIRECTORY_LIST_PATTERN)) {
     const directoryName: string | undefined = match[1];
     if (directoryName === undefined) continue;
     const directory: string | undefined = resolveDirectory(directoryName, directories);
     if (directory === undefined) continue;
     const segment: string | undefined = balancedSegment(
-      source,
+      searchable,
       match.index + match[0].length - 1
     );
     if (segment === undefined) continue;
     for (const member of segment.matchAll(MEMBER_PATTERN)) {
       const fileName: string | undefined = member[1];
       if (fileName === undefined) continue;
-      if (await Bun.file(join(directory, fileName)).exists()) continue;
-      const line: number = source.slice(0, match.index).split("\n").length;
+      const candidatePath: string = join(directory, fileName);
+      if (existingPaths?.has(candidatePath) === true) continue;
+      if (await Bun.file(candidatePath).exists()) continue;
+      const line: number = searchable.slice(0, match.index).split("\n").length;
       problems.push(
         `${relative(projectRoot, path)}:${line} lists ${fileName} under ${directoryName}/, ` +
-        `but ${relative(projectRoot, join(directory, fileName))} does not exist`
+        `but ${relative(projectRoot, candidatePath)} does not exist`
       );
     }
   }

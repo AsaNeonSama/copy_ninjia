@@ -1,8 +1,12 @@
-/** 当前发布支持的直接冷迁移边。 */
+/** 当前发布支持的直接冷迁移边描述。 */
 export interface ColdMigrationEdge {
+  /** `package.json` `scripts` 中登记的冷迁移命令名。 */
   readonly command: string;
+  /** `package.json` `scripts` 对应的 Bun 执行命令文本。 */
   readonly invocation: string;
+  /** 仓库内冷迁移 TypeScript 源码入口相对路径。 */
   readonly entryPath: string;
+  /** 二进制发行包内打包后的 JS 产物相对路径。 */
   readonly bundledPath: string;
 }
 

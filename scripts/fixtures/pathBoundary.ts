@@ -7,8 +7,7 @@
  *
  * 允许根自身也要过同一道核对，不把可疑根的 realpath 当成允许根。
  *
- * 只依赖 `node:fs` / `node:path`，不引入 `packages/` 下的实现模块（全量基准父进程
- * 不加载生产模块图），errno 判定在本文件内联，不复用 `packages/libs/errno.ts`。
+ * 仅依赖 `node:fs` 与 `node:path`，独立于 `packages/` 生产模块图，并在本模块内直接判定系统调用 errno。
  *
  * 核对只增加拒绝、不放宽：目标是否落在允许根内由词法判定先判定，分量核对随后拒绝
  * 形态合法但真实路径可疑的路径。
@@ -20,7 +19,7 @@ import { join, relative, resolve, sep } from "node:path";
 
 /** 一个受控写入根的完整描述；每种基准根构造一次并全程复用。 */
 export interface FixturePathBoundary {
-  /** 锚点绝对路径：仓库根或系统临时目录，其自身不再逐段核对。 */
+  /** 锚点绝对路径（仓库根或系统临时目录）；分量核对从该目录的下一级子段开始。 */
   readonly anchor: string;
   /** 允许写入的根绝对路径；必须落在锚点之内。 */
   readonly root: string;

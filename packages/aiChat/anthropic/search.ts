@@ -5,17 +5,21 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { BetaFallbackState } from "@anthropic-ai/sdk";
 import {
-  ANTHROPIC_PAUSE_TURN_MAX_CONTINUATIONS,
   ANTHROPIC_WEB_SEARCH_ERROR_LABEL,
   ANTHROPIC_WEB_SEARCH_MAX_TOKENS,
   ANTHROPIC_WEB_SEARCH_TOOL_NAME,
   ANTHROPIC_WEB_SEARCH_TOOL_TYPE,
 } from "../../consts/aiChat/anthropic";
 import { requireAgentCapabilityConfig } from "../../config/agent";
-import { requestAnthropicMessage } from "./client";
-import { anthropicSearchError, anthropicSearchSources, countAnthropicWebSearches, messageText } from "./response";
+import { getAnthropicClient } from "./client";
+import {
+  PAUSE_TURN_CONTINUE,
+  requestAnthropicWithPauseTurn,
+} from "./pauseTurn";
+import type { AnthropicPauseTurnStep } from "./pauseTurn";
+import { anthropicSearchError, anthropicSearchSources, messageText } from "./response";
 import { logger } from "../../infra/logger";
-import type { AnthropicRequestResult } from "../../types/aiChat/anthropic";
+import type { AnthropicClient, AnthropicRequestFailure } from "../../types/aiChat/anthropic";
 import type {
   AiWebSearchCapability,
   AiWebSearchRequest,
@@ -33,44 +37,54 @@ export async function searchAnthropicWeb(
   capability: AiWebSearchCapability,
   request: AiWebSearchRequest
 ): Promise<AiWebSearchResult> {
-  let searchCalls: number = 0;
+  // 客户端与模型在首次请求前固定，`pause_turn` 续写沿用同一组；热重载后能力缺席或配置不可用时按请求失败收口。
+  let client: AnthropicClient;
+  let model: string;
+  try {
+    client = getAnthropicClient(capability);
+    model = requireAgentCapabilityConfig(capability).model;
+  } catch (error: unknown) {
+    if (request.signal?.aborted !== true) {
+      logger.error(`Error calling ${ANTHROPIC_WEB_SEARCH_ERROR_LABEL}:`, error);
+    }
+    return { ok: false, searchCalls: 0 };
+  }
   let text: string = "";
   const sources: AiWebSearchSource[] = [];
   const fallbackState: BetaFallbackState = new BetaFallbackState();
-  let paused: Anthropic.Beta.BetaContentBlockParam[] | null = null;
-  for (let continuation: number = 0; ; continuation++) {
-    const prefix: Anthropic.Beta.BetaContentBlockParam[] | null = paused;
-    const result: AnthropicRequestResult = await requestAnthropicMessage({
-      capability,
-      buildBody: (): Anthropic.Beta.Messages.MessageCreateParamsNonStreaming => {
-        const model: string = requireAgentCapabilityConfig(capability).model;
-        const messages: Anthropic.Beta.BetaMessageParam[] = [{ role: "user", content: request.query }];
-        if (prefix !== null) messages.push({ role: "assistant", content: prefix });
-        return {
-          model,
-          system: request.instruction,
-          messages,
-          tools: [{ type: ANTHROPIC_WEB_SEARCH_TOOL_TYPE, name: ANTHROPIC_WEB_SEARCH_TOOL_NAME, allowed_callers: ["direct"] }],
-          max_tokens: ANTHROPIC_WEB_SEARCH_MAX_TOKENS,
-        };
-      },
-      errorLabel: ANTHROPIC_WEB_SEARCH_ERROR_LABEL,
-      signal: request.signal,
-      fallbackState,
-    });
-    const searches: number = result.message === undefined ? 0 : countAnthropicWebSearches(result.message);
-    searchCalls += searches;
-
-    if (!result.ok) return result.failureKind === "refused" ? { ok: false, searchCalls, refused: true } : { ok: false, searchCalls };
-    const searchError: string | undefined = anthropicSearchError(result.message);
-    if (searchError !== undefined) {
-      logger.error(`${ANTHROPIC_WEB_SEARCH_ERROR_LABEL} tool failed: ${searchError}.`);
-      return { ok: false, searchCalls };
-    }
-    text += messageText(result.message);
-    sources.push(...anthropicSearchSources(result.message));
-    if (result.message.stop_reason !== "pause_turn") return { ok: true, text, sources, searchCalls };
-    if (continuation >= ANTHROPIC_PAUSE_TURN_MAX_CONTINUATIONS) return { ok: false, searchCalls };
-    paused = prefix === null ? result.message.content : [...prefix, ...result.message.content];
-  }
+  return requestAnthropicWithPauseTurn<AiWebSearchResult>({
+    capability,
+    errorLabel: ANTHROPIC_WEB_SEARCH_ERROR_LABEL,
+    signal: request.signal,
+    client,
+    fallbackState,
+    buildBody: (
+      prefix: Anthropic.Beta.BetaContentBlockParam[] | null
+    ): Anthropic.Beta.Messages.MessageCreateParamsNonStreaming => {
+      const messages: Anthropic.Beta.BetaMessageParam[] = [{ role: "user", content: request.query }];
+      if (prefix !== null) messages.push({ role: "assistant", content: prefix });
+      return {
+        model,
+        system: request.instruction,
+        messages,
+        tools: [{ type: ANTHROPIC_WEB_SEARCH_TOOL_TYPE, name: ANTHROPIC_WEB_SEARCH_TOOL_NAME, allowed_callers: ["direct"] }],
+        max_tokens: ANTHROPIC_WEB_SEARCH_MAX_TOKENS,
+      };
+    },
+    onFailure: (failure: AnthropicRequestFailure, searchCalls: number): AiWebSearchResult =>
+      failure.failureKind === "refused" ? { ok: false, searchCalls, refused: true } : { ok: false, searchCalls },
+    handleMessage: ({ message, webSearchCalls: searchCalls }: AnthropicPauseTurnStep): AiWebSearchResult | typeof PAUSE_TURN_CONTINUE => {
+      const searchError: string | undefined = anthropicSearchError(message);
+      if (searchError !== undefined) {
+        logger.error(`${ANTHROPIC_WEB_SEARCH_ERROR_LABEL} tool failed: ${searchError}.`);
+        return { ok: false, searchCalls };
+      }
+      text += messageText(message);
+      sources.push(...anthropicSearchSources(message));
+      return message.stop_reason === "pause_turn"
+        ? PAUSE_TURN_CONTINUE
+        : { ok: true, text, sources, searchCalls };
+    },
+    onPauseLimitExceeded: (searchCalls: number): AiWebSearchResult => ({ ok: false, searchCalls }),
+  });
 }

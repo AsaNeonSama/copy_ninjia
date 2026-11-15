@@ -13,7 +13,7 @@ import {
   MAX_SUMMARY_ROUNDS,
 } from "../../../packages/consts/aiChat/memory";
 import { STATE_MANAGED_CHAT_LIMIT } from "../../../packages/consts/storage";
-import { getOrCreateChatState } from "../../../packages/infra/storage/stateStore";
+import { getOrCreateChatState } from "../../../packages/infra/chatStateStorage";
 import {
   deriveMiniAppInitDataSecretKey,
   verifyMiniAppInitData,
@@ -48,8 +48,8 @@ import type { ChatState } from "../../../packages/types/chatState";
 import type {
   MiniAppAuthResult,
   MiniAppAuthSession,
-  MiniAppChatSummary,
-} from "../../../packages/types/miniApp";
+} from "../../../packages/types/miniApp/auth";
+import type { MiniAppChatSummary } from "../../../packages/types/miniApp/chats";
 import { BENCHMARK_CHAT_ID, BENCHMARK_EPOCH_MS } from "./fixtures";
 import type { Scenario } from "./types";
 
@@ -81,7 +81,7 @@ function buildBenchmarkSignedInitData(authDate: number): string {
 
 /**
  * Mini App 后端双层鉴权与受管群列表路由处理热路径基准：
- * 覆盖 Telegram WebApp HMAC-SHA256 签名与超管身份校验、45 分钟密码会话核验与滑窗续期、
+ * 覆盖 Telegram WebApp HMAC-SHA256 签名与超管身份校验、二级认证会话（`MINI_APP_SESSION_TTL_MS`）核验与滑窗续期、
  * 以及受管群列表状态汇总（功能开关、热消息条数、QA 条数、封锁倒计时与排序）。
  *
  * @returns Mini App 后端路由热路径场景定义

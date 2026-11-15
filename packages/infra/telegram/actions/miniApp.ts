@@ -73,7 +73,8 @@ export interface SaveMiniAppPreparedKeyboardButtonOptions {
 }
 
 /**
- * 调用 Bot API `savePreparedKeyboardButton` 预存用户或频道选择按钮，返回 `prepared_button_id` 供前端 `Telegram.WebApp.requestChat` 拉起原生选择器。
+ * 调用 Bot API `savePreparedKeyboardButton` 预存用户或频道选择按钮，
+ * 返回 `prepared_button_id` 供前端 `Telegram.WebApp.requestChat` 拉起原生选择器。
  * @param options 目标用户 ID 与请求按钮配置。
  * @returns 成功时返回 `PreparedKeyboardButton.id`，失败时返回 undefined。
  */
@@ -94,7 +95,8 @@ export function saveMiniAppPreparedKeyboardButton({
 }
 
 /**
- * 按 ID 查询 Telegram 会话（用户私聊、频道或群）的当前公开资料；查询失败时静默返回 undefined（不记录错误日志，供名单新增时尽力补齐展示名称）。
+ * 按 ID 查询 Telegram 会话（用户私聊、频道或群）的当前公开资料；
+ * 查询失败时静默返回 undefined（不记错误日志，供名单新增时尽力补齐展示名称）。
  * @param targetId 目标用户或频道/群 ID。
  * @param signal 可选的取消信号。
  * @returns 查询成功时返回 `ChatFullInfo`，不可达或失败时返回 undefined。

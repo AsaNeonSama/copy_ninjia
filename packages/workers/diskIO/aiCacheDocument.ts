@@ -8,11 +8,12 @@ import {
   AI_CACHE_ROW_FIELDS,
   AI_CACHE_ROW_KEY_PATTERN,
   AI_CACHE_SEARCH_ROW_FIELDS,
+  AI_CACHE_SUMMARY_ALLOWED_FIELDS,
   AI_CACHE_SUMMARY_FIELDS,
   AI_CACHE_SUMMARY_KEY,
+  AI_CACHE_TOKEN_ROW_ALLOWED_FIELDS,
+  AI_CACHE_TOTALS_ALLOWED_FIELDS,
   AI_CACHE_TOTALS_FIELDS,
-  AI_CACHE_TOTALS_OPTIONAL_FIELDS,
-  AI_CACHE_TOKEN_ROW_OPTIONAL_FIELDS,
 } from "../../consts/diskIO/aiCache";
 import { isAgentProvider } from "../../consts/agent";
 import { hasExactKeys, hasOnlyKeys, isPlainRecord } from "../../libs/record";
@@ -99,7 +100,7 @@ function decodeRow(path: string, index: number, value: unknown): AiCacheRow {
   }
   if (
     !AI_CACHE_ROW_FIELDS.every((field: string): boolean => Object.hasOwn(value, field)) ||
-    !hasOnlyKeys(value, [...AI_CACHE_ROW_FIELDS, ...AI_CACHE_TOKEN_ROW_OPTIONAL_FIELDS]) ||
+    !hasOnlyKeys(value, AI_CACHE_TOKEN_ROW_ALLOWED_FIELDS) ||
     (Object.hasOwn(value, "searchCalls") && (!isTokenCount(value.searchCalls) || value.searchCalls === 0)) ||
     !isTokenCount(value.inputTokens) ||
     (value.cachedInputTokens !== null &&
@@ -136,16 +137,21 @@ function hitRate(cachedInputTokens: number, reportedInputTokens: number): number
 }
 
 /**
- * 检查必填字段齐全且仅包含必填与 AI_CACHE_TOTALS_OPTIONAL_FIELDS。
+ * 检查必填字段齐全且仅包含允许的字段集合。
  * @param value 待校验的合计对象。
  * @param required 必须全部存在的字段名列表。
+ * @param allowed 允许出现的全部字段名列表。
  * @returns 字段集合完全合法时返回 true，否则返回 false。
  */
-function hasTotalsKeys(value: Record<string, unknown>, required: readonly string[]): boolean {
+function hasTotalsKeys(
+  value: Record<string, unknown>,
+  required: readonly string[],
+  allowed: readonly string[]
+): boolean {
   for (const key of required) {
     if (!Object.hasOwn(value, key)) return false;
   }
-  return hasOnlyKeys(value, [...required, ...AI_CACHE_TOTALS_OPTIONAL_FIELDS]);
+  return hasOnlyKeys(value, allowed);
 }
 
 /**
@@ -156,10 +162,12 @@ function hasTotalsKeys(value: Record<string, unknown>, required: readonly string
  * @returns 校验通过的只读合计数据。
  */
 function decodeTotals(path: string, value: unknown, field: string): AiCacheTotals {
-  const keys: readonly string[] = field === AI_CACHE_SUMMARY_KEY ? AI_CACHE_SUMMARY_FIELDS : AI_CACHE_TOTALS_FIELDS;
+  const summaryEntry: boolean = field === AI_CACHE_SUMMARY_KEY;
+  const keys: readonly string[] = summaryEntry ? AI_CACHE_SUMMARY_FIELDS : AI_CACHE_TOTALS_FIELDS;
+  const allowed: readonly string[] = summaryEntry ? AI_CACHE_SUMMARY_ALLOWED_FIELDS : AI_CACHE_TOTALS_ALLOWED_FIELDS;
   if (
     !isPlainRecord(value) ||
-    !hasTotalsKeys(value, keys) ||
+    !hasTotalsKeys(value, keys, allowed) ||
     (value.costInUsdTicks !== undefined && !isTokenCount(value.costInUsdTicks)) ||
     (value.searchCalls !== undefined && !isTokenCount(value.searchCalls)) ||
     !isTokenCount(value.requests) ||
@@ -224,7 +232,7 @@ function decodeSummary(path: string, value: unknown): AiCacheSummary {
   }
   const overall: AiCacheTotals = decodeTotals(path, value, AI_CACHE_SUMMARY_KEY);
   const combined: AiCacheTotals = finishTotals(grouped);
-  for (const field of [...AI_CACHE_TOTALS_FIELDS, ...AI_CACHE_TOTALS_OPTIONAL_FIELDS]) {
+  for (const field of AI_CACHE_TOTALS_ALLOWED_FIELDS) {
     if (value[field] !== combined[field as keyof AiCacheTotals]) {
       return invalid(path, `contains totals inconsistent with ${AI_CACHE_SUMMARY_KEY}.byModel at ${AI_CACHE_SUMMARY_KEY}.${field}.`);
     }

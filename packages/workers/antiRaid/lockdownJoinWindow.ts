@@ -1,3 +1,7 @@
+/**
+ * 入群滑动窗口计数与私密模式重触发冷却（Anti-Raid Worker 侧）：
+ * 维护每群最近 `JOIN_WINDOW_MS` 内的有界入群时间戳窗口、静默清理计时器与异常作废后的冷却抑制。
+ */
 import type { AtmosphereTexts } from "../../types/atmosphere";
 import {
   ANTI_RAID_PER_MINUTE_LIMIT,

@@ -72,10 +72,11 @@ function channelPost(text: string, messageId: number = 78): Message {
 }
 
 /** 开一张表单并把表单消息 id 登记上，与生产里 onSent 那一步同构。 */
-function openForm(openedById: number): void {
+function openForm(openedById: number, messageThreadId: number | undefined = undefined): void {
   const session = openQaFormSession({
     chatId: CHAT_ID,
     openedById,
+    messageThreadId,
     onDiscard: (): void => {},
   });
   if (session !== null) session.formMessageId = FORM_MESSAGE_ID;
@@ -210,6 +211,30 @@ describe("表单投递的认领判据", () => {
 
     expect(await claimQaFieldMessage(delivered("今天天气不错"))).toBeNull();
     expect(deleteMessageWithOutcome).not.toHaveBeenCalled();
+  });
+
+  test("不同话题投递的字段不认领、不删除，切回表单所在话题才收下", async () => {
+    openForm(OWNER, 42);
+
+    // 同一发起人在 General 或其他话题发「问题:」照常当作群聊发言放行。
+    expect(await claimQaFieldMessage(delivered("问题:\n怎么入群？"))).toBeNull();
+    expect(await claimQaFieldMessage({
+      ...(delivered("问题:\n怎么入群？") as object),
+      is_topic_message: true,
+      message_thread_id: 99,
+    } as never)).toBeNull();
+    expect(deleteMessageWithOutcome).not.toHaveBeenCalled();
+    expect(qaFormSessions.get(CHAT_ID)?.q).toBeUndefined();
+
+    // 表单所在话题 42 内投递的字段正常认领并删除。
+    const claimed = await claimQaFieldMessage({
+      ...(delivered("问题:\n怎么入群？") as object),
+      is_topic_message: true,
+      message_thread_id: 42,
+    } as never);
+    expect(claimed?.accepted).toEqual({ q: "怎么入群？", a: undefined });
+    expect(qaFormSessions.get(CHAT_ID)?.q).toBe("怎么入群？");
+    expect(deleteMessageWithOutcome).toHaveBeenCalledWith(CHAT_ID, 77);
   });
 });
 

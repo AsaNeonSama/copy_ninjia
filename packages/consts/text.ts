@@ -13,7 +13,7 @@ export const TRUNCATION_ELLIPSIS: string = "…";
 
 /**
  * Unicode 双向文本控制字符（ALM、LRM/RLM、LRE/RLE/PDF/LRO/RLO、LRI/RLI/FSI/PDI）的全局匹配规则，
- * 展示前从昵称、用户名、频道名与群标题中剥掉 RLO 等控制字符，防止反转整行布局。
+ * 展示前从昵称、用户名、频道名与群标题中剥除双向布局控制字符。
  * 不变量：带 g 标志，只交给 `String.prototype.replace` 整段替换，不用于 test()/exec()；取值与
  * `packages/mini-app-frontend/consts/miniApp.ts` 的 `MINI_APP_BIDI_CONTROL_CHARS_PATTERN` 一致，由
  * `test/mini-app-frontend/frontendParity.test.ts` 核对。

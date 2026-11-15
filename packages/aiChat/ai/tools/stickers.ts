@@ -1,3 +1,11 @@
+/**
+ * 应景贴纸的两层选择工具：
+ * - view_sticker_pack：按包编号与表达意图返回包内每枚贴纸的编号与描述；每轮最多查看
+ *   MAX_STICKER_PACK_VIEWS_PER_REPLY 个不同包，同一包只能查看一次。
+ * - send_sticker：按包编号与贴纸编号发送已查看包内的贴纸；每轮最多发送 MAX_STICKERS_PER_REPLY 枚且不重复。
+ * 工具声明与执行器共享同一轮 buildStickerPackMenu() 产出的菜单。
+ */
+
 import {
   EMPTY_STICKER_MENU,
   MAX_STICKER_PACK_VIEWS_PER_REPLY,
@@ -15,7 +23,7 @@ import { logger } from "../../../infra/logger";
 import { getCatalogEntry } from "../stickers/catalog";
 import { getStickerSet } from "../stickers/sets";
 import { describeStickerForContext } from "../stickers/describe";
-import { parseIndexField, parseToolArguments } from "../utils/toolArgs";
+import { parseToolArguments, readIndexField } from "../utils/toolArgs";
 import { raceAbort } from "../../../libs/abortSignal";
 import { sanitizeInline } from "../../../libs/text";
 import {
@@ -37,14 +45,6 @@ import type { ChatActionControl } from "../../../types/aiChat/chatAction";
 import type { ReplyActionPause, ReplyToolExecution } from "../../../types/aiChat/replies";
 import type { StickerCatalogEntry } from "../../../types/stickers/catalog";
 import type { StickerCandidate, StickerPackCandidate, StickerRoundState } from "../../../types/stickers/tools";
-
-/**
- * 应景贴纸的两层选择工具：
- * - view_sticker_pack：按包编号与表达意图返回包内每枚贴纸的编号与描述；每轮最多查看
- *   MAX_STICKER_PACK_VIEWS_PER_REPLY 个不同包，同一包只能查看一次。
- * - send_sticker：按包编号与贴纸编号发送已查看包内的贴纸；每轮最多发送 MAX_STICKERS_PER_REPLY 枚且不重复。
- * 工具声明与执行器共享同一轮 buildStickerPackMenu() 产出的菜单。
- */
 
 /**
  * 创建单轮回复的贴纸工具状态（跟踪已查看包意图与已接纳贴纸唯一 ID）。
@@ -208,12 +208,12 @@ export function buildSendStickerToolDefinition(menu: readonly StickerPackCandida
 }
 
 /**
- * 解析并清洗查看贴纸包时必填的表达意图；为空或超过 STICKER_INTENT_MAX_CHARS 时返回 null。
- * @param argumentsJson 模型传入的工具参数 JSON 字符串。
+ * 从已解析的工具参数对象提取并清洗查看贴纸包时必填的表达意图；为空或超过 STICKER_INTENT_MAX_CHARS 时返回 null。
+ * @param parsedArgs 已解析的普通键值参数对象；解析失败时为 null。
  * @returns 清洗后的非空意图短句；缺失、空白或超长时返回 null。
  */
-export function parseStickerIntent(argumentsJson: string): string | null {
-  const value: unknown = parseToolArguments(argumentsJson)?.intent;
+export function readStickerIntent(parsedArgs: Readonly<Record<string, unknown>> | null): string | null {
+  const value: unknown = parsedArgs?.intent;
   if (typeof value !== "string") return null;
   const intent: string = sanitizeInline(value);
   if (!intent || intent.length > STICKER_INTENT_MAX_CHARS) return null;
@@ -244,9 +244,10 @@ export function viewStickerPackTool({
   signal,
 }: ViewStickerPackToolParams): string {
   if (signal?.aborted === true) return toolError(REPLY_INVALIDATED_TOOL_ERROR);
-  const packIndex: number | null = parseIndexField(argumentsJson, "pack_index", menu.length);
+  const parsedArgs: Record<string, unknown> | null = parseToolArguments(argumentsJson);
+  const packIndex: number | null = readIndexField(parsedArgs, "pack_index", menu.length);
   if (packIndex === null) return toolError("Invalid pack_index");
-  const intent: string | null = parseStickerIntent(argumentsJson);
+  const intent: string | null = readStickerIntent(parsedArgs);
   if (intent === null) return toolError(`Invalid intent: provide a concrete non-empty intent within ${STICKER_INTENT_MAX_CHARS} characters`);
   if (state.viewedPackIntents.has(packIndex)) {
     return toolError(
@@ -305,11 +306,12 @@ export function sendStickerTool({
   signal,
 }: SendStickerToolParams): ReplyToolExecution {
   if (!isActive()) return toolError(REPLY_INVALIDATED_TOOL_ERROR);
-  const packIndex: number | null = parseIndexField(argumentsJson, "pack_index", menu.length);
+  const parsedArgs: Record<string, unknown> | null = parseToolArguments(argumentsJson);
+  const packIndex: number | null = readIndexField(parsedArgs, "pack_index", menu.length);
   if (packIndex === null) return toolError("Invalid pack_index");
   const pack: StickerPackCandidate = menu[packIndex - 1]!;
 
-  const stickerIndex: number | null = parseIndexField(argumentsJson, "sticker_index", pack.stickers.length);
+  const stickerIndex: number | null = readIndexField(parsedArgs, "sticker_index", pack.stickers.length);
   if (stickerIndex === null) return toolError("Invalid sticker_index");
 
   if (!state.viewedPackIntents.has(packIndex)) {

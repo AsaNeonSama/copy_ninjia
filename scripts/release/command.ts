@@ -1,11 +1,16 @@
 /** 发布子命令只由显式 CLI 调用；测试注入替身，不访问 GitHub 或修改分支。 */
 export interface CommandResult {
+  /** 子进程退出码，被信号终止时为 null。 */
   readonly exitCode: number | null;
+  /** 子进程标准输出解码后的 UTF-8 文本。 */
   readonly stdout: string;
 }
 
 /** 接收参数数组并同步返回退出码与标准输出的外部命令执行函数。 */
 export type ReleaseCommand = (arguments_: readonly string[]) => CommandResult;
+
+/** 复用单一 UTF-8 解码器解码发布子命令标准输出。 */
+const UTF8_DECODER: TextDecoder = new TextDecoder();
 
 /**
  * 固定工作目录，参数按 argv 传递，不经过 shell 展开。
@@ -17,12 +22,12 @@ export function createReleaseCommand(cwd: string): ReleaseCommand {
     const result: Bun.SyncSubprocess<"pipe", "inherit"> = Bun.spawnSync({
       cmd: [...arguments_], cwd, stdout: "pipe", stderr: "inherit",
     });
-    return { exitCode: result.exitCode, stdout: new TextDecoder().decode(result.stdout) };
+    return { exitCode: result.exitCode, stdout: UTF8_DECODER.decode(result.stdout) };
   };
 }
 
 /**
- * 任一步失败立即停止，由调用者保留已推送 tag 和 Release 草稿以便续跑。
+ * 同步执行外部发布命令：退出码非 0 时立即抛错，退出码为 0 时返回去除首尾空白的标准输出。
  * @param command 外部命令执行器。
  * @param arguments_ 命令行参数数组。
  * @returns 退出码为 0 时去除首尾空白的标准输出。

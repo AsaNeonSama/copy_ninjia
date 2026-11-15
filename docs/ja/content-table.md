@@ -31,7 +31,7 @@
 <tbody>
   <tr>
     <td><nobr>🚀 <b>初回実行</b></nobr></td>
-    <td>依存関係、deployment 設定、Telegram API 権限および初回起動</td>
+    <td>環境構築、デプロイ設定、Telegram API 権限と初回起動</td>
     <td align="center"><nobr><a href="01-getting-started.md">📖 01 環境構築</a></nobr></td>
   </tr>
   <tr>
@@ -56,7 +56,7 @@
   </tr>
   <tr>
     <td><nobr>🛠️ <b>機能の追加・変更</b></nobr></td>
-    <td>コマンド追加、パラメータ調整、AI ツール追加および schema 変更のレシピ</td>
+    <td>コマンド追加、パラメータ調整、AI ツール追加およびスキーマ変更のレシピ</td>
     <td align="center"><nobr><a href="06-modification-guide.md">📖 06 変更レシピ</a></nobr></td>
   </tr>
   <tr>
@@ -75,14 +75,14 @@
     <td align="center"><nobr><a href="09-commands.md">📖 09 コマンドリファレンス</a></nobr></td>
   </tr>
   <tr>
-    <td><nobr>📊 <b>計測値を見る</b></nobr></td>
-    <td>コールド/ホットパス、総スループットと総 I/O、エンドツーエンドのチェーン遅延のリリースベンチマーク</td>
-    <td align="center"><nobr><a href="10-performance.md">📖 10 パフォーマンス</a></nobr></td>
-  </tr>
-  <tr>
     <td><nobr>🖥️ <b>Mini App コンソール</b></nobr></td>
     <td><code>mini_app</code> の設定、Cloudflare Tunnel による推奨公開構成、二段階認証と TOTP バインド</td>
-    <td align="center"><nobr><a href="11-mini-app.md">📖 11 Mini App の設定方法と推奨構成</a></nobr></td>
+    <td align="center"><nobr><a href="10-mini-app.md">📖 10 Mini App の設定方法と推奨構成</a></nobr></td>
+  </tr>
+  <tr>
+    <td><nobr>📊 <b>計測値を見る</b></nobr></td>
+    <td>コールド/ホットパス、総スループットと総 I/O、エンドツーエンドのチェーン遅延のリリースベンチマーク</td>
+    <td align="center"><nobr><a href="11-performance.md">📖 11 パフォーマンス</a></nobr></td>
   </tr>
   <tr>
     <td><nobr>❓ <b>返信がないとき</b></nobr></td>
@@ -96,48 +96,46 @@
 
 ## 📑 ページ一覧と概要
 
-1. **[01 環境構築と初回実行](01-getting-started.md)**
-   - 依存関係（Bun / Linux / Bot Token / AI provider API Key）
-   - `install.sh` によるワンショットインストール（ソースまたはバイナリ配布版）と手動ソースインストール
-   - `config/static/bot.json` など deployment 設定のフィールドと厳格な検証
-   - Telegram BotFather 設定（Privacy Mode / 管理者権限 / Inline Mode / Bot-to-Bot）
-   - 初回起動と `/init enable` のハンドシェイク
+1. **[01 環境構築と初回起動](01-getting-started.md)**
+   - 動作要件（`/proc` を備えた Linux、Bun、Bot Token、各 AI プロバイダの API Key）
+   - `install.sh` によるワンショット導入（バイナリ配布版またはソースクローン）と手動ソース導入
+   - `config/static/bot.json` や動的設定 JSON のスキーマ検証ルール
+   - @BotFather 設定（Privacy Mode、グループ管理者権限、Inline Mode、Bot-to-Bot 通信）
+   - 初回起動と `/init enable` によるグループ有効化
 
 2. **[02 アーキテクチャ概要](02-architecture.md)**
-   - 1 つのメインスレッド + 3 つの Worker（AI / Anti-Raid / Disk I/O）によるマルチスレッド構成
-   - Telegram update の受信から検証・振り分け・応答までの流れ
-   - 起動シーケンスおよび Flush Barrier による安全な停止手順
+   - メインスレッド（Telegram runner・送信ゲート・任意の Mini App HTTP サーバー）+ 3 つの専用 Worker（AI・Anti-Raid・Disk I/O）のマルチスレッド構成
+   - Telegram update の受信から前処理・コマンド振り分け・自動応答までの経路
+   - 起動シーケンス、非同期状態復元、および直列ドレインバリアによる安全な停止手順
 
-3. **[03 ディレクトリマップとコード配置](03-directory-map.md)**
-   - `packages/` 下の各サブドメインの明確な責務境界
-   - コード配置の意思決定ツリー（定数、型、キャッシュ、状態遷移、Worker）
-   - 後方互換エントリーポイントの集約ルール
+3. **[03 ディレクトリ構成とコード配置](03-directory-map.md)**
+   - `packages/` 配下の各パッケージ（`mini-app-api-server/` や独立境界の `mini-app-frontend/` を含む）の責務
+   - 定数・型・スレッド別キャッシュ・純粋状態マシン・Worker 実装の配置判断ルール
+   - `packages/cache/` のスレッド所有権境界と互換エントリ（barrel）の運用規約
 
 4. **[04 実行時の正式な不変条件](04-invariants.md)**
-   - モジュール間・ライフサイクル間の正式な制約（コード内 `@see` 注釈のリンク先）
-   - 起動と import の境界：起動順序、任意の資格情報の縮退、データルート、送信リクエストとメッセージの安全性
-   - Worker と状態の所有権：スレッドの帰属、状態機械の contract、AI チャットの実行時、参加認証と終端処置、連投ミュートと自身の権限キャッシュ
-   - 永続化：永続化と snapshot の contract、グループ状態と `chat_states`、ブロックリストと広告検出、確認境界と停止、ファイル権限
+   - モジュール間・ライフサイクル間の正式な制約（ソース内の `@see` コメントの参照先）
+   - 起動と import の境界：起動順序、任意の資格情報の縮退、データルート検査、外部リクエストと送信安全性
+   - Worker と状態の所有権：スレッド帰属、ステートマシン契約、AI チャット実行時制御、参加認証と終端処置、連投ミュートと権限キャッシュ
+   - 永続化契約：SQLite Write-Through、JSONB 検証、アトミック置換、グループ状態 `chat_states`、ブラックリストと広告検出、停止確認境界、ファイル権限
 
 5. **[05 開発フローと品質ゲート](05-dev-workflow.md)**
-   - `bun run check` 直列パイプライン：install script 構文 + install 隔離 + 規約チェック + Lint + Typecheck + ランダム順のカバレッジ付き全テスト + hot path gate
-   - テスト隔離機構と一時データサンドボックス
-   - コミット手順、障害注入テスト `bun run test:fault-injection` とリリース手順
+   - `bun run check` 直列パイプライン：インストーラー検査、規約チェック、ESLint、TypeScript 型検査、ランダム順カバレッジ付き全テスト、ホットパスゲート
+   - 一時データルートによるテストサンドボックス分離
+   - コミット規約、障害注入テスト（`bun run test:fault-injection`）、およびリリース手順
 
 6. **[06 よくある変更レシピ](06-modification-guide.md)**
-   - Telegram スラッシュコマンド（漢字アクションコマンドを含む）の追加、応答へのリンクや書式の付与
-   - 動作パラメータの調整、ペルソナと JSON 設定の変更、deployment JSON 設定の追加
-   - AI ツール、任意の provider 能力、汎用 JSON API 呼び出しの追加
-   - 実行時 cache の追加、Worker 間 protocol の変更
-   - 永続化 schema の変更と SQLite table の追加（手動移行戦略）
-   - 非目標：i18n はやらない。言語を変えるなら fork
+   - Telegram スラッシュコマンド（漢字アクションコマンドを含む）の実装と安全な MarkdownV2 整形
+   - 動作定数の調整、プロンプト差し替え、新しいデプロイ設定 JSON の登録
+   - AI ツール、任意のプロバイダ能力、安全な外部 JSON API 呼び出しの追加
+   - 実行時キャッシュの追加、Worker 間メッセージプロトコルの更新、オフラインでのデータベースコールド移行
+   - 非目標：多言語 UI（i18n）は行わず、文言変更は fork で対応
 
 7. **[07 運用と障害対応](07-operations.md)**
-   - デプロイ形態、ハードウェアの目安表（デプロイ規模別）、systemd とバイナリデプロイ
-   - データルートの各ディレクトリと `COPY_NINJIA_DATA_ROOT` ディレクトリ機能チェック（fsync / hard link / rename）
-   - 永続データの移行：新規データベース作成、/wed メンバーウィンドウのコールド移行、段階的アップグレード
-   - よくある起動失敗（`bot.lock` 単一インスタンスロック、`memory/luck/receipt-secret.json` 鍵の一貫性を含む）の調査
-   - アップグレードとリリース、日常の監視項目
+   - デプロイ形態、規模別のハードウェア目安、systemd サービス登録とバイナリ配布運用
+   - データルート構造と `COPY_NINJIA_DATA_ROOT` のファイルシステム機能検査（fsync / hard link / アトミック rename）
+   - 永続データの移行：新規データベース作成、`/wed` メンバーウィンドウのコールド移行（`migrate:wed-member-window`）、`ad_detect.json` への設定移行、段階的アップグレード
+   - 起動時フェイルファスト診断：`bot.lock` 競合、スキーマ不一致、`memory/luck/receipt-secret.json` 鍵検証の切り分け
 
 8. **[08 画像ライブラリと定時タスク](08-images-and-cron.md)**
    - 専用ライブラリの準備、画像収集と内容の重複判定
@@ -149,15 +147,15 @@
    - 全コマンドの権限段階（権限キー / スーパー管理者 / グループメンバー）
    - `/gag`、`/delete_message`、`/block`、`/batch_kick`、広告検出、参加認証などの挙動の詳細
 
-10. **[10 パフォーマンスベンチマーク](10-performance.md)**
-    - `bun run perf:full` の各セクションの計測対象：コールドスタート、本番ホットパス、エンドツーエンドの永続化チェーン、SQLite とメインスレッドキャッシュ、コンテナとアルゴリズム、参加ログ容量線
-    - 各項目を既定のラウンド数で実行し、平均・最小・最大・変動係数を報告
-    - 1 ラウンドあたりの総スループット、総 I/O、モックデータルートの使用量
-
-11. **[11 Mini App の設定方法と推奨構成](11-mini-app.md)**
+10. **[10 Mini App の設定方法と推奨構成](10-mini-app.md)**
     - `config/static/bot.json` の `mini_app` セクションの設定と有効化条件
     - Cloudflare Tunnel（`cloudflared`）による公開 HTTPS エンドポイントの構成、ドメインルーティングと systemd サービス登録手順
     - 個人チャット左下の `App` ボタン、二段階認証、Google Authenticator (TOTP) のバインド手順
+
+11. **[11 パフォーマンスベンチマーク](11-performance.md)**
+    - `bun run perf:full` の各セクションの計測対象：コールドスタート、本番ホットパス、エンドツーエンドの永続化チェーン、SQLite とメインスレッドキャッシュ、コンテナとアルゴリズム、参加ログ容量線
+    - 各項目を既定のラウンド数で実行し、平均・最小・最大・変動係数を報告
+    - 1 ラウンドあたりの総スループット、総 I/O、モックデータルートの使用量
 
 12. **[12 よくある質問](12-faq.md)**
     - Bot が動いているのに返信しない場合の順次確認：初期化、プライバシーモード、AI の反応条件、個人チャット、通知の自動削除、Inline Mode、Bot-to-Bot、既定で無効な保護機能、プロセスの状態

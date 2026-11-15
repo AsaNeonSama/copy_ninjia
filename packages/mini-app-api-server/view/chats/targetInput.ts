@@ -65,10 +65,13 @@ export function resolveTargetInput(chatId: number, rawTarget: string | undefined
 }
 
 /**
- * 当目标为正整数用户 ID 且 Telegram API 客户端已就绪时，探测该用户当前是否在目标群内，并将现查到的资料同步写入 Bot 主线程发送者缓存。
+ * 在 Telegram API 已就绪时核验目标身份并同步最新资料到 Bot 主线程发送者缓存：
+ * - 正整数用户 ID：探测其是否在目标群内，确认不在群时返回 `TARGET_NOT_IN_CHAT`，在群时用最新成员资料刷新缓存；
+ * - 负数或频道身份：不做群成员探测，仅在缺少标题与用户名时静默调用 `getChat` 补齐频道资料；
+ * - API 未初始化时直接放行原身份。
  * @param chatId 目标群 ID。
  * @param targetUser 初步解析出的目标身份。
- * @returns 确认不在群时返回失败结果；在群或离线未挂载 API 时返回目标身份（在群时补齐最新用户资料）。
+ * @returns 确认不在群时返回失败结果；其余情况返回目标身份（查得新资料时为更新后的身份）。
  */
 export async function verifyTargetUserInChat(
   chatId: number,

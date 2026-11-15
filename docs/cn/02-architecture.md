@@ -19,7 +19,7 @@ flowchart TD
     classDef main stroke:#8e75ff,stroke-width:2.5px;
     classDef worker stroke:#3b82f6,stroke-width:2px;
 
-    MAIN["🧵 主线程 (Main Thread)<br/>• 确认式 update runner（全局逐条串行）<br/>• 唯一真实 Telegram 客户端 + 统一出站总闸<br/>• state 门面 + StateStore（memory/global/state.json）"]:::main
+    MAIN["🧵 主线程 (Main Thread)<br/>• 确认式 update runner（全局逐条串行）<br/>• 唯一真实 Telegram 客户端 + 统一出站总闸<br/>• 可选 Mini App 控制台服务（Bun.serve）<br/>• StateStore + TOTP 验证器原子落盘"]:::main
     AI["🤖 AI Worker<br/>• 多轮工具调用（多供应商可选）<br/>• 滚动逐字记忆 · 摘要压缩 · 心情状态机"]:::worker
     RAID["🛡️ Anti-Raid Worker<br/>• 验证与锁定状态机<br/>• 全网黑名单处置 · 广告模型判定"]:::worker
     DISK["💾 Disk I/O Worker<br/>• storage.sqlite 事务持久化<br/>• 日志 / 记忆快照 / 运势 / 验证 / wed 成员串行写"]:::worker
@@ -34,12 +34,12 @@ flowchart TD
 ### 四大线程职责分工
 
 - **🧵 主线程 (Main Thread)**
-  - **网络与分发**：负责运行 Telegram 长轮询 Runner、持有唯一的 grammY Bot 客户端实例、管控所有发往 Telegram 的请求出站总闸，并监督管理三个 Worker 的生命周期。
+  - **网络与分发**：运行 Telegram 长轮询 Runner、持有唯一的 grammY Bot 客户端实例、管控所有发往 Telegram 的请求出站总闸、按配置承载本地 `Bun.serve` Mini App 管理控制台 HTTP 服务（`packages/mini-app-api-server/`），并监督管理三个 Worker 的生命周期。
   - **只读缓存镜像**：
     - `cache/main/storage.ts`：全局运行状态镜像（如复读目标与语音合成每日用量）。
     - `cache/main/assets.ts`：静态素材路径与专用图库配置快照。
     - `cache/main/chatState.ts`：群组运行时状态热读副本（托管上限 `STATE_MANAGED_CHAT_LIMIT` 个群：功能开关、锁定状态、权限快照、群名称及翻译会话等）。
-  - **全局状态落盘门面**：通过 `stateStore.ts` 门面原子化写入 `memory/global/state.json`。
+  - **全局状态与验证器落盘**：通过 `stateStore.ts` 门面原子化写入 `memory/global/state.json`；配置 Mini App 时由 `totpStorage.ts` 原子化读写 `memory/mini-app-totp/totp.json`。
   - **Telegram 代理出站**：所有 Telegram API 请求及需要 Bot Token 的媒体下载均由主线程出站总闸代理执行；而 AI 与 Anti-Raid Worker 则直接与外部模型 API 通信。
 
 - **🤖 AI Worker**
@@ -71,9 +71,10 @@ flowchart TD
 
 ## 一条消息的旅程
 
-系统所有消息中间件在 [`packages/app/registerHandlers.ts`](../../packages/app/registerHandlers.ts) 中显式装配，整条链只经一个 `bot.use` 登记：这一层完成 update_id 记账与 Bot 发言限流后，进入 [`packages/app/updatePreamble.ts`](../../packages/app/updatePreamble.ts) 的前置链。前置链各段按下图顺序同步调用下一段，只有真正碰到 I/O（预热冷身份、认领型 ingress 等待落盘或网络、命令与消息处理器）时才返回 Promise。本群状态在初始化网关处读一次并沿同步段传给下游，每个 Promise 恢复点重读现值。斜杠命令、中文动作命令，以及表情反应、成员变更、内联回调等非消息事件分别建成 grammY `Composer`，由前置链在对应位置调用。
-
-拉取消息的 Runner（[`packages/app/updateRunner.ts`](../../packages/app/updateRunner.ts)）每次长轮询按 `UPDATE_POLL_LIMIT` 拉取更新，待当前消息的整条处理链路完全执行完毕后才发起下一次 `getUpdates`，全局逐条串行处理。
+系统所有消息中间件在 [`packages/app/registerHandlers.ts`](../../packages/app/registerHandlers.ts) 中显式装配，整条链仅通过单个 `bot.use` 登记：
+- **快路径同步续接**：在完成 `update_id` 记账与 Bot 发言限流后，请求进入 [`packages/app/updatePreamble.ts`](../../packages/app/updatePreamble.ts) 的前置链。各段按下图顺序同步调用下一段，仅在实际遇到异步 I/O（预热冷身份、认领型 ingress 等待落盘或网络、命令与消息处理器）时返回 Promise。
+- **群状态快照传递**：本群状态在初始化网关处读取一次并沿同步段传递；每个 Promise 恢复点重新读取最新现值。斜杠命令、中文动作命令以及表情反应、成员变更、内联回调等非消息事件分别装配为 grammY `Composer`，由前置链在对应位置调用。
+- **全局串行拉取**：拉取消息的 Runner（[`packages/app/updateRunner.ts`](../../packages/app/updateRunner.ts)）每次长轮询按 `UPDATE_POLL_LIMIT` 拉取更新，待当前消息的整条处理链路完全执行完毕后才发起下一次 `getUpdates`，全局逐条串行处理。
 
 ```text
 [Telegram Update]
@@ -88,14 +89,14 @@ flowchart TD
  3. 运势签名回执确认    ── 优先结算内联抽签落地回执（转发副本同样有效）
        │
        ▼
- 4. /init 门禁 + 私聊网关 ── 未 /init enable 的群拦截普通业务；私聊仅放行超管 /send
+ 4. /init 门禁 + 私聊网关 ── 未 /init enable 的群拦截普通业务（退群成员仍从 /wed 候选池摘除）；
+       │                     私聊仅放行超管 /send；收到 migrate_to_chat_id 时按 gone 收尾旧群
+       ▼
+ 5. /wed 成员观测 + 身份预热 ── 记录本群活跃成员滑窗，并一次性补齐本条 update 可见身份的冷缺失
        │
        ▼
- 5. 身份预热            ── 一次性补齐本条 update 可见身份的冷缺失
-       │
-       ▼
- 6. 私聊 /send 中转      ── 活动中转会话的非命令私聊消息直接交给自动消息流水线
-       │
+ 6. 选择器回执 + 私聊 /send 中转 ── 认领 Mini App 原生选择器 users_shared / chat_shared 回执并终止；
+       │                           活动中转会话的非命令私聊消息直接交给自动消息流水线
        ▼
  7. 入群验证 Ingress     ── 早于命令处理，待验证成员的所有发言在此被捕获与追踪
        │
@@ -206,21 +207,21 @@ AI 触发包含两种途径：
 
 程序入口 [`index.ts`](../../index.ts) 仅负责装配 [`ApplicationLifecycle`](../../packages/app/lifecycle.ts)。模块在 import 时保证无副作用（不启动 Worker、不建定时器、不发起网络连接、不写磁盘）。真正的启动流程由 `ApplicationLifecycle.init()` 串行推进：
 
-0. **配置目录布局检查**：由 `layout.ts` 检查 `config/` 目录结构，禁止文件散落根目录，确认 `config/dynamic/` 目录存在，随后严格解析 `bot.json`。
+0. **配置目录布局检查**：由 `layout.ts` 按三级目录白名单检查 `config/`、`config/static/` 与 `config/dynamic/`（拦截错放文件、旧文件与任何非白名单条目），确认 `config/dynamic/` 为已存在目录，随后严格解析 `bot.json`。
 1. **数据根预检与排他锁**：检查运行时数据根目录的写权限、文件 fsync、hard link 与原子 rename 能力，随后获取 `bot.lock` 单实例文件锁（基于系统 `/proc/<pid>/stat` 与内核 boot ID）；任一步失败立即安全退出。接着注册 Worker 致命异常回调，并初始化头像队列、群标题回填、翻译、口球、老婆抽取（`wed`）及延迟命令的运行时环境。
 2. **全局状态与配置校验**：
    - 清理中断残留的临时文件。
-   - 严格加载恢复 `memory/global/state.json`；若数据根根目录下遗留有未迁移的旧格式文件则报错退出。
+   - 严格加载恢复 `memory/mini-app-totp/totp.json`（存在时）与 `memory/global/state.json`；若数据根根目录下遗留有未迁移的旧格式文件则报错退出。
    - 对所有已存在的部署配置文件进行严格校验；缺少可选配置由对应功能降级处理，存在但格式非法则直接报错退出。
    - 检查并确保专用图库目录就绪（核对权限与文件格式）。
 3. **启动 Disk I/O Worker 并恢复持久化数据**：
    - Worker 启动时对所有持久化数据（SQLite 数据库、日志、AI 用量、贴纸、运势、入群验证、入群日志、老婆抽取候选池等）进行只读检查与格式校验；校验全部通过后才接管状态、运行启动维护并注册每日零点维护任务（`DISK_IO_MAINTENANCE_CRON`）。
    - 主线程同步填充群状态、群问答、老婆抽取成员等热读缓存副本，初始化 Telegram 客户端，确认超级管理员未被拉黑或列为 `/delete_message` 目标，预填发言者身份与翻译目标缓存，并恢复运势状态与待定入群验证记录。
-4. **注册中间件与握手**：挂载全部消息中间件、注册命令菜单，并执行 `bot.init()` 与 Telegram 服务器完成连接握手。
+4. **注册中间件与握手**：挂载全部消息中间件、注册命令菜单（配置 `mini_app` 时同步向超级管理员私聊挂载左下角 `MenuButtonWebApp` 入口按钮），并执行 `bot.init()` 与 Telegram 服务器完成连接握手。
 5. **初始化业务 Worker 与调度器**：
    - 启动 AI Worker（若 AI 配置就绪），加载对话记忆快照与贴纸目录。
    - 载入黑名单待踢 outbox 后启动 Anti-Raid Worker，恢复入群验证与防冲群锁定镜像。
-   - 启动定时任务调度器（`cron.json`）、配置文件动态热重载监听与黑名单补扫调度器，并在接收新 update 前对已确认管理员权限的群组先行执行一轮黑名单补扫。
+   - 启动定时任务调度器（`cron.json`）、配置文件动态热重载监听、可选的 Mini App HTTP 服务（`startMiniAppServer()`）与黑名单补扫调度器，并在接收新 update 前对已确认管理员权限的群组先行执行一轮黑名单补扫。
 6. **启动消息拉取 Runner**：启动长轮询逐条串行 Runner 开始消费 updates，开启老婆抽取成员复核与群标题异步更新。
 
 ---
@@ -230,7 +231,7 @@ AI 触发包含两种途径：
 停机统一由 `ApplicationLifecycle`（`wait()` 与 `dispose()`）按 [`packages/app/lifecycle/shutdown.ts`](../../packages/app/lifecycle/shutdown.ts) 中 `SHUTDOWN_DRAIN_OWNERS` 定义的串行屏障依序收口（`wait()` 期间由总预算安全网 `SHUTDOWN_TOTAL_BUDGET_MS` 兜底），无论是收到 `SIGINT` / `SIGTERM` 正常退出还是发生未捕获异常退出：
 
 1. **入口关闸（Quiesce）**：
-   - 停止群标题回填、头像队列、翻译、口球、老婆抽取交互与成员复核、延迟命令、定时任务、黑名单补扫与配置文件热重载监听；每个入口独立清理，任何错误均记录并阻止最终 offset 确认。
+   - 停止群标题回填、头像队列、翻译、口球、老婆抽取交互与成员复核、延迟命令、定时任务、黑名单补扫与配置文件热重载监听，并关闭 Mini App HTTP 服务（`stopMiniAppServer()`）；每个入口独立清理，任何错误均记录并阻止最终 offset 确认。
    - 停止 Telegram 长轮询 Runner，不再拉取新的 update。
 2. **有界队列排空（Drain）**：
    - 为正在处理的消息 handler 注入超时取消信号，在限定时间内等待其自然执行完毕（若超时则强制中止当前消息处理并阻止最终 offset 确认），随后等待后台群标题回填任务收敛。

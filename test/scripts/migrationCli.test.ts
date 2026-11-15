@@ -1,3 +1,4 @@
+/** 冷迁移 CLI `--source-root` 与 `--output-root` 参数解析单元测试。 */
 import { describe, expect, test } from "bun:test";
 import { parseSourceOutputRoots } from "../../scripts/migrations/cli";
 

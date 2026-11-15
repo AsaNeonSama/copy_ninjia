@@ -2,7 +2,7 @@
 
 import { DAY_FILE_JSON_INDENT } from "./appendOnly";
 
-/** 当前待验证日文件记录版本；结构变化只接受手工迁移后的新版本。 */
+/** 待验证日文件记录的当前结构版本号；解码只接受等于本值的记录。所属模块：workers/diskIO/verificationCodec.ts。 */
 export const VERIFICATION_FILE_VERSION: number = 2;
 /** 匹配按约定缩进序列化的顶层 JSON 条目，用于统计追加历史。 */
 export const VERIFICATION_TOP_LEVEL_ENTRY_PATTERN: RegExp = new RegExp(

@@ -9,22 +9,68 @@ export interface DelayedUnmountState<T> {
   readonly isClosing: boolean;
 }
 
+/** `scheduleDelayedUnmountEffect` 延迟卸载定时调度的参数。 */
+export interface ScheduleDelayedUnmountParams<T> {
+  /** 当前激活的值（关闭时为 `null`）。 */
+  readonly activeValue: T | null;
+  /** 退场期间保留快照的毫秒数。 */
+  readonly durationMs: number;
+  /** 保存最近一次非空值的引用句柄。 */
+  readonly lastNonNullRef: { current: T | null };
+  /** 延迟到期后将组件标为已卸载的回调。 */
+  readonly setUnmounted: (value: boolean) => void;
+}
+
 /**
- * 配合退场动画延迟卸载节点：当 `activeValue` 非空时同步更新快照且不触发额外重渲染；
- * 当 `activeValue` 变为 `null` 时保留上一份值并置 `isClosing = true`，等待 `durationMs` 后再清空卸载。
+ * 在值转为 `null` 且仍保留上一次非空快照时启动延迟清理定时器，并返回取消函数。
+ *
+ * @param params 当前激活值、延迟时长、非空引用与卸载状态设置回调
+ * @returns 启动定时器时返回取消清理函数，无需调度时返回 `undefined`
+ */
+export function scheduleDelayedUnmountEffect<T>({
+  activeValue,
+  durationMs,
+  lastNonNullRef,
+  setUnmounted,
+}: ScheduleDelayedUnmountParams<T>): (() => void) | undefined {
+  if (activeValue !== null) {
+    return undefined;
+  }
+  if (lastNonNullRef.current === null) {
+    return undefined;
+  }
+  const timer: ReturnType<typeof setTimeout> = setTimeout((): void => {
+    lastNonNullRef.current = null;
+    setUnmounted(true);
+  }, durationMs);
+  return (): void => {
+    clearTimeout(timer);
+  };
+}
+
+/**
+ * 配合退场动画延迟卸载节点：`activeValue` 非空时直接同步最新值；
+ * `activeValue` 变为 `null` 时保留上一份非空快照并置 `isClosing = true`，等待 `durationMs` 到期后再清空卸载。
  *
  * @param activeValue 当前激活的值（关闭时为 `null`）
  * @param durationMs 退场期间保留快照的毫秒数（CSS 退场动画时长，或折叠面板的 `MINI_APP_FLIP_COLLAPSE_CONTENT_RETAIN_MS`）
+ * @param resetKey 可选上下文重置键；变化时立即将保留快照同步为当前 `activeValue`
  * @returns 当前应渲染的值与退场动画状态标志
  */
 export function useDelayedUnmount<T>(
   activeValue: T | null,
-  durationMs: number
+  durationMs: number,
+  resetKey?: string | number
 ): Readonly<DelayedUnmountState<T>> {
+  const prevResetKeyRef: React.RefObject<string | number | undefined> =
+    useRef<string | number | undefined>(resetKey);
   const lastNonNullRef: React.RefObject<T | null> = useRef<T | null>(
     activeValue
   );
-  if (activeValue !== null) {
+  if (prevResetKeyRef.current !== resetKey) {
+    prevResetKeyRef.current = resetKey;
+    lastNonNullRef.current = activeValue;
+  } else if (activeValue !== null) {
     lastNonNullRef.current = activeValue;
   }
   const [unmounted, setUnmounted]: [
@@ -34,23 +80,25 @@ export function useDelayedUnmount<T>(
 
   if (activeValue !== null && unmounted) {
     setUnmounted(false);
+  } else if (
+    resetKey !== undefined &&
+    activeValue === null &&
+    lastNonNullRef.current === null &&
+    !unmounted
+  ) {
+    setUnmounted(true);
   }
 
-  useEffect((): (() => void) | undefined => {
-    if (activeValue !== null) {
-      return undefined;
-    }
-    if (lastNonNullRef.current === null) {
-      return undefined;
-    }
-    const timer: ReturnType<typeof setTimeout> = setTimeout((): void => {
-      lastNonNullRef.current = null;
-      setUnmounted(true);
-    }, durationMs);
-    return (): void => {
-      clearTimeout(timer);
-    };
-  }, [activeValue, durationMs]);
+  useEffect(
+    (): (() => void) | undefined =>
+      scheduleDelayedUnmountEffect({
+        activeValue,
+        durationMs,
+        lastNonNullRef,
+        setUnmounted,
+      }),
+    [activeValue, durationMs, resetKey]
+  );
 
   return {
     displayValue: activeValue ?? (unmounted ? null : lastNonNullRef.current),
@@ -60,8 +108,7 @@ export function useDelayedUnmount<T>(
 }
 
 /**
- * 在折叠面板展开且数据有效时同步更新快照缓存，当转入收起过渡或临时清空时回退到最近一次缓存的有效快照，
- * 防止收起动画进行中内容突然切换为空态或旧分支导致面板高度跳变。
+ * 在折叠面板展开且数据有效时同步更新快照缓存，转入收起过渡或临时清空时回退到最近一次缓存的有效快照。
  *
  * @param value 当前实时数据值
  * @param shouldCapture 当前是否处于应写入快照缓存的有效展开态

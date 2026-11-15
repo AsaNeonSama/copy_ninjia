@@ -130,12 +130,11 @@ const STATES_ALLOWED_PREFIXES: readonly string[] = [
 ];
 
 /**
- * states 间接依赖里允许出现、但不再展开的模块，相对仓库根。
+ * `states` 传递依赖闭包中仅收录自身、不继续展开下游依赖的不透明边界模块（相对仓库根）。
  *
- * 唯一条目：`packages/config/time.ts`，本线程的启动时区快照。libs/time.ts 的按日运算经它
- * 取时区；时区在线程启动时由 adoptTimeZone 接管一次，日历运算只在其上缓存 UTC 偏移区段，
- * 同一线程内结果只取决于入参。它背后的 holder（cache/perThread/time.ts）与配置路径不再计入。
- * 新增条目必须同时改这里与被豁免模块的头注。
+ * 唯一条目为 `packages/config/time.ts`（当前线程的启动时区快照）：`libs/time.ts` 的日历运算经其读取时区；
+ * 时区在线程启动时由 `adoptTimeZone` 一次性接管，日历运算仅在其上缓存 UTC 偏移区段，同一线程内输出完全由入参决定。
+ * 其下游的 holder（`cache/perThread/time.ts`）与配置路径不纳入闭包判定。新增条目须同步更新此处与目标模块头注。
  */
 export const STATES_CLOSURE_OPAQUE_MODULES: readonly string[] = [
   "packages/config/time.ts",

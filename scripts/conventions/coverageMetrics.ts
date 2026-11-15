@@ -25,7 +25,7 @@ export interface CoverageMetrics {
 }
 
 /** 携带完整指标组的位置：`test:coverage` 那句话，语言无关。 */
-const METRIC_SENTENCE_FILES: readonly string[] = [
+export const METRIC_SENTENCE_FILES: readonly string[] = [
   "README.md",
   "docs/en/README.md",
   "docs/ja/README.md",

@@ -1,3 +1,8 @@
+/**
+ * 测试进程路径隔离边界：作为 `test/preload.ts` 的首个静态导入同步执行，在任何生产模块求值
+ * `packages/consts/paths.ts` 之前建立独占的数据根、`config_example/` 副本与 `TMPDIR`。
+ */
+
 import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, statfsSync, writeFileSync } from "node:fs";
 import type { StatsFs } from "node:fs";
 import { tmpdir } from "node:os";
@@ -7,18 +12,6 @@ import {
   CONFIG_ROOT_ENV,
   RUNTIME_DATA_ROOT_ENV,
 } from "../packages/consts/environment";
-
-/**
- * 测试进程的路径注入，先于任何会求值 consts/paths 的生产模块完成。
- *
- * 单独成文件，不写在 preload.ts 顶部：ESM 里 import 一律先于同文件的语句求值，
- * preload.ts 静态 import 任何生产模块都会让文件里的赋值晚一步，
- * CONFIG_ROOT 会指向开发机上的真实部署目录。
- *
- * 本文件整段同步完成：它是 preload.ts 的第一个静态 import，带顶层 await 的模块
- * 不会在同级后续 import 求值之前结束。preload.ts 自己的顶层 await 没有这个问题：
- * Bun 会等那一层续体跑完再开始跑测试文件。
- */
 
 /** `os.tmpdir()` 读取的环境变量名；preload 的 afterAll 按它还原。 */
 export const TMPDIR_ENV: string = "TMPDIR";
@@ -59,9 +52,10 @@ export const TEST_TMPDIR: string = mkdtempSync(join(TEST_TEMP_PARENT_DIR, "copy-
 export const TEST_CONFIG_ROOT: string = join(TEST_DATA_ROOT, "config");
 
 const CONFIG_EXAMPLE_ROOT: string = join(import.meta.dir, "..", "config_example");
-cpSync(CONFIG_EXAMPLE_ROOT, TEST_CONFIG_ROOT, { recursive: true });
 const TEST_STATIC_CONFIG_DIR: string = join(TEST_CONFIG_ROOT, STATIC_CONFIG_DIR_NAME);
 const TEST_DYNAMIC_CONFIG_DIR: string = join(TEST_CONFIG_ROOT, DYNAMIC_CONFIG_DIR_NAME);
+cpSync(join(CONFIG_EXAMPLE_ROOT, STATIC_CONFIG_DIR_NAME), TEST_STATIC_CONFIG_DIR, { recursive: true });
+cpSync(join(CONFIG_EXAMPLE_ROOT, DYNAMIC_CONFIG_DIR_NAME), TEST_DYNAMIC_CONFIG_DIR, { recursive: true });
 // 翻译凭据示例的占位私钥必然被严格解析拒绝；副本与安装器一样不带它，翻译可用性
 // 由 preload 与各用例自行设定。
 rmSync(join(TEST_STATIC_CONFIG_DIR, "g-auth.json"));

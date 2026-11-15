@@ -2,12 +2,12 @@ import type { Message, SharedUser } from "grammy/types";
 import { miniAppCompletedPickerResults, miniAppPendingPickers } from "../../cache/main/miniApp";
 import { SUPER_ADMIN_USER_ID } from "../../config/bot";
 import type { TelegramIdentityMetadata } from "../../types/identityPolicy";
+import type { MiniAppChatTargetsMutationResult } from "../../types/miniApp/chats";
 import type {
-  MiniAppChatTargetsMutationResult,
   MiniAppIdentityMutationResult,
   MiniAppPickerResultEvent,
   MiniAppPreparedPickerSession,
-} from "../../types/miniApp";
+} from "../../types/miniApp/identities";
 import { mutateManagedChatTargets } from "../view/chats/targets";
 import { setBlocklistEntryMembership } from "../view/identities/blocklist";
 import { cacheIdentityMetadataInBot } from "../view/identities/metadata";

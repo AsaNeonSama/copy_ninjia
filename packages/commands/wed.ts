@@ -65,7 +65,12 @@ async function sendWedNotice(
   replyToMessageId: number | undefined
 ): Promise<void> {
   if (text === undefined) return;
-  await sendCommandMessage({ chatId: session.chatId, text, replyToMessageId });
+  await sendCommandMessage({
+    chatId: session.chatId,
+    text,
+    replyToMessageId,
+    messageThreadId: session.messageThreadId,
+  });
 }
 
 /**
@@ -91,10 +96,11 @@ export async function teardownWedInChat(
 }
 
 /**
- * 每位用户在群里保留一张可操作的结果，每群保留最近送达的 WED_SESSION_LIMIT 份结果；
- * 新结果送达后移到最新端并裁剪超出上限的最早空闲结果（被滑出的图留在群里，按钮回执过期）。
- * 重复命令重新抽取并回复新命令；新结果送达后才放弃并删除旧结果，送达失败时旧结果与原会话原样保留。
- * 旧结果删除失败（已按统一 Telegram 错误日志记录）时那张图留在群里，按钮因会话已换成新结果而只回执过期。
+ * 处理 `/wed` 群友老婆抽取指令：
+ * - **会话与滑窗上限**：每位用户在群内至多保留一张可操作的结果卡片，每群至多保留最近送达的 `WED_SESSION_LIMIT` 份结果；
+ *   新结果送达后移至队尾并滑出超出上限的最早空闲会话（被滑出的图片保留在群内，后续点击按钮回执过期）。
+ * - **重抽替换与回退**：重复执行 `/wed` 会重新抽取并回复新命令；仅在新结果成功送达后才作废并删除旧结果图片
+ *   （若旧图删除失败，按钮仍因会话已切换而回执过期）；新结果送达失败时保留原会话与旧结果。
  * @param ctx 命令上下文。
  */
 export async function handleWedCommand(ctx: CommandContext<Context>): Promise<void> {

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, jest, mock, test } from "bun:test";
 import { loggerStub } from "../helpers/loggerMock";
+import { CRON_ACTION_GAP_MS, CRON_ACTION_RETRY_DELAYS_MS } from "../../packages/consts/cron";
 import type { CronAction, CronChatTargets, CronDeliveryOutcome, CronGroupTargets, CronRoundVoices, CronTaskSchedule } from "../../packages/types/cron";
 import type { DeliverCronActionOptions } from "../../packages/cron/delivery";
 
@@ -46,7 +47,7 @@ function schedule(
       actions,
     },
     job: null,
-    cancelled: false,
+    cancellation: new AbortController(),
   };
 }
 
@@ -91,7 +92,7 @@ describe("cron 一轮", () => {
     const round: Promise<void> = runCronRound(schedule(MESSAGES), new AbortController().signal);
     for (let tick: number = 0; tick < 5; tick++) await Promise.resolve();
     expect(delivered).toEqual(["one"]);
-    jest.advanceTimersByTime(999);
+    jest.advanceTimersByTime(CRON_ACTION_GAP_MS - 1);
     for (let tick: number = 0; tick < 5; tick++) await Promise.resolve();
     expect(delivered).toEqual(["one"]);
     await settle(round);
@@ -100,12 +101,13 @@ describe("cron 一轮", () => {
   });
 
   test("可重试失败按 2s/4s/8s 退避，最多重试 3 次后中止剩余动作并记一条错误", async () => {
-    for (let index: number = 0; index < 4; index++) outcomes.push({ kind: "retryable", detail: "502 Bad Gateway" });
+    const maxAttempts: number = CRON_ACTION_RETRY_DELAYS_MS.length + 1;
+    for (let index: number = 0; index < maxAttempts; index++) outcomes.push({ kind: "retryable", detail: "502 Bad Gateway" });
     await settle(runCronRound(schedule(MESSAGES), new AbortController().signal));
-    expect(delivered).toEqual(["one", "one", "one", "one"]);
+    expect(delivered).toEqual(Array.from({ length: maxAttempts }, (): string => "one"));
     expect(loggerError).toHaveBeenCalledTimes(1);
     expect(loggerError.mock.calls[0]![0]).toBe(
-      "Cron task \"daily\" action #1 (send_message) failed after 4 attempt(s); " +
+      `Cron task "daily" action #1 (send_message) failed after ${maxAttempts} attempt(s); ` +
       "skipping the remaining actions of this run: 502 Bad Gateway"
     );
   });
@@ -128,7 +130,7 @@ describe("cron 一轮", () => {
     const target: CronTaskSchedule = schedule(MESSAGES);
     deliverCronAction.mockImplementationOnce(async (): Promise<CronDeliveryOutcome> => {
       delivered.push("one");
-      target.cancelled = true;
+      target.cancellation.abort();
       return { kind: "sent" };
     });
     await settle(runCronRound(target, new AbortController().signal));
@@ -138,10 +140,48 @@ describe("cron 一轮", () => {
     const retryTarget: CronTaskSchedule = schedule(MESSAGES);
     deliverCronAction.mockImplementationOnce(async (): Promise<CronDeliveryOutcome> => {
       delivered.push("one");
-      retryTarget.cancelled = true;
+      retryTarget.cancellation.abort();
       return { kind: "retryable", detail: "network" };
     });
     await settle(runCronRound(retryTarget, new AbortController().signal));
+    expect(delivered).toEqual(["one"]);
+    expect(loggerError).not.toHaveBeenCalled();
+  });
+
+  test("重试退避期间被热重载撤销会立刻唤醒并停止，不等待剩余退避也不重发", async () => {
+    outcomes.push({ kind: "retryable", detail: "network" }, { kind: "sent" });
+    const retryTarget: CronTaskSchedule = schedule([{ type: "send_message", content: "one" }]);
+    const round: Promise<void> = runCronRound(retryTarget, new AbortController().signal);
+    for (let tick: number = 0; tick < 5; tick++) await Promise.resolve();
+    expect(delivered).toEqual(["one"]);
+
+    // 仍在退避休眠内（未推进计时器）撤销调度，整轮立刻收场且不会触发第二次投递。
+    retryTarget.cancellation.abort();
+    await round;
+    expect(delivered).toEqual(["one"]);
+    expect(loggerError).not.toHaveBeenCalled();
+  });
+
+  test("热重载撤销不中止已在途的 deliverCronAction 请求，送达后再停在下一动作", async () => {
+    let seenSignal: AbortSignal | undefined;
+    let finishDelivery!: (outcome: CronDeliveryOutcome) => void;
+    deliverCronAction.mockImplementationOnce(async ({ action, signal }: DeliverCronActionOptions): Promise<CronDeliveryOutcome> => {
+      delivered.push(action.type === "send_message" ? action.content : action.type);
+      seenSignal = signal;
+      return new Promise<CronDeliveryOutcome>((resolve): void => {
+        finishDelivery = resolve;
+      });
+    });
+
+    const target: CronTaskSchedule = schedule(MESSAGES);
+    const round: Promise<void> = runCronRound(target, new AbortController().signal);
+    for (let tick: number = 0; tick < 5; tick++) await Promise.resolve();
+
+    target.cancellation.abort();
+    expect(seenSignal?.aborted).toBeFalse();
+
+    finishDelivery({ kind: "sent" });
+    await round;
     expect(delivered).toEqual(["one"]);
     expect(loggerError).not.toHaveBeenCalled();
   });
@@ -257,7 +297,7 @@ describe("chat_id: [\"all\"] 与 [\"except\", ...] 的一轮", () => {
     const target: CronTaskSchedule = schedule([{ type: "send_message", content: "one" }], { kind: "all" });
     deliverCronAction.mockImplementationOnce(async ({ chatId }: DeliverCronActionOptions): Promise<CronDeliveryOutcome> => {
       destinations.push(chatId);
-      target.cancelled = true;
+      target.cancellation.abort();
       return { kind: "sent" };
     });
     await settle(runCronRound(target, new AbortController().signal));

@@ -1,6 +1,10 @@
 import { check, integer, sqliteTable } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
 import type { CheckBuilder, SQLiteColumn } from "drizzle-orm/sqlite-core";
+import {
+  TEMPORARY_AD_BYPASS_DAILY_MESSAGE_THRESHOLD,
+  TEMPORARY_AD_BYPASS_REQUIRED_DAYS,
+} from "../../consts/temporaryAdBypass";
 
 /** Drizzle 表级约束回调使用的临时广告免检列集合。 */
 interface TemporaryAdBypassTableParams {
@@ -10,7 +14,7 @@ interface TemporaryAdBypassTableParams {
   readonly adBypass: SQLiteColumn;
   /** 授予临时广告免检时的毫秒时间戳列，未免检时为 NULL。 */
   readonly adBypassGrantedAt: SQLiteColumn;
-  /** 已达标的连续活跃天数累计列（0..7）。 */
+  /** 已达标的连续活跃天数累计列（`0..TEMPORARY_AD_BYPASS_REQUIRED_DAYS`）。 */
   readonly qualifiedDays: SQLiteColumn;
   /** 当前统计日窗口内的发言计数列。 */
   readonly sendCount: SQLiteColumn;
@@ -39,13 +43,13 @@ export const temporaryAdBypassEntries = sqliteTable("temporary_ad_bypass_entries
   ),
   check(
     "temporary_ad_bypass_day_count",
-    sql`${table.qualifiedDays} BETWEEN 0 AND 7 AND (${table.adBypass} = 1 OR ${table.qualifiedDays} = 0)`
+    sql`${table.qualifiedDays} BETWEEN 0 AND ${sql.raw(String(TEMPORARY_AD_BYPASS_REQUIRED_DAYS))} AND (${table.adBypass} = 1 OR ${table.qualifiedDays} = 0)`
   ),
   check("temporary_ad_bypass_send_count", sql`${table.sendCount} >= 1`),
   check("temporary_ad_bypass_counted_at", sql`${table.countedAt} >= 0`),
   check(
     "temporary_ad_bypass_qualified_at",
-    sql`(${table.qualifiedAt} IS NULL AND ${table.sendCount} <= 7) OR (${table.qualifiedAt} BETWEEN 0 AND ${table.countedAt} AND ${table.sendCount} > 7 AND ${table.qualifiedDays} >= 1)`
+    sql`(${table.qualifiedAt} IS NULL AND ${table.sendCount} <= ${sql.raw(String(TEMPORARY_AD_BYPASS_DAILY_MESSAGE_THRESHOLD))}) OR (${table.qualifiedAt} BETWEEN 0 AND ${table.countedAt} AND ${table.sendCount} > ${sql.raw(String(TEMPORARY_AD_BYPASS_DAILY_MESSAGE_THRESHOLD))} AND ${table.qualifiedDays} >= 1)`
   ),
   check(
     "temporary_ad_bypass_granted_at",

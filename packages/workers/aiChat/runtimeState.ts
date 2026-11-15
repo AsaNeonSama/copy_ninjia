@@ -1,3 +1,4 @@
+/** 单轮 AI 回复动态上下文中的运行时状态区块（心情、当前时间与工具冷却状态）拼接。 */
 import { currentMoodInstruction } from "../../aiChat/ai/mood";
 import {
   CURRENT_TIME_LABEL,

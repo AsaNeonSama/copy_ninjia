@@ -8,7 +8,7 @@
 import { validateGoogleServiceAccountKey } from "./googleAuth";
 import { googleServiceAccountKey } from "../cache/main/translate";
 import { lstat } from "node:fs/promises";
-import { ensureAdSampleConfig } from "./adSamples";
+import { ensureAdDetectConfig } from "./adDetectConfig";
 import { ensureAssetConfig } from "./assets";
 import { ensureMoodConfig } from "./mood";
 import { ensureStickerConfig } from "./stickers";
@@ -26,7 +26,7 @@ import { botAtmosphereState } from "../cache/main/atmosphere";
 import {
   adDetectAgentConfigCache,
   agentDeploymentConfigCache,
-  defaultAdSampleConfigCache,
+  defaultAdDetectConfigCache,
   defaultMoodConfigCache,
   defaultStickerConfigCache,
   voiceToolPromptCache,
@@ -35,7 +35,7 @@ import { DEFAULT_AI_PERSONA } from "../consts/aiChat/prompts/persona";
 import { BOT_ATMOSPHERES, DEFAULT_BOT_ATMOSPHERE } from "../consts/bot";
 import type { BotAtmosphere } from "../types/atmosphere";
 import {
-  AD_SAMPLES_CONFIG_PATH,
+  AD_DETECT_CONFIG_PATH,
   AGENT_CONFIG_PATH,
   ASSETS_CONFIG_PATH,
   CRON_CONFIG_PATH,
@@ -104,13 +104,13 @@ export function aiChatReadinessFromHolders(): ConfigReadiness {
 }
 
 /**
- * 按主线程当前 holder 判定广告检测的部署前提：判定口径的示例清单与 agent.json 的 ad_detect 段
- * （开启时必填 provider、api_key 与 model，由 agent 配置解析器严格校验）；只看这一段，其余同上。
+ * 按主线程当前快照容器判定广告检测功能的部署前提：
+ * 需同时具备已校验的 `ad_detect.json`（处罚设置、样本与黑名单）与 `agent.json` 的 `ad_detect` 能力段（仅读容器，不读盘）。
  * @returns 广告检测功能的配置可用性结论。
  */
 export function adDetectReadinessFromHolders(): ConfigReadiness {
-  if (defaultAdSampleConfigCache.current === null) {
-    return unavailable("config/dynamic/ad_samples.json", new InputValidationError(AD_SAMPLES_CONFIG_PATH, "$", "a readable valid JSON document").message);
+  if (defaultAdDetectConfigCache.current === null) {
+    return unavailable("config/dynamic/ad_detect.json", new InputValidationError(AD_DETECT_CONFIG_PATH, "$", "a readable valid JSON document").message);
   }
   if (adDetectAgentConfigCache.current === null) {
     return unavailable(
@@ -187,11 +187,10 @@ export async function deploymentInputExists(path: string): Promise<boolean> {
 }
 
 /**
- * 启动总闸接管 AI 人设、send_voice 说明与本进程群通知风格，同批填充、不热重载。
- * prompt/persona.md 存在时严格读取其正文，缺省时使用内置人设；prompt/voice_tool.md 存在时严格
- * 读取其正文，缺省时为 null（按 `agent.tts.bot_language` 取内置说明），是否配置 `agent.tts`
- * 都同样校验。显式 atmosphere 优先；风格缺省时自定义人设使用普通文案，内置人设使用默认风格。
- * 已接管时只读 holder，不读盘。
+ * 启动总闸一次性接管 AI 人设、`send_voice` 工具说明与群通知风格（运行期不热重载；已初始化时直接返回）：
+ * - `prompt/persona.md` 存在时严格读取正文，缺省时使用内置默认人设；
+ * - `prompt/voice_tool.md` 存在时严格读取正文（无论是否启用 `agent.tts` 均校验），缺省时置为 `null`（运行期按 `agent.tts.bot_language` 使用内置说明）；
+ * - 群通知风格优先采用 `bot.json` 的显式 `atmosphere`，缺省时自定义人设对应普通文案（`"plain"`），内置人设对应默认风格。
  */
 async function ensurePromptFiles(): Promise<void> {
   if (botAtmosphereState.current !== null) return;
@@ -219,7 +218,7 @@ export async function validateExistingDeploymentInputs(): Promise<void> {
   const probes: readonly Readonly<{ path: string; load: () => Promise<unknown> }>[] = [
     { path: STICKERS_CONFIG_PATH, load: ensureStickerConfig },
     { path: MOOD_CONFIG_PATH, load: ensureMoodConfig },
-    { path: AD_SAMPLES_CONFIG_PATH, load: ensureAdSampleConfig },
+    { path: AD_DETECT_CONFIG_PATH, load: ensureAdDetectConfig },
     { path: AGENT_CONFIG_PATH, load: validateAgentDeploymentConfig },
     { path: GOOGLE_AUTH_FILE_PATH, load: validateAndCacheGoogleServiceAccountKey },
     { path: CRON_CONFIG_PATH, load: ensureCronConfig },

@@ -7,16 +7,18 @@ import type { MiniAppToastTone, MiniAppUiStoreState } from "../store/app";
 import { useDelayedUnmount } from "./animations/useDelayedUnmount";
 import type { DelayedUnmountState } from "./animations/useDelayedUnmount";
 
-/** Toast 淡出动画期间保留的文案与色调快照。 */
+/** Toast 淡出动画期间保留的文案、色调与展示序号快照。 */
 interface RenderedToastSnapshot {
   /** 提示正文。 */
   readonly text: string;
   /** 提示色调。 */
   readonly tone: MiniAppToastTone;
+  /** 递增展示序号。 */
+  readonly seq: number;
 }
 
 /**
- * 渲染底部 Toast 提示（支持淡入弹出与淡出退场动画，无提示文案且退场结束时不渲染）。
+ * 渲染底部 Toast 提示条：按递增 `toastSeq` 重播连续提示的进入动画，清空时保留快照播放退场动画，退场结束后卸载。
  *
  * @returns React 节点或 `null`
  */
@@ -27,14 +29,19 @@ export function Toast(): React.JSX.Element | null {
   const toastTone: MiniAppToastTone = useMiniAppStore(
     (state: MiniAppUiStoreState): MiniAppToastTone => state.toastTone
   );
+  const toastSeq: number = useMiniAppStore(
+    (state: MiniAppUiStoreState): number => state.toastSeq
+  );
   const clearToast: () => void = useMiniAppStore(
     (state: MiniAppUiStoreState): (() => void) => state.clearToast
   );
 
   const activeToast: Readonly<RenderedToastSnapshot> | null = useMemo(
     (): Readonly<RenderedToastSnapshot> | null =>
-      toastText.length > 0 ? { text: toastText, tone: toastTone } : null,
-    [toastText, toastTone]
+      toastText.length > 0
+        ? { text: toastText, tone: toastTone, seq: toastSeq }
+        : null,
+    [toastText, toastTone, toastSeq]
   );
 
   const {
@@ -48,6 +55,7 @@ export function Toast(): React.JSX.Element | null {
     displayToast.tone === "warning" || displayToast.tone === "danger";
   return (
     <div
+      key={displayToast.seq}
       className={`toast ${isClosing ? "closing" : "show"} toast-${displayToast.tone}`}
       role="status"
       aria-hidden={isClosing}

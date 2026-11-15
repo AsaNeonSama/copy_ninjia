@@ -6,7 +6,7 @@ import type { TranslateState } from "../types/translate";
 import { translateConfigReadiness } from "../config/readiness";
 import { TRANSLATE_ARGUMENT_PATTERN, TRANSLATE_STOP_ARGUMENT_PATTERN, TRANSLATE_LANGUAGE_LABELS, TRANSLATE_LIST_JSON_INDENT, TRANSLATE_LIST_JSON_LANGUAGE } from "../consts/translate";
 
-import { getChatState, persistChatState } from "../infra/storage/stateStore";
+import { getChatState, persistChatState } from "../infra/chatStateStorage";
 import { replyCommandNotice, sendCommandMessage } from "../infra/telegram";
 import { explicitReplyTo } from "../libs/forumTopic";
 import { isTelegramGroupChatId } from "../libs/telegramId";
@@ -34,10 +34,11 @@ function refuseUnavailableTranslation(chatId: number, messageId: number | undefi
 }
 
 /**
- * 独立翻译命令：方向加回复目标或 `@username` 开始翻译，
- * `stop` 停止本群全部或指定目标（支持回复、`@username` 或用户/频道裸 ID），
- * `list` 用 JSON 代码块列出语言方向，`enable`/`disable` 按 `isCanControllTranslatePermission` 授权开关本群翻译。
- * 会话变更落盘后才反馈成功。
+ * 处理 `/translate` 自动翻译命令（会话变更均在落盘确认后回执成功）：
+ * - `/translate <方向> [目标]`：对回复目标或 `@username` 启动指定语言方向的自动翻译；
+ * - `/translate stop [目标]`：停止本群全部翻译目标，或停止指定目标（支持回复、`@username` 及用户/频道裸 ID）；
+ * - `/translate list`：以 JSON 代码块列出支持的语言方向；
+ * - `/translate enable|disable`：按 `isCanControllTranslatePermission` 授权开关本群自动翻译能力。
  * @param ctx grammY 命令上下文。
  */
 export async function handleTranslateCommand(ctx: CommandContext<Context>): Promise<void> {

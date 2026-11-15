@@ -22,7 +22,7 @@ import {
   getChatState,
   getChatStateCache,
   persistChatState,
-} from "../../../infra/storage/stateStore";
+} from "../../../infra/chatStateStorage";
 import { setTranslateState, stopTranslation } from "../../../translate/state";
 import type { CachedUser, ChatState } from "../../../types/chatState";
 import type { TelegramIdentityMetadata } from "../../../types/identityPolicy";
@@ -35,7 +35,7 @@ import type {
   MiniAppChatTargetsView,
   MiniAppChatTranslateTargetItem,
   MiniAppTranslateLanguage,
-} from "../../../types/miniApp";
+} from "../../../types/miniApp/chats";
 import type { QaFieldRejection } from "../../../types/qa";
 import type { BotChatPermissions } from "../../../types/telegram";
 import type { TranslateState } from "../../../types/translate";
@@ -267,7 +267,7 @@ async function removeQaPair(
 }
 
 /**
- * 新增一个追着删目标：拒绝超级管理员与缺删消息权限，核验在群后去重并受 DELETE_MESSAGE_CHAT_TARGET_MAX 限制。
+ * 新增一个追着删目标：拦截超级管理员与缺少删消息权限的情形，异步核验在群并复核群仍开启 `/init` 后去重写入（上限 `DELETE_MESSAGE_CHAT_TARGET_MAX`）。
  * @param chatId 目标群 ID。
  * @param request 变更请求（读取 `target`）。
  * @returns 变更结果。
@@ -336,7 +336,7 @@ async function removeDeleteMessageTarget(
 }
 
 /**
- * 新增或改语言一个追着翻目标：要求翻译能力就绪且本群翻译开着，核验在群后受 TRANSLATE_CHAT_USER_LIMIT 限制。
+ * 新增或修改追着翻目标的目标语言：要求全局翻译能力就绪且本群已开启翻译，异步核验在群并复核开关后写入（上限 `TRANSLATE_CHAT_USER_LIMIT`）。
  * @param chatId 目标群 ID。
  * @param state 入口已确认启用 `/init` 的群状态。
  * @param request 变更请求（读取 `target`、`language`）。

@@ -4,6 +4,7 @@ import { fetchMiniAppGallery } from "../api/gallery";
 import { deleteMiniAppGalleryImageByName } from "../api/galleryDelete";
 import { downloadMiniAppGalleryImageByName } from "../api/galleryDownload";
 import { uploadMiniAppGalleryImageBytes } from "../api/galleryUpload";
+import { isMiniAppAuthErrorMessage } from "../api/request";
 import { MINI_APP_GALLERY_DEFAULT_PAGE_SIZE } from "../consts/miniApp";
 import { getMiniAppTranslations } from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
@@ -50,13 +51,18 @@ export interface MiniAppGalleryStoreState {
   /** 大图预览是否已完成加载动画。 */
   readonly previewLoaded: boolean;
 
-  /** 拉取指定页（缺省沿用当前页码与每页张数）；只采纳最后一次发起的请求结果，成功时开启新的缩略图批次。 */
+  /**
+   * 拉取指定页图片列表（缺省沿用当前页码与每页张数），保证骨架屏最短展示时长且只采纳最后一次请求结果。
+   * 成功后递增缩略图批次号并一次性提交分页数据与加载完成态。
+   */
   readonly loadGallery: (targetPage?: number, targetPageSize?: number) => Promise<void>;
-  /** 缩略图加载完成或失败时调用：属于当前批次时在骨架屏最短展示时长后标记为已加载。 */
+  /** 缩略图加载完成或失败时调用：属于当前批次的文件名合并入队，在骨架屏最短展示时长后按批次一次性写入已加载表。 */
   readonly markThumbLoaded: (fileName: string, epoch: number) => void;
   /** 预览图加载完成或失败时调用：属于当前预览周期时在骨架屏最短展示时长后标记为已加载。 */
   readonly markPreviewLoaded: () => void;
-  /** 设置或关闭大图预览（选中新图时同步开启新的预览加载周期并重置加载完成态，关闭时保留已完成加载态供收起过渡动画展示）。 */
+  /**
+   * 设置或关闭大图预览：选中新图时开启新的预览加载周期并重置 `previewLoaded`；关闭时保留 `previewLoaded` 供收起过渡动画展示。
+   */
   readonly setPreviewItem: (item: Readonly<MiniAppGalleryItem> | null) => void;
   /** 切换页码并加载该页（关闭大图预览）。 */
   readonly changePage: (page: number) => void;
@@ -66,7 +72,7 @@ export interface MiniAppGalleryStoreState {
   readonly downloadImage: (fileName: string) => Promise<void>;
   /** 确认后删除指定图片并重载当前页。 */
   readonly deleteImage: (fileName: string) => Promise<void>;
-  /** 逐个上传选中的图片并汇总结果，完成后回到第 1 页重载；遇鉴权失败（密码过期或锁定）立即中止并交由全局通知处理。 */
+  /** 逐张上传选中图片并汇总结果，完成后回到第 1 页重载；遇鉴权失败（会话失效或锁定）立即中止并交由全局通知处理。 */
   readonly uploadFiles: (files: readonly File[]) => Promise<void>;
 }
 
@@ -81,16 +87,14 @@ export type MiniAppGalleryStore = StoreApi<MiniAppGalleryStoreState>;
 export function createGalleryStore(): MiniAppGalleryStore {
   return createStore<MiniAppGalleryStoreState>()(
     (
-      set: (
-        partial:
-          | Partial<MiniAppGalleryStoreState>
-          | ((state: MiniAppGalleryStoreState) => Partial<MiniAppGalleryStoreState>)
-      ) => void,
+      set: (partial: Partial<MiniAppGalleryStoreState>) => void,
       get: () => MiniAppGalleryStoreState
     ): MiniAppGalleryStoreState => {
       let requestSeq: number = 0;
       let currentBatchEpoch: number = 0;
-      const pendingThumbKeys: Set<string> = new Set<string>();
+      const seenThumbFiles: Set<string> = new Set<string>();
+      const queuedThumbFiles: Set<string> = new Set<string>();
+      let thumbFlushEpoch: number = -1;
       let previewEpoch: number = 0;
       let settledPreviewEpoch: number = -1;
       let pageRenderAt: number = Date.now();
@@ -114,58 +118,63 @@ export function createGalleryStore(): MiniAppGalleryStore {
           const reqPage: number = targetPage ?? get().page;
           const reqSize: number = targetPageSize ?? get().pageSize;
           const reqId: number = ++requestSeq;
+          const startedAt: number = Date.now();
           set({ loading: true });
           try {
             const result: MiniAppGalleryPage = await fetchMiniAppGallery(
               reqPage,
               reqSize
             );
+            await waitMinimumLoadingDuration(startedAt);
             if (reqId !== requestSeq) {
               return;
             }
             const nextEpoch: number = currentBatchEpoch + 1;
             currentBatchEpoch = nextEpoch;
-            pendingThumbKeys.clear();
+            seenThumbFiles.clear();
+            queuedThumbFiles.clear();
+            thumbFlushEpoch = -1;
             pageRenderAt = Date.now();
             set({
               batchEpoch: nextEpoch,
               loadedImages: {},
               galleryPage: result,
               page: result.page,
+              loading: false,
             });
           } catch (error: unknown) {
+            await waitMinimumLoadingDuration(startedAt);
             if (reqId !== requestSeq) {
               return;
             }
+            set({ loading: false });
             const message: string = errorMessage(error);
             useMiniAppStore.getState().notify(message, "info", error);
-          } finally {
-            if (reqId === requestSeq) {
-              set({ loading: false });
-            }
           }
         },
 
         markThumbLoaded: (fileName: string, epoch: number): void => {
-          if (currentBatchEpoch !== epoch) {
+          if (currentBatchEpoch !== epoch || seenThumbFiles.has(fileName)) {
             return;
           }
-          const pendingKey: string = `${epoch}:${fileName}`;
-          if (pendingThumbKeys.has(pendingKey)) {
+          seenThumbFiles.add(fileName);
+          queuedThumbFiles.add(fileName);
+          if (thumbFlushEpoch === epoch) {
             return;
           }
-          pendingThumbKeys.add(pendingKey);
+          thumbFlushEpoch = epoch;
           void (async (): Promise<void> => {
             await waitMinimumLoadingDuration(pageRenderAt);
             if (currentBatchEpoch !== epoch) {
               return;
             }
-            set((state: MiniAppGalleryStoreState): Partial<MiniAppGalleryStoreState> => ({
-              loadedImages:
-                state.loadedImages[fileName] === true
-                  ? state.loadedImages
-                  : { ...state.loadedImages, [fileName]: true },
-            }));
+            thumbFlushEpoch = -1;
+            const nextLoaded: Record<string, boolean> = { ...get().loadedImages };
+            for (const name of queuedThumbFiles) {
+              nextLoaded[name] = true;
+            }
+            queuedThumbFiles.clear();
+            set({ loadedImages: nextLoaded });
           })();
         },
 
@@ -295,11 +304,7 @@ export function createGalleryStore(): MiniAppGalleryStore {
                   failed++;
                 }
               } catch (error: unknown) {
-                const message: string = errorMessage(error);
-                if (
-                  message.includes("[PASSWORD_REQUIRED]") ||
-                  message.includes("[PASSWORD_LOCKED]")
-                ) {
+                if (isMiniAppAuthErrorMessage(errorMessage(error))) {
                   throw error;
                 }
                 failed++;

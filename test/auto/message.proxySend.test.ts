@@ -51,10 +51,12 @@ mock.module("../../packages/config/readiness", () => ({
 const disableChatStateSwitchMock = mock((..._args: unknown[]): boolean => true);
 const persistChatStateMock = mock(async (..._args: unknown[]): Promise<void> => {});
 mock.module("../../packages/infra/storage/stateStore", () => ({
-  disableChatStateSwitch: disableChatStateSwitchMock,
   activeCopyTargetIdIn: (): undefined => undefined,
   persistGlobalState: async (): Promise<void> => {},
   activeCopyModeIn: (): undefined => undefined,
+}));
+mock.module("../../packages/infra/chatStateStorage", () => ({
+  disableChatStateSwitch: disableChatStateSwitchMock,
   getActiveProxySendTarget: () => targetChatId,
   getChatState: () => chatState,
   getOrCreateChatState: () => ({}),
@@ -78,7 +80,7 @@ mock.module("../../packages/infra/selfSentTracker", () => ({
 }));
 
 const { handleIncomingMessageMiddleware: handleIncomingMessageWithState } = await import("../../packages/auto/message");
-const { getChatState } = await import("../../packages/infra/storage/stateStore");
+const { getChatState } = await import("../../packages/infra/chatStateStorage");
 const { DEFAULT_CHAT_STATE } = await import("../../packages/libs/chatState");
 
 /** 与前置链一致：读一次本条消息所在群的状态快照，再交给自动流水线。 */

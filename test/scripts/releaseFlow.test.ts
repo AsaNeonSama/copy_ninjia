@@ -1,7 +1,8 @@
+/** 二进制发行包构建、冷迁移入口打包、谱系清单与 GitHub 发布前置核验测试。 */
 import { afterEach, describe, expect, test } from "bun:test";
 import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { createReleaseCommand, readBuildSourceTree } from "../../scripts/release/command";
 import type { CommandResult, ReleaseCommand } from "../../scripts/release/command";
 import { ACTIVE_COLD_MIGRATION_EDGES } from "../../scripts/migrations/active";
@@ -10,8 +11,37 @@ import { verifyReleaseAssets } from "../../scripts/release/assets";
 import type { ReleaseAsset } from "../../scripts/release/assets";
 import { publishRelease } from "../../scripts/release/github";
 import { runCapturedCommand } from "../../scripts/fixtures/subprocess";
-import { PERSONA_FILE_NAME, PROMPT_EXAMPLE_DIR_NAME, VOICE_TOOL_PROMPT_FILE_NAME } from "../../packages/consts/promptLayout";
+import {
+  IDENTITY_DATABASE_MIGRATIONS_DIR,
+  MINI_APP_REJECT_HTML_PATH,
+  PROJECT_ROOT,
+} from "../../packages/consts/paths";
+import { PROMPT_EXAMPLE_DIR_NAME } from "../../packages/consts/promptLayout";
+import { RELEASE_BUNDLED_PATHS, RELEASE_INSTALL_SCRIPT_GLOB } from "../../packages/consts/release";
 import type { CapturedCommandResult } from "../../scripts/fixtures/subprocess";
+
+const BUNDLED_TRACKED_FILES: readonly string[] = createReleaseCommand(PROJECT_ROOT)([
+  "git",
+  "ls-files",
+  "-z",
+  "--",
+  ...RELEASE_BUNDLED_PATHS,
+  `:(glob)${RELEASE_INSTALL_SCRIPT_GLOB}`,
+]).stdout
+  .split("\0")
+  .filter((path: string): boolean => path.length > 0);
+
+/** 「缺拒绝页」缺口删掉的发行文件（取自拒绝页路径常量）。 */
+const REJECT_HTML_RELATIVE_PATH: string = relative(PROJECT_ROOT, MINI_APP_REJECT_HTML_PATH);
+/** 「缺迁移 SQL」缺口删掉的发行文件：迁移目录下第一份受跟踪的 SQL。 */
+const MIGRATION_SQL_RELATIVE_PATH: string | undefined = BUNDLED_TRACKED_FILES.find(
+  (path: string): boolean =>
+    path.startsWith(`${relative(PROJECT_ROOT, IDENTITY_DATABASE_MIGRATIONS_DIR)}/`) && path.endsWith(".sql")
+);
+/** 「缺示例配置」缺口删掉的发行文件：config_example 下第一份受跟踪文件。 */
+const CONFIG_EXAMPLE_RELATIVE_PATH: string | undefined = BUNDLED_TRACKED_FILES.find(
+  (path: string): boolean => path.startsWith("config_example/")
+);
 
 const TREE: string = "a".repeat(40);
 const HEAD: string = "b".repeat(40);
@@ -45,17 +75,20 @@ async function fixture(
   }
   if (defect === "directory-executable") mkdirSync(join(content, "copy-ninjia"));
   if (defect === "symlink-executable") symlinkSync("binary.json", join(content, "copy-ninjia"));
-  if (defect !== "missing-installer") await Bun.write(join(content, "install.sh"), "# mock installer\n");
-  if (defect !== "missing-runtime") await Bun.write(join(content, "scripts/install/runtime.js"), "export {};\n");
-  if (defect !== "missing-prompt-example") {
-    for (const fileName of [PERSONA_FILE_NAME, VOICE_TOOL_PROMPT_FILE_NAME]) {
-      await Bun.write(join(content, PROMPT_EXAMPLE_DIR_NAME, fileName), "# mock prompt example\n");
-    }
+  for (const relPath of BUNDLED_TRACKED_FILES) {
+    if (defect === "missing-installer" && relPath === "install.sh") continue;
+    if (defect === "missing-prompt-example" && relPath.startsWith(`${PROMPT_EXAMPLE_DIR_NAME}/`)) continue;
+    if (defect === "missing-reject-html" && relPath === REJECT_HTML_RELATIVE_PATH) continue;
+    if (defect === "missing-migration-sql" && relPath === MIGRATION_SQL_RELATIVE_PATH) continue;
+    if (defect === "missing-config-example" && relPath === CONFIG_EXAMPLE_RELATIVE_PATH) continue;
+    await Bun.write(join(content, relPath), Bun.file(join(PROJECT_ROOT, relPath)));
   }
+  if (defect !== "missing-runtime") await Bun.write(join(content, "scripts/install/runtime.js"), "export {};\n");
   if (defect === "node-modules") await Bun.write(join(content, "node_modules/mock/index.js"), "export {};\n");
   for (const path of migrationPaths) await Bun.write(join(content, path), "export {};\n");
   const archive: string = join(root, "copy-ninjia-linux-x64.tar.gz");
   const members: readonly string[] = defect === "duplicate-executable" ? ["copy-ninjia", "copy-ninjia/copy-ninjia"]
+    : defect === "duplicate-bundled" ? ["copy-ninjia", "copy-ninjia/install.sh"]
     : defect === "mode-decoy" ? ["copy-ninjia/decoy copy-ninjia", "copy-ninjia"] : ["copy-ninjia"];
   const result: CapturedCommandResult = await runCapturedCommand({ cmd: ["tar", "-czf", archive, ...members], cwd: join(root, "content") });
   expect(result.exitCode).toBe(0);
@@ -66,7 +99,12 @@ async function fixture(
 }
 
 function verifiedAssets(root: string, platforms: readonly string[] = ["linux-x64"]): Promise<readonly ReleaseAsset[]> {
-  return verifyReleaseAssets({ directory: root, version: VERSION, platforms, sourceTree: TREE, command: createReleaseCommand(root) });
+  const projectCommand: ReleaseCommand = createReleaseCommand(PROJECT_ROOT);
+  const rootCommand: ReleaseCommand = createReleaseCommand(root);
+  function command(arguments_: readonly string[]): CommandResult {
+    return (arguments_[0] === "git" ? projectCommand : rootCommand)(arguments_);
+  }
+  return verifyReleaseAssets({ directory: root, version: VERSION, platforms, sourceTree: TREE, command });
 }
 
 interface FakeRelease {
@@ -147,6 +185,12 @@ function github(assets: readonly ReleaseAsset[], options: {
 afterEach((): void => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
 describe("发布资产与谱系", (): void => {
+  test("结构缺口用例删掉的拒绝页、迁移 SQL 与示例配置都是受跟踪的发行文件", (): void => {
+    expect(BUNDLED_TRACKED_FILES).toContain(REJECT_HTML_RELATIVE_PATH);
+    expect(MIGRATION_SQL_RELATIVE_PATH).toBeDefined();
+    expect(CONFIG_EXAMPLE_RELATIVE_PATH).toBeDefined();
+  });
+
   test("校验压缩包内的版本、平台、Git tree、Bun build 及两份资产的内容", async (): Promise<void> => {
     const { root } = await fixture();
     const assets: readonly ReleaseAsset[] = await verifiedAssets(root);
@@ -155,7 +199,8 @@ describe("发布资产与谱系", (): void => {
   });
   test.each([
     "manifest-version", "missing-executable", "non-executable", "directory-executable", "symlink-executable",
-    "duplicate-executable", "mode-decoy", "node-modules", "missing-installer", "missing-runtime", "missing-prompt-example",
+    "duplicate-executable", "duplicate-bundled", "mode-decoy", "node-modules", "missing-installer",
+    "missing-runtime", "missing-prompt-example", "missing-reject-html", "missing-migration-sql", "missing-config-example",
   ])(
     "独立拒绝发行包结构缺口：%s", async (defect: string): Promise<void> => {
       const { root }: { root: string } = await fixture({}, undefined, defect);

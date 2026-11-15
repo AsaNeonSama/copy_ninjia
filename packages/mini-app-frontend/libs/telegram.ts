@@ -10,8 +10,8 @@ export function getTelegramWebApp(): Readonly<TelegramWebApp> | undefined {
 }
 
 /**
- * 提取当前会话的 Telegram WebApp `initData` 原始签名串。
- * @returns `initData` 字符串；未注入时返回空字符串
+ * 提取当前会话的 Telegram WebApp `initData` 原始签名串：优先读取 `Telegram.WebApp.initData`，未注入时依次回退读取 URL 查询参数与 hash 中的 `tgWebAppData`。
+ * @returns `initData` 字符串；均未提供时返回空字符串
  */
 export function readMiniAppInitData(): string {
   const webApp: Readonly<TelegramWebApp> | undefined = getTelegramWebApp();

@@ -9,11 +9,11 @@
  *   时刻、向上取整到整分钟，重新注册一个只在那一分钟匹配的 Bun 原生 cron（按 UTC
  *   解释，unref），触发时同样先停掉它。
  *
- * 热重载按任务名对账（reconcileCronSchedule）：深相等的任务保留句柄（含随机时刻）；变更
- * 或删除的任务停止调度并标记撤销，在途一轮在下一个动作、重试或群之前停下；新增的任务
- * 登记。just_once 记录只在任务仍是 just_once 时保留，转为周期任务即清除；删除后同名
- * 加回仍按已执行处理。停机期间错过的触发不补发；记录与随机时刻都不持久化。
- * 所有 handler 自行吞掉异常，不向 Bun.cron 返回 reject。
+ * 热重载按任务名对账（`reconcileCronSchedule`）：配置深相等的任务保留现有句柄与随机触发时刻；变更
+ * 或删除的任务停止 cron 句柄并触发任务取消信号（立即中断间隔与退避等待，并在下一动作、下次重试或
+ * 下一目标群前停下）；新增任务重新注册。`just_once` 执行记录仅在任务仍声明为 `just_once` 时保留，
+ * 转为周期任务即清除，删除后同名加回仍视为已执行。停机期间错过的触发不补发；执行记录与随机时刻均不
+ * 持久化。所有触发回调内部消化异常，不向 `Bun.cron` 返回 rejected Promise。
  */
 
 import { cronRuntime } from "../cache/main/cron";
@@ -27,12 +27,12 @@ import type { CronConfig, CronRuntime, CronTask, CronTaskSchedule } from "../typ
 import type { FlushResult } from "../types/lifecycle";
 
 /**
- * 停掉一个调度的 cron，并标记撤销。
+ * 停掉一个调度的 cron，并触发调度取消信号。
  *
  * @param schedule 待撤销的任务调度项
  */
 function cancelSchedule(schedule: CronTaskSchedule): void {
-  schedule.cancelled = true;
+  schedule.cancellation.abort();
   schedule.job?.stop();
   schedule.job = null;
 }
@@ -77,7 +77,7 @@ function cronExpressionAt(instantMs: number): string {
  */
 function armRandomCron(runtime: CronRuntime, schedule: CronTaskSchedule): void {
   const interval: CronTask["randomInterval"] = schedule.task.randomInterval;
-  if (interval === undefined || !runtime.accepting || schedule.cancelled) return;
+  if (interval === undefined || !runtime.accepting || schedule.cancellation.signal.aborted) return;
   const delayMs: number = interval.minMs + Math.floor(Math.random() * (interval.maxMs - interval.minMs + 1));
   schedule.job = Bun.cron(
     cronExpressionAt(Date.now() + delayMs),
@@ -93,7 +93,7 @@ function armRandomCron(runtime: CronRuntime, schedule: CronTaskSchedule): void {
  */
 async function fireCronTask(schedule: CronTaskSchedule): Promise<void> {
   const runtime: CronRuntime | null = cronRuntime.current;
-  if (runtime === null || !runtime.accepting || schedule.cancelled) return;
+  if (runtime === null || !runtime.accepting || schedule.cancellation.signal.aborted) return;
   const task: Readonly<CronTask> = schedule.task;
   if (task.justOnce || task.randomInterval !== undefined) {
     schedule.job?.stop();
@@ -111,14 +111,14 @@ async function fireCronTask(schedule: CronTaskSchedule): Promise<void> {
  * @returns 已注册的任务调度项
  */
 function registerSchedule(task: Readonly<CronTask>): CronTaskSchedule {
-  const schedule: CronTaskSchedule = { task, job: null, cancelled: false };
+  const schedule: CronTaskSchedule = { task, job: null, cancellation: new AbortController() };
   schedule.job = Bun.cron(task.cron, (): Promise<void> => fireCronTask(schedule), { tz: task.timeZone }).unref();
   return schedule;
 }
 
 /**
- * 按当前任务表对账调度；调度器未启动或已停止接纳时不做事。热重载在 cron.json 变化
- * 后调用（见 app/configReload.ts）。
+ * 按当前任务表对账调度；调度器未启动或已停止接纳时直接返回。热重载在 `cron.json` 变化
+ * 后调用（见 `app/configReload.ts`）。
  */
 export function reconcileCronSchedule(): void {
   const runtime: CronRuntime | null = cronRuntime.current;

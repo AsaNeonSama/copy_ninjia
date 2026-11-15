@@ -1,3 +1,7 @@
+/**
+ * 入群验证终态处置的进程级尝试许可与延后闩锁管理：防止 Worker 反复崩溃重建时无限重试同一终态踢除/解禁，
+ * 在终态快照落盘确认后将超预算条目移入延后表（见 docs/cn/04-invariants.md）。
+ */
 import { antiRaidRuntimeState } from "../cache/main/antiRaid/proxy";
 import {
   activeVerificationSnapshots,

@@ -1,3 +1,7 @@
+/**
+ * 东京天气定时拉取与缓存更新（写入 weatherCache，供天气查询工具与心情系统读取）。
+ */
+
 import { logger } from "../../infra/logger";
 import {
   TOKYO_LATITUDE,
@@ -15,10 +19,6 @@ import {
 import { fetchJsonWithTimeout } from "../../infra/httpFetch";
 import { isPlainRecord } from "../../libs/record";
 import { TOKYO_TIME_ZONE } from "../../consts/time";
-
-/**
- * 东京天气定时拉取与缓存更新（写入 weatherCache，供天气查询工具与心情系统读取）。
- */
 
 /**
  * 将 WMO 天气代码转换为中文天气描述。

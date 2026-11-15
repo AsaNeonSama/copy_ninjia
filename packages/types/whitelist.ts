@@ -1,7 +1,7 @@
 import type { CommandTargetMessages } from "./commands";
 import type { WhitelistPermissionKey } from "./identityPolicy";
 
-/** /permission 单项授权回执的入参；changed 决定说「已设为」还是「原本就是」。 */
+/** /permission 单项授权回执的入参；changed 决定回执采用「已设为」还是「已处于该状态」措辞。 */
 export interface PermissionSetReplyParams {
   /** 目标身份的展示名。 */
   readonly targetLabel: string;
@@ -9,7 +9,7 @@ export interface PermissionSetReplyParams {
   readonly key: WhitelistPermissionKey;
   /** 本次写入的值。 */
   readonly value: boolean;
-  /** 落盘是否真的改变了配置。 */
+  /** 本次写入是否实际改变了权限配置。 */
   readonly changed: boolean;
 }
 
@@ -36,15 +36,15 @@ export interface PermissionCommandTexts {
   readonly mutationRejection: (actorLabel: string) => string;
   /** 目标是超级管理员自己：权限来自身份，不归白名单表管。 */
   readonly superAdminTarget: string;
-  /** 目标解析成了当前群自己的身份（匿名管理员皮套或手滑粘了本群 id）。 */
+  /** 目标解析成了当前群自身的身份（匿名管理员身份或误填本群 ID）。 */
   readonly currentChatTarget: string;
   /** 目标还不在白名单里，得先 /white。 */
   readonly targetNotWhitelisted: (targetLabel: string) => string;
   /** 写盘失败：白名单记录没有被改动。 */
   readonly mutationFailed: string;
-  /** all：本次真的把全部权限打开了。 */
+  /** `all` 实际开启了至少一项权限时的回执。 */
   readonly allEnabled: (targetLabel: string) => string;
-  /** all：本来就全开着，本次没有改变配置。 */
+  /** `all` 调用前全部权限已开启时的幂等回执。 */
   readonly allAlreadyEnabled: (targetLabel: string) => string;
   /** 单项授权的结果回执。 */
   readonly permissionSet: (params: PermissionSetReplyParams) => string;
@@ -70,21 +70,21 @@ export interface WhiteCommandTexts {
    * getEffectiveWhitelistPermissions），表里的残留条目不影响其中任何一样。
    */
   readonly superAdminDisableCleared: string;
-  /** 目标是超级管理员自己、动作是 disable，且白名单表里本来就没有残留条目。 */
+  /** 目标是超级管理员自己、动作是 disable，且白名单表中无残留条目。 */
   readonly superAdminDisableNoEntry: string;
-  /** 目标解析成了当前群自己的身份（匿名管理员皮套或手滑粘了本群 id）。 */
+  /** 目标解析成了当前群自身的身份（匿名管理员身份或误填本群 ID）。 */
   readonly currentChatTarget: string;
   /** 目标还在黑名单里，得先 /block disable。 */
   readonly blocked: (targetLabel: string) => string;
   /** 写盘失败：白名单没有被改动。 */
   readonly mutationFailed: string;
-  /** enable：本次真的加进来了，授予默认权限。 */
+  /** `enable` 新增白名单成员并授予默认权限时的回执。 */
   readonly enabled: (targetLabel: string) => string;
-  /** enable：本来就在白名单里，已有权限不会被重置。 */
+  /** `enable` 调用前已在白名单中时的幂等回执（保留既有权限）。 */
   readonly alreadyEnabled: (targetLabel: string) => string;
-  /** disable：本次真的删掉了。 */
+  /** `disable` 实际移除白名单成员时的回执。 */
   readonly disabled: (targetLabel: string) => string;
-  /** disable：本来就不在白名单里。 */
+  /** `disable` 调用前不在白名单中时的幂等回执。 */
   readonly alreadyDisabled: (targetLabel: string) => string;
   /** 目标解析失败的分场景文案。 */
   readonly target: CommandTargetMessages;

@@ -1,3 +1,7 @@
+/**
+ * Anti-Raid 桥接层的上游观察者绑定：将机器人自身群权限变更、群 teardown
+ * 以及 Disk I/O 重生重放与验证落盘回执接入主线程镜像和 Worker 通道。
+ */
 import { chatIsSupergroupById } from "../../cache/main/antiRaid/chatKind";
 import { blockedSenderChatDeleteDeniedChats } from "../../cache/main/antiRaid/blocklistGuard";
 import {

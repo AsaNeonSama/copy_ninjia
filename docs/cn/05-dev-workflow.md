@@ -30,7 +30,7 @@
 | `bun run perf:hot-path-gate` | **热路径性能门禁** | 精选热路径场景的内存/GC/JIT 硬门禁（已并入 `check`） |
 | `bun run perf:join-log` | 入群日志性能基准 | 入群日志容量/快照/追加记账的独立进程对照基准 |
 | `bun run perf:identity-database` | 身份数据库基准 | 身份数据库冷热读写、主线程 LRU 读与写透链路的独立进程基准 |
-| `bun run perf:full` | 全量性能基准套件 | 各分区按默认轮数跑独立子进程（`--write-doc` 写回三语 10 性能页及 `performance-result.json`） |
+| `bun run perf:full` | 全量性能基准套件 | 各分区按默认轮数跑独立子进程（`--write-doc` 写回三语 11 性能页及 `performance-result.json`） |
 | `bun run perf:review` | 专项性能复核 | 涵盖热路径、AI 回复/载荷/语音编码、完整命令链与 Disk I/O Worker 压力 |
 | `bun run build -- --version <tag>` | 构建二进制包 | 必须显式传入无前缀版本号，在当前平台产出 `dist/` 发行包及 SHA-256 |
 | `bun run release:check -- --version <tag>` | 发布前全量自检 | frozen lockfile + check + 覆盖率对账 + 故障注入 + 二进制构建验证 |
@@ -48,8 +48,8 @@
   - 各 Worker 通过 Bun `preload` 机制注入网络替身：东京天气接口返回固定罐头数据，其余外部网络请求均被严格阻断。
   - 测试套件逐项断言替身正常加载、轮询链路畅通、收到 SIGTERM 信号后优雅排空，以及锁文件安全释放。
 - **源码文件行数限制（`MAX_SOURCE_LINES` / `MAX_FRONTEND_SOURCE_LINES`）**：
-  - 手写 TypeScript、JavaScript、CSS 与 Shell 文件若超过对应上限（`packages/mini-app-frontend/` 下的 `.tsx` 与 `.css` 为 `MAX_FRONTEND_SOURCE_LINES`，其余为 `MAX_SOURCE_LINES`，定义于 `scripts/conventions/fileLength.ts`）将被门禁直接拒绝。
-  - 后端文件超过 512 行时应评估拆分，超过 `MAX_SOURCE_LINES`（1024 行）时必须拆分；前端 `.tsx` 与 `.css` 文件上限为 `MAX_FRONTEND_SOURCE_LINES`（1536 行）。
+  - 手写 TypeScript、JavaScript、CSS、HTML 与 Shell 文件若超过对应上限（`packages/mini-app-frontend/` 下的 `.tsx`、`.css` 以及 `.html` 文件为 `MAX_FRONTEND_SOURCE_LINES`，其余为 `MAX_SOURCE_LINES`，定义于 `scripts/conventions/fileLength.ts`）将被门禁直接拒绝。
+  - 后端文件超过 512 行时应评估拆分，超过 `MAX_SOURCE_LINES`（1024 行）时必须拆分；前端 `.tsx`、`.css` 与 `.html` 文件上限为 `MAX_FRONTEND_SOURCE_LINES`（1536 行）。
   - 检查范围覆盖所有受 Git 跟踪的文件及暂存区新文件，忽略的文件不纳入扫描。安装语法检查全面覆盖 `install.sh` 及其调用的所有独立 Shell 模块。
 - **全源码覆盖率考核**：
   - `test/productionModules.test.ts` 主动加载 `index.ts` 以及 `packages/` 下除 `packages/types/` 外的全部运行时模块；未被任何测试覆盖的模块直接按 0% 计入分母。
@@ -64,12 +64,25 @@
   - 语法层面不支持标注的 `for...of` / `for...in` 循环变量自动豁免；初始化器已是全标注箭头函数的 `const` 同样豁免。
 - **仓库约定自检（`check:conventions`）**：
   - **结构与链接校验**：检查源码行数、文件归位、Markdown 文档的本地相对链接与锚点有效性；核对文档中提及的目录文件清单与行内反引号仓库路径真实存在；校验可执行脚本的权限位与安装步骤编号的一致性。
-  - **模块与架构隔离**：核对常量与缓存归属（`packages/cache/<owner>/` 线程单属性边界），按真实模块导入图核验 Worker 与 Telegram 能力隔离；环境变量仅允许在 `consts/paths.ts` 与 `consts/environment.ts` 中读取；`consts/` 运行期只依赖 `consts`（其它 `packages/` 模块只能 `import type`），Mini App 前端的 `packages/mini-app-frontend/consts/` 适用同一组常量规则且运行期只依赖自身；`packages/mini-app-frontend/` 的 TS/TSX 模块说明符（含 `import type`）与 HTML/CSS 相对资源引用不得越出该目录，`packages/` 其余模块与 `index.ts` 不得引用前端，唯一例外是 `scripts/conventions/miniAppFrontend.ts` 的 `MINI_APP_FRONTEND_ENTRY_IMPORTS` 登记的服务端 HTML 入口，登记失效同样报错；`states/` 的直接与间接运行时依赖只能落在 `consts`、`libs`、`types` 与 `states`（间接依赖按真实模块图追踪，`config/time.ts` 时区快照是 `STATES_CLOSURE_OPAQUE_MODULES` 登记的唯一例外）；`infra/` 运行期只能依赖 `cache`、`config`、`consts`、`database`、`infra`、`libs`、`states`、`types` 与 `users`（`INFRA_ALLOWED_PREFIXES` 许可表，`workers/diskIO/diagnosticSink.ts` 是唯一豁免），严禁反向依赖业务层；全量基准测试父进程仅允许引入纯常量与类型。
-  - **常量表约束**：带对象元素的导出常量表（正则与函数值除外）必须在 `test/consts/immutability.test.ts` 中有一行紧跟 `@ts-expect-error` 注释的访问（`scripts/conventions/constImmutability.ts`）；元素为字面量联合的导出数组表必须写成 `exhaustiveList<U>()([...])`（`packages/consts/exhaustiveList.ts`；前端常量目录用 `packages/mini-app-frontend/consts/exhaustiveList.ts`），`U` 与声明的元素类型一致、实参逐项写字符串或数字字面量，类型新增或删除成员而表没跟上时编译失败。有意只列子集的表按 `<相对路径>#<表名>` 登记在 `scripts/conventions/constExhaustiveLists.ts` 的 `PARTIAL_LITERAL_TABLES`，登记失效同样报错。
-  - **运行时安全与 API 规范**：`packages/workers/` 中的定时器必须显式调用 `unref()`；`packages/` 内禁止 `Object.freeze`，也禁止用 `.keys().next()`、`.values().next()`、`.entries().next()` 取最早项，有界 FIFO / LRU 的最早项一律经 `libs/fifoMap.ts` 的 `FifoMap`（或继承它的 `LruCache`）取得；Node 兼容模块与 `Buffer` 仅放行在白名单中登记的调用，未使用的登记同样报错；统一使用 `Bun.argv` 读取命令行参数；运行期裸导入的包必须在根 `package.json` 中直接声明。
-  - **门禁与指标对账**：静态检查 `index.ts`、`packages/` 与 `scripts/` 中顶层函数、类方法及 `*Params`/`*Options` 参数接口属性的 JSDoc（含 `@param` 与非 `void`/`never` 返回值的 `@returns`，`scripts/conventions/sourceRules.ts` 的 `collectFunctionJsDocProblems`）；静态检查 Telegram 消息清理例外与话题归属；核对冷迁移脚本与 `package.json` 的 `migrate:*` 入口一一对应；核对故障注入套件清单；比对三语文档与 `performance-result.json` 中的测试覆盖率和性能指标，确保记录同源。注释中「`<模块>.ts` 的 `<符号>`」式的交叉引用必须指向现存的符号：以 `./`、`../` 开头的路径按注释所在源文件的目录解析，目标文件或符号缺失都会报错；其余写法只在能唯一确定目标文件时核对。
+  - **模块与架构隔离**：
+    - **线程与环境变量边界**：核对常量与缓存归属（`packages/cache/<owner>/` 线程单宿主边界），按真实模块导入图核验 Worker 与 Telegram 能力隔离；环境变量仅允许在 `consts/paths.ts` 与 `consts/environment.ts` 中读取；全量基准父进程仅允许引入纯常量与类型。
+    - **常量与前端隔离边界**：`consts/` 运行期仅依赖 `consts`（其它 `packages/` 模块仅限 `import type`），`packages/mini-app-frontend/consts/` 适用同一组规则且运行期仅依赖自身；`packages/mini-app-frontend/` 的 TS/TSX 模块说明符（含 `import type`）与 HTML/CSS 相对资源引用不得越出该目录，`packages/` 其余模块与 `index.ts` 不得引用前端（唯一例外为 `scripts/conventions/miniAppFrontend.ts` 的 `MINI_APP_FRONTEND_ENTRY_IMPORTS` 登记的服务端 HTML 入口，登记失效同样报错）。
+    - **纯状态机与基础设施单向依赖**：`states/` 的直接与间接运行时依赖只能落在 `consts`、`libs`、`types` 与 `states`（按真实模块图追踪，`config/time.ts` 时区快照为 `STATES_CLOSURE_OPAQUE_MODULES` 登记的唯一例外）；`infra/` 运行期只能依赖 `cache`、`config`、`consts`、`database`、`infra`、`libs`、`states`、`types` 与 `users`（`INFRA_ALLOWED_PREFIXES` 许可表，`workers/diskIO/diagnosticSink.ts` 为唯一豁免），严禁反向依赖业务层。
+  - **常量表约束**：
+    - **不可变性断言**：带对象元素的导出常量表（正则与函数值除外）必须在 `test/consts/immutability.test.ts` 中有一行紧跟 `@ts-expect-error` 注释的访问（`scripts/conventions/constImmutability.ts`）。
+    - **字面量联合穷尽核验**：元素为字面量联合的导出数组表必须写成 `exhaustiveList<U>()([...])`（`packages/consts/exhaustiveList.ts`；前端用 `packages/mini-app-frontend/consts/exhaustiveList.ts`），`U` 与声明的元素类型一致、实参逐项写字符串或数字字面量，类型增删成员而表未同步时编译失败；有意只列子集的表按 `<相对路径>#<表名>` 登记在 `scripts/conventions/constExhaustiveLists.ts` 的 `PARTIAL_LITERAL_TABLES`，登记失效同样报错。
+  - **运行时安全与 API 规范**：
+    - `packages/workers/` 中的定时器必须显式调用 `unref()`；`packages/` 内禁止 `Object.freeze`。
+    - 禁止用 `.keys().next()`、`.values().next()`、`.entries().next()` 取最早项，有界 FIFO / LRU 的最早项一律经 `libs/fifoMap.ts` 的 `FifoMap`（或继承它的 `LruCache`）取得。
+    - Node 兼容模块与 `Buffer` 仅放行在白名单中登记的调用（未使用的登记同样报错）；统一使用 `Bun.argv` 读取命令行参数；运行期裸导入的包必须在根 `package.json` 中直接声明。
+  - **门禁与指标对账**：
+    - 静态检查 `index.ts`、`packages/` 与 `scripts/` 中顶层函数、类方法及 `*Params`/`*Options` 参数接口属性的 JSDoc（含 `@param` 与非 `void`/`never` 返回值的 `@returns`，见 `scripts/conventions/sourceRules.ts` 的 `collectFunctionJsDocProblems`）。
+    - 静态检查 Telegram 消息清理例外与话题归属；核对冷迁移脚本与 `package.json` 的 `migrate:*` 入口一一对应；核对故障注入套件清单；比对三语文档与 `performance-result.json` 中的测试覆盖率和性能指标同源。
+    - 注释中「`<模块>.ts` 的 `<符号>`」式的交叉引用必须指向现存符号：以 `./`、`../` 开头的路径按注释所在源文件的目录解析，目标文件或符号缺失都会报错；其余写法在能唯一确定目标文件时核对。
   - **测试断言规范**：测试用例中严禁将导入的大写常量直接与字面量常量进行比对，禁止直接在断言中硬编码与 `packages/consts` 相同的长字符串或中文提示文案片段（必须引用常量或模板辅助函数 `test/helpers/templateText.ts`）。特殊断言豁免必须在 `scripts/conventions/testAssertionFragments.ts` 中显式登记。
-  - **测试替身复位**：同一个替身只要在任何用例里排过 `mockReturnValueOnce` / `mockResolvedValueOnce` / `mockRejectedValueOnce` / `mockImplementationOnce`，复位钩子（`beforeEach` / `afterEach` / `beforeAll` / `afterAll` 的回调及其可传递调用到的测试侧函数）里就必须用 `mockReset()` 再装回默认实现，不能只 `mockClear()`：`mockClear()` 不清排队中的 Once。门禁按 TypeScript checker 把替身解析到声明符号判定（`scripts/conventions/testMockReset.ts`），用例中途只为清调用记录的 `mockClear()` 不在判定范围内。
+  - **测试替身复位**：两项门禁均通过 TypeScript checker 把替身解析到声明符号判定（用例中途仅清空调用记录的 `mockClear()` 不在判定范围内）：
+    - **Once 队列复位（`scripts/conventions/testMockReset.ts`）**：同一替身只要在任何用例里排过 `mockReturnValueOnce` / `mockResolvedValueOnce` / `mockRejectedValueOnce` / `mockImplementationOnce`，复位钩子（`beforeEach` / `afterEach` / `beforeAll` / `afterAll` 及其传递调用的测试辅助函数）中就必须调用 `mockReset()` 再装回默认实现，不能只调 `mockClear()`（`mockClear()` 不清排队中的 Once）。
+    - **`spyOn` 作用域还原（`scripts/conventions/testSpyRestore.ts`）**：`test/` 下文件顶层、`describe` 一级语句与 `beforeAll` / `beforeEach` 回调（含传递调用的 `test/` 辅助函数）中创建的 `spyOn`，必须在覆盖作用域的清理钩子中还原被监听对象（顶层与 `beforeAll` 创建的认 `afterAll`，顶层另认同作用域顶层同步位置；`beforeEach` 创建的认 `afterEach` 或 `afterAll`；同一准备钩子内即创建即还原同样放行）。还原写法为 `mockRestore()`、`mock.restore()` 或 `jest.restoreAllMocks()`；被监听目标本身已是共享 mock 时只能用后两者（`spyOn` 返回同一 mock，`mockRestore()` 会清空其实现）。
 
 ---
 
@@ -89,14 +102,16 @@
 - **图片编解码**：使用 Bun 原生 `Bun.Image` 进行图片转码处理（`packages/infra/image.ts`）：
   - JPEG 与 PNG 图片原样透传；WebP 与 GIF 转码为 PNG 并完整保留 Alpha 透明通道；GIF 提取首帧，动图 WebP 提取首个 `ANMF` 帧重封装为静态 WebP 后解码。
   - 单张图片解码像素上限为 `VISION_TRANSCODE_MAX_PIXELS`，超限在分配内存前立即拒绝；解码后长边超过 `VISION_TRANSCODE_MAX_EDGE` 的图片按原比例降采样至该上限以内（小图不放大）。编解码能力由 Bun 内置提供，不依赖 `node_modules` 中的外部原生 C/C++ 扩展。
-- **原生文件 I/O 规范**：文件读取、写入和删除优先使用 `Bun.write` 与 `Bun.file`；异步上下文里的元数据读取使用 `Bun.file().stat()`，普通文件的存在判断使用 `Bun.file().exists()`；原子写入（`atomicWriteText`）通过 `Bun.write(Bun.file(handle.fd), content)` 配合 fsync 与原子 rename；目录的存在判断（`Bun.file().exists()` 对目录恒为 false）、允许目标缺失的删除（`force: true`；`Bun.file().delete()` 遇缺失文件抛 `ENOENT`）、同步文件 I/O、目录遍历、路径操作与硬链接等 Bun 原生未覆盖的功能统一按规范使用 `node:` 兼容模块。
+- **原生文件 I/O 规范**：
+  - **优先 Bun 原生 API**：文件读取、写入和删除优先使用 `Bun.write` 与 `Bun.file`；异步元数据读取用 `Bun.file().stat()`，普通文件存在判断用 `Bun.file().exists()`；原子写入（`atomicWriteText`）通过 `Bun.write(Bun.file(handle.fd), content)` 配合 `fsync` 与原子 `rename`。
+  - **按需使用 `node:` 模块**：目录存在判断（`Bun.file().exists()` 对目录恒为 `false`）、允许目标缺失的删除（`force: true`，`Bun.file().delete()` 遇缺失文件会抛 `ENOENT`）、同步文件 I/O、目录遍历、路径操作与硬链接等 Bun 原生未覆盖的场景，统一按规范使用 `node:` 兼容模块。
 - **性能基准校准**：运行时版本升级后，所有性能基准数据必须在相同的 Bun 版本与提交修订上重新实测校准。
 
 ---
 
 ### 当前文档版本实测
 
-`bun run test:coverage`：**7001 tests / 588 files / 456453 次 `expect()`**；全源码**函数覆盖率 97.57% / 行覆盖率 98.13%**。三语项目 README 的 Coverage 徽章展示行覆盖率。
+`bun run test:coverage`：**7200 tests / 605 files / 463493 次 `expect()`**；全源码**函数覆盖率 96.85% / 行覆盖率 97.58%**。三语项目 README 的 Coverage 徽章展示行覆盖率。
 
 ---
 
@@ -105,9 +120,11 @@
 所有测试必须通过 `bun run test`（底层调用 `bun test --isolate`）运行，享受全自动化隔离保护：
 
 1. **测试文件上下文隔离**：Bun 为每个测试文件创建完全独立的全局对象，`mock.module` 与模块级全局变量绝不跨文件产生污染。
-2. **专属临时数据根**：`test/preloadEnv.ts` 在加载任何业务代码之前，为当前测试进程创建独立的临时数据目录（`mkdtempSync`）并设置环境变量 `COPY_NINJIA_DATA_ROOT`，另建一个测试专用临时目录设为 `TMPDIR`（用例与被测代码经 `os.tmpdir()` 创建的临时文件都在其中）。`/dev/shm` 是 tmpfs 且可用空间不少于 `TMPFS_MIN_AVAILABLE_BYTES` 时两者建在 `/dev/shm` 下，否则建在进程原有的 `os.tmpdir()` 下。所有文件 I/O 均局限于临时目录中，绝不触碰生产环境文件（`memory/`、`logs/`、`database/`、`bot.lock`），测试结束后两棵临时目录自动清理并还原 `TMPDIR`。
-3. **独立配置根目录**：自动将 `config_example/` 完整复制到临时目录的 `config/`，通过 `COPY_NINJIA_CONFIG_ROOT` 引导程序读取测试专用配置。占位密钥替换为安全的虚拟凭据，屏蔽 `g-auth.json`，并将 `cron.json` 初始化为空任务表。
-4. **配置快照同步与空库初始化**：`test/preload.ts` 将测试副本中的 `agent.json`、`ad_samples.json`、`mood.json`、`stickers.json`、`cron.json`、机器人语气及内置人设一次性加载至测试环境的 holder 中，并在临时数据根创建带时区标记的空 SQLite 数据库，各功能 readiness 状态直接置为就绪。
+2. **专属临时数据根**：`test/preloadEnv.ts` 在加载任何业务代码之前，为当前测试进程创建两棵独立临时目录（`mkdtempSync`）：一棵赋给 `COPY_NINJIA_DATA_ROOT`，另一棵赋给 `TMPDIR`（承接用例与被测代码经 `os.tmpdir()` 创建的临时文件）。
+   - 当 `/dev/shm` 为 tmpfs 且可用空间不少于 `TMPFS_MIN_AVAILABLE_BYTES` 时，两棵目录优先建在 `/dev/shm` 下；否则建在进程原有的 `os.tmpdir()` 下。
+   - 所有文件 I/O 均严格局限于临时目录内，绝不触碰真实部署文件（`memory/`、`logs/`、`database/`、`bot.lock`）；测试结束后自动清理两棵目录并还原 `TMPDIR`。
+3. **独立配置根目录**：自动将 `config_example/static/` 与 `config_example/dynamic/` 复制到临时目录的 `config/static/` 与 `config/dynamic/`，通过 `COPY_NINJIA_CONFIG_ROOT` 引导程序读取测试专用配置。占位密钥替换为安全的虚拟凭据，屏蔽 `g-auth.json`，并将 `cron.json` 初始化为空任务表。
+4. **配置快照同步与空库初始化**：`test/preload.ts` 将测试副本中的 `agent.json`、`ad_detect.json`、`mood.json`、`stickers.json`、`cron.json`、机器人语气及内置人设一次性加载至测试环境的 holder 中，并在临时数据根创建带时区标记的空 SQLite 数据库，各功能 readiness 状态直接置为就绪。
 
 ### 关键测试套件分布
 
@@ -179,7 +196,7 @@
 5. **容器与算法分区**：评估系统核心状态容器的插入、检索与高频算法运算开销。
 6. **入群日志容量线**：在大规模入群日志堆积下的读写与处理性能。
 
-所有基准测试数据均写入仓库根目录的 `performance/` 临时目录（运行结束后自动删除整棵目录）。添加 `--write-doc` 参数可同步更新三语 `10-performance.md` 文档与 `performance-result.json`。`--rounds <n>` 参数仅用于本地快速排查，非默认轮数的测试数据严禁提交至版本控制。
+所有基准测试数据均写入仓库根目录的 `performance/` 临时目录（运行结束后自动删除整棵目录）。添加 `--write-doc` 参数可同步更新三语 `11-performance.md` 文档与 `performance-result.json`。`--rounds <n>` 参数仅用于本地快速排查，非默认轮数的测试数据严禁提交至版本控制。
 
 ---
 
@@ -218,7 +235,7 @@ bun run test:coverage 2>&1 | grep 'All files'  # 获取函数与行覆盖率
    - 在 `dev` 分支完成开发并通过 `bun run check`，必要时运行 `bun run test:fault-injection`。
 2. **更新性能基准读数**：
    - 停止本地服务进程及其他高负载任务，确保机器处于空闲状态；
-   - 运行 `bun run perf:full -- --write-doc`，将三份语言的 `10-performance.md` 与 `performance-result.json` 同步至最新实测读数，并与代码变更一同提交到 `dev`。
+   - 运行 `bun run perf:full -- --write-doc`，将三份语言的 `11-performance.md` 与 `performance-result.json` 同步至最新实测读数，并与代码变更一同提交到 `dev`。
 3. **逐平台原生构建**：
    - 目标平台涵盖 `RELEASE_PLATFORMS` 声明的平台（`linux-x64`、`linux-arm64`、`linux-x64-musl`、`linux-arm64-musl`）；
    - 在各原生操作系统环境中，检出干净的对应提交并运行 `bun run release:build -- --version <tag>`；
@@ -228,7 +245,7 @@ bun run test:coverage 2>&1 | grep 'All files'  # 获取函数与行覆盖率
      ```bash
      bun run release:verify -- --version <tag> --platforms <逗号分隔的平台列表> --directory <汇总目录>
      ```
-   - 脚本将逐一核对各包的 SHA-256 哈希、版本、目标架构、依赖完整性以及是否存在泄露的 `.map` 或 `node_modules`。
+   - 脚本将逐一核对各包的 SHA-256 哈希、版本、目标架构、必需运行资源与冷迁移 CLI、依赖完整性以及是否存在泄露的 `.map` 或 `node_modules`。
 5. **合入主干与打标签**：
    - 检查工作树差异，通过 `git merge --squash` 将 `dev` 合入 `master` 并提交，确保 Git tree 哈希与构建时一致；
    - 推送 `master` 分支，并在该提交上创建并推送附注式版本标签（annotated version tag）。

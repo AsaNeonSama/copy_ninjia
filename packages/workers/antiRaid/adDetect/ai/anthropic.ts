@@ -23,9 +23,9 @@ import { getAdDetectAgentConfig } from "../../../../config/agent";
 import {
   AD_DETECT_ANTHROPIC_REQUEST_MAX_RETRIES,
   AD_DETECT_ANTHROPIC_REQUEST_TIMEOUT_MS,
-  AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS,
   AD_DETECT_JSON_SCHEMA,
 } from "../../../../consts/antiRaid/adDetect";
+import { requestAdDetectJsonWithRetry } from "./emptyBodyRetry";
 import type { AnthropicClient } from "../../../../types/aiChat/anthropic";
 import type { AdDetectAgentConfig } from "../../../../types/config";
 import type { AdDetectJsonRequestParams } from "../../../../types/antiRaid/adDetect";
@@ -127,17 +127,17 @@ async function attemptAnthropicAdDetectJson({
 export async function requestAnthropicAdDetectJson(
   params: AdDetectJsonRequestParams
 ): Promise<string | null> {
-  for (let attempt: number = 1; attempt <= AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS; attempt++) {
-    const result: AnthropicAdDetectAttempt | null = await attemptAnthropicAdDetectJson(params);
-    if (result === null) return null;
-    if (!result.refused && !result.unusable && result.body.trim().length > 0) return result.body;
-    if (!result.refused && attempt < AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS) continue;
-    logger.error(
-      `${params.errorLabel} produced no usable body in ${attempt} attempt(s) ` +
-      `(${diagnosticWithDetails(`model=${result.model}, stop_reason=${result.stopReason}`, result.stopDetails)}, ` +
-      `hasPartialText=${result.body.length > 0}, max_tokens=${params.maxOutputTokens}).`
-    );
-    return null;
-  }
-  return null;
+  return requestAdDetectJsonWithRetry<AnthropicAdDetectAttempt>({
+    attemptRequest: (): Promise<AnthropicAdDetectAttempt | null> => attemptAnthropicAdDetectJson(params),
+    extractUsableBody: (result: AnthropicAdDetectAttempt): string | null =>
+      !result.refused && !result.unusable && result.body.trim().length > 0 ? result.body : null,
+    canRetry: (result: AnthropicAdDetectAttempt): boolean => !result.refused,
+    logExhausted: (result: AnthropicAdDetectAttempt, attempts: number): void => {
+      logger.error(
+        `${params.errorLabel} produced no usable body in ${attempts} attempt(s) ` +
+        `(${diagnosticWithDetails(`model=${result.model}, stop_reason=${result.stopReason}`, result.stopDetails)}, ` +
+        `hasPartialText=${result.body.length > 0}, max_tokens=${params.maxOutputTokens}).`
+      );
+    },
+  });
 }
