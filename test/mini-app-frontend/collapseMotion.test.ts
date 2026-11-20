@@ -16,8 +16,8 @@ import type {
   ViewportAnchorScroll, ViewportAnchorScrollTarget, ViewportRectElement, ViewportScrollByParams,
 } from "../../packages/mini-app-frontend/components/animations/expandFollowScroll";
 import {
-  computeFlipCollapseDurationMs, findPairedTriggerElement, formatFlipPx, formatTranslate3dY,
-  hasCollapsedFlipGridAncestor, runFlipCollapseTransition, shouldFadeInnerPanel, snapFlipPx, syncFlipCollapseLayoutEffect,
+  computeFlipCollapseDurationMs, findPairedTriggerElement, formatTranslate3dYWithDpr,
+  hasCollapsedFlipGridAncestor, runFlipCollapseTransition, shouldFadeInnerPanel, syncFlipCollapseLayoutEffect,
 } from "../../packages/mini-app-frontend/components/animations/flipCollapse";
 import type { FlipAnimatableElement, FlipClassList } from "../../packages/mini-app-frontend/components/animations/flipCollapse";
 import { evaluateCubicBezierEase, runFrameMotion } from "../../packages/mini-app-frontend/components/animations/frameMotion";
@@ -430,8 +430,8 @@ describe("折叠动画引擎与同帧跟滚", () => {
   });
 
   test("单时钟折叠引擎：高度、位移、透明度与跟滚同帧派生，面板下沿贴住裁剪框，半途打断按进度续接", () => {
-    expect(formatTranslate3dY(0)).toBe("translate3d(0, 0, 0)");
-    expect(formatTranslate3dY(-180)).toBe("translate3d(0, -180px, 0)");
+    expect(formatTranslate3dYWithDpr(0, 1)).toBe("translate3d(0, 0, 0)");
+    expect(formatTranslate3dYWithDpr(-180, 1)).toBe("translate3d(0, -180px, 0)");
     const frames: FakeAnimationFrames = installFakeAnimationFrames();
     const viewport: FakeViewportHost = installFakeViewport(800);
     try {
@@ -852,6 +852,12 @@ describe("折叠动画引擎与同帧跟滚", () => {
   });
 
   test("高 DPR 物理像素对齐与底边 1:1 锁死、首次展开动画及 InlineNoticeCollapse 渐隐/Flex 间距补偿", () => {
+    const snapPxForTest = (valuePx: number, dpr: number): number => {
+      const snapped: number =
+        Math.round((Math.round(valuePx * dpr) / dpr) * MINI_APP_FLIP_PX_PRECISION_SCALE) /
+        MINI_APP_FLIP_PX_PRECISION_SCALE;
+      return snapped === 0 ? 0 : snapped;
+    };
     const host = globalThis as { devicePixelRatio?: number; getComputedStyle?: unknown };
     const prevDpr: number | undefined = host.devicePixelRatio;
     const prevComputed: unknown = host.getComputedStyle;
@@ -859,10 +865,9 @@ describe("折叠动画引擎与同帧跟滚", () => {
     try {
       // 1. DPR=2 与 DPR=3 子像素测量：起止高度按物理像素网格对齐，逐帧裁剪高度与内层底边 1:1 锁死，负半像素舍入与位移同源。
       host.devicePixelRatio = 2;
-      expect(snapFlipPx(210.5)).toBe(210.5);
-      expect(formatFlipPx(210.5)).toBe("210.5px");
-      expect(snapFlipPx(-0.0001)).toBe(0);
-      expect(formatTranslate3dY(-5.25)).toBe(`translate3d(0, ${snapFlipPx(-5.25)}px, 0)`);
+      expect(snapPxForTest(210.5, 2)).toBe(210.5);
+      expect(snapPxForTest(-0.0001, 2)).toBe(0);
+      expect(formatTranslate3dYWithDpr(-5.25, 2)).toBe(`translate3d(0, ${snapPxForTest(-5.25, 2)}px, 0)`);
       let subpixelH: number = 210.5;
       const innerEl: FlipAnimatableElement = {
         style: { transform: "", willChange: "", opacity: "", pointerEvents: "" }, dataset: {},
@@ -879,14 +884,14 @@ describe("折叠动画引擎与同帧跟滚", () => {
       frames.flush(0);
       for (let t: number = TEST_FRAME_MS; t < MINI_APP_FLIP_COLLAPSE_DURATION_MS; t += TEST_FRAME_MS) {
         frames.flush(t);
-        expect(snapFlipPx(subpixelH + readPx(innerEl.style?.transform))).toBe(readPx(gridEl.style?.height));
+        expect(snapPxForTest(subpixelH + readPx(innerEl.style?.transform), 2)).toBe(readPx(gridEl.style?.height));
       }
       frames.flush(MINI_APP_FLIP_COLLAPSE_DURATION_MS);
       expect(gridEl.style?.height).toBe("");
 
       host.devicePixelRatio = 3;
       subpixelH = 210 + 1 / 3;
-      const snappedDpr3: number = snapFlipPx(subpixelH);
+      const snappedDpr3: number = snapPxForTest(subpixelH, 3);
       expect(snappedDpr3).toBe(Math.round(subpixelH * MINI_APP_FLIP_PX_PRECISION_SCALE) / MINI_APP_FLIP_PX_PRECISION_SCALE);
       runFlipCollapseTransition({ gridEl, innerEl, expanded: true, wasOneFrInDom: false });
       expect(gridEl.style?.height).toBe("0px");
@@ -894,7 +899,7 @@ describe("折叠动画引擎与同帧跟滚", () => {
       frames.flush(1_000);
       for (let t: number = 1_000 + TEST_FRAME_MS; t < 1_000 + MINI_APP_FLIP_COLLAPSE_DURATION_MS; t += TEST_FRAME_MS) {
         frames.flush(t);
-        expect(snapFlipPx(snappedDpr3 + readPx(innerEl.style?.transform))).toBe(readPx(gridEl.style?.height));
+        expect(snapPxForTest(snappedDpr3 + readPx(innerEl.style?.transform), 3)).toBe(readPx(gridEl.style?.height));
       }
       frames.flush(1_000 + MINI_APP_FLIP_COLLAPSE_DURATION_MS);
       expect(gridEl.style?.height).toBe("");
@@ -951,7 +956,7 @@ describe("折叠动画引擎与同帧跟滚", () => {
       frames.flush(3_000);
       frames.flush(3_000 + TEST_FRAME_MS);
       const earlyLinear: number = TEST_FRAME_MS / MINI_APP_FLIP_COLLAPSE_DURATION_MS;
-      expect(readPx(noticeGridEl.style?.marginTop)).toBe(snapFlipPx(-10 * (1 - ease(earlyLinear))));
+      expect(readPx(noticeGridEl.style?.marginTop)).toBe(snapPxForTest(-10 * (1 - ease(earlyLinear)), 1));
       frames.advanceTo(3_000 + MINI_APP_FLIP_COLLAPSE_DURATION_MS);
       expect(noticeGridEl.style?.marginTop).toBe("");
 

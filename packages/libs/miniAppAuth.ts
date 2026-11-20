@@ -1,5 +1,4 @@
 import {
-  MINI_APP_ASSET_TOKEN_SECRET_SEED,
   MINI_APP_AUTH_CLOCK_SKEW_SECONDS,
   MINI_APP_AUTH_MAX_AGE_SECONDS,
   MINI_APP_CONTROL_CHARS_PATTERN,
@@ -42,9 +41,9 @@ export function deriveMiniAppInitDataSecretKey(botToken: string): Uint8Array {
 }
 
 /**
- * 解析并校验 `initData` 中的 `user` JSON 字段。
+ * 解析并校验 `initData` 中的 `user` JSON 字段，始终返回固定四字段形状的用户身份摘要。
  * @param rawUser `initData` 中解码出的 `user` 字符串。
- * @returns 结构合法时返回用户身份摘要，否则返回 null。
+ * @returns 结构合法时返回用户身份摘要（缺省 `lastName` 与 `username` 显式为 `undefined`），否则返回 null。
  */
 function parseInitDataUser(rawUser: string): Readonly<MiniAppInitDataUser> | null {
   let parsed: unknown;
@@ -62,17 +61,19 @@ function parseInitDataUser(rawUser: string): Readonly<MiniAppInitDataUser> | nul
   ) {
     return null;
   }
-  if (parsed.last_name !== undefined && typeof parsed.last_name !== "string") {
+  const lastName: unknown = parsed.last_name;
+  if (lastName !== undefined && typeof lastName !== "string") {
     return null;
   }
-  if (parsed.username !== undefined && typeof parsed.username !== "string") {
+  const username: unknown = parsed.username;
+  if (username !== undefined && typeof username !== "string") {
     return null;
   }
   return {
     id: parsed.id,
     firstName: parsed.first_name,
-    ...(parsed.last_name === undefined ? {} : { lastName: parsed.last_name }),
-    ...(parsed.username === undefined ? {} : { username: parsed.username }),
+    lastName,
+    username,
   };
 }
 
@@ -195,54 +196,6 @@ export function verifyMiniAppPassword(
     return false;
   }
   return timingSafeStringEqual(normalizedInput, normalizedExpected);
-}
-
-/**
- * 基于 `BOT_TOKEN` 与 `SUPER_ADMIN_USER_ID` 确定性派生受保护静态/图库资源令牌的 32 字节 HMAC-SHA256 摘要。
- * @param botToken 当前 Bot 的 API Token。
- * @param superAdminUserId 超级管理员 Telegram 用户 ID。
- * @returns 32 字节资源令牌摘要。
- */
-export function deriveMiniAppAssetTokenDigest(
-  botToken: string,
-  superAdminUserId: number
-): Uint8Array {
-  return new Bun.CryptoHasher("sha256", MINI_APP_ASSET_TOKEN_SECRET_SEED)
-    .update(`${botToken}:${superAdminUserId}`, "utf8")
-    .digest();
-}
-
-/**
- * 基于 `BOT_TOKEN` 与 `SUPER_ADMIN_USER_ID` 确定性派生受保护静态/图库资源的稳定访问令牌（64 位小写十六进制）。
- * @param botToken 当前 Bot 的 API Token。
- * @param superAdminUserId 超级管理员 Telegram 用户 ID。
- * @returns 64 位十六进制 HMAC-SHA256 资源令牌。
- */
-export function deriveMiniAppAssetToken(
-  botToken: string,
-  superAdminUserId: number
-): string {
-  return deriveMiniAppAssetTokenDigest(botToken, superAdminUserId).toHex();
-}
-
-/**
- * 以常量时间校验 URL 查询参数中的受保护静态/图库资源令牌是否与预期摘要匹配。
- * @param token 请求携带的 `token` 查询参数。
- * @param expectedDigest 由 `deriveMiniAppAssetTokenDigest` 预先派生的 32 字节期望摘要。
- * @returns 令牌合法且匹配时返回 `true`，否则返回 `false`。
- */
-export function verifyMiniAppAssetToken(
-  token: string | null | undefined,
-  expectedDigest: Uint8Array
-): boolean {
-  if (typeof token !== "string" || !MINI_APP_SHA256_HEX_PATTERN.test(token)) {
-    return false;
-  }
-  const actualDigest: Uint8Array = Uint8Array.fromHex(token);
-  return (
-    actualDigest.byteLength === expectedDigest.byteLength &&
-    crypto.timingSafeEqual(actualDigest, expectedDigest)
-  );
 }
 
 /** `issueMiniAppPageGateToken` 签发无状态单页门禁令牌的入参。 */

@@ -43,8 +43,8 @@
 <p align="center">
   <a href="#-pure-ai-development"><img src="https://img.shields.io/badge/Code-100%25_AI--written-e91e63?style=flat-square" alt="100% AI-written"></a>
   <a href="#-pure-ai-development"><img src="https://img.shields.io/badge/Audits-Claude_/_Gemini_/_Grok-6d4aff?style=flat-square" alt="Audited"></a>
-  <a href="05-dev-workflow.md"><img src="https://img.shields.io/badge/Tests-7200_Passed-2ea44f?style=flat-square" alt="Tests"></a>
-  <a href="05-dev-workflow.md"><img src="https://img.shields.io/badge/Coverage-97.58%25-2ea44f?style=flat-square" alt="Coverage"></a>
+  <a href="05-dev-workflow.md"><img src="https://img.shields.io/badge/Tests-7448_Passed-2ea44f?style=flat-square" alt="Tests"></a>
+  <a href="05-dev-workflow.md"><img src="https://img.shields.io/badge/Coverage-98.07%25-2ea44f?style=flat-square" alt="Coverage"></a>
   <a href="../../LICENSES/LICENSE"><img src="https://img.shields.io/badge/License-MIT-007ec6?style=flat-square" alt="License: MIT"></a>
 </p>
 
@@ -109,7 +109,7 @@ From commit-by-commit human/AI co-review to repeated full-repository audits and 
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="../../public/coverage_dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="../../public/coverage_light.svg">
-    <img alt="bun run test:coverage — 7200 tests passed, 605 test files, 463,493 expect() calls, 96.85% function coverage, 97.58% line coverage" src="../../public/coverage_light.svg" width="780">
+    <img alt="bun run test:coverage — 7448 tests passed, 649 test files, 592,390 expect() calls, 98.02% function coverage, 98.07% line coverage" src="../../public/coverage_light.svg" width="780">
   </picture>
 </p>
 
@@ -243,7 +243,7 @@ Benchmark figures (cold/hot paths · total throughput and I/O · end-to-end chai
 | Claude | 90%± |
 
 > [!TIP]
-> Gemini's lower cache hit rate stems from mutual exclusion between explicit and implicit caching and unpredictable server-side implicit cache expiration. Choose OpenAI or Claude when cache hit rate is the priority, or Gemini when conversational quality matters most.
+> Gemini relies on automatic server-side implicit prefix caching whose retention window is controlled by the server. Choose OpenAI or Claude when cache hit rate is the priority, or Gemini when conversational quality matters most.
 
 ### Voice, images, and memory
 
@@ -331,13 +331,14 @@ git clone https://github.com/AsaNeonSama/copy_ninjia.git
 cd copy_ninjia
 bun install
 
-# 2. Prepare configuration directories and copy templates (skips existing files)
+# 2. Prepare configuration directories and copy templates (skips existing files and placeholder-bearing agent.json, g-auth.json, cron.json)
 mkdir -p config/static config/dynamic
 for example in config_example/static/*.json config_example/dynamic/*.json; do
-  case "${example##*/}" in g-auth.json | cron.json) ;; *) cp -n "$example" "config/${example#config_example/}" ;; esac
+  case "${example##*/}" in agent.json | g-auth.json | cron.json) ;; *) cp -n "$example" "config/${example#config_example/}" ;; esac
 done
 
-# 3. Edit config/static/bot.json with bot_token and super_admin_user_id
+# 3. Edit config/static/bot.json with bot_token and super_admin_user_id (log_level is optional and defaults to "operation" when omitted);
+#    remove the mini_app section unless enabling the Mini App (otherwise configure it and replace the placeholder password); copy and fill config/dynamic/agent.json when enabling AI
 ```
 
 Before your first run, disable Privacy Mode and enable Inline Mode in BotFather (see [BotFather Setup](#botfather-setup)). Configuration specifications are in [`config_example/README/en.md`](../../config_example/README/en.md); complete setup instructions live in [01 Getting Started](01-getting-started.md).
@@ -424,7 +425,7 @@ Comprehensive architecture overviews, module maps, authoritative runtime invaria
   </tr>
   <tr>
     <td><nobr>🖥️ <b>Mini App Console</b></nobr></td>
-    <td><code>mini_app</code> setup, recommended Cloudflare Tunnel configuration, two-tier auth, and TOTP binding</td>
+    <td><code>mini_app</code> setup, Cloudflare Tunnel exposure, two-tier auth &amp; AES-256-GCM encryption, TOTP binding, and online JSON config editor</td>
     <td align="center"><nobr><a href="10-mini-app.md">📖 10 Mini App Setup</a></nobr></td>
   </tr>
   <tr>

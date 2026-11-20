@@ -46,7 +46,7 @@ export type OpenAiRequestResult =
     failureKind: "response";
     /** 归一化后的收尾原因，如 `incomplete:max_output_tokens`、`refusal`。 */
     finishReason?: string;
-    /** 收尾详情的诊断串（见 aiChat/openai/response.ts 的 openAiFinishDetails）。 */
+    /** 收尾详情的诊断串（见 workers/aiChat/openai/response.ts 的 openAiFinishDetails）。 */
     finishDetails?: string;
     /** 仅供异常分支做预算/重试判断；不得解析其中的正文或函数调用。 */
     response: OpenAI.Responses.Response;

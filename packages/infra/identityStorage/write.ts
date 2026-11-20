@@ -118,7 +118,8 @@ function publishIdentityPolicyWrite(
 function postIdentityPolicyWrite(message: IdentityPolicyWriteDiskMessage): boolean {
   if (diskIO.postDiskIO(message) === true) return true;
   logger.error(
-    `Failed to queue ${message.table} identity ${message.id}; retaining revision ${message.revision} for replay.`
+    "Failed to queue identity policy write; retaining revision for replay.",
+    { table: message.table, identityId: message.id, revision: message.revision }
   );
   return false;
 }
@@ -218,7 +219,8 @@ export function requeueUnacknowledgedIdentityWrite(
   } satisfies IdentityPolicyWriteDiskMessage) === true;
   if (!posted) {
     logger.error(
-      `Failed to re-queue ${table} identity ${id} revision ${change.revision}.`
+      "Failed to re-queue identity policy write.",
+      { table, identityId: id, revision: change.revision }
     );
   }
   return true;

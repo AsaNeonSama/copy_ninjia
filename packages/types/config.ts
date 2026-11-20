@@ -6,7 +6,9 @@
 
 import type { BotAtmosphere } from "./atmosphere";
 import type { CronConfig } from "./cron";
+import type { LogLevel } from "./diskIO/messages";
 import type { MoodOption } from "./aiChat/mood";
+import type { RandomImageDirectoryInspection } from "./imageGallery";
 
 /** stickers.json 的严格结构。 */
 export interface StickerConfig {
@@ -60,19 +62,19 @@ export interface AdDetectConfig {
   readonly emojiBlackList: ReadonlySet<string>;
 }
 
-/** `config/static/bot.json` 中可选的 Mini App HTTP 服务与入口配置。 */
+/** `config/static/bot.json` 中可选的 Mini App HTTP 服务与入口配置；存在时 `url`、`port`、`password` 必填，`host` 可选并缺省归一化为 `MINI_APP_DEFAULT_HOST`。 */
 export interface BotMiniAppConfig {
-  /** Telegram WebApp 打开的 HTTPS 入口地址。 */
+  /** Telegram WebApp 打开的 HTTPS 入口地址（必填）。 */
   readonly url: string;
-  /** 本地 HTTP 服务绑定的监听地址（缺省归一化为 `127.0.0.1`）。 */
+  /** 本地 HTTP 服务绑定的监听地址（可选，缺省归一化为 `MINI_APP_DEFAULT_HOST` 即 `"127.0.0.1"`）。 */
   readonly host: string;
-  /** 本地 HTTP 服务绑定的监听端口（`1..65535` 整数）。 */
+  /** 本地 HTTP 服务绑定的监听端口（`1..65535` 整数，必填）。 */
   readonly port: number;
-  /** 打开 Mini App 控制台首屏必须验证的访问密码（非空字符串）。 */
+  /** 打开 Mini App 控制台首屏必须验证的访问密码（必填非空字符串）。 */
   readonly password: string;
 }
 
-/** Bot 身份、超级管理员身份、默认通知风格、时区与可选 Mini App 的进程级部署配置。 */
+/** Bot 身份、超级管理员身份、默认通知风格、时区、日志级别与可选 Mini App 的进程级部署配置。 */
 export interface BotConfig {
   /** BotFather 发放的 Bot API token。 */
   readonly botToken: string;
@@ -82,6 +84,8 @@ export interface BotConfig {
   readonly atmosphere?: BotAtmosphere;
   /** 默认 IANA 时区，用于报时、日界与未单独指定时区的任务。 */
   readonly timeZone: string;
+  /** 最低输出与持久化日志级别阈值。 */
+  readonly logLevel: LogLevel;
   /** 可选的 Mini App HTTP 服务与入口配置；缺省表示不启用 Mini App。 */
   readonly miniApp?: Readonly<BotMiniAppConfig>;
 }
@@ -110,7 +114,7 @@ export type AdDetectAgentConfig = AgentCapabilityConfig;
  * OpenAI 兼容生图的线协议，对应请求体能力边界：`openai` 表示 OpenAI
  * 任意尺寸协议，`openai-standard` 表示 GPT Image 全系共同支持的标准尺寸，
  * `xai` 表示 xAI JSON/画幅协议。同一个代理端点也必须显式选择；新增不兼容
- * 的 images 请求形状时，须在这里和 aiChat/openai/image.ts 的穷举分派同步增加一档。
+ * 的 images 请求形状时，须在这里和 workers/aiChat/openai/image.ts 的穷举分派同步增加一档。
  */
 export type OpenAiImageProtocol = "openai" | "openai-standard" | "xai";
 
@@ -199,7 +203,7 @@ export interface OpenAiAgentImageCapabilityConfig extends OpenAiAgentCapabilityC
 /**
  * OpenAI 协议下语音合成的线协议，同 OpenAiImageProtocol 对应请求体能力边界：`openai` 表示
  * OpenAI audio/speech（官方 SDK，含兼容端点），`xai` 表示 xAI `POST /tts`（fetch，无模型名与
- * 风格指令字段）。新增时须在这里和 aiChat/openai/speech.ts 的穷举分派同步增加一档。
+ * 风格指令字段）。新增时须在这里和 workers/aiChat/openai/speech.ts 的穷举分派同步增加一档。
  */
 export type OpenAiSpeechProtocol = "openai" | "xai";
 
@@ -282,7 +286,7 @@ export type AgentDeploymentCapabilityConfig =
   | AgentTtsCapabilityConfig
   | AgentWebSearchCapabilityConfig;
 
-/** 某一 provider 名下的能力配置；各实现包按能力构造 SDK 客户端时使用（aiChat/capabilityClient.ts）。 */
+/** 某一 provider 名下的能力配置；各实现包按能力构造 SDK 客户端时使用（workers/aiChat/capabilityClient.ts）。 */
 export type ProviderCapabilityConfig<TProvider extends AgentProvider> =
   Extract<AgentDeploymentCapabilityConfig, { readonly provider: TProvider }>;
 
@@ -354,8 +358,10 @@ export interface AssetConfig {
 export interface HotDeploymentConfigReads {
   /** dynamic/ 内非白名单目录项或目录读取失败的拒绝诊断；非空时整轮热重载直接拒绝。 */
   readonly layoutRejections: readonly string[];
-  /** assets.json；随机图片目录变化时已在读取阶段完成目录准备，失败记为 invalid。 */
+  /** assets.json；随机图片目录变化时在读取阶段仅做只读巡检，不创建目录或写缓存，失败记为 invalid。 */
   readonly assets: HotConfigRead<AssetConfig>;
+  /** 随机图片目录相对当前快照发生变化时由读取阶段产出的只读目录巡检结果；未变化或被拒时为 `null`。 */
+  readonly randomImageDirectoryInspection: Readonly<RandomImageDirectoryInspection> | null;
   readonly adDetectConfig: HotConfigRead<AdDetectConfig>;
   readonly agent: HotConfigRead<AgentConfigSnapshots>;
   readonly mood: HotConfigRead<MoodConfig>;

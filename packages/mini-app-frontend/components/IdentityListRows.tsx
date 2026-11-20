@@ -10,7 +10,7 @@ import { TrashSvgIcon } from "../resource";
 import type {
   MiniAppBlocklistEntryView,
   MiniAppWhitelistEntryView,
-} from "../types/miniApp";
+} from "../types/miniApp/identities";
 import type { MiniAppTranslations } from "../types/miniAppI18n";
 import { CollapseGrid } from "./animations/CollapseGrid";
 import { resolveExpandFollowScrollTarget } from "./animations/expandFollowScroll";

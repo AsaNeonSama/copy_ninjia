@@ -102,7 +102,8 @@ function queueChatQaWrite(message: ChatQaWriteDiskMessage): void {
   trackUnacknowledged(message);
   if (!postWithTransport(message)) {
     logger.error(
-      `Failed to queue chat qa for chat ${message.chatId}; retaining revision ${message.revision} for replay.`
+      "Failed to queue chat QA write; retaining revision for replay.",
+      { chatId: message.chatId, revision: message.revision }
     );
   }
 }

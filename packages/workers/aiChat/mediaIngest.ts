@@ -3,9 +3,9 @@
  * 其余媒体先写占位并在后台识图/转写后原位回填），并在需要回复时同步衔接准入编排。
  */
 import { composeMediaText, sanitizeInline } from "../../libs/text";
-import { displaySpeakerName } from "../../aiChat/ai/utils/chatTranscript";
-import { getCatalogEntry } from "../../aiChat/ai/stickers/catalog";
-import { describeMedia } from "../../aiChat/ai/imageDescription";
+import { displaySpeakerName } from "./ai/utils/chatTranscript";
+import { getCatalogEntry } from "./ai/stickers/catalog";
+import { describeMedia } from "./ai/imageDescription";
 import { dirtyMemoryChats } from "../../cache/workers/aiChat/memory";
 import { cachedReplyGeneration, isCachedReplyGenerationCurrent } from "../../cache/workers/aiChat/replies";
 import type { BufferedMessage } from "../../types/aiChat/memory";
@@ -106,6 +106,8 @@ export function recordChatMedia(msg: AiRecordMediaMessage): void {
           telegramBackpressured,
           imageGenerationRequested: msg.directTriggerReason !== undefined,
           imageGenerationReference,
+          chatQaJson: msg.chatQaJson,
+          chatQaCount: msg.chatQaCount,
           mediaComment: mediaCommentFor(msg, entry, catalogEntry.description),
           mediaPreparation: undefined,
         });
@@ -137,6 +139,8 @@ export function recordChatMedia(msg: AiRecordMediaMessage): void {
       telegramBackpressured,
       imageGenerationRequested: msg.directTriggerReason !== undefined,
       imageGenerationReference,
+      chatQaJson: msg.chatQaJson,
+      chatQaCount: msg.chatQaCount,
       mediaComment: mediaCommentFor(msg, entry, ""),
       mediaPreparation: preparation.promise,
     });

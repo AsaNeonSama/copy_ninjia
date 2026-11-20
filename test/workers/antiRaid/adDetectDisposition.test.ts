@@ -13,6 +13,12 @@ import type {
 } from "../../../packages/infra/telegram";
 import { formatDurationCn } from "../../../packages/libs/durationToken";
 import { MINUTE_MS } from "../../../packages/consts/time";
+import {
+  DEFAULT_WHITELIST_PERMISSIONS,
+  SUPER_ADMIN_WHITELIST_PERMISSIONS,
+  TEMPORARY_AD_BYPASS_PERMISSIONS,
+} from "../../../packages/consts/whitelist";
+import type { WhitelistPermissions } from "../../../packages/types/identityPolicy";
 import { botPermissions } from "../../helpers/botPermissions";
 import { isManagedAdminChat } from "../../../packages/infra/blocklist/sweepEligibility";
 import type { ChatState } from "../../../packages/types/chatState";
@@ -26,7 +32,7 @@ const temporaryAdBypassField: IdentityFieldView<"temporaryAdBypass"> = identityF
 const chatStates = new Map<number, Record<string, unknown>>();
 const activeVerificationSnapshots = new Map<string, unknown>();
 const dispatched: RemoveBlockedMembersParams[][] = [];
-const errorLogs: string[] = [];
+const errorLogs: unknown[][] = [];
 const blockedIds = new Set<number>();
 const temporaryAdBypassIds = new Set<number>();
 const blockUser = mock((userId: number): boolean => blockedIds.has(userId) ? false : (blockedIds.add(userId), true));
@@ -72,16 +78,29 @@ const probeChatMembership = mock(async (..._args: unknown[]): Promise<boolean | 
 /** 置真时身份策略预热会真的去读 Disk I/O；读取替身一律拒绝，模拟冷读失败。 */
 let diskIOInitialized: boolean = false;
 mock.module("../../../packages/infra/logger", () => ({
-  logger: loggerStub({ error(message: unknown): void { errorLogs.push(String(message)); } }),
+  logger: loggerStub({ error(...args: unknown[]): void { errorLogs.push(args); } }),
 }));
 mock.module("../../../packages/config/bot", () => ({
   BOT_ATMOSPHERE: "teasing",
   SUPER_ADMIN_USER_ID: 1,
-  getBotConfig: (): BotConfig => ({ timeZone: getTimeZone(), atmosphere: "mesugaki", botToken: "telegram-token", superAdminUserId: 1 }),
+  getBotConfig: (): BotConfig => ({
+    timeZone: getTimeZone(),
+    atmosphere: "mesugaki",
+    logLevel: "operation",
+    botToken: "telegram-token",
+    superAdminUserId: 1,
+  }),
 }));
 // 1 是超级管理员：SQLite 没有其白名单记录，但由 packages/infra/identityPolicy/whitelist.ts
 // 的读取边界直接算进白名单边界并持有全部权限，这里的 mock 照实模拟那层结论。
 mock.module("../../../packages/infra/identityPolicy/whitelist", () => ({
+  getEffectiveWhitelistPermissions: (id: number): Readonly<WhitelistPermissions> | undefined => {
+    if (id === 1) return SUPER_ADMIN_WHITELIST_PERMISSIONS;
+    if (id === 100 || id === -200) return DEFAULT_WHITELIST_PERMISSIONS;
+    if (id === 101) return { ...DEFAULT_WHITELIST_PERMISSIONS, isCanBypassAdDetection: false };
+    if (temporaryAdBypassIds.has(id)) return TEMPORARY_AD_BYPASS_PERMISSIONS;
+    return undefined;
+  },
   hasPermanentWhitelistPermission: (id: number, key: string): boolean =>
     id === 1 ||
     ((id === 100 || id === -200) && key === "isCanBypassFloodControl"),
@@ -91,14 +110,25 @@ mock.module("../../../packages/infra/identityPolicy/whitelist", () => ({
       key === "isCanBypassAdDetection"),
   isWhitelisted: (id: number): boolean =>
     id === 1 || id === 100 || id === 101 || id === -200,
-}));
-mock.module("../../../packages/infra/telegram/actions", () => ({
-  sendMessage,
-  deleteMessageAfter,
+  readWhitelistPermissionOrBlocked: (id: number, key: string): "allowed" | "blocked" | "none" => {
+    if (
+      id === 1 ||
+      ((id === 100 || id === -200 || temporaryAdBypassIds.has(id)) &&
+        key === "isCanBypassAdDetection")
+    ) {
+      return "allowed";
+    }
+    return isUserBlocked(id) ? "blocked" : "none";
+  },
 }));
 // 播报经统一的临时提示边界（infra/telegram/temporaryMessage.ts）发出，它直接依赖这两个子模块。
-mock.module("../../../packages/infra/telegram/actions/messages", () => ({ sendMessage }));
-mock.module("../../../packages/infra/telegram/actions/messageLifecycle", () => ({ deleteMessageAfter }));
+const realMessages = await import("../../../packages/infra/telegram/actions/messages");
+const realMessageLifecycle = await import("../../../packages/infra/telegram/actions/messageLifecycle");
+mock.module("../../../packages/infra/telegram/actions/messages", () => ({ ...realMessages, sendMessage }));
+mock.module("../../../packages/infra/telegram/actions/messageLifecycle", () => ({
+  ...realMessageLifecycle,
+  deleteMessageAfter,
+}));
 // 本群处罚（adPunishment.ts）经 infra/telegram 发出禁言、移出与封禁请求。
 mock.module("../../../packages/infra/telegram", () => ({
   muteChatMemberWithOutcome,
@@ -145,6 +175,16 @@ mock.module("../../../packages/infra/chatStateStorage", () => ({
   getChatStateCache: () => chatStates,
   getChatState: (chatId: number) => chatStates.get(chatId) ?? {},
 }));
+
+mock.module("../../../packages/infra/botAdmin", () => ({
+  botCanRestrictMembersIn: (chatId: number): boolean | undefined => {
+    const permissions: unknown = chatStates.get(chatId)?.botPermissions;
+    if (typeof permissions !== "object" || permissions === null) return undefined;
+    return "canRestrictMembers" in permissions && typeof permissions.canRestrictMembers === "boolean"
+      ? permissions.canRestrictMembers
+      : undefined;
+  },
+}));
 const {
   drainAdDisposals,
   formatAdNotice,
@@ -159,6 +199,7 @@ const { COMMAND_MESSAGE_AUTO_DELETE_MS } = await import("../../../packages/const
 const { inFlightAdDisposals } = await import("../../../packages/cache/main/antiRaid/adDisposal");
 const { blocklistIdentityMutationQueues } = await import("../../../packages/cache/main/blocklist");
 const { blocklistIdentityMutationRunner } = await import("../../../packages/cache/main/blocklist");
+const { runProtectedIdentityMutation } = await import("../../../packages/infra/identityPolicy/coordination");
 const { inlineResultSources } = await import("../../../packages/cache/main/inlineResultSources");
 const { resetSelfSentTracker } = await import("../../../packages/cache/perThread/selfSentTracker");
 const { defaultAdDetectConfigCache } = await import("../../../packages/cache/perThread/config");
@@ -206,7 +247,7 @@ beforeEach(() => {
   chatStates.set(-1001, {
     isAdDetectEnabled: true,
     isInitEnabled: true,
-    botPermissions: botPermissions(),
+    botPermissions: botPermissions({ canRestrictMembers: true }),
   });
   activeVerificationSnapshots.clear();
   dispatched.length = 0;
@@ -322,9 +363,10 @@ describe("按 ad_detect.json 的处罚设置处置", () => {
     await drainAdDisposals(5_000);
 
     expect(firstNoticeText()).toBe(ATMOSPHERE_TEXTS.teasing.NOTICE_TEXTS.adPunishFailed(teasingHead()));
-    expect(errorLogs.some((line: string): boolean =>
-      line.includes("could not mute sender 7 in chat -1001: forbidden")
-    )).toBeTrue();
+    expect(errorLogs).toContainEqual([
+      "Ad detection could not mute sender.",
+      { chatId: -1001, senderId: 7, outcome: "forbidden" },
+    ]);
   });
 
   test("kick 只踢不封：确认仍在群后按群类型移出", async () => {
@@ -363,7 +405,10 @@ describe("按 ad_detect.json 的处罚设置处置", () => {
     expect(probeChatMembership).not.toHaveBeenCalled();
     expect(kickChatMemberWithOutcome).not.toHaveBeenCalled();
     expect(firstNoticeText()).toBe(ATMOSPHERE_TEXTS.teasing.NOTICE_TEXTS.adPunishFailed(teasingHead()));
-    expect(errorLogs.some((line: string): boolean => line.includes("chat kind is unknown"))).toBeTrue();
+    expect(errorLogs).toContainEqual([
+      "Ad detection could not kick sender; the chat kind is unknown, so no removal API is guessed.",
+      { chatId: -1001, senderId: 7 },
+    ]);
 
     errorLogs.length = 0;
     sendMessage.mockClear();
@@ -374,7 +419,10 @@ describe("按 ad_detect.json 的处罚设置处置", () => {
 
     expect(kickChatMemberWithOutcome).not.toHaveBeenCalled();
     expect(firstNoticeText()).toBe(ATMOSPHERE_TEXTS.teasing.NOTICE_TEXTS.adPunishFailed(teasingHead()));
-    expect(errorLogs.some((line: string): boolean => line.includes("membership could not be confirmed"))).toBeTrue();
+    expect(errorLogs).toContainEqual([
+      "Ad detection could not kick sender; membership could not be confirmed, so no removal was issued.",
+      { chatId: -1001, senderId: 7 },
+    ]);
   });
 
   test("只踢不封时发送者已在永久黑名单就交给黑名单封禁，不再踢", async () => {
@@ -450,9 +498,56 @@ describe("按 ad_detect.json 的处罚设置处置", () => {
     expect(muteChatMemberWithOutcome).not.toHaveBeenCalled();
     expect(diskMessages).toHaveLength(0);
     expect(sendMessage).not.toHaveBeenCalled();
-    expect(errorLogs.some((line: string): boolean =>
-      line.includes("Dropped the ad detection verdict for sender 7 in chat -1001") && line.includes("was removed")
-    )).toBeTrue();
+    expect(errorLogs).toContainEqual([
+      "Dropped the ad detection verdict; ad detection config was removed, so no punishment is configured.",
+      { chatId: -1001, senderId: 7, configPath: expect.any(String) },
+    ]);
+  });
+
+  test("本群禁言、只踢不封与本群封禁确认缺少限制成员权限时短路，不发 Telegram 请求", async () => {
+    chatStates.set(-1001, {
+      isAdDetectEnabled: true,
+      isInitEnabled: true,
+      botPermissions: botPermissions({ canRestrictMembers: false }),
+    });
+    chatIsSupergroupById.set(-1001, true);
+    const punishments: AdDetectPunishment[] = [
+      { kind: "mute", durationMs: 30 * MINUTE_MS },
+      { kind: "mute", durationMs: null },
+      { kind: "kick", blockScope: null },
+      { kind: "kick", blockScope: "chat" },
+    ];
+    for (const punishment of punishments) {
+      usePunishment(punishment);
+      sendMessage.mockClear();
+      handleAdDetected(detected());
+      await drainAdDisposals(5_000);
+      expect(firstNoticeText()).toBe(ATMOSPHERE_TEXTS.teasing.NOTICE_TEXTS.adPunishFailed(teasingHead()));
+    }
+    expect(muteChatMemberWithOutcome).not.toHaveBeenCalled();
+    expect(muteChatMemberPermanentlyWithOutcome).not.toHaveBeenCalled();
+    expect(probeChatMembership).not.toHaveBeenCalled();
+    expect(kickChatMemberWithOutcome).not.toHaveBeenCalled();
+    expect(banChatMemberWithOutcome).not.toHaveBeenCalled();
+    expect(errorLogs).toHaveLength(punishments.length);
+  });
+
+  test("普通群配置本群禁言时直接短路失败，不发禁言请求", async () => {
+    chatStates.set(-1001, {
+      isAdDetectEnabled: true,
+      isInitEnabled: true,
+      botPermissions: botPermissions({ canRestrictMembers: true }),
+    });
+    chatIsSupergroupById.set(-1001, false);
+    usePunishment({ kind: "mute", durationMs: 30 * MINUTE_MS });
+
+    handleAdDetected(detected());
+    await drainAdDisposals(5_000);
+
+    expect(muteChatMemberWithOutcome).not.toHaveBeenCalled();
+    expect(muteChatMemberPermanentlyWithOutcome).not.toHaveBeenCalled();
+    expect(firstNoticeText()).toBe(ATMOSPHERE_TEXTS.teasing.NOTICE_TEXTS.adPunishFailed(teasingHead()));
+    expect(errorLogs).toHaveLength(1);
   });
 });
 
@@ -513,9 +608,37 @@ describe("广告判定命中后的处置", () => {
     expect(blockUser).not.toHaveBeenCalled();
     expect(dispatched).toHaveLength(0);
     expect(sendMessage).not.toHaveBeenCalled();
-    expect(errorLogs.some((line: string): boolean =>
-      line.includes("Dropped the ad detection verdict for sender 7 in chat -1001")
-    )).toBeTrue();
+    expect(errorLogs).toContainEqual([
+      "Dropped the ad detection verdict; identity policies could not be read, so no punishment was applied.",
+      { chatId: -1001, senderId: 7 },
+    ]);
+  });
+
+  test("锁外预取后、进入身份策略临界区前缓存被驱逐且重取失败时 fail closed，不处罚也不清临时累计", async () => {
+    const gate: PromiseWithResolvers<void> = Promise.withResolvers<void>();
+    const blocker: Promise<void> = runProtectedIdentityMutation((): Promise<void> => gate.promise);
+
+    handleAdDetected(detected());
+    handleAdVerdictTrue({ type: "adVerdictTrue", chatId: -1001, senderId: 7 });
+    await Bun.sleep(0);
+
+    blocklistField.delete(7);
+    whitelistField.delete(7);
+    temporaryAdBypassField.delete(7);
+    diskIOInitialized = true;
+
+    gate.resolve();
+    await blocker;
+    await drainAdDisposals(5_000);
+
+    expect(blockUser).not.toHaveBeenCalled();
+    expect(clearTemporaryAdBypassActivity).not.toHaveBeenCalled();
+    expect(dispatched).toHaveLength(0);
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(errorLogs).toContainEqual([
+      "Dropped the ad detection verdict; identity policies could not be read, so no punishment was applied.",
+      { chatId: -1001, senderId: 7 },
+    ]);
   });
 
   test("落盘失败留下可排查的错误日志", async () => {
@@ -524,7 +647,10 @@ describe("广告判定命中后的处置", () => {
     handleAdDetected(detected());
     await drainAdDisposals(5_000);
 
-    expect(errorLogs.some((line) => line.includes("memory-only"))).toBe(true);
+    expect(errorLogs).toContainEqual([
+      "Ad detection blocklist entry is memory-only; it will be lost on restart.",
+      { senderId: 7 },
+    ]);
     expect(dispatched).toHaveLength(1);
   });
 
@@ -589,7 +715,10 @@ describe("广告判定命中后的处置", () => {
     await drainAdDisposals(5_000);
 
     expect(dispatched).toHaveLength(1);
-    expect(errorLogs.some((line) => line.includes("no chat to enforce"))).toBe(true);
+    expect(errorLogs).toContainEqual([
+      "Ad detection has no chat to enforce the block in; the blocklist entry still applies to future joins.",
+      { senderId: 7, failedChatCount: 0 },
+    ]);
   });
 
   test("某个群登记失败只作废那个群：其余群照常封，失败的群改欠一次补扫", async () => {
@@ -608,7 +737,10 @@ describe("广告判定命中后的处置", () => {
 
     expect(dispatched[0]?.map((params) => params.chatId)).toEqual([-1001, -1003]);
     expect(resweepRequests).toEqual([-1002]);
-    expect(errorLogs.some((line) => line.includes("owe a resweep"))).toBe(true);
+    expect(errorLogs).toContainEqual([
+      "Ad detection could not queue removal in some chats; those chats now owe a resweep.",
+      { senderId: 7, failedChatCount: 1 },
+    ]);
   });
 
   test("每个群都登记失败时不投空批次，且每个群都欠上补扫", async () => {
@@ -622,7 +754,10 @@ describe("广告判定命中后的处置", () => {
 
     expect(dispatched).toHaveLength(0);
     expect(resweepRequests).toEqual([-1001, -1002]);
-    expect(errorLogs.some((line) => line.includes("no chat to enforce"))).toBe(true);
+    expect(errorLogs).toContainEqual([
+      "Ad detection has no chat to enforce the block in; the blocklist entry still applies to future joins.",
+      { senderId: 7, failedChatCount: 2 },
+    ]);
   });
 
   test("播报发在触发的群里，带展示标签与理由，30 秒后自撤", async () => {
@@ -724,7 +859,10 @@ describe("广告判定命中后的处置", () => {
 
     expect(blockUser).not.toHaveBeenCalled();
     expect(dispatched).toHaveLength(0);
-    expect(errorLogs.some((line) => line.includes("protected sender"))).toBe(true);
+    expect(errorLogs).toContainEqual([
+      "Ad detection flagged protected sender; refusing to punish the identity.",
+      { chatId: -1001, senderId: 100 },
+    ]);
   });
 
   test("白名单关闭广告绕过权限后即使命中，也不得写入永久黑名单", async () => {
@@ -734,7 +872,10 @@ describe("广告判定命中后的处置", () => {
     expect(blockUser).not.toHaveBeenCalled();
     expect(dispatched).toHaveLength(0);
     expect(diskMessages).toHaveLength(0);
-    expect(errorLogs.some((line) => line.includes("protected sender 101"))).toBe(true);
+    expect(errorLogs).toContainEqual([
+      "Ad detection flagged protected sender; refusing to punish the identity.",
+      { chatId: -1001, senderId: 101 },
+    ]);
   });
 
   test("处置排到写名单之前 /ad_detect disable 已经生效时，整条判定丢掉", async () => {
@@ -753,7 +894,7 @@ describe("广告判定命中后的处置", () => {
     expect(diskMessages).toHaveLength(0);
     expect(sendMessage).not.toHaveBeenCalled();
     // 这是预期内的竞态结局，不是错误：不占用 protected sender 那条告警。
-    expect(errorLogs.some((line) => line.includes("protected sender"))).toBeFalse();
+    expect(errorLogs.some((args: unknown[]): boolean => String(args[0]).includes("protected sender"))).toBeFalse();
   });
 
   test("一个可执行的群都没有时只留名单与日志，不投空批次", async () => {
@@ -768,7 +909,10 @@ describe("广告判定命中后的处置", () => {
 
     expect(blockUser).toHaveBeenCalledWith(7, expect.objectContaining({ username: "spammer" }));
     expect(dispatched).toHaveLength(0);
-    expect(errorLogs.some((line) => line.includes("no chat to enforce"))).toBe(true);
+    expect(errorLogs).toContainEqual([
+      "Ad detection has no chat to enforce the block in; the blocklist entry still applies to future joins.",
+      { senderId: 7, failedChatCount: 0 },
+    ]);
   });
 
   test("命中即写一条旁路样本，含时间、消息、理由与引用/回复上下文", async () => {
@@ -794,7 +938,10 @@ describe("广告判定命中后的处置", () => {
     handleAdDetected(detected());
     await drainAdDisposals(5_000);
 
-    expect(errorLogs.some((line) => line.includes("Failed to queue the ad detection sample"))).toBe(true);
+    expect(errorLogs).toContainEqual([
+      "Failed to queue the ad detection sample.",
+      { chatId: -1001, senderId: 7 },
+    ]);
     expect(blockUser).toHaveBeenCalledWith(7, expect.objectContaining({ username: "spammer" }));
     expect(dispatched).toHaveLength(1);
   });
@@ -834,6 +981,10 @@ describe("广告判定命中后的处置", () => {
     await drainAdDisposals(5_000);
 
     expect(inFlightAdDisposals.size).toBe(0);
-    expect(errorLogs.some((line) => line.includes("Failed to dispose the ad verdict"))).toBe(true);
+    expect(errorLogs).toContainEqual([
+      "Failed to dispose the ad verdict:",
+      { chatId: -1001, senderId: 7 },
+      expect.objectContaining({ message: "worker unavailable" }),
+    ]);
   });
 });

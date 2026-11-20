@@ -16,7 +16,13 @@ const states = new Map<number, Record<string, unknown>>();
 mock.module("../../packages/config/bot", () => ({
   BOT_ATMOSPHERE: "teasing",
   SUPER_ADMIN_USER_ID: 100,
-  getBotConfig: (): BotConfig => ({ timeZone: getTimeZone(), atmosphere: "mesugaki", botToken: "telegram-token", superAdminUserId: 100 }),
+  getBotConfig: (): BotConfig => ({
+    timeZone: getTimeZone(),
+    atmosphere: "mesugaki",
+    logLevel: "operation",
+    botToken: "telegram-token",
+    superAdminUserId: 100,
+  }),
 }));
 // 超级管理员由身份直接持有全部白名单权限（见 packages/infra/identityPolicy/whitelist.ts 的
 // getEffectiveWhitelistPermissions），命令层不单独判身份。
@@ -107,7 +113,11 @@ describe("mood commands: /mood query", () => {
 
     await handleMoodCommand(context("query", 101));
 
-    expect(loggerError).toHaveBeenCalledWith(expect.stringContaining("Failed to confirm AI mood query"), failure);
+    expect(loggerError).toHaveBeenCalledWith(
+      "Failed to confirm AI mood query:",
+      { chatId: -1001 },
+      failure
+    );
     expect(sendMessage).toHaveBeenLastCalledWith({
       chatId: -1001,
       text: expect.stringContaining("没查到"),
@@ -174,7 +184,11 @@ describe("mood commands: /mood switch", () => {
 
     await handleMoodCommand(context("switch"));
 
-    expect(loggerError).toHaveBeenCalledWith(expect.stringContaining("Failed to confirm AI mood switch"), failure);
+    expect(loggerError).toHaveBeenCalledWith(
+      "Failed to confirm AI mood switch:",
+      { chatId: -1001 },
+      failure
+    );
     expect(sendMessage).toHaveBeenLastCalledWith({
       chatId: -1001,
       text: expect.stringContaining("没确认到"),

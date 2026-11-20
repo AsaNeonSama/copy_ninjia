@@ -118,11 +118,19 @@ async function runActions(context: CronDeliveryContext): Promise<boolean> {
     const result: CronActionResult = await deliverWithRetries(context, action);
     if (result.kind === "stopped") return false;
     if (result.kind === "failed") {
-      logger.error(perChat
-        ? `Cron task "${schedule.task.name}" action #${index + 1} (${action.type}) failed in chat ${chatId} ` +
-          `after ${result.attempts} attempt(s); skipping the remaining actions for this chat: ${result.detail}`
-        : `Cron task "${schedule.task.name}" action #${index + 1} (${action.type}) failed after ` +
-          `${result.attempts} attempt(s); skipping the remaining actions of this run: ${result.detail}`);
+      logger.error(
+        perChat
+          ? "Cron task action failed; skipping the remaining actions for this chat."
+          : "Cron task action failed; skipping the remaining actions of this run.",
+        {
+          task: schedule.task.name,
+          actionIndex: index + 1,
+          actionType: action.type,
+          ...(perChat ? { chatId } : {}),
+          attempts: result.attempts,
+          detail: result.detail,
+        }
+      );
       return true;
     }
   }
@@ -141,6 +149,7 @@ async function runActions(context: CronDeliveryContext): Promise<boolean> {
  */
 async function runChats(round: CronRoundContext, chatIds: readonly number[]): Promise<boolean> {
   const { schedule, signal, pauseSignal, voices, digests }: CronRoundContext = round;
+  if (pauseSignal.aborted) return false;
   const chatTargets: CronChatTargets = schedule.task.chatTargets;
   const perChat: boolean = chatTargets.kind !== "list" || chatIds.length > 1;
   for (let index: number = 0; index < chatIds.length; index++) {
@@ -148,7 +157,7 @@ async function runChats(round: CronRoundContext, chatIds: readonly number[]): Pr
     if (index > 0 && !await pause(CRON_ACTION_GAP_MS, pauseSignal)) return false;
     if (!await runActions({ schedule, signal, pauseSignal, voices, digests, chatId: chatIds[index]!, perChat })) return false;
   }
-  return true;
+  return !pauseSignal.aborted;
 }
 
 /**
@@ -177,6 +186,9 @@ export async function runCronRound(schedule: CronTaskSchedule, signal: AbortSign
   );
   if (!await runChats(round, targets.chatIds)) return;
   if (targets.skipped > 0) {
-    logger.log(`Cron task "${schedule.task.name}" skipped ${targets.skipped} chat(s) without send permission.`);
+    logger.warn("Cron task skipped chats without send permission.", {
+      task: schedule.task.name,
+      skippedChats: targets.skipped,
+    });
   }
 }

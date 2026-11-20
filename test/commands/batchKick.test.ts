@@ -251,7 +251,8 @@ describe("/batch_kick", () => {
     await runCommand(context());
 
     expect(loggerError).toHaveBeenCalledWith(
-      "Failed to read join logs for /batch_kick in chat -1001:",
+      "Failed to read join logs for /batch_kick:",
+      { chatId: -1001 },
       failure
     );
     expect(probeChatMembership).not.toHaveBeenCalled();
@@ -344,7 +345,8 @@ describe("/batch_kick", () => {
       isSupergroup: true,
     });
     expect(loggerError).toHaveBeenCalledWith(
-      expect.stringMatching(/chat -1001, user 7, record 0:/),
+      "Unexpected /batch_kick failure:",
+      { chatId: -1001, userId: 7, recordIndex: 0 },
       expect.any(Error)
     );
     expect(lastReplyText(sendMessage)).toBe(resultText({
@@ -549,7 +551,8 @@ describe("/batch_kick", () => {
     expect(requestBlocklistResweep).toHaveBeenCalledWith(-1001);
     expect(sweepBlockedMembers).toHaveBeenCalledWith(-1001);
     expect(loggerError).toHaveBeenCalledWith(
-      "Failed to dispatch the blocklist sweep after /batch_kick in chat -1001:",
+      "Failed to dispatch the blocklist sweep after /batch_kick:",
+      { chatId: -1001 },
       sweepError
     );
   });
@@ -631,7 +634,8 @@ describe("/batch_kick", () => {
     await runCommand(context());
 
     expect(loggerError).toHaveBeenCalledWith(
-      expect.stringContaining("Failed to dispatch the blocklist repair after /batch_kick in chat -1001"),
+      "Failed to dispatch the blocklist repair after /batch_kick:",
+      { chatId: -1001 },
       expect.any(Error)
     );
     expect(lastReplyText(sendMessage)).toBe(resultText({ recordCount: 1, scanned: 1, failed: 1 }));

@@ -20,6 +20,7 @@ interface SentMessage {
   text: string;
   parseMode?: string;
   preserveInGroup?: boolean;
+  messageThreadId?: number;
 }
 
 /** 按 Telegram 的解析口径还原一条回执：MarkdownV2 正文解析成可见文字与实体，纯文本原样返回。 */
@@ -216,6 +217,7 @@ describe("/permission", () => {
     expect(JSON.parse(view.text.slice(entity!.offset, entity!.offset + entity!.length)))
       .toEqual(ATMOSPHERE_TEXTS.plain.WHITELIST_PERMISSION_HELP);
     expect(sent.preserveInGroup).toBeTrue();
+    expect(sent.messageThreadId).toBeUndefined();
     await handlePermissionCommand(context(2, "query"));
     sent = sendMessage.mock.calls.at(-1)?.[0] as SentMessage;
     view = rendered(sent);
@@ -223,6 +225,7 @@ describe("/permission", () => {
     expectTemplateRendered(view.text, ATMOSPHERE_TEXTS.plain.PERMISSION_COMMAND_TEXTS.queryPrefix);
     expect(JSON.parse(view.text.slice(entity!.offset, entity!.offset + entity!.length))).toEqual(NON_WHITELIST_PERMISSIONS);
     expect(sent.preserveInGroup).toBeTrue();
+    expect(sent.messageThreadId).toBeUndefined();
   });
   test("权限键大小写不敏感，布尔值只接受 true/false", () => {
     for (const key of WHITELIST_PERMISSION_KEYS) {
@@ -572,6 +575,21 @@ describe("/permission", () => {
     expect(getWhitelistPermissionQueryView).toHaveBeenLastCalledWith(100);
     expect(prefetchIdentityPolicies).toHaveBeenCalledWith([100]);
     expect(lastQueriedPermissions()).toEqual(whitelistPermissionsById.get(100)!);
+    expect((sendMessage.mock.calls.at(-1)?.[0] as SentMessage).messageThreadId).toBe(3);
+  });
+
+  test("论坛话题里 help 看板同样回发到触发消息所在话题", async () => {
+    const ctx = context(2, "help") as unknown as {
+      msg: { is_topic_message: boolean; message_thread_id: number };
+    };
+    ctx.msg.is_topic_message = true;
+    ctx.msg.message_thread_id = 3;
+
+    await handlePermissionCommand(ctx as never);
+
+    const sent: SentMessage = sendMessage.mock.calls.at(-1)?.[0] as SentMessage;
+    expect(sent.preserveInGroup).toBeTrue();
+    expect(sent.messageThreadId).toBe(3);
   });
 
   test.each(["query", "query 100"])("%s 读取失败只发送临时提示，不展示未知权限", async (command: string) => {

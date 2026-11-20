@@ -47,15 +47,15 @@
 - **数据根目录预检与排他单实例锁**：
   - 主进程在启动时，会递归创建并预检运行时数据根目录的写权限、文件 fsync、同目录 hard link、原子 rename 与目录 fsync 能力；全部通过后才尝试竞争获取 `bot.lock` 单实例文件锁。
   - **路径与权限约束**：数据根目录以及 `memory/`、`logs/`、`database/` 必须是真实的物理目录，若检测到符号链接将报错退出。显式配置 `COPY_NINJIA_DATA_ROOT` 时，数据根、`memory/` 与 `logs/` 的权限不得放开 group/other 写权限；`database/` 则允许协作组具备写入权限以支持 SQLite 旁路文件。
-  - **冷启动清理与恢复**：启动时自动清理上一次异常中断残留的临时文件；若在数据根根目录下发现未迁移的旧版 `state.json` 或 `state.json.bak`，则直接拒绝启动。在建立网络连接或启动 Worker 之前，必须先严格加载恢复 `memory/mini-app-totp/totp.json`（存在时）与 `memory/global/state.json`。
+  - **冷启动清理与恢复**：获取 `bot.lock` 单实例锁后，`cleanupOrphanedTempFiles` 会先清理上一次异常中断残留的运行时原子临时文件（`state.json`、`totp.json`、`bot.lock`）、已确认不活跃的锁辅助文件，以及 `config/static/` 与 `config/dynamic/` 下属主 PID 已死亡或等于本进程 PID（清扫先于本进程任何配置写入，同 PID 只可能是 PID 复用前的残留）的白名单原子写临时文件，然后再校验配置目录布局；若在数据根根目录下发现未迁移的旧版 `state.json` 或 `state.json.bak`，则直接拒绝启动。在建立网络连接或启动 Worker 之前，必须先严格加载恢复 `memory/mini-app-totp/totp.json`（存在时）与 `memory/global/state.json`。
   - **单实例锁边界**：同一数据根在同一时刻只允许一个运行中的进程实例；锁状态基于 `/proc/<pid>/stat` 与内核 boot ID 进行活跃性校验。
 
-- **生命周期的严格推进顺序**：
-  1. 对所有已存在的部署配置文件进行严格校验。
-  2. 启动 Disk I/O Worker 并完整加载恢复持久化状态。
-  3. 初始化 Telegram 客户端，挂载中间件、注册命令菜单（配置 `mini_app` 时同步为超级管理员私聊挂载 `MenuButtonWebApp` 入口按钮）并完成 `bot.init()` 握手。
-  4. 启动并填充 AI Worker 与 Anti-Raid Worker 的运行时数据，拉起定时任务调度器、配置热重载监听、可选的 Mini App HTTP 服务（`startMiniAppServer()`）与黑名单补扫。
-  5. 启动确认式 Runner 开始长轮询拉取并消费 updates。
+- **生命周期的严格推进顺序**（`packages/app/lifecycle.ts`）：
+  1. 先获取单实例锁（`bot.lock`），初始化主线程内运行态，调用 `cleanupOrphanedTempFiles` 清理孤儿临时文件并经 `assertDeploymentConfigLayout` 核对配置目录布局，加载 `memory/global/state.json`，经 `validateExistingDeploymentInputs` 对所有已存在的部署配置文件执行严格校验，再完成随机图库预检与接管（`prepareRandomImageDirectory`）并启动 Disk I/O Worker（`initDiskIO`）。
+  2. 加载并恢复 SQLite 状态（`chatStates`、`chatQa`、`wedMembers` 与身份条数），初始化 Telegram 客户端并执行超管互斥断言（`assertSuperAdminNotBlocked`、`assertSuperAdminNotDeleteMessageTarget`），恢复复读目标、翻译目标、运势与待验证记录。
+  3. 挂载中间件与注册命令菜单（配置 `mini_app` 时同步为超级管理员私聊挂载 `MenuButtonWebApp` 入口按钮）并完成 `bot.init()` 握手。
+  4. 启动并填充 AI Worker 与 Anti-Raid Worker 的运行时数据，拉起定时任务调度器、配置热重载监听、可选的 Mini App HTTP 服务（`startMiniAppServer()`）、黑名单补扫调度并执行首轮受管群补扫（`sweepManagedBlocklistChats`）。
+  5. 启动确认式 Runner 开始长轮询拉取并消费 updates，随后启用 `/wed` 成员复核与低优先级群标题刷新。
 - **统一生命周期收口**：初始化失败与正常退出均由 `ApplicationLifecycle` 统一收口，严格按照依赖反序清理与释放已成功取得的资源。
 
 ### 可选凭据与严格配置预检
@@ -79,6 +79,7 @@
   - **Mini App 名单页例外**：
     - **按块冷读与缓存隔离**：Mini App 的白名单、黑名单列表与搜索经 `readIdentityPolicyEntries` 按同一分块上限直接冷读当页或全部条目，游标页与条目内容均以本地未 ACK 最终值覆盖数据库结果，展示元数据与主线程 `senderIdentity` 发送者缓存双向对齐（优先采用发送者缓存中的最新资料，并在用户名未被其他身份接管时按需回填）。结果只在本次请求内局部持有，不读写 `identityPolicyCache` 策略 LRU，因此不会刷新或挤出 Bot 处理消息所需的热条目；冷读失败时请求直接返回错误。
     - **写路径与边界拦截一致**：增删名单与修改权限仍与 `/white`、`/block`、`/permission` 走同一预热与写入路径，并执行一致的目标互斥与边界拦截（拒绝超级管理员、机器人自身及任何已 `/init` 的受管群身份；白名单与黑名单严格互斥）。
+    - **重复添加确认与跨群扇出**：重复加入白名单时仍经 `confirmIdentityPolicyPersisted(..., retryUnacknowledged=true)` 确认落盘并返回 `{ ok: true, changed: false, duplicate: true }`；重复加入黑名单时仍经 `confirmBlocklistPersisted(..., retryUnacknowledged=true)` 确认落盘并按与 `/block enable` 相同口径重新派发全受管管理员群跨群封禁，返回 `{ ok: true, changed: false, duplicate: true, persisted, affectedChats, totalChats }`，前端重复提示的 Toast 同时展示重新封禁的群数与落盘确认状态。
     - **原生选择器错误透传**：原生选择器 `users_shared` / `chat_shared` 导入未新增条目时，优先透传首个边界拒绝码。
 
 - **临时广告免检的跨群累计机制**：
@@ -98,7 +99,7 @@
   - `/white` 与 `/permission` 命令禁止将当前群本身的 identity 作为操作目标；超级管理员可委托他人使用 `/white enable` 添加成员，但受委托人只能按默认权限添加，删除成员与权限调整仍必须由超级管理员执行。
 
 - **Telegram 机器人身份与 AI 配置的读取边界**：
-  - 机器人的 `bot_token` 与 `super_admin_user_id` 严格来自于 `config/static/bot.json`；启动连接 Telegram 前必须校验通过。
+  - 机器人的 `bot_token`、`super_admin_user_id` 与可选 `log_level`（缺省默认 `DEFAULT_LOG_LEVEL` 即 `"operation"`）严格来自于 `config/static/bot.json`；启动连接 Telegram 前必须校验通过，并将生效 `log_level` 同步至主线程及各 Worker 线程的阈值单例（`packages/cache/perThread/logger.ts`）。
   - **AI 能力独立配置与环境变量隔离**：
     - AI 密钥统一在 `config/dynamic/agent.json` 中配置，每项能力独立指定 `provider`、`api_key`、`base_url` 和 `model`，不存在跨能力的默认回退。
     - 客户端构造时显式传入密钥、端点（省略 `base_url` 时取对应供应商的官方默认地址）与关闭隐式环境变量回退的选项；凭据、端点与 SDK 日志级别均不取自进程环境变量。
@@ -112,7 +113,7 @@
   - 若探测结果为不支持或配置错误，系统将停止下载该模态的新媒体，避免浪费网络流量与调用配额。当修改配置文件触发热重载时，探测状态会重置并重新探测。
 
 - **配置目录结构检查**：
-  - 在读取任何配置文件前，安装脚本（`assertNoMisplacedConfigFiles`）、启动门禁（`assertDeploymentConfigLayout`）与热重载（`readDynamicConfigLayoutRejections`）共用 `packages/config/layout.ts` 的三级目录白名单检查：
+  - `packages/config/bot.ts` 在加载 `bot.json` 前先调用 `assertNoLegacyOrMisplacedBotConfig` 按名称检查 `config/` 顶层是否存在旧版 `telegram.json` 或错位 `bot.json`；安装脚本（`assertNoMisplacedConfigFiles`）、启动门禁（`assertDeploymentConfigLayout`，位于持锁与 `cleanupOrphanedTempFiles` 之后）与热重载（`readDynamicConfigLayoutRejections`）共用 `packages/config/layout.ts` 的三级目录白名单检查：
     - `config/` 下仅允许 `static/` 与 `dynamic/` 两个子目录（其中 `config/dynamic/` 必须为已存在目录）；
     - `config/static/` 下仅允许 `bot.json` 与 `g-auth.json`；
     - `config/dynamic/` 下仅允许 `assets.json`、`ad_detect.json`、`agent.json`、`mood.json`、`stickers.json` 与 `cron.json`。
@@ -123,9 +124,14 @@
   - 监听到变动后，系统通过防抖计时器（`CONFIG_RELOAD_DEBOUNCE_MS`）合并短时间内的频繁变动，随后串行执行配置重载。
   - **目录白名单与严格校验**：热重载先由 `packages/config/reload.ts` 调用 `packages/config/layout.ts` 的 `readDynamicConfigLayoutRejections` 核对 `config/dynamic/` 目录白名单，再采用与启动时相同的严格校验器；目录内存在任何非白名单条目，或新文件存在格式与语法错误时，该轮改动整批拒绝并保留当前有效快照、记录错误日志；若配置文件内容与当前快照一致，则跳过冗余更新。
   - **跨文件依赖核对**：若 `cron.json` 中的任务用到了语音合成或摘要生成，但 `agent.json` 中缺少相应能力，系统会阻止配置更新并报错，保证配置在任何时刻都完整有效。
-  - **会话级快照隔离**：AI Worker 接管新的 `agent.json` 快照后丢弃旧的能力门面与 SDK 客户端，下一次取用按新快照重建。一轮 AI 回复在创建会话时固定 `text` 能力的模型与客户端，整轮工具往返（含 Anthropic `pause_turn` 续发）均沿用它们，热重载只影响之后新开始的回复；Gemini 会话在第一次请求前若配置已被替换，则不引用共用显式缓存。
+  - **会话级快照隔离**：AI Worker 接管新的 `agent.json` 快照后丢弃旧的能力门面与 SDK 客户端，下一次取用按新快照重建。一轮 AI 回复在创建会话时固定 `text` 能力的模型与客户端，整轮工具往返（含 Anthropic `pause_turn` 续发）均沿用它们，热重载只影响之后新开始的回复。
   - **功能就绪状态重算**：每次配置更新生效后，`packages/app/configReload.ts` 会重新计算 AI 闲聊与广告检测的功能就绪状态（readiness）。若功能转为可用，将按需唤醒或恢复对应 Worker；若转为不可用，则停止新任务投递并关闭对应的开启命令，但已持久化的群开关和对话记忆依然安全保留。
   - **日志凭据脱敏**：所有凭据（Token、API Key 等）在日志记录时均受脱敏系统保护，确保任何日志与错误报告中都不会泄露敏感密钥。
+- **Mini App 会话临时密钥、AES-256-GCM 传输加密与在线配置保存边界**：
+  - **每次启动内存 Ed25519、临时 X25519 登录协商、5 会话上限与 2 小时总寿命**：`startMiniAppServer` 每次启动在主线程生成一对私钥不可导出的 Web Crypto `Ed25519` 签名密钥对（`ensureMiniAppRuntimeSigningKeyPair`，停机时随 `clearMiniAppRuntimeSigningKeyPair` 清空），`handlers/page.ts` 物化前端打包 JS 时注入其 32 字节原始公钥 Base64（`MINI_APP_SERVER_SIGNING_PUBLIC_KEY_PLACEHOLDER`）并重算 `ETag`。未解锁请求访问 `GET /api/auth/precheck` 时签发由该私钥签名（域分离 prefix `MINI_APP_HANDSHAKE_SIGNATURE_DOMAIN`）的临时 `X25519` 公钥（`handshakeId` + `serverPublicKey` + `expiresAt`，容量 `MINI_APP_HANDSHAKE_MAX`，TTL `MINI_APP_HANDSHAKE_TTL_MS`）；已解锁请求仅只读核验而不轮换令牌或签发密钥。客户端验签通过后（验签不匹配在存在 `sessionStorage` 时带 10 秒防环窗触发单次 `location.reload()`，`crypto.subtle` 缺失映射为不重载的 `WEBCRYPTO_UNSUPPORTED`）生成临时 `X25519` 密钥对并经 ECDH + HKDF-SHA256 派生方向隔离的 `c2sKey` / `s2cKey` 提交 `POST /api/auth/login`（`c2sKey` + `MINI_APP_LOGIN_REQUEST_AAD`，内层 `{ handshakeId, password }` 与 `{ handshakeId, totpCode }` 严格互斥）；`miniAppInFlightHandshakeIds` 拦截并发重放且 `handshakeId` 无论成败用完即焚；`200`/`403` 响应均以 `s2cKey` + `MINI_APP_LOGIN_RESPONSE_AAD` 封装为 `MiniAppEncryptedEnvelope`（拒绝明文降级响应），序列化后立即清除 `pendingSessionKey`，单步 TOTP 校验通过且会话签发成功后才更新 `miniAppLastConsumedTotpStepHolder` 防同时间步重放。主线程最多保留 `MINI_APP_SESSION_MAX`（`5`）个未过期 45 分钟会话与 256-bit 临时密钥（`MINI_APP_SESSION_KEY_BITS`）；满额时新登录照常签发并淘汰签发或最近一次轮换距今最久的会话（同步吊销其下载票据）。每代密钥在 `[MINI_APP_SESSION_REFRESH_MIN_MS, MINI_APP_SESSION_REFRESH_MAX_MS]`（5 秒～5 分钟）均匀随机抽取下一次触发滑动续期与轮换的冷却时间点，同时当本代 `seenRequestIvs.size` 先达到 `MINI_APP_SESSION_ROTATE_AT_SEEN_IVS`（3,072）水位时也会提前触发滑动轮换并重置新纪元 IV 集合与随机冷却时间，均独立于上一轮旧凭据的最长 5 分钟并发宽限期（`MINI_APP_SESSION_PREVIOUS_GRACE_MS`）；单次登录会话滑动续期绝对总寿命封顶为 `MINI_APP_SESSION_MAX_LIFETIME_MS`（2 小时，活跃会话期间 `initData.auth_date` 放行上限 `2 小时 + 45 分钟`）；`sessionKey` 仅在 `POST /api/auth/login` 与加密响应路由滑动续期（`X-Mini-App-Session-Key`，`additionalData = UTF8(newToken)`）下发，服务端轮换提交时同步启动共享封装句柄 `sealedSessionKeyPromise`（仅解析为密文，不写入 `pendingSessionKey`），封装落定后记入 `sealedSessionKey` 并保留至新令牌确认或宽限期到期（期间携带 `previousToken` 的加密响应路由请求等待同一 `sealedSessionKeyPromise` 或直接取回已落定的 `sealedSessionKey`，原样重新附带同一新令牌与密文，不再轮换），前端在 IndexedDB 保存同代 `{ token, cryptoKey }` 配对（水合以其为准）、在 `sessionStorage` 保存令牌元数据，绝不在 HTTP 请求或 `globalThis` 中暴露明文密钥。
+  - **业务 JSON 信封、二进制加密上传、URL `?e=` 查询加密与两阶段原子提交**：受会话保护的业务 JSON 路由均以 Web Crypto `AES-GCM`（`MINI_APP_AES_GCM_IV_BYTES` 随机 IV、`MINI_APP_AES_GCM_TAG_BITS` 标签）封装请求与响应体（`MiniAppEncryptedEnvelope`，方向 AAD 经 `buildMiniAppEnvelopeAad` 绑定 `"${method} ${routePath}:req"` / `":res"`），`POST /api/gallery/upload` 强制使用 `[12B IV || 密文+16B 标签]` 原始二进制加密帧；非 `GET`/`HEAD` 加密路由一律拒绝 `0` 字节空请求体（无载荷写请求发送加密 `"{}"`）。全部 `encryptRequest: true` 路由通过 `?e=<ivBase64>.<cipherBase64>`（`MINI_APP_ENCRYPTED_QUERY_PARAM`，密文上限 `MINI_APP_MAX_ENCRYPTED_QUERY_LENGTH`）传递加密查询参数，严格仅允许单一 `e` 参数且 AEAD `additionalData` 绑定 `"${method} ${routePath}"`（拒绝裸 `?`、明文或多余查询参数、空串或 `?` 开头的解密结果及重放 IV；同一密钥纪元 `seenRequestIvs` 硬上限 `MINI_APP_SESSION_MAX_SEEN_REQUEST_IVS` = 4,096，达到 `MINI_APP_SESSION_ROTATE_AT_SEEN_IVS` = 3,072 水位时由加密响应路由主动轮换密钥并重置 IV 集合与轮换冷却，超硬上限吊销会话并回 `401`）。`runMiniAppAuthorized` 采用「只读 `authorizeMiniAppRequest` -> 异步解密与初筛 -> `commitMiniAppSessionAccess` 原子复核活跃状态、提交同纪元 IV 防重放并推进轮换」两阶段提交，彻底消除异步解密窗口内的 TOCTOU 竞态（并发同 IV 重放返 `400`，窗口期内被吊销会话返 `401 SESSION_EXPIRED`，令牌在窗口期内被并发轮换并确认时按会话谱系 `lineageId` 定位存活会话、在查找时的密钥纪元 IV 集合上提交且不轮换，失败解密 `400` 绝不抹除 `previousToken` 或触发轮换）。客户端在加密响应路由上先解密校验响应体再同步轮换响应头，并经 `packages/mini-app-frontend/api/authError.ts` 统一归类重认证（`MINI_APP_SESSION_REAUTH_ERROR_CODES`、解密/解封失败与裸 `401` -> 按令牌一致性清会话并跳转 `AuthGatePage`）与一层门禁拒绝（`MINI_APP_ACCESS_DENIED_ERROR_CODES` -> 无条件清会话并转 `checking` 重预检进入 `AccessDeniedPage`，且不因过时请求序号守卫吞掉或被滞后 `401` 退回 `password`）。
+  - **二进制下载双轨与免加密边界**：在受会话保护的 `/api/*` 路由中，`encryptResponse: false`（响应体不加密且不触发会话密钥轮换）严格仅限 `GET|HEAD /api/gallery/file`（`MINI_APP_GALLERY_FILE_AUTH_POLICY`：请求头鉴权 + `?e=`，下发 7 天 `MINI_APP_GALLERY_FILE_CACHE_CONTROL` 即 `private, no-cache, max-age=604800, must-revalidate`、`CDN-Cache-Control: no-store`、`Vary: MINI_APP_GALLERY_FILE_VARY_HEADER_VALUE` 与 `ETag` `304`）和 `GET|HEAD /api/gallery/download`（`MINI_APP_GALLERY_DOWNLOAD_AUTH_POLICY`：浏览器降级路径走请求头鉴权 + `?e=`；Telegram 原生 `WebApp.downloadFile` 路径先经加密 `POST /api/gallery/download-ticket` 换取 60 秒单次一次性 64-hex `?ticket=` 票据，`HEAD` 不消费、`GET` 消费即焚、上限 `MINI_APP_DOWNLOAD_TICKET_MAX` = 64，按登录内不变的会话谱系 `sessionLineageId` 绑定，会话轮换期间自然保持有效，登出/锁定/过期/淘汰/IV 超限/验证器变更/删图按谱系即时吊销）。`/api/auth/precheck`、`/api/auth/logout`、单页/打包资源、`/healthz` 与公开静态 `/favicon.ico`（7 天 `MINI_APP_ASSET_CACHE_CONTROL`）全链免加密，`POST /api/auth/login` 使用临时 ECDH（`c2sKey`/`s2cKey`），`POST /api/gallery/upload`（`MINI_APP_GALLERY_UPLOAD_AUTH_POLICY`）请求与响应均加密交互。
+  - **会话加密直存与配置保存前置校验**：`POST /api/configs/save`（`MINI_APP_CONFIG_SAVE_AUTH_POLICY`，外层请求体上限 `MINI_APP_MAX_CONFIG_BODY_BYTES`）直接在当前会话 256-bit 临时密钥加密信封下提交 `{ scope, fileName, content }`；`saveMiniAppConfigFile` 通过 `runSerialChain`（`packages/libs/serialChain.ts`，句柄 `miniAppConfigSaveChainHolder`）将校验与原子落盘串行化，消除并发保存 `agent.json` 与 `cron.json` 时的跨文件校验 TOCTOU 竞态。写入前依次执行白名单映射（`MINI_APP_DYNAMIC_CONFIG_FILES` / `MINI_APP_STATIC_CONFIG_FILES`）、严格领域解析器（`g-auth.json` 与启动阶段共用 `parseGoogleServiceAccountKey`）、`database/storage.sqlite` 已存在时的 `bot.json` `time_zone` 不可变核验、`agent.json` ↔ `cron.json` 双向跨文件能力核对（优先读取磁盘对端文件）及非符号链接校验（`inspectOptionalFile`）。
 
 ### 数据根与后台任务
 
@@ -185,9 +191,10 @@
   - **长期保留的例外项**：用户明确授权的权限看板（`/permission help`、`/permission query`）、问答看板（`/qa query`）、问答直答命中的答案、成功的中文动作命令结果（如 `/咬`、`/揪住`）、`/h_image` 随机图片（固定带剧透遮罩）、`cron.json` 定时任务发出的消息，以及会话性输出（复读、翻译、AI 回复、洗澡回复）。
   - **状态机拥有的交互消息**：入群验证按钮卡片、`/qa set` 录入表单、`/wed` 结果图片及按钮、gag 公告与发言入口提示不由固定定时器删除，仅由按钮点击、状态机流转或群 teardown 路径主动清理（`/wed` 被会话滑窗滑出的结果留在群里，不再删除）。
 
-- **论坛话题群（Topics）的消息落点规则**：
+- **论坛话题群（Topics）的消息落点规则与后台任务作用域隔离**：
   - **交互触发的消息**：用户命令或群友交互所触发的所有回复（无论是长期保留的消息还是按 `COMMAND_MESSAGE_AUTO_DELETE_MS` 自删的回执），均自动发送到触发消息所在的具体话题线程（`message_thread_id`）。
   - **主动广播的消息**：机器人主动发出的系统性公告（如防刷屏禁言播报、广告封禁提醒、防冲群私密模式公告等）以及 `cron.json` 定时任务，在开启了话题的群组中统一发送到通用（General）话题。
+  - **后台循环、定时器与异步队列脱离 update 上下文**：后台调度与定时任务（`packages/copy/avatarQueue.ts`、`packages/infra/telegram/actions/messageLifecycle.ts`、`packages/commands/gag/refresh.ts`、`packages/translate/message.ts`）统一经 `packages/infra/updateContext.ts` 的 `runOutsideUpdateScope` 彻底退出触发 update 的 `AsyncLocalStorage` 上下文，避免继承该 update 的 `AbortSignal` 或触发话题；需要独立停机取消边界或沿用捕获话题的异步任务（`commands/wed/runtime.ts`、`commands/deferredCommands.ts`、`commands/deleteMessage/queue.ts`）则在出队或运行边界显式进入 `runWithUpdateAbortSignal`。
 
 - **开关命令状态反馈的一致性**：
   - 执行 `/init`、`/ai_chat`、`/ad_detect`、`/antiraid` 等开关命令时，系统在写入前均会核对当前实际状态；若重复执行已处于的状态，回执必须明确说明「当前已是该状态」，不得谎报状态发生变更。
@@ -208,7 +215,7 @@
   - **AI Worker**：独占群聊滚动记忆、回复准入判断、多模态媒体描述流水线、全局心情以及贴纸包目录生成的运行时状态。
   - **Anti-Raid Worker**：独占入群验证与防冲群私密模式（Lockdown）的状态机及其关联计时器。主线程仅保存用于崩溃恢复的镜像。
   - **Disk I/O Worker**：独占日志、AI 记忆、贴纸目录、运势以及待验证数据的磁盘 I/O，并在单一专用线程内串行读写这些共享目录。
-    - `memory/global/` 是唯一的例外：由主线程通过 `stateStore.ts` 门面调用 `statePersistence.ts` 的 `StateStore` 异步落盘。业务 Worker 严禁直接读写共享存储目录。
+    - 仅主线程允许直接原子落盘三类路径：`memory/global/`（经 `stateStore.ts` 门面调用 `statePersistence.ts` 的 `StateStore`）、`memory/mini-app-totp/totp.json`（`mini-app-api-server/auth/totpStorage.ts`）以及 Mini App 在线配置编辑写回的白名单文件 `config/{dynamic,static}/*.json`（`mini-app-api-server/view/configs/storage.ts`）。业务 Worker 严禁直接读写共享存储目录。
   - **长期容器管理**：长生命周期的 Map、Set、队列和 timer 必须在 `packages/cache/` 模块与业务生命周期模块中，明确定义其容量上限、清理时机以及 Worker 重建后的恢复语义。
 
 - **缓存文件的线程归属由目录名决定，并通过门禁静态核验**：
@@ -218,7 +225,7 @@
     - `perThread/`：每条线程各自持有一份独立状态（如 Telegram 能力持有者、Worker 双工 waiter、部署配置单例、自发消息登记、update 取消上下文存储）。
   - 每个缓存文件首行必须使用 `/** owner: <main|perThread|workers/<线程>>。` 标注，内容需与所在目录严格一致。
   - 线程间仅通过消息通信。`bun run check:conventions` 从各线程入口（`index.ts` 及各 `*Worker.ts`）计算运行时 import 闭包，发现跨线程非法 import 会直接中断并输出完整引入链。
-  - **豁免登记**：跨线程引入只能登记在 `CACHE_OWNER_EXEMPTIONS`，当前为空。`infra/logger.ts` 不静态依赖 `infra/diskIO.ts`：主线程的 error 日志经 `cache/perThread/logger.ts` 的 `logRelaySink`（由 `initDiskIO` 装上 `relayLogMessage`）转投落盘线程，Worker 线程的 error 日志按批转发回主线程再转投。
+  - **豁免登记**：跨线程引入只能登记在 `CACHE_OWNER_EXEMPTIONS`，当前为空。`infra/logger.ts` 不静态依赖 `infra/diskIO.ts`：主线程达到或高于当前 `log_level` 阈值的日志经 `cache/perThread/logger.ts` 的 `logRelaySink`（由 `initDiskIO` 装上 `relayLogMessage`）转投落盘线程，Worker 线程达到或高于当前 `log_level` 阈值的日志按批转发回主线程再转投。
 
 - **Worker 模块如果需要主线程数据，必须由主线程预先求值后作为最终字段传入**：
   - 例如，AI 识别超级管理员身份所需的信息，由主线程在发送 `init` 消息时直接注入，AI Worker 禁止 import `config/bot.ts`。
@@ -227,14 +234,15 @@
 
 - **进程间通信（IPC）故障处理与日志转发**：
   - 业务 Worker 与 Disk I/O 宿主将同步 `postMessage` 拒绝统一收敛为显式失败：请求型投递立即清理关联的 waiter/timer，关键业务投递则触发致命故障（fatal）。
-  - **已接纳的错误日志采用「两跳确认（Two-hop ACK）」机制**：
+  - **已接纳日志（`>= log_level`）采用「两跳确认（Two-hop ACK）」机制**：
     1. 第一跳：业务 Worker → 主线程（在途上限 `LOGGER_FORWARD_BATCH_MAX_MESSAGES` 条）。
     2. 第二跳：主线程 → Disk I/O Worker（在途上限 `DISK_DIAGNOSTIC_BATCH_MAX_MESSAGES` 条）。
-    - 生产方保留批次直至收到下游 ACK；若 Worker 重建（代际替换），原批次会被重新发送，允许在故障边界内少量重复。主线程仅在日志文件真正 flush 落盘成功后才回复 ACK；若写盘失败，主线程按日志文件重开窗口进行指数退避，新日志不得绕过该退避窗口。
+    - **主线程日志缓冲策略**：`info`、`operation`、`warn` 级别日志进入主线程 `diagnosticQueue` 后按批缓冲，在达到 `DISK_DIAGNOSTIC_BATCH_MAX_MESSAGES` 条或 `FLUSH_INTERVAL_MS`（30 秒）定时到期时统一提交落盘；`error` 日志、队列溢出汇总日志、非日志诊断（`adSample` / `aiCacheUsage`）以及显式 `flushDiskIO()` / `flushDiskIODomain("log")` 则立即触发排空落盘。
+    - 生产方保留批次直至收到下游 ACK；若 Worker 重建（代际替换），尚未确认的在途批次在恢复后立即重发（允许在故障边界内少量重复），未到期或未满批的普通日志缓冲则继续按既有窗口等待。主线程仅在日志文件真正 flush 落盘成功后才回复 ACK；若写盘失败，主线程按日志文件重开窗口进行指数退避，新日志不得绕过该退避窗口。
   - **流控与熔断**：
     - 业务 Worker 每线程的排队与在途总上限为 `LOGGER_FORWARD_MAX_PENDING_MESSAGES` 条或 `LOGGER_FORWARD_MAX_SERIALIZED_BYTES` 字节。
     - 主线程到 Disk I/O 的上限为 `DISK_DIAGNOSTIC_MAX_PENDING_MESSAGES` 条或 `DISK_DIAGNOSTIC_MAX_SERIALIZED_BYTES` 字节。
-    - 超出上限的日志不会驻留内存，系统仅累计丢弃的条数与字节数，待容量恢复后补发统计摘要。Worker 产生的 error 日志同时输出至当前线程的 stderr。
+    - 超出上限的日志不会驻留内存，系统仅累计丢弃的条数与字节数，待容量恢复后补发统计摘要；已接纳的日志在转发或入队前已同步输出到当前线程对应 `console` 方法（`stdout` / `stderr`）。
     - 已经进入传输通道的批次不会因同步拒收或实例重建被抛弃。若系统遭遇强杀（SIGKILL），尚未落盘的日志可能丢失；Disk I/O 在完成初始化前仅输出至 journal。
 
 - **并发批处理原则**：
@@ -329,9 +337,9 @@
   - `announced` 与 `announcementMessageId` 随 `{phase, intentId, originalPermissions, announced, announcementMessageId?, expiresAt}` 持久化。ID 必须来自成功的发送回执，两者同时成立或同时不成立：未发送公告却持有 ID、已公告却没有 ID 的记录都视为非法。
   - Worker 重建后若需要接管并继续锁定，且尚未发送过公告，会触发补发；处于 `RESTORING` 阶段时不再补发公告。本轮恢复完成时向主线程发送 `reportUnlock`，由主线程清理持久化记录。
 
-- **私密模式到期恢复机制**：
-  - 锁定进入 `ACTIVE` 状态时，即固定 `LOCKDOWN_MS` 倒计时截止时间，期间新成员加入不重置该倒计时。
-  - 倒计时到期后，系统首先将恢复意图落盘，收到 durable ACK 后调用 Telegram API 恢复权限。
+- **私密模式到期恢复与墙钟回拨防护机制**：
+  - 锁定进入 `ACTIVE` 状态时，即固定 `LOCKDOWN_MS` 倒计时截止时间，期间新成员加入不重置该倒计时；主线程换算恢复快照时（`packages/antiRaid/lockdownMirror.ts`）将 `remainingMs` 夹紧在 `[0, LOCKDOWN_MS]`，`adoptLockdowns`（`packages/workers/antiRaid/lockdownRuntime.ts`）把 `lastLockdownIntentId` 推进至已接管条目的最大 `intentId`，防止墙钟回拨拉长锁定时间或造成意图编号碰撞。
+  - 倒计时到期后，系统首先将恢复意图落盘，收到 durable ACK 后调用 Telegram API 恢复权限；等待持久化回执期间（`packages/states/lockdown/restore.ts`）抑制恢复/纠偏重试定时器，并由 `packages/antiRaid/workerBridge/events.ts` 将 `getOrCreateChatState` 纳入异常边界，失败时回传 `lockdownPersistFailed`。
   - `RESTORING` 阶段收到新的入群阈值事件，仅预热管理员缓存，绝不倒退回 `ACTIVE`。
   - **恢复失败与指数退避**：若权限恢复失败，系统按 `RESTORE_RETRY_MS` 进行退避重试。连续因权限不足（如机器人被踢出群或被撤销管理员）失败超过 `RESTORE_PERMANENT_FAILURE_LOG_LIMIT` 次后，错误日志降级为 warn，重试间隔自 `RESTORE_RETRY_MS` 起成倍增加，封顶为 `RESTORE_PERMANENT_RETRY_MAX_MS`。记录始终保留，一旦确证机器人重新获得限制成员权限，立即恢复重试。
   - **群已不存在（`gone`）例外**：当 teardown 起因为 `gone` 时，主线程在 `deactivateChat` 中传入 `abandonLockdown: true`，Worker 派发状态机事件 `chatGone`——任何阶段都直接删除本地记录、撤掉 timer，仅向主线程发送 `reportUnlock`，不恢复权限、不删除公告；主线程收到 `unlock` 后清除 `lockdown`，仅剩该字段的群状态随之删除并释放受管名额。主线程不在本地直接删除私密模式记录，以免被 Worker 在途的状态上报重新写回。
@@ -394,15 +402,15 @@
 
 - **模型供应商请求、超时与重试规范**：
   - 网络传输、429 与 5xx 重试完全由供应商官方 SDK 自行处理（Gemini 使用 `@google/genai` 的 `retryOptions`，OpenAI 与 Anthropic 使用各 SDK 的 `maxRetries`，对应预算常量分别为 `GEMINI_REQUEST_RETRY_ATTEMPTS`、`OPENAI_REQUEST_MAX_RETRIES`、`ANTHROPIC_REQUEST_MAX_RETRIES`）。
-  - **单次尝试超时与整次调用截止时间（deadline）**：各 SDK 的内置超时仅约束单次尝试；底层封装（`aiChat/gemini/client.ts`、`openai/client.ts`、`anthropic/client.ts`）使用 `signalWithTimeout` 合成一个覆盖整次调用（含全部重试与退避）的全局 deadline，到期立即短路重试，最长挂起时间由 `GEMINI_REQUEST_TIMEOUTS_MS` / `OPENAI_REQUEST_TIMEOUTS_MS` / `ANTHROPIC_REQUEST_TIMEOUTS_MS` 严格界定。
+  - **单次尝试超时与整次调用截止时间（deadline）**：各 SDK 的内置超时仅约束单次尝试；底层封装（`workers/aiChat/gemini/client.ts`、`workers/aiChat/openai/client.ts`、`workers/aiChat/anthropic/client.ts`）使用 `signalWithTimeout` 合成一个覆盖整次调用（含全部重试与退避）的全局 deadline，到期立即短路重试，最长挂起时间由 `GEMINI_REQUEST_TIMEOUTS_MS` / `OPENAI_REQUEST_TIMEOUTS_MS` / `ANTHROPIC_REQUEST_TIMEOUTS_MS` 严格界定。
   - **失败分类与业务重采样边界**：
     - 调用方的 invalidate signal 与上述 deadline 合成生效。当请求明确以 `failureKind: "request"` 失败时，外层严禁再套一层整次重试；业务级重采样仅允许在 HTTP 成功但模型响应不可用或异常结束（`failureKind: "response"`）以及规范化文本为空时触发。
     - Anthropic 拒答归为 `failureKind: "refused"`（文本结果带 `refused: true` 与 `retryable: false`），不执行重采样。
     - OpenAI Responses 的 `status` 为 `completed` 时，message 中只要含 `refusal` 内容块即按拒答处理，以 `failureKind: "response"` 交回，收尾原因为 `refusal`。
   - **不可用响应的收尾详情记录**：
-    - 响应不可用时，客户端的 `unusable response` 日志连同供应商收尾详情对象一并记录：Anthropic 记录 `stop_details`（另带产出该响应的 `model`）；Gemini 记录 candidate 的 `finishMessage` 与 `safetyRatings`（无 candidate 时为 `promptFeedback`）；OpenAI 记录 `error` 与 `refusal` 文本。
-    - 详情由 `aiChat/ai/utils/finishDetails.ts` 序列化为 JSON 并截断到 `AI_FINISH_DETAILS_MAX_CHARS`，再由同一模块的 `diagnosticWithDetails` 以 `, details=<JSON>` 接在收尾原因之后（无详情时省略该段）；同一份串经 `AiReplyTurn.finishDetails` 交给回复层，`AI reply unusable response` 日志按相同格式接在 `finish_reason` 之后。
-  - `aiChat/openai/image.ts` 同样使用 `OPENAI_IMAGE_REQUEST_TIMEOUT_MS` 统筹生图的单次尝试与整次调用。
+    - 响应不可用时，客户端日志（`Anthropic API returned an unusable response.`、`Gemini API returned an unusable response.`、`OpenAI API returned an unusable response.`）在结构化上下文对象中连同供应商收尾详情一并记录：Anthropic 记录 `model`、`stopReason`、`stopDetails` 与 `hasPartialText`；Gemini 记录 `reason`、`finishReason` 与 `finishDetails`（取 candidate 的 `finishMessage` 与 `safetyRatings`，无 candidate 时为 `promptFeedback`）；OpenAI 记录 `reason`、`incompleteReason` 与 `finishDetails`（取 `error` 与 `refusal` 文本）。
+    - 详情由 `aiProviders/finishDetails.ts`（`finishDetailsJson`）序列化为 JSON 并截断到 `AI_FINISH_DETAILS_MAX_CHARS`（无详情时省略对应字段）；同一份详情串经 `AiReplyTurn.finishDetails` 交给回复层，触发 `AI reply received an unusable response.` 时写入结构化上下文的 `finishDetails` 字段。
+  - `workers/aiChat/openai/image.ts` 同样使用 `OPENAI_IMAGE_REQUEST_TIMEOUT_MS` 统筹生图的单次尝试与整次调用。
 
 - **模型调用配额与车道隔离（Lane Isolation）**：
   - AI 请求不占用 Telegram 出站总闸，而是根据 provider、`base_url` 与 API key 聚合到对应的模型配额 lane（模型名不拆分车道）。
@@ -420,7 +428,7 @@
     - 后台异步合成的语音不阻塞动作链，合成完成后追加到链尾补发。
     - 整轮发送按用户消息入站顺序交割，后一轮回复的内容绝不能插入前一轮的文本、纠错或图注之间。
   - **聊天状态指示器（Chat Action Heartbeat）**：
-    - 「正在输入」、「选择贴纸」、「正在录音」等状态统一由 `aiChat/ai/chatActionHeartbeat.ts` 管理。
+    - 「正在输入」、「选择贴纸」、「正在录音」等状态统一由 `workers/aiChat/ai/chatActionHeartbeat.ts` 管理。
     - 状态档位仅由动作链中正在执行的当前步骤切换，执行器在调用阶段不切换状态。
     - 直接轮次通过 `createDirectPacing` 提前点亮状态：若尚未接纳动作，在模型生成期间显示「正在输入」；若首个动作为 `send_message` 或 `abuse_mark`，直接沿用该输入状态发送，不额外插入拟人停顿。
     - 状态切换至 idle 代表本段状态结束，同群在此后 `CHAT_ACTION_REST_MS` 内进入静默期，期间不重复发送状态心跳。
@@ -475,7 +483,7 @@
   - **投递与前后台切换**：
     - 轮到发送时，若音频尚未合成完毕且未满 `VOICE_FOREGROUND_WAIT_MS`，显示「正在录音」等待。
     - 超过等待窗口仍未完成，收回录音状态并将发送转入后台（`chains.defer`），动作链继续向下执行；后台合成完毕后追加到链尾发送。
-    - 合成失败不发送语音，仅输出英文日志 `AI reply voice was not sent`，不向模型暴露失败。
+    - 合成失败不发送语音，仅输出英文日志 `AI reply voice was not sent.`（附 `{ chatId, reason }`），不向模型暴露失败。
     - 发送成功后在自录记忆中追加 `（发送了一条语音：…）` 标记。
   - **额度统计**：
     - 预留额度仅存在于 AI Worker 内存（`pendingAiTtsReservations`），不持久化。
@@ -489,18 +497,18 @@
 - **运维语音借用（`/send` 与 `cron.json`）**：
   - 主线程通过 `requestVoiceSynthesis` 异步委托 AI Worker 执行合成，通过 requestId 回执接收语音二进制 buffer。
   - 超时时限为 `VOICE_SYNTHESIS_REQUEST_TIMEOUT_MS`；超时或取消后发送 `cancelVoiceSynthesis` 中止 Worker 内部合成。
-  - 运维口径的每日额度由 AI Worker 内的 tts 门面（`packages/aiChat/providerFacades.ts` 的 `createSpeechFacade`）独立记入 `reserveCount`，上限为 `daily_reserve_quota`，与 AI 闲聊额度严格互不挤占。
+  - 运维口径的每日额度由 AI Worker 内的 tts 门面（`packages/workers/aiChat/providerFacades.ts` 的 `createSpeechFacade`）独立记入 `reserveCount`，上限为 `daily_reserve_quota`，与 AI 闲聊额度严格互不挤占。
 
 - **Anthropic 模型响应处理**：
   - **端点与拒答分类**：请求统一走 SDK 的 beta Messages 端点。命中 `max_tokens` 或 `model_context_window_exceeded` 时按产出不可用（`failureKind: "response"`）交回；命中 `refusal`（任何 `stop_details.category`）时按拒答（`failureKind: "refused"`）交回，调用方不重采样——摘要压缩、贴纸目录与广告检测直接放弃，`web_search` 工具返回拒答说明，cron 联网摘要判定为 `refused` 且不重试。
   - **拒答回退模型（`fallback_model`）**：能力配置了 `fallback_model` 时，客户端挂载 SDK 的 `betaRefusalFallbackMiddleware`（默认选项），每个请求附带 `fallback-credit-2026-07-01` beta 头；主 `model` 拒答后，以 `fallback_model`、同一凭据与端点重发同一请求，拒答带回的额度令牌按 `best_effort` 兑换（兑换失败照常执行并按原价计费）；回退模型也拒答时交回该次拒答。单轮回复会话（含工具往返与 `pause_turn` 续发）与单次检索各持一份独立的 `BetaFallbackState`，发生改道后同会话后续请求直接发给回退模型，下一轮回复重新从主 `model` 起发。
-  - **改道告警日志**：改道按本次调用前后 `BetaFallbackState` 钉住的回退下标判定（`aiChat/anthropic/sdkClient.ts`），每次首次改道记录一条以 `fell back after a refusal:` 开头的告警：
-    - 回退模型正常产出：附带 `from=…, to=…, trigger=…, fallback_credit=…`（`trigger` 与 `fallback_credit` 按 `aiChat/ai/utils/finishDetails.ts` 序列化）；
-    - 回退模型同样拒答：附带 `from/to` 与回退响应的 `stop_reason`；
-    - 回退请求失败或超时：附带 `from/to` 与 `the fallback request did not complete`；
+  - **改道告警日志**：改道按本次调用前后 `BetaFallbackState` 钉住的回退下标判定（`aiProviders/anthropic/sdkClient.ts`），每次首次改道记录一条结构化告警：
+    - 回退模型正常产出：日志 `"Anthropic request fell back after a refusal."`，附 `{ errorLabel, from, to, trigger, fallbackCredit }`（`trigger` 与 `fallbackCredit` 按 `aiProviders/finishDetails.ts` 序列化，缺失时为 `null`）；
+    - 回退模型同样拒答：同条摘要附 `{ errorLabel, from, to, stopReason }`；
+    - 回退请求失败或超时：日志 `"Anthropic request fell back after a refusal; fallback request did not complete."`，附 `{ errorLabel, from, to }`；
     - 会话已钉在回退项、本次直接发给回退模型时不重复记录。
   - **用量归属与令牌脱敏**：用量记在部署配置填写的模型名下（改道后记 `fallback_model`，否则记请求体的 `model`，不取响应回显的规范模型 ID），被拒答那一次请求的用量不入账。日志与回复轮次 `finishDetails` 中的 `stop_details` 先剥离 `fallback_credit_token`（可兑换的回退额度令牌）后再序列化。
-  - **广告检测空响应重试与收尾日志**：广告检测在正文为空时最多重采样 `AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS` 次，遇到 Anthropic 拒答则立即放弃；三家传输层均只在最终放弃后记录一条日志，附带最后一次的收尾原因与详情（Anthropic 为 `model` 与 `stop_details`，Gemini 同上，OpenAI 兼容 Chat Completions 为 `finish_reason` 与 `message.refusal`；均经 `diagnosticWithDetails` 记为 `details=`，无详情时省略）。
+  - **广告检测空响应重试与收尾日志**：广告检测在正文为空时最多重采样 `AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS` 次，遇到 Anthropic 拒答则立即放弃；三家传输层均只在最终放弃后记录一条结构化错误日志，附带最后一次的收尾原因与详情（Anthropic 记 `"Ad detection request produced no usable body."` 及 `{ errorLabel, attempts, model, stopReason, stopDetails, hasPartialText, maxTokens }`；Gemini 记 `"Ad detection request returned no usable body."` 及 `{ errorLabel, attempts, abnormalReason, finishReason, finishDetails }`；OpenAI 兼容 Chat Completions 记 `"Ad detection request produced no usable body."` 及 `{ errorLabel, attempts, finishReason, finishDetails, hasPartialText, reasoningTokens, maxTokens }`）。
   - **`pause_turn` 续发**：对话与检索遇到 `pause_turn` 时，原样延续 assistant 历史继续交互，最多续发 `ANTHROPIC_PAUSE_TURN_MAX_CONTINUATIONS` 次并合并检索次数。
 
 - **Token 与用量核算**：
@@ -510,7 +518,7 @@
   - **缓存命中与缓存写入核算**：两项均计入输入总量内且互不重叠：
     - **Anthropic**：`input_tokens` 不含缓存部分，输入总量记为 `input_tokens + cache_creation_input_tokens + cache_read_input_tokens`，命中取 `cache_read_input_tokens`，写入取 `cache_creation_input_tokens`；
     - **OpenAI**：写入取 Responses 的 `input_tokens_details.cache_write_tokens` 或 Chat Completions 的 `prompt_tokens_details.cache_write_tokens`；
-    - **Gemini**：单次请求不返回写入量，仅在显式缓存创建时按「写入等于输入」记录；
+    - **Gemini**：接口仅返回缓存命中量（`cachedContentTokenCount` / `total_cached_tokens`），不返回缓存写入量；
     - **异常保护与聚合**：若命中与写入之和超过输入总量，整条 token 记录按非法丢弃（检索次数仍保留）；供应商未给出写入量时不记该项，日度聚合仅累加明确返回写入量的请求。
   - 仅返回费用的模型（如 xAI 生图的 `cost_in_usd_ticks`）单独记录为费用指标，不折算 token。
   - 联网检索次数与模型 token 合并记录，日度聚合只算一次请求；独立检索调用记录为 search usage。Anthropic 以 `server_tool_use.web_search_requests` 为准，OpenAI 仅统计 `action.type === "search"` 且状态完成的动作。
@@ -561,7 +569,7 @@
     - **内建检索（未配置 `agent.web_search`）**：在系统提示词中使用 `WEB_SEARCH_INSTRUCTION`，挂载 `text` 模型的服务端内建检索。软预算通过 `MAX_WEB_SEARCH_CALLS_PER_REPLY` 约束，真实调用次数由 `replyModel.ts` 统计，超额时仅记录，不动态篡改系统提示词，也不卸载检索工具。
     - **独立函数检索（配置了 `agent.web_search`）**：
       - 在系统提示词中使用 `WEB_SEARCH_FUNCTION_INSTRUCTION`，挂载本地函数工具 `web_search`；每轮初始化时锁定调用上限（缺省 `WEB_SEARCH_DEFAULT_MAX_CALLS_PER_USE`），每次函数调用扣除一次额度，超额直接拒绝。
-      - 由 `aiChat/ai/tools/webSearch.ts` 异步执行，使用具备检索能力的小模型单轮查证，将结果整理为「提示语 + 结论 + 编号来源」并限制在 `WEB_SEARCH_RESULT_MAX_CHARS` 与 `WEB_SEARCH_MAX_SOURCES` 条来源内喂回。
+      - 由 `workers/aiChat/ai/tools/webSearch.ts` 异步执行，使用具备检索能力的小模型单轮查证，将结果整理为「提示语 + 结论 + 编号来源」并限制在 `WEB_SEARCH_RESULT_MAX_CHARS` 与 `WEB_SEARCH_MAX_SOURCES` 条来源内喂回。
       - 入参非法、请求超时、未执行检索或结果为空时，统一返回「模型搜索失败」，避免将幻觉当成检索结论；Anthropic 检索模型拒答时改回「模型安全策略拒绝了这次搜索」并附带 `retryable: false`。
   - **时区核对**：涉及「今天」「最新」等时间词时，查证规则依据配置时区的时间核实事实适用日期，不将网页发布时间误判为事件发生时间。
   - 只要触发了检索（服务端或本地），后续请求即打上 `grounded: true` 标记，Gemini 据此自动降低采样温度以收敛幻觉。
@@ -580,25 +588,8 @@
   - **防注入边界**：防注入总原则（区分数据与指令、伪造边界无效、不暴露内部结构）在系统提示词中声明一次，不逐段重复。转录数据中出现的同名标签或状态声明一律视为纯文本，不产生控制效果。
   - **系统提示词严格逐字恒定**：系统提示词仅通过独立的系统字段传入，动态的状态数据（时间、心情、工具状态）必须放入 user 内容中的运行时状态区块，严禁混入系统提示词。人设、行动与停止段、本地 `web_search` 模式三项都与上一轮相等时，AI Worker 复用上一轮拼好的同一个系统提示词字符串（`packages/cache/workers/aiChat/replyPrefix.ts` 的单槽），任一项不等即重拼并替换。
 
-- **Gemini 显式上下文缓存（Explicit Context Cache）**：
-  - **模型能力探测**：`text` 或 `ad_detect` 在启动或热重载切换到 `google` 供应商时调用 `probeGeminiContextCache`，后台通过 `models.get` 检查当前模型的 `supportedActions` 是否包含 `GEMINI_CONTEXT_CACHE_SUPPORTED_ACTION`（`"createCachedContent"`）：
-    - 支持时：继续调用 `caches.list` 领养同前缀的服务端缓存并进入 `"done"`；
-    - 不支持时：将注册表置为 `"unsupported"`，后续请求直接走服务端隐式前缀缓存（发送完整配置），不再调用 `caches.list` 与 `caches.create`；
-    - `models.get` 请求失败时记录错误日志后按支持继续扫描，创建失败交由下文的失败退避处理。
-  - **两套请求结构与按群冷却窗口**：
-    - **`text` 首轮命中条件**：每轮回复的第 1 次请求，仅当本群尚无触发时刻记录或距上次记录已超过 `GEMINI_REPLY_EXPLICIT_CACHE_IDLE_MS`，且显式缓存就绪时，才引用显式缓存（`cachedContent`）——此时请求体仅包含 `contents`，不携带 `systemInstruction`、`tools` 与 `toolConfig`。
-    - **`text` 回退完整配置与后续往返**：若距上次记录仍落在该时长内（含相等）、缓存未就绪、模型不支持显式缓存（`scan === "unsupported"`），或会话固定的 `text` 快照已被热重载替换，则第 1 次请求发送完整配置；同一轮的第 2 次及后续工具往返一律携带静态 `systemInstruction` 与工具配置，由服务端隐式前缀缓存接管。
-    - **按群单调时钟记录与清理**：触发时刻取本群上一次成功 `generateContent` 的发出时刻（基于本线程 `performance.now()`，`chatId` 经回复会话参数传入且仅 Gemini 实现读取），其他群请求互不影响。失败请求不写入；并行请求乱序完成时较早的发出时刻不覆盖较晚记录；显式缓存被拒后的完整结构补发按补发时刻计。执行 `/ai_chat disable`、`/clear_context`、群级清理、记忆淘汰与停机时删除本群记录，AI Worker 维护节拍自动清理已超过 `GEMINI_REPLY_EXPLICIT_CACHE_IDLE_MS` 的记录，`agent.text` 热重载不清除；Worker 更换 isolate 后记录全空。
-    - **`ad_detect` 直连模式**：不设按群冷却窗口，显式缓存就绪时每次请求均直接携带 `cachedContent`。
-  - **显式缓存内容**：`text` 仅缓存「系统提示词 + 工具声明 + toolConfig」，不缓存参考记忆、转录与运行时状态；`ad_detect` 仅缓存 `instructions`（规则与广告样本，无 tools/toolConfig）。
-  - **分槽管理**：
-    - `text`：按系统提示词指纹分槽，全群共享同一槽位，槽数上限 `GEMINI_TEXT_CACHE_MAX_SLOTS`，`displayName` 格式为 `${GEMINI_TEXT_CACHE_DISPLAY_NAME_PREFIX}<槽指纹>:<内容指纹>`；当模型、系统指令、工具声明 JSON 与 toolConfig 四项均与上一轮相等时，直接复用上一轮算好的两段指纹，任一项不等即重算。
-    - `ad_detect`：按 `instructions` 指纹分槽，槽数上限 `AD_DETECT_GEMINI_CACHE_MAX_SLOTS`，`displayName` 前缀为 `AD_DETECT_GEMINI_CACHE_DISPLAY_NAME_PREFIX`，模型与 `instructions` 未变时复用单槽缓存。
-    - 超出槽数上限时，按 `lastUsedAt` 淘汰最久未用的槽位及服务端条目。
-  - **非阻塞取用**：调用 `acquireGeminiContextCache` 从不阻塞等待探测或创建完成。`scan === "unsupported"` 时直接返回 `null`；探测进行中或首次命中可缓存模型时，当前请求直接发送完整配置并在后台完成探测、扫描与创建；命中缓存时刷新 `lastUsedAt`，若剩余生命周期不足 `GEMINI_CONTEXT_CACHE_RENEW_BEFORE_MS` 则在后台静默续期回完整 TTL。缓存内容描述（含工具声明 JSON 序列化与指纹）以回调传入，扫描状态为 `"unsupported"` 或 `"idle"` 时不求值。
-  - **失败退避**：端点返回 400 拒绝时记录指纹并进入冷却；累计达到 `GEMINI_CONTEXT_CACHE_MAX_REJECTIONS` 次后放弃为该内容建立缓存，回退为全量请求。
-
-- **提示词缓存断点（Prompt Cache Breakpoints）**：
+- **提示词前缀缓存与断点（Prompt Caching）**：
+  - Gemini 请求始终携带静态 `systemInstruction`（对话回复同时携带 `tools` 与 `toolConfig`），对话回复将 `stableBlocks` 置于首个 `user Content`，广告检测将规则与部署样本固定在 `systemInstruction`、系统事实 `fact` 置于待判定正文之前，由服务端隐式前缀缓存自动命中。
   - OpenAI 协议请求确保稳定内容在前、动态内容在后，并携带按群分桶的 `prompt_cache_key`。该键的指纹对系统提示词与工具声明 JSON 两段复用上一轮的 SHA-256 哈希状态（`libs/prefixFingerprint.ts` 的 `stablePrefixFingerprintWithSlot`），前提是两段内容都与上一轮相等，否则重建；摘要与对全部分段直接哈希逐字节一致。对于官方端点且模型名以 `OPENAI_PROMPT_CACHE_BREAKPOINT_MODEL_PREFIX` 开头的模型，在最后一个稳定区块后设置显式 `prompt_cache_breakpoint`。
   - Anthropic 会话依次在以下边界设置缓存断点：系统提示词末尾、最后一个稳定区块末尾、当前会话最后一个已定段末尾，以及请求顶层的自动断点。
 
@@ -639,8 +630,8 @@
 
 ### 入群验证与终态处置
 
-- **验证终态重试与落盘保障**：
-  - 单个进程内验证终态操作最多重试 `VERIFICATION_TERMINAL_MAX_ATTEMPTS_PER_PROCESS` 次。
+- **验证终态重试、落盘保障与墙钟回拨防护**：
+  - 单个进程内验证终态操作最多重试 `VERIFICATION_TERMINAL_MAX_ATTEMPTS_PER_PROCESS` 次；`packages/workers/antiRaid/verificationRuntime.ts` 将待验证超时计时器延迟夹紧在 `[0, VERIFICATION_TIMEOUT_MS]`，防止墙钟回拨拉长超时。`packages/states/verification/pending.ts` 保证重试/刷新后的 `expiresAt >= joinedAt` 并经 `isRecordedWithin` 将墙钟回拨按提醒重试窗口已结束处理；`packages/states/verification/join.ts` 同样经 `isRecordedWithin` 将墙钟回拨按 `KICKED_REJOIN_GRACE_MS` 重新入群宽限窗已结束处理。
   - **操作批合并 fsync**：Disk I/O Worker 处理一个操作批时，批内的验证关键写（新建、终态与删除）先登记，整批处理完毕（含抛错）后统一追加并执行一次 fsync，`verificationPersisted` 回执在本次 fsync 之后发出（操作批接收回执晚于它）；批外单独到达的关键写当场落盘。
   - 终态操作完成后，必须等待最终 revision 的落盘回执，确认安全持久化后再清理内存记录。等待回执期间若 revision 递增，需继续确认新 revision，绝不因达到重试次数上限而推迟已成功的终态。
   - **Worker 本地执行门事件**：终态的本地执行门（`effectStarted`、`executionStarted`）不持久化，仅经状态机事件改写：
@@ -685,7 +676,7 @@
     - `deactivateJoinGuard` 将该群所有验证记录推入 `guardDisabled` 状态转移，全部重置为 ABSENT。
     - 删除机器人发出的入群验证提醒与按钮（按钮已失效，不可留存于群内）。入群公告与成员自身发言不删，也不再执行踢人操作（未决的超时踢人与终态任务直接作废）。
     - 已落盘的待踢任务由 dispatcher 发出墓碑，重启后不会被重放踢人。
-    - 针对私密模式（Lockdown）同步发送 `deactivate`：未生效的 `APPLYING` 阶段直接撤销，其余阶段转入 `RESTORING` 流程将群邀请权限（`can_invite_users`）归还，撤销封锁公告，并清空入群滑动窗口。
+    - 针对私密模式（Lockdown）同步发送 `deactivate`：`applying/preparing` 阶段直接撤销，`applying/prepared` 及其余阶段转入 `RESTORING` 流程将群邀请权限（`can_invite_users`）归还，撤销封锁公告，并清空入群滑动窗口。
   - 仅在管理员主动关闭或执行 `/init disable` 时才调用 Telegram API 清理消息；若机器人失去管理员权限或退群，仅在本地紧急拆除状态，不再调用无权执行的删除接口。
   - 若 Worker 临时不可用导致清理异常，开关仍会持久化关闭，清理残留将在进程重启或 Worker 重建后由 `purgeDisabledJoinGuards` 彻底兜底清空。
 
@@ -885,12 +876,11 @@
 
 ### `/h_image` 随机图片
 
-- **图库目录校验与热重载**：
+- **图库目录只读巡检、延迟接管与热重载**：
   - 图库路径来自 `config/dynamic/assets.json` 的 `onlyPath.random_h_image_dir`（缺省 `RANDOM_H_IMAGE_DIR`）。
-  - 启动阶段在外部连接建立前通过 `infra/imageGallery.ts` 的 `ensureRandomImageDirectory` 检查目录有效性：必须存在且可读写；子目录、软链接文件、隐藏文件或未匹配 `RANDOM_IMAGE_CONTENT_NAME_PATTERN` 命名的文件均直接拒绝启动。
-  - 热重载更改目录时执行相同严格检查；若新目录不合规，则拒绝变更并保持原目录运行。运行期间若目录被删，不自动重建。
+  - `packages/infra/imageGallery.ts` 将预检与提交拆分为只读巡检 `inspectRandomImageDirectory` 与状态接管 `adoptRandomImageDirectory`：前者在不创建目录、不改写任何缓存的前提下核验已存在目录（须可读写遍历且仅含合法非隐藏普通文件 `<64 位小写 SHA-256 hex>.jpg/.jpeg/.png/.webp`，允许根目录为指向真实目录的符号链接）或尚不存在目录的最近可写可执行祖先目录；后者仅在启动接管（`prepareRandomImageDirectory`）或热重载提交生效时按需经 `mkdirSync` 创建缺失目录并同步提交两份缓存。热重载或 Mini App 保存校验拒绝不合规目录时，保持原有目录与既有缓存不变；运行期间若目录被删，不自动重建。
 - **抽图算法与图库双缓存（`pickRandomImage` / `randomImageDirectoryCache` / `randomImageGalleryCache`）**：
-  - **双缓存分工**：启动或热重载执行 `ensureRandomImageDirectory`（及首次访问未缓存目录）时读取目录，仅筛选合法扩展名的非隐藏普通文件，同时在 `cache/main/hImage.ts` 维护两份缓存：
+  - **双缓存分工**：启动或热重载经 `inspectRandomImageDirectory` 扫描后由 `adoptRandomImageDirectory` 同步填充，及首次访问未缓存目录时读取目录并按合法扩展名筛选非隐藏普通文件，同时在 `cache/main/hImage.ts` 维护两份缓存：
     - `randomImageDirectoryCache`：按字典序升序排列，供随机抽图与计数使用；
     - `randomImageGalleryCache`：按修改时间从新到老（`mtimeMs` 降序）排列，供 Mini App 图库分页使用。
   - **原位增删与免排序翻页**：`storeRandomImage`（`/h_image add` 与 Mini App 上传）按各自排序结构通过二分查找原位插入两边缓存，`deleteRandomImageFile`（Mini App 删除）从两边缓存原位同步移除；抽图与 Mini App 图库分页直接读取对应缓存，翻页无需重复排序。
@@ -948,7 +938,7 @@
     - 定时任务消息属于用户授权的长期保留例外，不挂 `COMMAND_MESSAGE_AUTO_DELETE_MS` 自毁定时器。
     - 本地文件上传前核对大小上限（`TELEGRAM_PHOTO_UPLOAD_MAX_BYTES`、`TELEGRAM_DOCUMENT_UPLOAD_MAX_BYTES`），流读取每次序列化重新打开，确保 429 重试时不复用已耗尽的流。
 - **AI 摘要生成（`send_web_digest`）**：
-  - 由 AI Worker 内的 `aiChat/ai/webDigest.ts` 执行。检索优先使用 `agent.web_search` 模型，未配置时退回 `text` 模型内建检索。
+  - 由 AI Worker 内的 `workers/aiChat/ai/webDigest.ts` 执行。检索优先使用 `agent.web_search` 模型，未配置时退回 `text` 模型内建检索。
   - 若调用端点未触发检索（`searchCalls === 0`）且有正文，添加模型缓存警示并转义为 MarkdownV2 发送；若已检索，则将来源元数据与 HTTPS 链接构建白名单，严禁虚构未核实的外部链接。
   - 组稿采用 `text` 模型输出结构化 JSON，由 `libs/webDigest.ts` 严格解码并按字符上限检查。格式不合格时允许带诊断重试一次（`WEB_DIGEST_COMPOSE_ATTEMPTS`）。
   - 主线程等待单次摘要生成的总时限为 `WEB_DIGEST_REQUEST_TIMEOUT_MS`；停机时取消在途请求，调度器在 Telegram 关闸前完成 drain。
@@ -997,8 +987,9 @@
     - **静态与动态头像规格**：JPEG/PNG 不超过 `BOT_PROFILE_PHOTO_MAX_BYTES`，作为静态头像上传；MP4 不超过 `BOT_PROFILE_ANIMATION_MAX_BYTES`、至少含一条视频轨（`hdlr` 为 `vide`），且每条视频轨的 `tkhd` 展示尺寸均为边长不超过 `BOT_PROFILE_ANIMATION_MAX_SIDE` 的非零正方形，作为动态头像上传。
     - **MP4 容器盒结构校验**：首个 box 必须为声明 MP4 品牌的 `ftyp`，其后顶层 box 恰好铺满整个文件且恰有一个 `moov`；`moov`、`trak`、`mdia` 的子 box 同样必须恰好铺满各自载荷，各层合计读取不超过 `MP4_MAX_SCANNED_BOXES` 个 box，长度字段越界或截断一律判否。
     - **核对时机与读取上限**：本机文件在加载期核对并在复原时按同一规则复核，直链仅在复原时核对；读取上限为 `DEFAULT_AVATAR_MAX_READ_BYTES`，直链单次下载超时为 `DEFAULT_AVATAR_FETCH_TIMEOUT_MS`。
-- **统一日志脱敏边界**：
-  - 写入 journal、Worker 信封或 `logs/` 前，自动脱敏已加载配置中的所有敏感凭据（Tokens、API Keys、密钥等）。
+- **统一日志分级与脱敏边界**：
+  - 低于生效 `log_level` 阈值的 `logger.*` 调用在序列化与脱敏前直接忽略；达到或高于阈值的日志在控制台按级别前置 `[INFO]` / `[OPERATION]` / `[WARN]` / `[ERROR]`（`CONSOLE_PREFIX_BY_LOG_LEVEL`）并保留原生结构化对象输出，随后以不含级别前缀的 `LogMessage` 进入跨线程通道并按 `{ level, message, args? }` 写入 `logs/<YYYY-MM-DD>.json`（`message` 拼接字符串参数，`args` 仅保留非字符串结构化参数，全为字符串时省略 `args`）。
+  - 所有达到阈值的日志在写入控制台、Worker 信封或 `logs/` 前，自动脱敏已加载配置中的所有敏感凭据（Tokens、API Keys、密钥等），且 `operation` 审计日志禁止主动记录口令、OTP、`initData` 签名及原始聊天/问答内容。
   - 日志中的 HTTP(S) URL 统一收敛为 `origin + pathname`，丢弃 query 参数、fragment 与 userinfo。
   - 错误对象展开 `cause` 与 `AggregateError`，最大展开深度 `LOGGER_NESTED_ERROR_MAX_DEPTH`，参数序列化受 `LOGGER_MAX_SERIALIZED_BYTES` 限制，循环引用使用静态占位符替代。
 - **群状态规范形状与 Normalizer**：
@@ -1105,6 +1096,7 @@
     - 串行位空闲时，名单写入与落盘确认在本条 update 内完成；有更早的同身份处置在途时，二者随扇出一起延后，update 不等待，结束时名单尚未改动。
     - 跨群部分提交至延迟执行器的后台档，以 `MANAGED_CHAT_BATCH_CONCURRENCY` 限制并发，逐群直接派发 `banChatMember`、`banChatSenderChat` 或对应的解封请求；封禁失败的群交回后续补扫统一处理。
     - 任务在开跑前或等串行位期间被停机撤销时记错误日志，未执行的名单写入与扇出不再执行，回执不再发出。
+    - 名单写入前在各自的变更点复核目标身份仍在身份 LRU 中（`enable` 在 `runProtectedIdentityMutation` 临界区内，`disable` 在串行位内的 `removeFromBlocklist` 开头），等待期间被挤出时重预热，预热失败只回执存储不可用，不改名单也不跨群扇出。
 
 #### 广告检测的准入、判定与处置
 
@@ -1209,7 +1201,7 @@
 - **Anti-Raid 与各 Worker 停机排空（Drain）**：
   - Anti-Raid 停机时先向 Worker 发送 `drain` 协议，停止广告判定节拍并阻断新请求；取得回执后，主线程在有界预算内排空在途处置、持久化事务并完成固定点对账。
   - 停机流程遵循固定顺序（入口静默与 runner 排空位于 `packages/app/lifecycle/maintenance.ts`，`SHUTDOWN_DRAIN_OWNERS` 与 `SHUTDOWN_TERMINATION_OWNERS` 位于 `packages/app/lifecycle/shutdown.ts`）：
-    1. 暂停所有新任务接入：quiesce 各业务与维护入口（含配置热重载、定时任务与黑名单补扫），关闭 Mini App HTTP 服务（`stopMiniAppServer()`），停止 update 拉取并排空 runner；
+    1. 暂停所有新任务接入：quiesce 各业务与维护入口（含配置热重载、定时任务与黑名单补扫），关闭 Mini App HTTP 服务（`stopMiniAppServer()`），停止 update 拉取并由 `drainAcknowledgedUpdateRunner` 通过 `runner.activeTask()` 与 `settleWithinBudget` 按事件驱动方式在 `RUNNER_DRAIN_TIMEOUT_MS` 预算内排空在途 update（超时后调用 `runner.abortActive()` 并再以 `RUNNER_CANCELLATION_SETTLEMENT_TIMEOUT_MS` 等待结算，区分 `drained` / `aborted` / `unsettled`）；
     2. 按 `SHUTDOWN_DRAIN_OWNERS` 顺序依次排空：`avatar` → `translate` → `antiRaid` → `gag` → `qa form` → `wed` → `deferred commands` → `cron` → `target message deletion` → `Telegram delayed deletion` → `ai`（Flush AI 记忆）→ `telegram`（排空 Telegram 出站总闸）→ `disk`（Flush Disk I/O），再落盘 StateStore（`flushAllToDisk`）；这一步与前置条件全部成功后确认最终 offset；
     3. `dispose()` 按同一顺序排空并执行终局收尾（关闭翻译客户端、终止 AI Worker、关闭 Telegram 出站闸门），随后按 `SHUTDOWN_TERMINATION_OWNERS` 顺序执行 `terminateAntiRaid` → `terminateDiskIO`，再 `flushStateToDisk`，最后按停机结局释放或扣住实例锁。
   - **共享 SQLite 关库**：
@@ -1227,7 +1219,7 @@
   - SQLite `database/` 目录采用 setgid 协作目录权限 `IDENTITY_DATABASE_DIRECTORY_MODE`，文件默认使用 `IDENTITY_DATABASE_FILE_MODE`。
   - 启动阶段仅校验运行用户是否具备合法的读写权限，不自动修改文件属主或权限；权限不合规直接拒绝启动。
 - **原子替换的权限保留**：
-  - 执行 `tmp + fsync + rename` 原子写文件时，必须先读取已有目标文件的权限位（mode）并沿用；临时文件默认权限不覆盖既有目标权限。传入的 `mode` 参数仅在目标文件不存在时作为首次创建的初始值。
+  - 执行 `tmp + fsync + rename` 原子写文件时，必须先读取已有目标文件的权限位（mode）并沿用；临时文件默认权限不覆盖既有目标权限。传入的 `mode` 参数仅在目标文件不存在时作为首次创建的初始值（Mini App 首次创建尚不存在的可选部署配置文件时固定使用 `MINI_APP_CONFIG_DEFAULT_FILE_MODE` 即 `0o600`；`config/` 默认保持只读，仅在部署方显式启用在线配置编辑时向服务账号开放写权限）。
 - **禁止猜测式 schema 迁移**：
   - 持久化数据 schema 必须严格匹配当前版本，不支持静默自动升级或旧格式兼容分支；遇到非法或不兼容数据一律拒绝启动。
 

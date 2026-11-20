@@ -36,9 +36,12 @@ export async function refuseIfConfigBroken({
   text,
 }: RefuseIfConfigBrokenParams): Promise<boolean> {
   if (readiness.ok) return false;
-  logger.error(
-    `${feature} is unavailable in chat ${chatId}: ${readiness.failure.file} is unusable — ${readiness.failure.reason}`
-  );
+  logger.error("Feature is unavailable because its configuration is unusable.", {
+    feature,
+    chatId,
+    file: readiness.failure.file,
+    reason: readiness.failure.reason,
+  });
   await sendCommandMessage({ chatId, text: text(readiness.failure.file), replyToMessageId: messageId });
   return true;
 }

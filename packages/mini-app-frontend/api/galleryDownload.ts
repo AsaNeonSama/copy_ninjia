@@ -1,72 +1,55 @@
 import { MINI_APP_DOWNLOAD_OBJECT_URL_REVOKE_DELAY_MS } from "../consts/miniApp";
-import {
-  readMiniAppAssetToken,
-  readMiniAppSessionToken,
-} from "../libs/credentials";
-import { asPayloadRecord } from "../libs/record";
-import { getTelegramWebApp, readMiniAppInitData } from "../libs/telegram";
+import { MINI_APP_DOWNLOAD_TICKET_PARAM } from "../consts/miniAppCrypto";
+import { getTelegramWebApp } from "../libs/telegram";
+import type { MiniAppGalleryDownloadTicketResponse } from "../types/miniApp/gallery";
 import type {
   MiniAppDownloadAnchorElement,
   TelegramWebApp,
   TelegramWindow,
-} from "../types/miniApp";
+} from "../types/miniApp/host";
+import { throwMiniAppRecordError } from "./authError";
 import {
   buildMiniAppAuthHeaders,
-  consumeMiniAppAuthErrorPrefix,
+  miniAppFetchJson,
+  prepareEncryptedMiniAppQueryRequest,
   syncRefreshedMiniAppSession,
 } from "./request";
+import type { PreparedEncryptedMiniAppQueryRequest } from "./request";
 
 /**
- * 构造供 Telegram 原生下载器直连的 `GET ./api/gallery/download/:fileName` 附件下载 URL。
- * 原生下载器不携带自定义请求头，双层鉴权凭据改由查询参数传递：受保护资源令牌 `token`（或回退 `initData`）与 45 分钟会话令牌 `session`。
- * @param fileName 图库图片文件名
- * @returns 带完整双层鉴权查询参数的下载 URL
+ * 在支持 Telegram 原生 `WebApp.downloadFile`（Bot API 8.0+）的环境中，
+ * 先通过端到端加密的 `POST ./api/gallery/download-ticket` 向服务端申请一枚 60 秒单次消费下载票据，
+ * 再组装仅含 `?ticket=<64-hex>` 的安全下载相对路径（不传递 `initData`、会话令牌或会话密钥）。
+ *
+ * @param fileName 待下载的图库图片文件名
+ * @returns 带 `?ticket=` 的相对下载路径与服务端签发的安全下载文件名
  */
-export function buildMiniAppGalleryDownloadUrl(fileName: string): string {
-  const encodedName: string = encodeURIComponent(fileName);
-  const basePath: string = `./api/gallery/download/${encodedName}`;
-  const assetToken: string = readMiniAppAssetToken();
-  const initData: string = readMiniAppInitData();
-  const sessionToken: string = readMiniAppSessionToken();
-  const params: URLSearchParams = new URLSearchParams();
-  if (assetToken.length > 0) {
-    params.set("token", assetToken);
-  } else if (initData.length > 0) {
-    params.set("initData", initData);
-  }
-  if (sessionToken.length > 0) {
-    params.set("session", sessionToken);
-  }
-  const query: string = params.toString();
-  return query.length > 0 ? `${basePath}?${query}` : basePath;
+async function requestMiniAppGalleryTicketDownload(
+  fileName: string
+): Promise<Readonly<{ relativeUrl: string; downloadFileName: string }>> {
+  const issued: MiniAppGalleryDownloadTicketResponse =
+    await miniAppFetchJson<MiniAppGalleryDownloadTicketResponse>(
+      "./api/gallery/download-ticket",
+      {
+        method: "POST",
+        body: JSON.stringify({ fileName }),
+      }
+    );
+  return {
+    relativeUrl:
+      `./api/gallery/download?${MINI_APP_DOWNLOAD_TICKET_PARAM}=` +
+      `${encodeURIComponent(issued.ticket)}`,
+    downloadFileName: issued.downloadFileName,
+  };
 }
 
 /**
- * 读取附件下载接口的失败响应并抛出错误：会话缺失或锁定时先清除本地会话令牌并在消息前加 `[代号] ` 前缀。
- * @param response 非 2xx 的下载接口响应（`HEAD` 响应无响应体时传入补发的 `GET` 响应）
- * @param fallbackStatus 响应体无说明时写入错误消息的 HTTP 状态码
- */
-async function throwGalleryDownloadError(
-  response: Response,
-  fallbackStatus: number
-): Promise<never> {
-  const payload: unknown = await response.json().catch((): null => null);
-  const record: Record<string, unknown> = asPayloadRecord(payload);
-  const prefix: string = consumeMiniAppAuthErrorPrefix(record);
-  const errText: string =
-    typeof record.message === "string"
-      ? record.message
-      : typeof record.error === "string"
-        ? record.error
-        : `HTTP ${String(fallbackStatus)}`;
-  throw new Error(`${prefix}${errText}`, { cause: record });
-}
-
-/**
- * 以给定的目标文件名把图库图片保存至系统默认下载目录；全程以请求头携带 `initData` 与 45 分钟会话令牌鉴权：
- * - 支持 Telegram 原生 `WebApp.downloadFile`（Bot API 8.0+）时，先以 `HEAD /api/gallery/download/:fileName` 校验会话与文件存在性，
- *   在其响应同步可能刷新的会话令牌之后再构造带查询参数凭据的下载 URL 交给原生下载器；
- * - 否则以 `GET` 取回图片字节，生成 `blob:` 对象 URL 经隐藏链接触发保存，并在 `MINI_APP_DOWNLOAD_OBJECT_URL_REVOKE_DELAY_MS` 后释放。
+ * 以给定的目标文件名把图库图片保存至系统默认下载目录：
+ * - 支持 Telegram 原生 `WebApp.downloadFile`（Bot API 8.0+）时，先通过 `POST ./api/gallery/download-ticket`
+ *   获取 60 秒一次性下载票据（同步完成会话校验与滑动密钥轮换），再将不含会话凭据的 `?ticket=` URL 交给原生下载器；
+ * - 否则以带请求头双层会话鉴权与 `?e=` 加密查询参数的 `GET ./api/gallery/download` 拉取原图字节，
+ *   生成 `blob:` 对象 URL 经隐藏链接触发保存，并在 `MINI_APP_DOWNLOAD_OBJECT_URL_REVOKE_DELAY_MS` 后释放。
+ *
  * @param fileName 待下载的图库图片文件名
  * @param downloadFileName 保存至本地的目标文件名
  * @returns 用户确认或已触发保存时返回 `true`，在 Telegram 原生弹窗中取消时返回 `false`
@@ -75,7 +58,6 @@ export async function downloadMiniAppGalleryImageByName(
   fileName: string,
   downloadFileName: string
 ): Promise<boolean> {
-  const basePath: string = `./api/gallery/download/${encodeURIComponent(fileName)}`;
   const tgWindow: TelegramWindow = globalThis;
   const webApp: Readonly<TelegramWebApp> | undefined = getTelegramWebApp();
   const nativeDownloadFile: TelegramWebApp["downloadFile"] =
@@ -85,28 +67,19 @@ export async function downloadMiniAppGalleryImageByName(
       : undefined;
 
   if (nativeDownloadFile !== undefined) {
-    const probe: Response = await fetch(basePath, {
-      method: "HEAD",
-      headers: buildMiniAppAuthHeaders(true),
-    });
-    syncRefreshedMiniAppSession(probe);
-    if (!probe.ok) {
-      const detail: Response = await fetch(basePath, {
-        method: "GET",
-        headers: buildMiniAppAuthHeaders(true),
-      });
-      return throwGalleryDownloadError(detail, probe.status);
-    }
-    const relativeUrl: string = buildMiniAppGalleryDownloadUrl(fileName);
+    const ticketDownload: Readonly<{ relativeUrl: string; downloadFileName: string }> =
+      await requestMiniAppGalleryTicketDownload(fileName);
     const baseHref: string | undefined = tgWindow.location?.href;
     const absoluteUrl: string =
       typeof baseHref === "string" && baseHref.length > 0
-        ? new URL(relativeUrl, baseHref).href
-        : relativeUrl;
+        ? new URL(ticketDownload.relativeUrl, baseHref).href
+        : ticketDownload.relativeUrl;
+    const effectiveFileName: string =
+      ticketDownload.downloadFileName || downloadFileName;
     return await new Promise<boolean>((resolve: (accepted: boolean) => void): void => {
       nativeDownloadFile.call(
         webApp,
-        { url: absoluteUrl, file_name: downloadFileName },
+        { url: absoluteUrl, file_name: effectiveFileName },
         (accepted: boolean): void => {
           resolve(accepted);
         }
@@ -114,13 +87,24 @@ export async function downloadMiniAppGalleryImageByName(
     });
   }
 
-  const response: Response = await fetch(basePath, {
+  const rawQuery: string = `fileName=${encodeURIComponent(fileName)}`;
+  const {
+    outboundPath,
+    sentSessionToken,
+  }: PreparedEncryptedMiniAppQueryRequest =
+    await prepareEncryptedMiniAppQueryRequest(
+      "./api/gallery/download",
+      rawQuery,
+      "GET"
+    );
+  const response: Response = await fetch(outboundPath, {
     method: "GET",
-    headers: buildMiniAppAuthHeaders(true),
+    headers: buildMiniAppAuthHeaders(true, undefined, sentSessionToken),
   });
   syncRefreshedMiniAppSession(response);
   if (!response.ok) {
-    return throwGalleryDownloadError(response, response.status);
+    const payload: unknown = await response.json().catch((): null => null);
+    return throwMiniAppRecordError(payload, response.status, sentSessionToken);
   }
   const objectUrl: string = URL.createObjectURL(await response.blob());
   if (typeof tgWindow.document?.createElement === "function") {

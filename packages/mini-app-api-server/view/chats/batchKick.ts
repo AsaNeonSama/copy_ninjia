@@ -71,7 +71,8 @@ async function resolveIsSupergroup(chatId: number): Promise<boolean | undefined>
   const cached: boolean | undefined = chatIsSupergroupById.get(chatId);
   if (cached !== undefined) return cached;
   const chat: ChatFullInfo | undefined = await runTelegramAction<ChatFullInfo, ChatFullInfo | undefined>({
-    action: `read chat ${chatId} kind for Mini App /batch_kick`,
+    action: "read chat kind for Mini App /batch_kick",
+    errorContext: { chatId },
     execute: (signal?: AbortSignal): Promise<ChatFullInfo> => telegramApi.getChat(chatId, telegramSignal(signal)),
     map: (result: ChatFullInfo): ChatFullInfo => result,
     fallback: undefined,
@@ -140,7 +141,8 @@ export async function triggerManagedChatBatchKick(
         return notInitializedResult(hours);
       }
       logger.error(
-        `Failed to read join logs for /batch_kick in chat ${chatId}:`,
+        "Failed to read join logs for /batch_kick:",
+        { chatId },
         error
       );
       return {

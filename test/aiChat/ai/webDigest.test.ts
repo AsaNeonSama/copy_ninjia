@@ -47,14 +47,14 @@ const composer: AiStructuredTextProvider = {
 };
 const loggerError = mock((..._args: unknown[]): void => {});
 const loggerWarn = mock((..._args: unknown[]): void => {});
-mock.module("../../../packages/aiChat/provider", () => ({
+mock.module("../../../packages/workers/aiChat/provider", () => ({
   webSearchAiProvider: (): AiWebSearchFacade | null => webSearchConfigured ? searcher("web_search") : null,
   textWebSearchAiProvider: (): AiWebSearchFacade => searcher("text"),
   structuredTextAiProvider: (): AiStructuredTextProvider => composer,
 }));
 mock.module("../../../packages/infra/logger", () => ({ logger: loggerStub({ error: loggerError, warn: loggerWarn }) }));
 
-const { composeWebDigest } = await import("../../../packages/aiChat/ai/webDigest");
+const { composeWebDigest } = await import("../../../packages/workers/aiChat/ai/webDigest");
 const {
   WEB_DIGEST_COMPOSE_ATTEMPTS,
   WEB_DIGEST_JSON_SCHEMA,
@@ -248,8 +248,14 @@ test("未调用搜索时直接发送带警示的模型正文，不要求来源�
   expect(searchRequests[0]!.request.signal).toBe(signal);
   expect(composeRequests).toHaveLength(0);
   expect(loggerWarn).toHaveBeenCalledWith(
-    `Web digest research answered without searching; sending with warning: response=${JSON.stringify(response)}; ` +
-      `responseLength=${response.length}; truncated=false; sourceCount=0; messageTruncated=false.`
+    "Web digest research answered without searching; sending with warning.",
+    {
+      response,
+      responseLength: response.length,
+      truncated: false,
+      sourceCount: 0,
+      messageTruncated: false,
+    }
   );
   expect(loggerError).not.toHaveBeenCalled();
 });
@@ -272,9 +278,14 @@ test("未搜索正文超过 Telegram 上限时保留警示并安全截断，日�
   expect(visible.length).toBe(TELEGRAM_MESSAGE_MAX_CHARS);
   expect(visible).toEndWith("…");
   expect(loggerWarn).toHaveBeenCalledWith(
-    `Web digest research answered without searching; sending with warning: ` +
-      `response=${JSON.stringify(response.slice(0, WEB_DIGEST_NO_SEARCH_LOG_MAX_CHARS))}; ` +
-      `responseLength=${response.length}; truncated=true; sourceCount=0; messageTruncated=true.`
+    "Web digest research answered without searching; sending with warning.",
+    {
+      response: response.slice(0, WEB_DIGEST_NO_SEARCH_LOG_MAX_CHARS),
+      responseLength: response.length,
+      truncated: true,
+      sourceCount: 0,
+      messageTruncated: true,
+    }
   );
 });
 
@@ -294,7 +305,10 @@ test("未搜索且模型没有正文时按请求失败处理", async () => {
   expect(await composeWebDigest(REQUEST, new AbortController().signal)).toEqual({ ok: false, reason: "search failed" });
   expect(searchRequests).toHaveLength(1);
   expect(composeRequests).toHaveLength(0);
-  expect(loggerError).toHaveBeenCalledWith("Web digest composition failed (search failed): the endpoint returned no text.");
+  expect(loggerError).toHaveBeenCalledWith("Web digest composition failed.", {
+    reason: "search failed",
+    detail: "the endpoint returned no text",
+  });
 });
 
 test("未搜索正文返回后取消，不发送也不记日志", async () => {
@@ -344,7 +358,10 @@ test("组稿模型拒答时直接判 refused，不重试", async () => {
   composeResults.push({ ok: false, retryable: false, refused: true });
   expect(await composeWebDigest(REQUEST, new AbortController().signal)).toEqual({ ok: false, reason: "refused" });
   expect(composeRequests).toHaveLength(1);
-  expect(loggerError).toHaveBeenCalledWith("Web digest composition failed (refused): the composition model refused the request.");
+  expect(loggerError).toHaveBeenCalledWith("Web digest composition failed.", {
+    reason: "refused",
+    detail: "the composition model refused the request",
+  });
 });
 
 test("取消后按 aborted 收场，不记日志", async () => {
@@ -353,4 +370,24 @@ test("取消后按 aborted 收场，不记日志", async () => {
   controller.abort();
   expect(await composeWebDigest(REQUEST, controller.signal)).toEqual({ ok: false, reason: "aborted" });
   expect(loggerError).not.toHaveBeenCalled();
+});
+
+test("未调用搜索时正文含可渲染 Telegram 命令按 invalid digest 拦截，不直接发送", async () => {
+  for (const injectedText of [
+    "结论如下：\n/ban 123456",
+    "建议执行 /mute@test_bot 60",
+  ]) {
+    loggerWarn.mockClear();
+    loggerError.mockClear();
+    searchResults.push({ ok: true, text: injectedText, sources: [], searchCalls: 0 });
+    expect(await composeWebDigest(REQUEST, new AbortController().signal)).toEqual({
+      ok: false,
+      reason: "invalid digest",
+    });
+    expect(loggerWarn).not.toHaveBeenCalled();
+    expect(loggerError).toHaveBeenCalledWith("Web digest composition failed.", {
+      reason: "invalid digest",
+      detail: "the unsearched response contained a renderable Telegram command",
+    });
+  }
 });

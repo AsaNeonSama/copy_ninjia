@@ -3,7 +3,7 @@ import { beforeEach, expect, mock, test } from "bun:test";
 const sleep = mock(async (_ms: number, _signal?: AbortSignal): Promise<void> => {});
 mock.module("../../../packages/libs/sleep", () => ({ sleep }));
 
-const { createDirectPacing, createSimulatedPause } = await import("../../../packages/aiChat/ai/tools/replyToolset/pacing");
+const { createDirectPacing, createSimulatedPause } = await import("../../../packages/workers/aiChat/ai/tools/replyToolset/pacing");
 const { REPLY_INVALIDATED_TOOL_ERROR } = await import("../../../packages/consts/tools");
 import type { ChatActionControl, ChatActionPhase } from "../../../packages/types/aiChat/chatAction";
 

@@ -17,7 +17,7 @@ import {
 import { openAiClientCache } from "../../../packages/cache/workers/aiChat/openai";
 import { adDetectOpenAiClientHolder } from "../../../packages/cache/workers/antiRaid/openai";
 import { OPENAI_API_BASE_URL, OPENAI_SDK_LOG_LEVEL } from "../../../packages/consts/aiChat/openai";
-import { getOpenAiClient, requestOpenAiResult } from "../../../packages/aiChat/openai/client";
+import { getOpenAiClient, requestOpenAiResult } from "../../../packages/workers/aiChat/openai/client";
 import { requestOpenAiAdDetectJson } from "../../../packages/workers/antiRaid/adDetect/ai/openai";
 import type {
   AdDetectAgentConfig,

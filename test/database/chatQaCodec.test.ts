@@ -4,6 +4,7 @@ import {
   CHAT_QA_MAX_PER_CHAT,
   CHAT_QA_QUESTION_MAX_CHARS,
 } from "../../packages/consts/qa";
+import { STATE_MANAGED_CHAT_LIMIT } from "../../packages/consts/storage";
 import {
   assertChatQaQuestion,
   decodeChatQaData,
@@ -68,5 +69,21 @@ describe("chat_qa codec", () => {
   test("非法群 id 与非法问题在整表解码时就被拦下", () => {
     expect(() => decodeStoredChatQa([row(0, "a", "1")], SOURCE)).toThrow();
     expect(() => decodeStoredChatQa([row(-1001, " a", "1")], SOURCE)).toThrow();
+  });
+
+  test("总受管群数超过 STATE_MANAGED_CHAT_LIMIT 时在整表解码拒绝，允许恰好达到上限且不强拒无 chat_states 的孤儿群", () => {
+    const withinLimit: StoredChatQaRow[] = [];
+    for (let index: number = 0; index < STATE_MANAGED_CHAT_LIMIT; index++) {
+      withinLimit.push(row(-1000 - index, "q", "a"));
+    }
+    expect(decodeStoredChatQa(withinLimit, SOURCE).size).toBe(STATE_MANAGED_CHAT_LIMIT);
+
+    const exceedingLimit: StoredChatQaRow[] = [
+      ...withinLimit,
+      row(-1000 - STATE_MANAGED_CHAT_LIMIT, "q", "a"),
+    ];
+    expect(() => decodeStoredChatQa(exceedingLimit, SOURCE)).toThrow(
+      `at most ${STATE_MANAGED_CHAT_LIMIT} chats`
+    );
   });
 });

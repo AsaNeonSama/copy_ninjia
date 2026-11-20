@@ -8,6 +8,7 @@ import { registerChatTeardown } from "../infra/chatTeardownRegistry";
 import { purgesChatData } from "../libs/chatTeardown";
 import { isTimeoutAbort, signalWithTimeout } from "../libs/abortSignal";
 import { answerCallbackQuery, replyCommandNotice, sendCommandMessage } from "../infra/telegram";
+import { logger } from "../infra/logger";
 import { combineWithUpdateAbortSignal } from "../infra/updateContext";
 import { forumTopicThreadId } from "../libs/forumTopic";
 import type { ChatTeardownReason } from "../types/chatTeardown";
@@ -223,6 +224,11 @@ async function runWedCallbackAction({ chat, session, action }: WedCallbackAction
     // 更换要先抽取再编辑，编辑另取一份预算；其余动作只有一步，沿用本阶段预算。
     let deliverySignal: AbortSignal = signal;
     if (action === "remove") {
+      logger.operation("[TelegramCommand] /wed callback", {
+        chatId: session.chatId,
+        actorId: session.actor.id,
+        action: "remove",
+      });
       succeeded = await removeWedResult(session);
       if (succeeded) {
         chat.sessions.delete(session.actor.id);
@@ -230,8 +236,25 @@ async function runWedCallbackAction({ chat, session, action }: WedCallbackAction
       }
     } else if (action === "marry") {
       if (session.confirmed) return;
+      logger.operation("[TelegramCommand] /wed callback", {
+        chatId: session.chatId,
+        actorId: session.actor.id,
+        action: "marry",
+      });
       succeeded = await confirmWedResult(session, signal);
+      if (succeeded) {
+        logger.info("Confirmed /wed match.", {
+          chatId: session.chatId,
+          actorId: session.actor.id,
+          targetId: session.targetId ?? null,
+        });
+      }
     } else {
+      logger.operation("[TelegramCommand] /wed callback", {
+        chatId: session.chatId,
+        actorId: session.actor.id,
+        action: "change",
+      });
       const candidate: WedCandidate | undefined = await drawWedCandidate(session, chat, signal);
       if (session.controller.signal.aborted) return;
       if (candidate === undefined) {

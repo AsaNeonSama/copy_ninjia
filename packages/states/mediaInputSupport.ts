@@ -19,7 +19,7 @@ import type {
  * `agent.media` 视觉与语音模态输入支持度的纯函数状态机：
  * - 状态枚举定义见 `types/aiChat/provider.ts` 的 `MediaInputSupport`；
  * - 状态容器与在途探测登记见 `cache/workers/aiChat/mediaInputSupport.ts`；
- * - 副作用执行与状态写回见 `aiChat/ai/mediaInputSupport.ts`。
+ * - 副作用执行与状态写回见 `workers/aiChat/ai/mediaInputSupport.ts`。
  */
 
 /**

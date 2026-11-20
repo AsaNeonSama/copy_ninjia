@@ -165,7 +165,7 @@ export interface MiniAppChatTranslateTargetItem {
   readonly language: MiniAppTranslateLanguage;
 }
 
-/** `GET /api/chats/:chatId/targets` 返回的本群问答对、追着删目标与追着翻目标完整管理视图。 */
+/** `GET /api/chats/targets` 返回的本群问答对、追着删目标与追着翻目标完整管理视图。 */
 export interface MiniAppChatTargetsView {
   readonly chatId: number;
   /** 本群已登记的问答对列表。 */
@@ -188,7 +188,7 @@ export interface MiniAppChatTargetsView {
   readonly isTranslationEnabled: boolean;
 }
 
-/** `POST /api/chats/:chatId/targets` 支持的变更动作枚举。 */
+/** `POST /api/chats/targets` 支持的变更动作枚举。 */
 export type MiniAppChatTargetsMutationAction =
   | "setQa"
   | "removeQa"
@@ -197,14 +197,14 @@ export type MiniAppChatTargetsMutationAction =
   | "addTranslateTarget"
   | "removeTranslateTarget";
 
-/** `POST /api/chats/:chatId/targets` 群内问答对、追着删目标与追着翻目标增删请求载荷。 */
+/** `POST /api/chats/targets` 群内问答对、追着删目标与追着翻目标增删请求载荷。 */
 export interface MiniAppChatTargetsMutationRequest {
   readonly action: MiniAppChatTargetsMutationAction;
   /** 问题文本（`setQa` / `removeQa` 必填）。 */
   readonly q?: string;
   /** 答案文本（`setQa` 必填）。 */
   readonly a?: string;
-  /** 目标身份参数文本，支持用户/频道数字 ID 或 `@username`（`addDeleteTarget` / `addTranslateTarget` 必填）。 */
+  /** 目标身份参数文本，仅支持用户正整数 ID 或 `-100...` 频道 ID（`addDeleteTarget` / `addTranslateTarget` 必填）。 */
   readonly target?: string;
   /** 待移除的目标数字 ID（`removeDeleteTarget` / `removeTranslateTarget` 必填）。 */
   readonly id?: number;
@@ -212,7 +212,7 @@ export interface MiniAppChatTargetsMutationRequest {
   readonly language?: MiniAppTranslateLanguage;
 }
 
-/** `POST /api/chats/:chatId/targets` 变更执行结果。 */
+/** `POST /api/chats/targets` 变更执行结果。 */
 export interface MiniAppChatTargetsMutationResult {
   readonly ok: boolean;
   /** 服务端返回的英文状态码字串，由前端映射为多语言提示。 */

@@ -13,10 +13,10 @@ const sendTemporaryMessageFromMain = mock(async (
   messageId: 555,
   sentAt: 1_500,
 }));
-const errorLogs: string[] = [];
+const errorLogs: unknown[][] = [];
 
 mock.module("../../../packages/infra/logger", () => ({
-  logger: loggerStub({ error(message: unknown): void { errorLogs.push(String(message)); } }),
+  logger: loggerStub({ error(...args: unknown[]): void { errorLogs.push(args); } }),
 }));
 mock.module("../../../packages/infra/telegram", () => ({
   deleteMessage,
@@ -58,6 +58,7 @@ function bundle(): AdMessageBundle {
         messageId: 11,
         seq: 1,
         text: "加我",
+        senderText: "加我",
         directText: "加我",
         receivedAt: 1_000,
         withinReferencedWarning: false,
@@ -70,6 +71,7 @@ function bundle(): AdMessageBundle {
         messageId: 12,
         seq: 2,
         text: "微信 xxx",
+        senderText: "微信 xxx",
         directText: "微信 xxx",
         receivedAt: 1_100,
         withinReferencedWarning: false,
@@ -141,6 +143,7 @@ describe("广告处置副作用", () => {
           messageId: 21,
           seq: 1,
           text: "",
+          senderText: "",
           directText: "",
           receivedAt: 1_000,
           withinReferencedWarning: false,
@@ -200,6 +203,7 @@ describe("广告处置副作用", () => {
         messageId: 12,
         seq: 2,
         text: "微信 xxx",
+        senderText: "微信 xxx",
         directText: "微信 xxx",
         receivedAt: 1_100,
         withinReferencedWarning: false,
@@ -212,6 +216,7 @@ describe("广告处置副作用", () => {
         messageId: 13,
         seq: 3,
         text: "带你上岸",
+        senderText: "带你上岸",
         directText: "带你上岸",
         receivedAt: 1_200,
         withinReferencedWarning: false,
@@ -282,9 +287,10 @@ describe("广告处置副作用", () => {
     expect(events).toHaveLength(1);
     expect(deleteMessages).not.toHaveBeenCalled();
     expect(deleteMessage).not.toHaveBeenCalled();
-    expect(errorLogs.some((message: string): boolean =>
-      message.includes("known to lack can_delete_messages")
-    )).toBeTrue();
+    expect(errorLogs).toContainEqual([
+      "Ad disposal skipped deleting messages; the bot is known to lack can_delete_messages there.",
+      { chatId: -1001, messageCount: expect.any(Number) },
+    ]);
   });
 
   test("Telegram 批量删除明确失败时只汇总一条权限诊断", async (): Promise<void> => {
@@ -298,14 +304,18 @@ describe("广告处置副作用", () => {
     });
 
     expect(deleteMessages).toHaveBeenCalledTimes(1);
-    expect(errorLogs.some((message: string): boolean =>
-      message.includes("could not delete 1 batch(es)")
-    )).toBeTrue();
+    expect(errorLogs).toContainEqual([
+      expect.stringContaining("Ad disposal could not delete message batches"),
+      { chatId: -1001, failedBatchCount: 1, messageCount: 2 },
+    ]);
   });
 
   test("回投通道已关闭时删消息照做，只记一行错误日志", async () => {
     await disposeAdSender({ bundle: bundle(), judged: bundle().entries, verdict: { isAd: true, reason: "卖号" } });
-    expect(errorLogs[0]).toContain("main-thread channel is closed");
+    expect(errorLogs).toEqual([[
+      expect.stringContaining("main-thread channel is closed"),
+      { chatId: -1001, senderId: 7 },
+    ]]);
     // 那一串确实是广告，删除照做。
     expect(deleteMessages).toHaveBeenCalledTimes(1);
     // 拉黑与各群封禁不会发生，播报也不发。
@@ -354,6 +364,7 @@ describe("广告处置副作用", () => {
       messageId: 556,
       seq: 3,
       text: "警告后回复",
+      senderText: "警告后回复",
       directText: "警告后回复",
       // 本机时间早于发送回执也不影响 Telegram 群内的权威消息顺序。
       receivedAt: 1_400,
@@ -418,9 +429,10 @@ describe("广告处置副作用", () => {
       AD_DETECT_MAX_IN_FLIGHT
     );
     expect(deleteMessages).not.toHaveBeenCalled();
-    expect(errorLogs.some((message: string): boolean =>
-      message.includes("cleanup task ceiling is full")
-    )).toBeTrue();
+    expect(errorLogs).toContainEqual([
+      "Ad detection skipped deleting referenced-ad messages; the cleanup task ceiling is full.",
+      { chatId: -1001, senderId: 7, skippedCount: 2 },
+    ]);
   });
 
   test("引用广告清理异常被统一记录，并在结算后释放任务槽位", async (): Promise<void> => {
@@ -437,9 +449,11 @@ describe("广告处置副作用", () => {
     await Promise.allSettled(tasks);
     await Bun.sleep(0);
 
-    expect(errorLogs.some((message: string): boolean =>
-      message.includes("Unexpected error while deleting referenced ad messages")
-    )).toBeTrue();
+    expect(errorLogs).toContainEqual([
+      "Unexpected error while deleting referenced ad messages:",
+      { chatId: -1001, senderId: 7 },
+      failure,
+    ]);
     expect(inFlightReferencedAdCleanupTasks.size).toBe(0);
   });
 

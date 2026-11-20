@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, utimesSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  adoptRandomImageDirectory,
   deleteRandomImageFile,
-  ensureRandomImageDirectory,
+  inspectRandomImageDirectory,
   isRandomImageDirectory,
   listRandomImageGalleryEntries,
   pickRandomImage,
@@ -35,29 +36,60 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-describe("ensureRandomImageDirectory", () => {
-  test("目录不存在时逐级创建", async () => {
+/** 检查并接管随机图库目录（等价于启动阶段的 `inspectRandomImageDirectory` + `adoptRandomImageDirectory`）。 */
+async function prepareRandomImageDir(directory: string): Promise<void> {
+  adoptRandomImageDirectory(directory, await inspectRandomImageDirectory(directory));
+}
+
+describe("inspectRandomImageDirectory / adoptRandomImageDirectory", () => {
+  test("目录不存在时 inspectRandomImageDirectory 不创建目录、不改写缓存；adoptRandomImageDirectory 才建目录并填充两边缓存", async () => {
     const directory: string = join(temporaryRoot(), "nested", "images");
-    await ensureRandomImageDirectory(directory);
+    const inspection = await inspectRandomImageDirectory(directory);
+    expect(inspection).toEqual({
+      directory,
+      exists: false,
+      names: [],
+      galleryEntries: [],
+    });
+    expect(existsSync(directory)).toBeFalse();
+    expect(randomImageDirectoryCache.current).toBeNull();
+    expect(randomImageGalleryCache.current).toBeNull();
+
+    adoptRandomImageDirectory(directory, inspection);
     expect((await Bun.file(directory).stat()).isDirectory()).toBe(true);
+    expect(randomImageDirectoryCache.current?.directory).toBe(directory);
+    expect(randomImageDirectoryCache.current?.names).toEqual([]);
+    expect(randomImageGalleryCache.current?.directory).toBe(directory);
+    expect(randomImageGalleryCache.current?.entries).toEqual([]);
   });
 
-  test("已存在的目录与指向目录的符号链接原样放行", async () => {
+  test("已存在的目录与指向目录的符号链接在 inspect 时原样放行且不触碰缓存", async () => {
     const root: string = temporaryRoot();
     const real: string = join(root, "real");
     mkdirSync(real);
-    await Bun.write(join(real, `${"a".repeat(64)}.png`), "x");
+    const fileName: string = `${"a".repeat(64)}.png`;
+    await Bun.write(join(real, fileName), "x");
     const link: string = join(root, "link");
     symlinkSync(real, link);
-    await ensureRandomImageDirectory(real);
-    await ensureRandomImageDirectory(link);
-    expect(await Bun.file(join(real, `${"a".repeat(64)}.png`)).text()).toBe("x");
+
+    const realInspection = await inspectRandomImageDirectory(real);
+    const linkInspection = await inspectRandomImageDirectory(link);
+    expect(realInspection.exists).toBeTrue();
+    expect(realInspection.names).toEqual([fileName]);
+    expect(linkInspection.exists).toBeTrue();
+    expect(linkInspection.names).toEqual([fileName]);
+    expect(randomImageDirectoryCache.current).toBeNull();
+    expect(randomImageGalleryCache.current).toBeNull();
+
+    await prepareRandomImageDir(real);
+    await prepareRandomImageDir(link);
+    expect(await Bun.file(join(real, fileName)).text()).toBe("x");
   });
 
   test("路径是文件时拒绝，诊断写明 assets.json、字段与解析后的路径", async () => {
     const file: string = join(temporaryRoot(), "images");
     await Bun.write(file, "not a directory");
-    await expect(ensureRandomImageDirectory(file)).rejects.toThrow(
+    await expect(inspectRandomImageDirectory(file)).rejects.toThrow(
       `${ASSETS_CONFIG_PATH}: ${RANDOM_H_IMAGE_DIR_FIELD} must be an accessible existing or creatable directory (resolved to ${file}).`
     );
   });
@@ -65,15 +97,24 @@ describe("ensureRandomImageDirectory", () => {
   test("上级路径是文件时拒绝", async () => {
     const file: string = join(temporaryRoot(), "parent");
     await Bun.write(file, "x");
-    await expect(ensureRandomImageDirectory(join(file, "images"))).rejects.toThrow(
+    await expect(inspectRandomImageDirectory(join(file, "images"))).rejects.toThrow(
       `${RANDOM_H_IMAGE_DIR_FIELD} must be an accessible existing or creatable directory`
     );
   });
 
-  test("目录不存在且创建失败时拒绝（procfs 不允许建目录，root 也一样）", async () => {
-    await expect(ensureRandomImageDirectory("/proc/copy-ninjia-random-image-test/images")).rejects.toThrow(
+  test("目录不存在且不可创建时拒绝（procfs 与只读上级目录，root 也一样）", async () => {
+    await expect(inspectRandomImageDirectory("/proc/copy-ninjia-random-image-test/images")).rejects.toThrow(
       `${RANDOM_H_IMAGE_DIR_FIELD} must be an accessible existing or creatable directory`
     );
+    const readOnlyParent: string = join(temporaryRoot(), "ro-parent");
+    mkdirSync(readOnlyParent, { mode: 0o555 });
+    try {
+      await expect(inspectRandomImageDirectory(join(readOnlyParent, "images"))).rejects.toThrow(
+        `${RANDOM_H_IMAGE_DIR_FIELD} must be an accessible existing or creatable directory`
+      );
+    } finally {
+      chmodSync(readOnlyParent, 0o755);
+    }
   });
 });
 
@@ -248,7 +289,7 @@ describe("收图写盘", () => {
     // 目标名已被一个目录占着，rename 会失败；目录不是普通文件，exists() 为 false。
     const target: string = `${Bun.SHA256.hash(JPEG, "hex")}.jpg`;
     mkdirSync(join(root, target));
-    await expect(storeRandomImage(root, JPEG)).rejects.toThrow();
+    await expect(storeRandomImage(root, JPEG)).rejects.toThrow("EISDIR");
     expect(readdirSync(root)).toEqual([target]);
   });
 
@@ -268,7 +309,7 @@ test("专用图库拒绝非法名称、扩展名、子目录与文件链接，�
     const root: string = temporaryRoot();
     const path: string = join(root, name);
     await Bun.write(path, "preserve");
-    await expect(ensureRandomImageDirectory(root)).rejects.toThrow(`${path}: ${RANDOM_H_IMAGE_DIR_FIELD}`);
+    await expect(inspectRandomImageDirectory(root)).rejects.toThrow(`${path}: ${RANDOM_H_IMAGE_DIR_FIELD}`);
     expect(await Bun.file(path).text()).toBe("preserve");
   }
   for (const link of [true, false]) {
@@ -276,7 +317,7 @@ test("专用图库拒绝非法名称、扩展名、子目录与文件链接，�
     const path: string = join(root, `${"a".repeat(64)}.png`);
     if (link) symlinkSync(join(root, "absent"), path);
     else mkdirSync(path);
-    await expect(ensureRandomImageDirectory(root)).rejects.toThrow(path);
+    await expect(inspectRandomImageDirectory(root)).rejects.toThrow(path);
     expect(readdirSync(root)).toEqual([`${"a".repeat(64)}.png`]);
   }
 });
@@ -284,10 +325,10 @@ test("专用图库拒绝非法名称、扩展名、子目录与文件链接，�
 test("专用图库启动检查命名而不重算内容，悬空目录根拒绝", async () => {
   const root: string = temporaryRoot();
   for (const extension of ["jpg", "jpeg", "png", "WEBP"]) await Bun.write(join(root, `${"a".repeat(64)}.${extension}`), "not read during validation");
-  await ensureRandomImageDirectory(root);
+  await prepareRandomImageDir(root);
   const link: string = join(temporaryRoot(), "dangling");
   symlinkSync(join(root, "absent"), link);
-  await expect(ensureRandomImageDirectory(link)).rejects.toThrow(RANDOM_H_IMAGE_DIR_FIELD);
+  await expect(inspectRandomImageDirectory(link)).rejects.toThrow(RANDOM_H_IMAGE_DIR_FIELD);
 });
 
 /**
@@ -333,7 +374,7 @@ describe("双缓存（字典序升序 vs 修改时间降序）与同步维护", 
     setMtime(join(root, nameB), 3_000);
     const expected: readonly string[] = [nameB, nameA, nameD, nameC];
 
-    await ensureRandomImageDirectory(root);
+    await prepareRandomImageDir(root);
     expect(randomImageDirectoryCache.current?.names).toEqual([nameA, nameB, nameC, nameD]);
     expect(galleryCacheNames()).toEqual([...expected]);
     expect((await listRandomImageGalleryEntries(root))?.map((entry): string => entry.fileName)).toEqual([...expected]);
@@ -344,7 +385,7 @@ describe("双缓存（字典序升序 vs 修改时间降序）与同步维护", 
 
   test("storeRandomImage 新增时两边按各自顺序插入，重复入库不改变图库缓存位置", async () => {
     const root: string = temporaryRoot();
-    await ensureRandomImageDirectory(root);
+    await prepareRandomImageDir(root);
     expect(randomImageDirectoryCache.current?.names).toEqual([]);
     expect(galleryCacheNames()).toEqual([]);
 
@@ -360,20 +401,20 @@ describe("双缓存（字典序升序 vs 修改时间降序）与同步维护", 
 
   test("existing 路径按真实修改时间补入缓存外的已有文件，同修改时间时排在已有项之前", async () => {
     const root: string = temporaryRoot();
-    await ensureRandomImageDirectory(root);
+    await prepareRandomImageDir(root);
     const png: string = await storeNew(root, PNG);
     const jpeg: string = await storeNew(root, JPEG);
 
     setMtime(join(root, jpeg), 2_000);
     setMtime(join(root, png), 1_000);
-    await ensureRandomImageDirectory(root);
+    await prepareRandomImageDir(root);
     expect(galleryCacheNames()).toEqual([jpeg, png]);
     randomImageGalleryCache.current!.entries.splice(0, 1);
     await storeRandomImage(root, JPEG);
     expect(galleryCacheNames()).toEqual([jpeg, png]);
 
     setMtime(join(root, jpeg), 1_000);
-    await ensureRandomImageDirectory(root);
+    await prepareRandomImageDir(root);
     const [earlierName, laterName]: string[] = [png, jpeg].sort();
     expect(galleryCacheNames()).toEqual([earlierName!, laterName!]);
     randomImageGalleryCache.current!.entries.splice(1, 1);
@@ -383,7 +424,7 @@ describe("双缓存（字典序升序 vs 修改时间降序）与同步维护", 
 
   test("statRandomImageFile、deleteRandomImageFile 与 pickRandomImage 探测到文件消失或删除时同步剔除两边缓存", async () => {
     const root: string = temporaryRoot();
-    await ensureRandomImageDirectory(root);
+    await prepareRandomImageDir(root);
     const png: string = await storeNew(root, PNG);
     const jpeg: string = await storeNew(root, JPEG);
 
@@ -405,7 +446,7 @@ describe("双缓存（字典序升序 vs 修改时间降序）与同步维护", 
 
   test("目录被删除后 isRandomImageDirectory 将两边缓存置回 null", async () => {
     const root: string = temporaryRoot();
-    await ensureRandomImageDirectory(root);
+    await prepareRandomImageDir(root);
     await storeNew(root, JPEG);
     rmSync(root, { recursive: true, force: true });
     expect(await isRandomImageDirectory(root)).toBe(false);
@@ -415,7 +456,7 @@ describe("双缓存（字典序升序 vs 修改时间降序）与同步维护", 
 
   test("目标被替换为符号链接时 storeRandomImage 从两边缓存剔除；图库缓存为 null 时只维护字典序缓存", async () => {
     const root: string = temporaryRoot();
-    await ensureRandomImageDirectory(root);
+    await prepareRandomImageDir(root);
     const png: string = await storeNew(root, PNG);
     const jpeg: string = await storeNew(root, JPEG);
     const externalFile: string = join(temporaryRoot(), "ext.jpg");

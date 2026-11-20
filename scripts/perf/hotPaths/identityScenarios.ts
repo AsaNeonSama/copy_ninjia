@@ -1,9 +1,9 @@
 /**
  * 身份策略 LRU 的每消息热读场景。
  *
- * 每条群消息要在三张身份缓存上读多次：`canBypassFloodControl`
- * （antiRaid/floodControl.ts 的 buildFloodCandidate）、`canBypassAdDetection`
- * 与 `isUserBlocked`（antiRaid/adCandidate.ts 的 buildAdCandidate）。
+ * 每条群消息要在三张身份缓存上读两次：`canBypassFloodControl`
+ * （antiRaid/floodControl.ts 的 buildFloodCandidate）与 `readAdCandidateSenderStatus`
+ * （antiRaid/adCandidate.ts 的 buildAdCandidate，单次缓存查找合并广告检测豁免与黑名单查询）。
  *
  * 场景覆盖 `libs/lruCache.ts` 的侵入式双向链表命中路径：命中只重连节点指针，
  * 不分配对象，也不对底层 Map 做删除后重插。
@@ -18,13 +18,14 @@ import { IDENTITY_READ_CACHE_MAX_ENTRIES } from "../../../packages/consts/identi
 import { DEFAULT_WHITELIST_PERMISSIONS } from "../../../packages/consts/whitelist";
 import { SUPER_ADMIN_USER_ID } from "../../../packages/config/bot";
 import {
-  canBypassAdDetection,
   canBypassFloodControl,
+  readAdCandidateSenderStatus,
 } from "../../../packages/antiRaid/memberFacts";
-import { isUserBlocked } from "../../../packages/infra/blocklist/membership";
 import { LruCache } from "../../../packages/libs/lruCache";
 import { prototypeProbes } from "./jitTiers";
 import type { Scenario } from "./types";
+import type { WhitelistPermissionOrBlocklistStatus } from
+  "../../../packages/infra/identityPolicy/whitelist";
 import type {
   BlocklistEntryData,
   WhitelistEntryData,
@@ -116,8 +117,9 @@ export function createIdentityPermissionReadScenario(): Scenario {
         const id: number = ids[keys[index & KEY_SEQUENCE_MASK]!]!;
         // 与 buildFloodCandidate + buildAdCandidate 在一条群消息上的读法一致。
         if (canBypassFloodControl(id)) checksum += 1;
-        if (canBypassAdDetection(id)) checksum += 1;
-        if (isUserBlocked(id)) checksum += 1;
+        const status: WhitelistPermissionOrBlocklistStatus =
+          readAdCandidateSenderStatus(id);
+        if (status !== "none") checksum += 1;
       }
       return checksum;
     },
@@ -126,7 +128,7 @@ export function createIdentityPermissionReadScenario(): Scenario {
     },
     probes: {
       canBypassFloodControl,
-      isUserBlocked,
+      readAdCandidateSenderStatus,
       ...prototypeProbes("LruCache", LruCache.prototype, ["get"]),
     },
   };

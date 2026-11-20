@@ -39,7 +39,8 @@ mock.module("../../packages/infra/telegram", () => ({
 }));
 
 const targetChatId = -1001234567890;
-let chatState: { isTranslationEnabled?: boolean } = {};
+let activeProxyTarget: number | undefined = targetChatId;
+let chatState: { isTranslationEnabled?: boolean; isInitEnabled?: boolean } = { isInitEnabled: true };
 // g-auth.json 的可用性；坏掉时自动复读退化成普通复制，不假装翻译过。
 let jaReadiness: { ok: true } | { ok: false; failure: { file: string; reason: string } } = { ok: true };
 mock.module("../../packages/config/readiness", () => ({
@@ -57,7 +58,7 @@ mock.module("../../packages/infra/storage/stateStore", () => ({
 }));
 mock.module("../../packages/infra/chatStateStorage", () => ({
   disableChatStateSwitch: disableChatStateSwitchMock,
-  getActiveProxySendTarget: () => targetChatId,
+  getActiveProxySendTarget: () => activeProxyTarget,
   getChatState: () => chatState,
   getOrCreateChatState: () => ({}),
   getChatStateCache: (): ReadonlyMap<number, unknown> => new Map(),
@@ -127,7 +128,8 @@ function eitherNotice(pick: (texts: typeof NOTICE_TEXTS) => string): string[] {
 
 describe("/send 私聊中转权限", () => {
   beforeEach(() => {
-    chatState = {};
+    activeProxyTarget = targetChatId;
+    chatState = { isInitEnabled: true };
     jaReadiness = { ok: true };
     copyMessageMock.mockClear();
     copyMessageMock.mockImplementation(async (): Promise<number | undefined> => 42);
@@ -182,6 +184,8 @@ describe("/send 私聊中转权限", () => {
 
 describe("/send 代发的 TTS 请求", () => {
   beforeEach(() => {
+    activeProxyTarget = targetChatId;
+    chatState = { isInitEnabled: true };
     copyMessageMock.mockClear();
     sendMessageMock.mockClear();
     sendVoiceWithResultMock.mockReset();
@@ -313,5 +317,33 @@ describe("/send 代发的 TTS 请求", () => {
     expect(sendMessageMock).not.toHaveBeenCalled();
 
     expect(disableChatStateSwitchMock).not.toHaveBeenCalled();
+  });
+
+  test("合成期间关闭 /send 或 /init 时取消发送语音并私聊告知超管", async () => {
+    for (const reason of ["send-closed", "send-switched", "init-disabled"] as const) {
+      sendMessageMock.mockClear();
+      sendVoiceWithResultMock.mockClear();
+      activeProxyTarget = targetChatId;
+      chatState = { isInitEnabled: true };
+      const pending: PromiseWithResolvers<VoiceSynthesisResult> = Promise.withResolvers<VoiceSynthesisResult>();
+      synthesizeVoiceMock.mockImplementationOnce((): Promise<VoiceSynthesisResult> => pending.promise);
+
+      await handleIncomingMessageMiddleware(codeBlockCtx(JSON.stringify({ type: "tts", text: "hi" })));
+      const job: Promise<void> = deferredTasks.shift()!();
+
+      if (reason === "send-closed") activeProxyTarget = undefined;
+      else if (reason === "send-switched") activeProxyTarget = targetChatId - 1;
+      else chatState = { isInitEnabled: false };
+
+      pending.resolve({
+        ok: true,
+        voice: { bytes: VOICE_BYTES, durationSeconds: 2, fileName: VOICE_FILE },
+      });
+      await job;
+
+      expect(sendVoiceWithResultMock).not.toHaveBeenCalled();
+      expect(sendMessageMock).toHaveBeenCalledTimes(1);
+      expect(eitherNotice((texts) => texts.proxyTtsTargetInactive(targetChatId))).toContain(noticeTexts()[0]!);
+    }
   });
 });

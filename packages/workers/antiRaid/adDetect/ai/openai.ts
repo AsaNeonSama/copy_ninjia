@@ -8,10 +8,11 @@
  */
 
 import OpenAI from "openai";
+import { adDetectStopping } from "../../../../cache/workers/antiRaid/adDetect";
 import { adDetectOpenAiClientHolder } from "../../../../cache/workers/antiRaid/openai";
 import { logger } from "../../../../infra/logger";
 import { reportOpenAiChatUsage } from "../../../../infra/aiCacheUsage";
-import { diagnosticWithDetails, finishDetailsJson } from "../../../../aiChat/ai/utils/finishDetails";
+import { finishDetailsJson } from "../../../../aiProviders/finishDetails";
 import { getAdDetectAgentConfig } from "../../../../config/agent";
 import {
   AD_DETECT_OPENAI_REQUEST_MAX_RETRIES,
@@ -48,12 +49,14 @@ function getAdDetectOpenAiClient(): OpenAI {
 interface OpenAiAdDetectAttempt {
   /** 模型正文；空串表示这一轮什么都没产出。 */
   readonly body: string;
-  /** 原样的 `finish_reason`；`length` 表示额度用尽、正文多半只有半截。choices 为空时为 undefined。 */
-  readonly finishReason: string | undefined;
-  /** `message.refusal` 的诊断串 `{ refusal }`（见 aiChat/ai/utils/finishDetails.ts）；没有拒答时为 undefined。 */
-  readonly finishDetails: string | undefined;
-  /** 本次响应消耗的推理 token 数；兼容端点未返回时为 `"?"`。 */
-  readonly reasoningTokens: number | "?";
+  /** 出现非空 `message.refusal`（拒答内容，禁止重采样）。 */
+  readonly refused: boolean;
+  /** 原样的 `finish_reason`；`length` 表示额度用尽、正文多半只有半截。choices 为空或缺失时为 null。 */
+  readonly finishReason: string | null;
+  /** `message.refusal` 的诊断串 `{ refusal }`（见 aiProviders/finishDetails.ts）；没有拒答时为 null。 */
+  readonly finishDetails: string | null;
+  /** 本次响应消耗的推理 token 数；兼容端点未返回时为 null。 */
+  readonly reasoningTokens: number | null;
 }
 
 /**
@@ -84,30 +87,35 @@ async function attemptOpenAiAdDetectJson({
       });
     reportOpenAiChatUsage({ capability: "ad_detect", model, usage: completion.usage });
     const choice: OpenAI.Chat.Completions.ChatCompletion.Choice | undefined = completion.choices[0];
-    // 兼容端点可能不带 refusal 字段。
+    // 兼容端点可能不带 refusal 字段；出现非空拒答文本时按拒答收尾并禁止重采样。
     const refusal: string | null | undefined = choice?.message.refusal;
+    const refused: boolean = typeof refusal === "string" && refusal.trim().length > 0;
     return {
       body: choice?.message.content ?? "",
-      finishReason: choice?.finish_reason,
-      finishDetails: typeof refusal === "string" ? finishDetailsJson({ refusal }) : undefined,
-      reasoningTokens: completion.usage?.completion_tokens_details?.reasoning_tokens ?? "?",
+      refused,
+      finishReason: choice?.finish_reason ?? null,
+      finishDetails: typeof refusal === "string" ? (finishDetailsJson({ refusal }) ?? null) : null,
+      reasoningTokens: completion.usage?.completion_tokens_details?.reasoning_tokens ?? null,
     };
   } catch (error: unknown) {
     if (error instanceof OpenAI.APIError) {
       // APIError.message 已包含 HTTP 状态码前缀。
-      logger.error(`${errorLabel} failed: ${error.message}`);
+      logger.error(
+        "Ad detection API request failed.",
+        { errorLabel, errorMessage: error.message }
+      );
     } else {
-      logger.error(`Error calling ${errorLabel}:`, error);
+      logger.error("Ad detection request failed:", { errorLabel }, error);
     }
     return null;
   }
 }
 
 /**
- * 发送 JSON object 模式的 chat completion 请求；响应正文为空或被截断时按
- * AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS 有界重采样。
+ * 发送 JSON object 模式的 chat completion 请求；出现非空 `refusal` 立即放弃不重采样，
+ * 响应正文为空或被截断时按 `AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS` 有界重采样，停机期间放弃第 2 轮重采样。
  * @param params 结构化广告判定请求参数。
- * @returns 可用的模型 JSON 响应正文；重试耗尽或请求失败时返回 null。
+ * @returns 可用的模型 JSON 响应正文；拒答、重试耗尽或请求失败时返回 null。
  */
 export async function requestOpenAiAdDetectJson(
   params: AdDetectJsonRequestParams
@@ -115,12 +123,23 @@ export async function requestOpenAiAdDetectJson(
   return requestAdDetectJsonWithRetry<OpenAiAdDetectAttempt>({
     attemptRequest: (): Promise<OpenAiAdDetectAttempt | null> => attemptOpenAiAdDetectJson(params),
     extractUsableBody: (result: OpenAiAdDetectAttempt): string | null =>
-      result.finishReason !== "length" && result.body.trim().length > 0 ? result.body : null,
+      !result.refused && result.finishReason !== "length" && result.body.trim().length > 0
+        ? result.body
+        : null,
+    canRetry: (result: OpenAiAdDetectAttempt): boolean => !result.refused,
+    shouldContinue: (): boolean => !adDetectStopping.current,
     logExhausted: (result: OpenAiAdDetectAttempt, attempts: number): void => {
       logger.error(
-        `${params.errorLabel} produced no usable body in ${attempts} attempt(s) ` +
-        `(${diagnosticWithDetails(`finish_reason=${result.finishReason ?? "?"}`, result.finishDetails)}, ` +
-        `hasPartialText=${result.body.length > 0}, reasoning_tokens=${result.reasoningTokens}, max_tokens=${params.maxOutputTokens}).`
+        "Ad detection request produced no usable body.",
+        {
+          errorLabel: params.errorLabel,
+          attempts,
+          finishReason: result.finishReason,
+          finishDetails: result.finishDetails,
+          hasPartialText: result.body.length > 0,
+          reasoningTokens: result.reasoningTokens,
+          maxTokens: params.maxOutputTokens,
+        }
       );
     },
   });

@@ -5,8 +5,8 @@
  *   （`tone` 拼接在基础朗读风格之后）。非整条代码块、非合法 JSONC 或 `type !== "tts"` 的消息返回 `none`，照常原样代发。
  * - **校验与异步执行**：`type === "tts"` 但字段或长度不合法时按格式错误拒绝；接纳后提交给 `commands/deferredCommands.ts`
  *   后台合成与发送，不阻塞当前 update（队列满时提示稍后再试）。
- * - **错误反馈**：`agent.tts` 未配置、每日预留额度（`agent.tts.daily_reserve_quota`，与 cron 共用）耗尽或合成/发送失败时，
- *   经 `sendProxyTtsNotice` 在私聊回复提示（不挂延迟删除），代发会话保持开启。
+ * - **错误反馈**：`agent.tts` 未配置、每日预留额度（`agent.tts.daily_reserve_quota`，与 cron 共用）耗尽、
+ *   合成期间代发会话或目标群 `/init` 已关闭，或合成/发送失败时，经 `sendProxyTtsNotice` 在私聊回复提示（不挂延迟删除）。
  */
 
 import type { Message, MessageEntity } from "grammy/types";
@@ -19,6 +19,7 @@ import {
 } from "../../consts/aiChat/voiceMessage";
 import { PROXY_TTS_REQUEST_KEYS, PROXY_TTS_REQUEST_TYPE } from "../../consts/proxySend";
 import { chatAtmosphere } from "../../infra/atmosphere";
+import { getActiveProxySendTarget, getChatState } from "../../infra/chatStateStorage";
 import { logger } from "../../infra/logger";
 import { sendMessage, sendVoiceWithResult } from "../../infra/telegram";
 import { currentUpdateAbortSignal } from "../../infra/updateContext";
@@ -120,7 +121,18 @@ function synthesisFailureNotice(targetChatId: number, reason: VoiceSynthesisFail
 }
 
 /**
- * 延迟执行器里的一次合成与发送；取消时静默收尾，其余失败回一句提示。
+ * 读取可选 `AbortSignal` 的取消态，避免控制流收窄掩盖异步等待期间的取消。
+ *
+ * @param signal 可选的取消信号
+ * @returns 信号已取消时返回 `true`
+ */
+function isSignalAborted(signal: AbortSignal | undefined): boolean {
+  return signal?.aborted === true;
+}
+
+/**
+ * 延迟执行器里的一次合成与发送；取消时静默收尾，合成期间若 `/send` 会话或目标群 `/init`
+ * 已关闭则放弃发送并私聊告知超管，其余失败回一句提示。
  *
  * @param params 已接纳的私聊 `/send` TTS 代发任务（含发起私聊 `privateChatId`、目标群 `targetChatId`、待合成正文 `text` 与语气 `tone`）。
  */
@@ -129,8 +141,22 @@ async function deliverProxyTts({ privateChatId, targetChatId, text, tone }: Prox
   const result: VoiceSynthesisResult = await synthesizeVoice({ text, tone, signal });
   if (!result.ok) {
     if (result.reason === "aborted") return;
-    logger.error(`/send TTS for chat ${targetChatId} produced no voice: ${result.reason}.`);
+    logger.error("/send TTS produced no voice.", {
+      chatId: targetChatId,
+      reason: result.reason,
+    });
     await sendProxyTtsNotice(privateChatId, synthesisFailureNotice(targetChatId, result.reason));
+    return;
+  }
+  if (isSignalAborted(signal)) return;
+  if (
+    getActiveProxySendTarget() !== targetChatId ||
+    getChatState(targetChatId).isInitEnabled !== true
+  ) {
+    await sendProxyTtsNotice(
+      privateChatId,
+      chatAtmosphere().NOTICE_TEXTS.proxyTtsTargetInactive(targetChatId)
+    );
     return;
   }
   // 代发的目标是整个群，与 copyMessage 一样不带话题，落在 General。
@@ -141,7 +167,7 @@ async function deliverProxyTts({ privateChatId, targetChatId, text, tone }: Prox
     signal,
     duration: result.voice.durationSeconds,
   });
-  if (sent !== undefined || signal?.aborted === true) return;
+  if (sent !== undefined || isSignalAborted(signal)) return;
   await sendProxyTtsNotice(privateChatId, chatAtmosphere().NOTICE_TEXTS.proxyTtsFailed(targetChatId));
 }
 

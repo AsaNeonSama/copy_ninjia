@@ -53,6 +53,18 @@ import type {
 } from "../helpers/gagHarness";
 
 const gag = await import("../../packages/commands/gag");
+const {
+  drainGagRuntime,
+  expireGag,
+  initGagRuntime,
+  requestGagCleanupRetry,
+  resetGagSessions,
+  teardownGagInChat,
+} = await import("../../packages/commands/gag/runtime");
+const {
+  currentUpdateAbortSignal,
+  runWithUpdateAbortSignal,
+} = await import("../../packages/infra/updateContext");
 
 installGagTestHooks();
 
@@ -297,7 +309,7 @@ describe("/gag 与 /ungag 状态机", () => {
     expect(sendEphemeralMessage).toHaveBeenCalledTimes(1);
     expect(lastCommandText()).toContain("已经被管教");
 
-    gag.resetGagSessions();
+    resetGagSessions();
     sendCommandMessage.mockClear();
     for (let index: number = 0; index < GAG_SESSION_MAX; index++) {
       const chatId: number = -10_000 - index;
@@ -317,7 +329,7 @@ describe("/gag 与 /ungag 状态机", () => {
     await gag.handleGagCommand(commandContext());
     expect(sendEphemeralMessage).toHaveBeenCalledTimes(1);
 
-    gag.resetGagSessions();
+    resetGagSessions();
     probeChatMembership.mockImplementationOnce(async (_chatId: number, _userId: number): Promise<boolean> => false);
     await gag.handleGagCommand(commandContext());
     expect(sendEphemeralMessage).toHaveBeenCalledTimes(1);
@@ -352,7 +364,7 @@ describe("/gag 与 /ungag 状态机", () => {
       });
     expect(lastStateText()).toContain(NOTICES.gagChannelEntry);
 
-    gag.resetGagSessions();
+    resetGagSessions();
     resolveCommandTarget.mockResolvedValueOnce({ id: -1002233445566, isChannel: true, title: "测试频道" });
     sendMessage.mockResolvedValueOnce(undefined);
     await gag.handleGagCommand(commandContext({ match: "-1002233445566" }));
@@ -380,6 +392,30 @@ describe("/gag 与 /ungag 状态机", () => {
     }));
     expect(sendCommandMessage).toHaveBeenCalledTimes(1);
     expect(lastCommandText()).toContain("提前解除");
+  });
+
+  test("/ungag 解除回执整键省略 messageThreadId 以落在命令话题，到期解除仍落在发言入口话题", async () => {
+    const ungagSession: GagSession = createSession({ speakNoticeThreadId: 200 });
+    addSession(ungagSession);
+    await gag.handleUngagCommand(commandContext({ match: "@alice" }));
+
+    expect(sendCommandMessage).toHaveBeenCalledTimes(1);
+    const ungagParams: TextMessageParams = sendCommandMessage.mock.calls[0]![0];
+    expect("messageThreadId" in ungagParams).toBeFalse();
+
+    sendCommandMessage.mockClear();
+    const timeoutSession: GagSession = createSession({
+      targetId: 8,
+      speakNoticeThreadId: 200,
+    });
+    addSession(timeoutSession);
+    expireGag(timeoutSession);
+    await settleGagBackgroundTasks();
+
+    expect(sendCommandMessage).toHaveBeenCalledTimes(1);
+    const timeoutParams: TextMessageParams = sendCommandMessage.mock.calls[0]![0];
+    expect("messageThreadId" in timeoutParams).toBeTrue();
+    expect(timeoutParams.messageThreadId).toBe(200);
   });
 
   test("/ungag 必须定向目标，并支持回复、@ 和正负 id", async () => {
@@ -412,7 +448,7 @@ describe("/gag 与 /ungag 状态机", () => {
     });
     addSession(session);
     addSession(second);
-    await gag.teardownGagInChat(session.chatId, "explicitDisable");
+    await teardownGagInChat(session.chatId, "explicitDisable");
     expect(deleteEphemeralMessageWithOutcome).toHaveBeenCalledWith({
       chatId: -1001,
       receiverUserId: 7,
@@ -431,7 +467,7 @@ describe("/gag 与 /ungag 状态机", () => {
       retiredSpeakNoticeMessageId: 57,
     });
     addSession(session);
-    await gag.teardownGagInChat(session.chatId, "explicitDisable");
+    await teardownGagInChat(session.chatId, "explicitDisable");
     const deletedEphemeralIds: number[] = deleteEphemeralMessageWithOutcome.mock.calls.map(
       (call: unknown[]): number => (call[0] as EphemeralDeletionParams).ephemeralMessageId
     );
@@ -446,7 +482,7 @@ describe("/gag 与 /ungag 状态机", () => {
       retiredSpeakNoticeMessageId: 55,
     });
     addSession(session);
-    await gag.teardownGagInChat(session.chatId, "explicitDisable");
+    await teardownGagInChat(session.chatId, "explicitDisable");
     expect(deleteEphemeralMessageWithOutcome).toHaveBeenCalledTimes(1);
     expect(session.retiredSpeakNoticeMessageId).toBe(0);
   });
@@ -461,11 +497,11 @@ describe("/gag 与 /ungag 状态机", () => {
     });
     addSession(session);
 
-    await gag.teardownGagInChat(session.chatId, "explicitDisable");
+    await teardownGagInChat(session.chatId, "explicitDisable");
     expect(sessionFor(session.chatId)).toBe(session);
     expect(session.retiredSpeakNoticeMessageId).toBe(57);
 
-    await gag.teardownGagInChat(session.chatId, "explicitDisable");
+    await teardownGagInChat(session.chatId, "explicitDisable");
     expect(session.retiredSpeakNoticeMessageId).toBe(0);
     expect(gagSessionsByChat.has(session.chatId)).toBeFalse();
   });
@@ -479,7 +515,7 @@ describe("/gag 与 /ungag 状态机", () => {
       const session: GagSession = createSession();
       addSession(session);
 
-      await gag.teardownGagInChat(session.chatId, "explicitDisable");
+      await teardownGagInChat(session.chatId, "explicitDisable");
       expect(sessionFor(session.chatId)).toBe(session);
       expect(session.phase).toBe("ending");
       expect(session.cleanupTimer).not.toBeNull();
@@ -505,7 +541,7 @@ describe("/gag 与 /ungag 状态机", () => {
     const ending: GagSession = createSession();
     addSession(ending);
     deleteEphemeralMessageWithOutcome.mockImplementationOnce(async (): Promise<string> => "failed");
-    await gag.teardownGagInChat(ending.chatId, "lostAuthority");
+    await teardownGagInChat(ending.chatId, "lostAuthority");
     expect(sessionFor(ending.chatId)).toBe(ending);
     expect(ending.cleanupTimer).not.toBeNull();
     const active: GagSession = createSession({ targetId: -1002233445566 });
@@ -514,7 +550,7 @@ describe("/gag 与 /ungag 状态机", () => {
     deleteEphemeralMessageWithOutcome.mockClear();
     deleteMessageWithOutcome.mockClear();
 
-    await gag.teardownGagInChat(ending.chatId, "departed");
+    await teardownGagInChat(ending.chatId, "departed");
 
     expect(deleteEphemeralMessageWithOutcome).not.toHaveBeenCalled();
     expect(deleteMessageWithOutcome).not.toHaveBeenCalled();
@@ -522,14 +558,14 @@ describe("/gag 与 /ungag 状态机", () => {
     expect(gagSessionsByChat.has(ending.chatId)).toBeFalse();
     expect(ending.cleanupTimer).toBeNull();
     expect(active.timer).toBeNull();
-    await expect(gag.drainGagRuntime(1_000)).resolves.toBe("flushed");
+    await expect(drainGagRuntime(1_000)).resolves.toBe("flushed");
   });
 
   test("进程 drain 在 Telegram 总闸关闭前删除提示，并停止接纳新会话", async () => {
     const session: GagSession = createSession();
     addSession(session);
 
-    await expect(gag.drainGagRuntime(1_000)).resolves.toBe("flushed");
+    await expect(drainGagRuntime(1_000)).resolves.toBe("flushed");
     expect(deleteEphemeralMessageWithOutcome).toHaveBeenCalledWith({
       chatId: -1001,
       receiverUserId: 7,
@@ -542,7 +578,7 @@ describe("/gag 与 /ungag 状态机", () => {
     await gag.handleGagCommand(commandContext());
     expect(sendEphemeralMessage).not.toHaveBeenCalled();
 
-    gag.initGagRuntime();
+    initGagRuntime();
     await gag.handleGagCommand(commandContext());
     expect(sendEphemeralMessage).toHaveBeenCalledTimes(1);
   });
@@ -556,7 +592,7 @@ describe("/gag 与 /ungag 状态机", () => {
     );
     const session: GagSession = createSession();
     addSession(session);
-    const teardown: Promise<void> = gag.teardownGagInChat(session.chatId, "explicitDisable");
+    const teardown: Promise<void> = teardownGagInChat(session.chatId, "explicitDisable");
     await Promise.resolve();
     expect(sessionFor(session.chatId)?.phase).toBe("ending");
 
@@ -588,7 +624,7 @@ describe("/gag 与 /ungag 状态机", () => {
     expect(session.endingTask).not.toBeNull();
     expect(sessionFor(session.chatId)).toBe(session);
 
-    const teardown: Promise<void> = gag.teardownGagInChat(session.chatId, "explicitDisable");
+    const teardown: Promise<void> = teardownGagInChat(session.chatId, "explicitDisable");
     await Promise.resolve();
     expect(deleteEphemeralMessageWithOutcome).toHaveBeenCalledTimes(1);
     expect(sessionFor(session.chatId)).toBe(session);
@@ -613,7 +649,7 @@ describe("/gag 与 /ungag 状态机", () => {
       await Promise.resolve();
     }
     expect(finishPublic).toBeDefined();
-    await gag.teardownGagInChat(-1001, "explicitDisable");
+    await teardownGagInChat(-1001, "explicitDisable");
     finishPublic!(56);
     await startingPublic;
     expect(gagSessionsByChat.has(-1001)).toBeFalse();
@@ -638,7 +674,7 @@ describe("/gag 与 /ungag 状态机", () => {
     expect(finishSend).toBeDefined();
     expect(sessionFor(-1001)?.phase).toBe("starting");
 
-    await gag.teardownGagInChat(-1001, "explicitDisable");
+    await teardownGagInChat(-1001, "explicitDisable");
     finishSend!(77);
     await starting;
     expect(gagSessionsByChat.has(-1001)).toBeFalse();
@@ -660,7 +696,8 @@ describe("/gag 与 /ungag 状态机", () => {
       }
     );
 
-    await expect(gag.handleGagCommand(commandContext())).rejects.toThrow();
+    await expect(gag.handleGagCommand(commandContext()))
+      .rejects.toThrow("Telegram update aborted during shutdown.");
     expect(gagSessionsByChat.size).toBe(0);
     expect(deleteMessageWithOutcome).toHaveBeenCalledWith(-1001, 56);
     expect(deleteEphemeralMessageWithOutcome).toHaveBeenCalledWith({
@@ -669,14 +706,14 @@ describe("/gag 与 /ungag 状态机", () => {
       ephemeralMessageId: 91,
     });
 
-    await expect(gag.drainGagRuntime(1_000)).resolves.toBe("flushed");
+    await expect(drainGagRuntime(1_000)).resolves.toBe("flushed");
     expect(deleteEphemeralMessageWithOutcome).toHaveBeenCalledWith({
       chatId: -1001,
       receiverUserId: 7,
       ephemeralMessageId: 91,
     });
     expect(gagSessionsByChat.size).toBe(0);
-    gag.initGagRuntime();
+    initGagRuntime();
   });
 
   test("回归：目标入口没发出去就 abort 时删除公开状态并撤销预约", async () => {
@@ -684,13 +721,14 @@ describe("/gag 与 /ungag 状态机", () => {
       throw new DOMException("Telegram update aborted during shutdown.", "AbortError");
     });
 
-    await expect(gag.handleGagCommand(commandContext())).rejects.toThrow();
+    await expect(gag.handleGagCommand(commandContext()))
+      .rejects.toThrow("Telegram update aborted during shutdown.");
     expect(gagSessionsByChat.size).toBe(0);
     expect(deleteMessageWithOutcome).toHaveBeenCalledWith(-1001, 56);
 
-    await expect(gag.drainGagRuntime(1_000)).resolves.toBe("flushed");
+    await expect(drainGagRuntime(1_000)).resolves.toBe("flushed");
     expect(deleteEphemeralMessageWithOutcome).not.toHaveBeenCalled();
-    gag.initGagRuntime();
+    initGagRuntime();
   });
   /**
    * 目标解析与成员查询之后才同步预约：查询挂起期间别的命令可能已经占位或进入停机，
@@ -745,5 +783,56 @@ describe("/gag 与 /ungag 状态机", () => {
     expect(sendCommandMessage).not.toHaveBeenCalled();
     expect(sendMessage).not.toHaveBeenCalled();
     expect(sendEphemeralMessage).not.toHaveBeenCalled();
+  });
+
+  test("gag 到期定时器、cleanup 重试定时器与旁路任务均脱离触发 update 作用域执行", async () => {
+    jest.useFakeTimers();
+    try {
+      const controller: AbortController = new AbortController();
+      const observedSignals: (AbortSignal | undefined)[] = [];
+      deleteMessageWithOutcome.mockImplementation(async (): Promise<string> => {
+        observedSignals.push(currentUpdateAbortSignal());
+        return "deleted";
+      });
+
+      await runWithUpdateAbortSignal(controller.signal, (): Promise<void> =>
+        gag.handleGagCommand(commandContext({ match: "@alice 5" }))
+      );
+      controller.abort();
+      jest.advanceTimersByTime(5 * 60_000);
+      await settleGagBackgroundTasks();
+      expect(observedSignals).toEqual([undefined]);
+
+      observedSignals.length = 0;
+      const retrySession: GagSession = createSession({ phase: "ending" });
+      addSession(retrySession);
+      let failOnce: boolean = true;
+      deleteMessageWithOutcome.mockImplementation(async (): Promise<string> => {
+        observedSignals.push(currentUpdateAbortSignal());
+        if (failOnce) {
+          failOnce = false;
+          return "failed";
+        }
+        return "deleted";
+      });
+      await runWithUpdateAbortSignal(controller.signal, async (): Promise<void> => {
+        requestGagCleanupRetry(retrySession);
+      });
+      await settleGagBackgroundTasks();
+      jest.advanceTimersByTime(GAG_CLEANUP_RETRY_DELAYS_MS[0]!);
+      await settleGagBackgroundTasks();
+      expect(observedSignals).toEqual([undefined, undefined]);
+
+      observedSignals.length = 0;
+      const expireSession: GagSession = createSession({ targetId: 8 });
+      addSession(expireSession);
+      await runWithUpdateAbortSignal(controller.signal, async (): Promise<void> => {
+        expireGag(expireSession);
+      });
+      await settleGagBackgroundTasks();
+      expect(observedSignals).toEqual([undefined]);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

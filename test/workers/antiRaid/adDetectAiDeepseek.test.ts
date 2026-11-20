@@ -1,7 +1,7 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { loggerStub } from "../../helpers/loggerMock";
 
-const errorLogs: string[] = [];
+const errorLogs: unknown[][] = [];
 const constructions: unknown[] = [];
 const create = mock(async (..._args: unknown[]): Promise<unknown> => ({
   choices: [{ message: { content: "{\"ok\": true}" } }],
@@ -16,7 +16,7 @@ class FakeAPIError extends Error {
 }
 
 mock.module("../../../packages/infra/logger", () => ({
-  logger: loggerStub({ error(message: unknown): void { errorLogs.push(String(message)); } }),
+  logger: loggerStub({ error(...args: unknown[]): void { errorLogs.push(args); } }),
 }));
 mock.module("../../../packages/config/agent", () => ({
   getAdDetectAgentConfig: () => ({
@@ -36,6 +36,7 @@ mock.module("openai", () => {
 });
 
 const { requestOpenAiAdDetectJson } = await import("../../../packages/workers/antiRaid/adDetect/ai/openai");
+const { adDetectStopping } = await import("../../../packages/cache/workers/antiRaid/adDetect");
 const { adDetectOpenAiClientHolder } = await import("../../../packages/cache/workers/antiRaid/openai");
 const { installAiCacheUsageSink } = await import("../../../packages/infra/aiCacheUsage");
 import type { AiCacheUsage } from "../../../packages/types/aiCache";
@@ -58,6 +59,7 @@ function request(overrides: Record<string, unknown> = {}): never {
 }
 
 beforeEach(() => {
+  adDetectStopping.current = false;
   adDetectOpenAiClientHolder.current = null;
   errorLogs.length = 0;
   constructions.length = 0;
@@ -65,6 +67,10 @@ beforeEach(() => {
   create.mockImplementation(async (): Promise<unknown> => ({
     choices: [{ message: { content: "{\"ok\": true}" } }],
   }));
+});
+
+afterEach(() => {
+  adDetectStopping.current = false;
 });
 
 describe("OpenAI 兼容广告检测请求入口", () => {
@@ -136,13 +142,35 @@ describe("OpenAI 兼容广告检测请求入口", () => {
     }));
     await expect(requestOpenAiAdDetectJson(request())).resolves.toBeNull();
     expect(create).toHaveBeenCalledTimes(AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS);
-    expect(errorLogs[0]).toContain(`no usable body in ${AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS} attempt(s)`);
+    expect(errorLogs).toEqual([[
+      "Ad detection request produced no usable body.",
+      {
+        errorLabel: "Test request",
+        attempts: AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS,
+        finishReason: "stop",
+        finishDetails: null,
+        hasPartialText: true,
+        reasoningTokens: null,
+        maxTokens: 256,
+      },
+    ]]);
 
     // choices 数组为空同样按空正文计入重试。
     errorLogs.length = 0;
     create.mockImplementation(async (): Promise<unknown> => ({ choices: [] }));
     await expect(requestOpenAiAdDetectJson(request())).resolves.toBeNull();
-    expect(errorLogs[0]).toContain("no usable body");
+    expect(errorLogs).toEqual([[
+      "Ad detection request produced no usable body.",
+      {
+        errorLabel: "Test request",
+        attempts: AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS,
+        finishReason: null,
+        finishDetails: null,
+        hasPartialText: false,
+        reasoningTokens: null,
+        maxTokens: 256,
+      },
+    ]]);
   });
 
   test("额度被推理吃光时同样重来，最终失败点名截断与两个额度数字", async () => {
@@ -151,20 +179,57 @@ describe("OpenAI 兼容广告检测请求入口", () => {
       usage: { completion_tokens_details: { reasoning_tokens: 64 } },
     }));
     await expect(requestOpenAiAdDetectJson(request())).resolves.toBeNull();
-    // reasoning 占满额度被截断时返回 null，错误日志带 finish_reason/hasPartialText/reasoning_tokens/max_tokens 字段。
-    expect(errorLogs[0]).toContain("(finish_reason=length, hasPartialText=true");
-    expect(errorLogs[0]).toContain("hasPartialText=true");
-    expect(errorLogs[0]).toContain("reasoning_tokens=64");
-    expect(errorLogs[0]).toContain("max_tokens=256");
+    // reasoning 占满额度被截断时返回 null，错误日志带 finishReason/hasPartialText/reasoningTokens/maxTokens 字段。
+    expect(errorLogs).toEqual([[
+      "Ad detection request produced no usable body.",
+      {
+        errorLabel: "Test request",
+        attempts: AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS,
+        finishReason: "length",
+        finishDetails: null,
+        hasPartialText: true,
+        reasoningTokens: 64,
+        maxTokens: 256,
+      },
+    ]]);
   });
 
-  test("拒答时重来，最终失败把 message.refusal 记进诊断", async () => {
+  test("遇到非空 message.refusal 时立即放弃不重试，并把 refusal 记进诊断", async () => {
     create.mockImplementation(async (): Promise<unknown> => ({
-      choices: [{ finish_reason: "stop", message: { content: null, refusal: "I can't help with that." } }],
+      choices: [{ finish_reason: "stop", message: { content: "{\"ad\":false}", refusal: "I can't help with that." } }],
     }));
     await expect(requestOpenAiAdDetectJson(request())).resolves.toBeNull();
-    expect(create).toHaveBeenCalledTimes(AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS);
-    expect(errorLogs[0]).toContain(`finish_reason=stop, details=${JSON.stringify({ refusal: "I can't help with that." })}, hasPartialText=false`);
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(errorLogs).toEqual([[
+      "Ad detection request produced no usable body.",
+      {
+        errorLabel: "Test request",
+        attempts: 1,
+        finishReason: "stop",
+        finishDetails: JSON.stringify({ refusal: "I can't help with that." }),
+        hasPartialText: true,
+        reasoningTokens: null,
+        maxTokens: 256,
+      },
+    ]]);
+  });
+
+  test("空白 refusal 且空正文仍按空正文重试，首轮后进入停机状态则不再发起第 2 轮", async () => {
+    create.mockImplementationOnce(async (): Promise<unknown> => ({
+      choices: [{ finish_reason: "stop", message: { content: "", refusal: "   " } }],
+    }));
+    await expect(requestOpenAiAdDetectJson(request())).resolves.toBe("{\"ok\": true}");
+    expect(create).toHaveBeenCalledTimes(2);
+
+    create.mockClear();
+    errorLogs.length = 0;
+    create.mockImplementationOnce(async (): Promise<unknown> => {
+      adDetectStopping.current = true;
+      return { choices: [{ finish_reason: "stop", message: { content: "" } }] };
+    });
+    await expect(requestOpenAiAdDetectJson(request())).resolves.toBeNull();
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(errorLogs).toEqual([]);
   });
 
   test("请求本身失败时不再自旋：SDK 已按 maxRetries 重试过", async () => {
@@ -176,10 +241,17 @@ describe("OpenAI 兼容广告检测请求入口", () => {
   test("API 报错与未知异常都按 errorLabel 记日志并返回 null", async () => {
     create.mockImplementationOnce((): never => { throw new FakeAPIError("rate limited"); });
     await expect(requestOpenAiAdDetectJson(request())).resolves.toBeNull();
-    expect(errorLogs[0]).toBe("Test request failed: 429 rate limited");
+    expect(errorLogs[0]).toEqual([
+      "Ad detection API request failed.",
+      { errorLabel: "Test request", errorMessage: "429 rate limited" },
+    ]);
 
     create.mockImplementationOnce((): never => { throw new Error("socket hang up"); });
     await expect(requestOpenAiAdDetectJson(request())).resolves.toBeNull();
-    expect(errorLogs[1]).toBe("Error calling Test request:");
+    expect(errorLogs[1]).toEqual([
+      "Ad detection request failed:",
+      { errorLabel: "Test request" },
+      expect.objectContaining({ message: "socket hang up" }),
+    ]);
   });
 });

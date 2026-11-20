@@ -15,12 +15,12 @@ export const COMPACT_BATCH_SIZE: number = 128;
 export const VERBATIM_CONTEXT_MAX: number = COMPACT_BATCH_SIZE * 2;
 /**
  * 逐字转录分层边界的对齐粒度（条），必须整除 COMPACT_BATCH_SIZE。
- * 【较早逐字记录】的长度取本值的整数倍（见 aiChat/ai/utils/chatTranscript.ts 的 buildTieredVerbatimTranscript）。
+ * 【较早逐字记录】的长度取本值的整数倍（见 workers/aiChat/ai/utils/chatTranscript.ts 的 buildTieredVerbatimTranscript）。
  */
 export const TIER_BOUNDARY_ALIGNMENT: number = 32;
 /**
- * 转录已定切点的格宽（条），必须整除 TIER_BOUNDARY_ALIGNMENT（见 aiChat/ai/utils/chatTranscript.ts 的
- * RenderedTranscript.settledOffsets 与 aiChat/anthropic/replySession.ts）。
+ * 转录已定切点的格宽（条），必须整除 TIER_BOUNDARY_ALIGNMENT（见 workers/aiChat/ai/utils/chatTranscript.ts 的
+ * RenderedTranscript.settledOffsets 与 workers/aiChat/anthropic/replySession.ts）。
  */
 export const TRANSCRIPT_SETTLED_SEGMENT_SIZE: number = 8;
 /** 每群保留的冷摘要轮数。 */

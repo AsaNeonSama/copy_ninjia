@@ -2,13 +2,17 @@ import { relative } from "node:path";
 import ts from "typescript";
 import { unwrapExpression } from "./staticAccess";
 import {
+  boundSpySymbol,
   calledFunction,
-  canonicalSymbol,
   collectResetFunctions,
+  describeCallbackParent,
+  enclosingSuiteScope,
+  isDescribeCall,
+  isFunctionLikeDeclaration,
   isInResetFunction,
+  lifecycleHookName,
   mockSymbols,
-  referencedSymbol,
-} from "./testMockReset";
+} from "./testMockShared";
 
 /**
  * 套件级 `spyOn` 恢复门禁：模块顶层、`describe` 一级语句以及 `beforeAll`/`beforeEach` 回调（含经 `test/`
@@ -27,9 +31,6 @@ const CLEANUP_HOOK_FUNCTIONS: ReadonlySet<string> = new Set(["afterAll", "afterE
 
 /** 会创建套件级监听的准备钩子。 */
 const SETUP_HOOK_FUNCTIONS: ReadonlySet<string> = new Set(["beforeAll", "beforeEach"]);
-
-/** `describe` 套件节点名集合，回调内部的一级语句仍视为顶层套件作用域。 */
-const SUITE_FUNCTIONS: ReadonlySet<string> = new Set(["describe"]);
 
 /** `collectTopLevelSpyRestoreProblems` 检查文件顶层 `spyOn` 恢复的参数。 */
 export interface TopLevelSpyRestoreParams {
@@ -66,33 +67,12 @@ interface ScopedSpyCall {
   readonly setupRestores: RestoreSet | undefined;
 }
 
-/**
- * 判断调用目标表达式是否为 `describe` 套件根或其成员/柯里化修饰调用。
- *
- * @param expression 待检查的调用目标表达式
- * @returns 为 `describe` 套件入口时返回 true
- */
-function isDescribeCallee(expression: ts.Expression): boolean {
-  const target: ts.Expression = unwrapExpression(expression);
-  if (ts.isIdentifier(target)) return SUITE_FUNCTIONS.has(target.text);
-  if (ts.isPropertyAccessExpression(target)) {
-    return SUITE_FUNCTIONS.has(target.name.text) || isDescribeCallee(target.expression);
-  }
-  if (ts.isCallExpression(target)) {
-    return isDescribeCallee(target.expression);
-  }
-  return false;
-}
-
-/**
- * 判断调用表达式是否为 `describe(...)`、`describe.each(...)(...)`、`describe.skipIf(...)(...)`
- * 或其命名空间/链式修饰调用。
- *
- * @param call 调用表达式节点
- * @returns 为 `describe` 套件调用时返回 true
- */
-function isDescribeCall(call: ts.CallExpression): boolean {
-  return isDescribeCallee(call.expression);
+/** 顶层 `spyOn` 调用收集结果。 */
+interface TopLevelSpyCallsResult {
+  /** 待检查的顶层 `spyOn` 调用列表。 */
+  readonly calls: readonly ScopedSpyCall[];
+  /** 每个子套件作用域到父套件作用域的映射。 */
+  readonly parentScopeByScope: ReadonlyMap<ts.Node, ts.Node>;
 }
 
 /**
@@ -105,21 +85,6 @@ function isSpyOnCall(call: ts.CallExpression): boolean {
   const callee: ts.Expression = unwrapExpression(call.expression);
   if (ts.isIdentifier(callee)) return callee.text === "spyOn";
   return ts.isPropertyAccessExpression(callee) && callee.name.text === "spyOn";
-}
-
-/**
- * 取生命周期钩子调用（`afterAll(...)`、`<ns>.beforeEach(...)` 等）的钩子名。
- *
- * @param call 调用表达式节点
- * @param hookNames 允许匹配的钩子名集合
- * @returns 命中集合时返回钩子名，否则返回 undefined
- */
-function lifecycleHookName(call: ts.CallExpression, hookNames: ReadonlySet<string>): string | undefined {
-  const callee: ts.Expression = unwrapExpression(call.expression);
-  const name: string | undefined = ts.isIdentifier(callee)
-    ? callee.text
-    : ts.isPropertyAccessExpression(callee) ? callee.name.text : undefined;
-  return name !== undefined && hookNames.has(name) ? name : undefined;
 }
 
 /**
@@ -149,121 +114,6 @@ function isGlobalMockRestoreCall(call: ts.CallExpression): boolean {
 function expectedGlobalRestoreReceiver(methodName: string): string | undefined {
   if (methodName === "restore") return "mock";
   if (methodName === "restoreAllMocks") return "jest";
-  return undefined;
-}
-
-/**
- * 判断函数节点的逻辑父节点是否为包装表达式并向上跳过。
- *
- * @param node 起始父节点
- * @returns 剥离括号、类型断言与 satisfies 后的首个真实父节点
- */
-function unwrapParentNode(node: ts.Node | undefined): ts.Node | undefined {
-  let current: ts.Node | undefined = node;
-  while (
-    current !== undefined &&
-    (ts.isParenthesizedExpression(current) ||
-      ts.isAsExpression(current) ||
-      ts.isTypeAssertionExpression(current) ||
-      ts.isSatisfiesExpression(current) ||
-      ts.isNonNullExpression(current))
-  ) {
-    current = current.parent;
-  }
-  return current;
-}
-
-/**
- * 若节点紧邻包装在一个 `describe` 套件回调内，返回该 `describe` 调用节点。
- *
- * @param node 待检查的 AST 节点
- * @returns 直接所属的 `describe` 调用节点，否则返回 undefined
- */
-function describeCallbackParent(node: ts.FunctionLikeDeclaration): ts.CallExpression | undefined {
-  const parent: ts.Node | undefined = unwrapParentNode(node.parent);
-  if (parent !== undefined && ts.isCallExpression(parent) && isDescribeCall(parent)) {
-    return parent;
-  }
-  return undefined;
-}
-
-/**
- * 判断 AST 节点是否为带独立函数体槽位的声明或表达式节点。
- *
- * @param node 待判断的 AST 节点
- * @returns 为函数声明、函数表达式、箭头函数、方法、存取器或构造函数时返回 `true`
- */
-function isFunctionLikeDeclaration(node: ts.Node): node is ts.FunctionLikeDeclaration {
-  if (ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node)) return true;
-  if (ts.isArrowFunction(node) || ts.isMethodDeclaration(node)) return true;
-  if (ts.isGetAccessorDeclaration(node) || ts.isSetAccessorDeclaration(node)) return true;
-  return ts.isConstructorDeclaration(node);
-}
-
-/** 顶层 `spyOn` 调用收集结果。 */
-interface TopLevelSpyCallsResult {
-  /** 待检查的顶层 `spyOn` 调用列表。 */
-  readonly calls: readonly ScopedSpyCall[];
-  /** 每个子套件作用域到父套件作用域的映射。 */
-  readonly parentScopeByScope: ReadonlyMap<ts.Node, ts.Node>;
-}
-
-/**
- * 返回节点所在的直接套件作用域（所属 `describe` 调用或文件根节点 `SourceFile`）。
- *
- * @param node 待查询的 AST 节点
- * @param source 文件根 AST 节点
- * @returns 所属套件作用域节点
- */
-function enclosingSuiteScope(node: ts.Node, source: ts.SourceFile): ts.Node {
-  for (let current: ts.Node | undefined = node.parent; current !== undefined; current = current.parent) {
-    if (isFunctionLikeDeclaration(current)) {
-      const describeCall: ts.CallExpression | undefined = describeCallbackParent(current);
-      if (describeCall !== undefined) return describeCall;
-    }
-  }
-  return source;
-}
-
-/**
- * 解析顶层 `spyOn(...)`（含 `.mockImplementation(...)` 等链式调用）最终绑定的变量符号。
- *
- * @param checker TypeScript 类型检查器
- * @param spyCall `spyOn(...)` 调用表达式
- * @returns 绑定符号；未赋值给标识符时返回 undefined
- */
-function boundSpySymbol(checker: ts.TypeChecker, spyCall: ts.CallExpression): ts.Symbol | undefined {
-  let current: ts.Node = spyCall;
-  while (current.parent !== undefined) {
-    const parent: ts.Node = current.parent;
-    if (
-      ts.isAsExpression(parent) ||
-      ts.isTypeAssertionExpression(parent) ||
-      ts.isSatisfiesExpression(parent) ||
-      ts.isNonNullExpression(parent) ||
-      ts.isParenthesizedExpression(parent)
-    ) {
-      current = parent;
-      continue;
-    }
-    if (ts.isPropertyAccessExpression(parent) && parent.expression === current && ts.isCallExpression(parent.parent)) {
-      current = parent.parent;
-      continue;
-    }
-    if (ts.isVariableDeclaration(parent) && parent.initializer === current && ts.isIdentifier(parent.name)) {
-      const symbol: ts.Symbol | undefined = checker.getSymbolAtLocation(parent.name);
-      return symbol === undefined ? undefined : canonicalSymbol(checker, symbol);
-    }
-    if (
-      ts.isBinaryExpression(parent) &&
-      parent.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
-      parent.right === current
-    ) {
-      const symbol: ts.Symbol | undefined = referencedSymbol(checker, parent.left);
-      return symbol === undefined ? undefined : canonicalSymbol(checker, symbol);
-    }
-    return undefined;
-  }
   return undefined;
 }
 

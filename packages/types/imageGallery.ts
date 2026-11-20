@@ -50,6 +50,18 @@ export interface RandomImageGalleryCache {
   readonly entries: Readonly<RandomImageGalleryCacheEntry>[];
 }
 
+/** `infra/imageGallery.ts` 只读校验随机图库目录得到的目录状态与有效文件清单（未创建目录，未改写主线程缓存）。 */
+export interface RandomImageDirectoryInspection {
+  /** 待检查或创建的图库目录绝对路径。 */
+  readonly directory: string;
+  /** 检查时目标目录（或指向目录的符号链接）是否已存在于磁盘。 */
+  readonly exists: boolean;
+  /** 目录内已核验的合法普通图片文件名列表（未 sorted 的原始目录顺序，接管时按字典序构建缓存）。 */
+  readonly names: readonly string[];
+  /** 目录内已核验的合法图片元数据项（接管时按修改时间降序构建 Mini App 图库缓存）。 */
+  readonly galleryEntries: readonly Readonly<RandomImageGalleryCacheEntry>[];
+}
+
 /** 图库目录内单张有效图片的文件元数据（infra/imageGallery.ts 的 statRandomImageFile）。 */
 export interface RandomImageEntry {
   /** 图库目录内的文件名（不含路径）。 */

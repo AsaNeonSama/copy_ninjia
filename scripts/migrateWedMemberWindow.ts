@@ -115,8 +115,16 @@ export async function prepareWedMemberWindowMigration({ sourceRoot, outputRoot }
   return result;
 }
 
-if (import.meta.main) {
-  if (Bun.argv.slice(2).length === 1 && Bun.argv[2] === "--help") {
+/**
+ * `/wed` 成员滑窗冷迁移 CLI 执行入口：支持 `--help` 说明输出、正常迁移落盘以及校验/运行失败的退出码映射。
+ *
+ * @param args 命令行参数列表（不含可执行文件与脚本路径）
+ * @returns CLI 退出码（成功或 `--help` 为 `0`，失败为 `1`）
+ */
+export async function runWedMemberWindowMigrationCli(
+  args: readonly string[] = Bun.argv.slice(2)
+): Promise<number> {
+  if (args.length === 1 && args[0] === "--help") {
     console.log("bun run migrate:wed-member-window --source-root <cold-backup> --output-root <new-directory>\n" +
       "Stop the service and verify inactive before taking an external backup of memory/wed/ with ownership, modes and SHA-256.\n" +
       "Only the 17.2.1 format (arrays of member IDs) is accepted; deployments behind 17.2.1 must first upgrade to 17.2.1 and complete its migrations.\n" +
@@ -125,15 +133,20 @@ if (import.meta.main) {
       "Verify output hashes, then manually replace memory/wed/<chatId>.json while stopped.\n" +
       "Restore original ownership/modes from sourceFiles; ensure the service can write memory/wed/ and its files.\n" +
       "Validate configuration and state before startup; retain the backup until service stability is confirmed.");
-  } else {
-    try {
-      const result: WedMemberWindowMigrationResult = await prepareWedMemberWindowMigration(parseSourceOutputRoots(Bun.argv.slice(2)));
-      console.log(`Wed member window migration prepared: ${result.outputRoot}/ready.json. Manual replacement while stopped is required.`);
-    } catch (error: unknown) {
-      console.error(error instanceof InputValidationError
-        ? error.message
-        : "Wed member window migration failed; source backup and incomplete output are retained. No deployment files were replaced.");
-      process.exitCode = 1;
-    }
+    return 0;
   }
+  try {
+    const result: WedMemberWindowMigrationResult = await prepareWedMemberWindowMigration(parseSourceOutputRoots(args));
+    console.log(`Wed member window migration prepared: ${result.outputRoot}/ready.json. Manual replacement while stopped is required.`);
+    return 0;
+  } catch (error: unknown) {
+    console.error(error instanceof InputValidationError
+      ? error.message
+      : "Wed member window migration failed; source backup and incomplete output are retained. No deployment files were replaced.");
+    return 1;
+  }
+}
+
+if (import.meta.main) {
+  process.exitCode = await runWedMemberWindowMigrationCli();
 }

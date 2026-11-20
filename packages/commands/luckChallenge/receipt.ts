@@ -78,7 +78,7 @@ async function confirmLuckReceipt(receipt: string): Promise<void> {
 
 /**
  * 从消息末行与实体元数据验证 HMAC 回执，并把对应 pending 抽签转正。
- * 普通消息同步返回，不创建 Promise；只有携带完整候选回执时才进入异步刷新。
+ * 非文本消息或未携带任何实体时同步短路返回，不创建 Promise；只有携带完整候选回执时才进入异步刷新。
  * @param messageText 消息文本；非文本消息时为 undefined。
  * @param entities 消息附带的实体列表。
  * @returns 命中候选回执时返回异步确认 Promise；普通消息同步返回 undefined。
@@ -87,7 +87,7 @@ export function confirmLuckDraw(
   messageText: string | undefined,
   entities?: readonly MessageEntity[]
 ): Promise<void> | undefined {
-  if (typeof messageText !== "string") return;
+  if (typeof messageText !== "string" || entities === undefined || entities.length === 0) return;
   const lastLineBreak: number = messageText.lastIndexOf("\n");
   if (lastLineBreak < 0) return;
   // 只认标签前缀 + 定长摘要，原回执由同范围的 text_link 实体携带。末行不是回执的

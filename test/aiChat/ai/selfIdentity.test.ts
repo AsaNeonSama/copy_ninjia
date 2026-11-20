@@ -3,13 +3,13 @@ import {
   buildTieredVerbatimTranscript,
   formatBufferedMessageLine,
   formatSpeakerIdentity,
-} from "../../../packages/aiChat/ai/utils/chatTranscript";
-import { buildSelfRecordMessage } from "../../../packages/aiChat/ai/utils/selfRecord";
+} from "../../../packages/workers/aiChat/ai/utils/chatTranscript";
+import { buildSelfRecordMessage } from "../../../packages/aiChat/selfRecord";
 import { SELF_SPEAKER_NAME } from "../../../packages/consts/aiChat/prompts/transcript";
 import { bufferedMessageFixture } from "../../helpers/aiMemoryFixtures";
 import type { BufferedMessage, BufferedReplyReference } from "../../../packages/types/aiChat/memory";
 import type { AiRecordMessage } from "../../../packages/types/aiChat/protocol";
-import type { RenderedTranscript } from "../../../packages/aiChat/ai/utils/chatTranscript";
+import type { RenderedTranscript } from "../../../packages/workers/aiChat/ai/utils/chatTranscript";
 
 function ownMessage(): BufferedMessage {
   return bufferedMessageFixture({

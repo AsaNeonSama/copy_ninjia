@@ -1,52 +1,13 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { loggerStub } from "../../helpers/loggerMock";
-import { waitUntil } from "../../helpers/waitUntil";
 import type { AdDetectJsonRequestParams } from "../../../packages/types/antiRaid/adDetect";
-import type { GeminiContextCacheRegistry } from "../../../packages/types/geminiContextCache";
 
-const errorLogs: string[] = [];
+const errorLogs: unknown[][] = [];
 const constructions: unknown[] = [];
 const generateContent = mock(async (..._args: unknown[]): Promise<unknown> => ({
   candidates: [{ finishReason: "STOP" }],
   text: "{\"ad\":false,\"reason\":\"闲聊\"}",
 }));
-
-interface FakeCache {
-  readonly name?: string;
-  readonly displayName?: string;
-  readonly expireTime?: string;
-}
-
-let createdCount: number = 0;
-/** caches.create 的入参里本测试关心的字段。 */
-interface FakeCreateParams {
-  readonly config: { readonly displayName: string; readonly ttl: string; readonly abortSignal?: AbortSignal };
-}
-
-async function cacheCreateStub(params: FakeCreateParams): Promise<FakeCache> {
-  createdCount += 1;
-  return {
-    name: `cachedContents/ad-${createdCount}`,
-    displayName: params.config.displayName,
-    expireTime: new Date(Date.now() + Number.parseInt(params.config.ttl, 10) * 1_000).toISOString(),
-  };
-}
-const cacheCreate = mock(cacheCreateStub);
-const cacheDelete = mock(async (..._args: unknown[]): Promise<object> => ({}));
-const cacheUpdate = mock(async (..._args: unknown[]): Promise<FakeCache> => ({}));
-const cacheList = mock(async (..._args: unknown[]): Promise<AsyncIterable<FakeCache>> => ({
-  async *[Symbol.asyncIterator](): AsyncGenerator<FakeCache> {},
-}));
-let configuredModel: string = "gemini-ad";
-/** 假 `models.get`：只有 gemini-4-argon 不支持显式缓存。 */
-async function modelGetStub(params: { readonly model: string }): Promise<{ readonly supportedActions: readonly string[] }> {
-  return {
-    supportedActions: params.model === "gemini-4-argon"
-      ? ["generateContent", "countTokens", "batchGenerateContent"]
-      : ["generateContent", "countTokens", "createCachedContent", "batchGenerateContent"],
-  };
-}
-const modelGet = mock(modelGetStub);
 
 class FakeApiError extends Error {
   status: number = 429;
@@ -61,8 +22,7 @@ mock.module("@google/genai", () => ({
   ...googleGenAi,
   ApiError: FakeApiError,
   GoogleGenAI: class FakeGoogleGenAI {
-    models: { generateContent: typeof generateContent; get: typeof modelGet } = { generateContent, get: modelGet };
-    caches: object = { create: cacheCreate, delete: cacheDelete, update: cacheUpdate, list: cacheList };
+    models: { generateContent: typeof generateContent } = { generateContent };
     constructor(options: unknown) { constructions.push(options); }
   },
 }));
@@ -71,29 +31,21 @@ mock.module("../../../packages/config/agent", () => ({
     provider: "google",
     apiKey: "google-ad-key",
     baseUrl: "https://google.example",
-    model: configuredModel,
+    model: "gemini-ad",
   }),
 }));
 mock.module("../../../packages/infra/logger", () => ({
-  logger: loggerStub({ error(message: unknown): void { errorLogs.push(String(message)); } }),
+  logger: loggerStub({ error(...args: unknown[]): void { errorLogs.push(args); } }),
 }));
 
-const { AD_DETECT_GEMINI_CONTEXT_CACHE_SCOPE, requestGoogleAdDetectJson } = await import("../../../packages/workers/antiRaid/adDetect/ai/google");
-const { probeGeminiContextCache } = await import("../../../packages/infra/geminiContextCache");
+const { requestGoogleAdDetectJson } = await import("../../../packages/workers/antiRaid/adDetect/ai/google");
+const { adDetectStopping } = await import("../../../packages/cache/workers/antiRaid/adDetect");
+const { GEMINI_SAFETY_SETTINGS } = await import("../../../packages/consts/aiChat/gemini");
 const { adDetectGoogleClientHolder } = await import("../../../packages/cache/workers/antiRaid/google");
-const {
-  adDetectGeminiCacheContent,
-  adDetectGeminiContextCache,
-} = await import("../../../packages/cache/workers/antiRaid/geminiContextCache");
 const { installAiCacheUsageSink } = await import("../../../packages/infra/aiCacheUsage");
-const { quiesceAntiRaidDispatch } = await import("../../../packages/workers/antiRaid/taskTracker");
-const { antiRaidDispatchAbort } = await import("../../../packages/cache/workers/antiRaid/tasks");
-const { GEMINI_CONTEXT_CACHE_TTL_SECONDS } = await import("../../../packages/consts/geminiContextCache");
 import type { AiCacheUsage } from "../../../packages/types/aiCache";
 const {
   AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS,
-  AD_DETECT_GEMINI_CACHE_DISPLAY_NAME_PREFIX,
-  AD_DETECT_GEMINI_CACHE_MAX_SLOTS,
   AD_DETECT_GOOGLE_REQUEST_ATTEMPTS,
   AD_DETECT_GOOGLE_REQUEST_TIMEOUT_MS,
 } = await import("../../../packages/consts/antiRaid/adDetect");
@@ -120,6 +72,7 @@ interface SentRequest {
     readonly responseMimeType?: string;
     readonly responseJsonSchema?: unknown;
     readonly maxOutputTokens?: number;
+    readonly safetySettings?: unknown;
   };
 }
 
@@ -127,38 +80,20 @@ function sentAt(index: number): SentRequest {
   return generateContent.mock.calls[index]![0] as SentRequest;
 }
 
-function registry(): GeminiContextCacheRegistry {
-  return adDetectGeminiContextCache.current!;
-}
-
-/** 跑完启动扫描与一次后台创建，之后的判定引用显式缓存。 */
-async function warmCache(request: AdDetectJsonRequestParams = params): Promise<void> {
-  await requestGoogleAdDetectJson(request);
-  expect(await waitUntil((): boolean => registry().scan === "done")).toBe(true);
-  await requestGoogleAdDetectJson(request);
-  await Promise.allSettled([...registry().creations.values()]);
-  await Bun.sleep(0);
-}
-
 beforeEach((): void => {
-  configuredModel = "gemini-ad";
+  adDetectStopping.current = false;
   adDetectGoogleClientHolder.current = null;
-  adDetectGeminiContextCache.current = null;
-  adDetectGeminiCacheContent.current = null;
-  antiRaidDispatchAbort.current = null;
   constructions.length = 0;
   errorLogs.length = 0;
-  createdCount = 0;
-  for (const fn of [cacheDelete, cacheUpdate, cacheList]) fn.mockClear();
-  modelGet.mockReset();
-  modelGet.mockImplementation(modelGetStub);
-  cacheCreate.mockReset();
-  cacheCreate.mockImplementation(cacheCreateStub);
   generateContent.mockReset();
   generateContent.mockImplementation(async (): Promise<unknown> => ({
     candidates: [{ finishReason: "STOP" }],
     text: "{\"ad\":false,\"reason\":\"闲聊\"}",
   }));
+});
+
+afterEach((): void => {
+  adDetectStopping.current = false;
 });
 
 describe("Google 广告检测请求入口", () => {
@@ -184,6 +119,7 @@ describe("Google 广告检测请求入口", () => {
     });
     expect(sentAt(0).config.cachedContent).toBeUndefined();
     expect(sentAt(0).config.temperature).toBeUndefined();
+    expect(sentAt(0).config.safetySettings).toEqual([...GEMINI_SAFETY_SETTINGS]);
   });
 
   test("成功响应按 ad_detect 上报 Gemini 用量", async () => {
@@ -208,7 +144,10 @@ describe("Google 广告检测请求入口", () => {
     generateContent.mockImplementation((): never => { throw new FakeApiError("rate limited"); });
     await expect(requestGoogleAdDetectJson(params)).resolves.toBeNull();
     expect(generateContent).toHaveBeenCalledTimes(1);
-    expect(errorLogs[0]).toBe("Test request failed: 429 rate limited");
+    expect(errorLogs[0]).toEqual([
+      "Ad detection API request failed.",
+      { errorLabel: "Test request", status: 429, errorMessage: "rate limited" },
+    ]);
   });
 
   test("非 STOP 结束或空正文有限重试，耗尽后连同最后一次的收尾原因与详情记一条错误并返回 null", async () => {
@@ -218,23 +157,45 @@ describe("Google 广告检测请求入口", () => {
     }));
     await expect(requestGoogleAdDetectJson(params)).resolves.toBeNull();
     expect(generateContent).toHaveBeenCalledTimes(AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS);
-    expect(errorLogs).toEqual([
-      `Test request returned no usable body in ${AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS} attempt(s) (finishReason=MAX_TOKENS).`,
-    ]);
+    expect(errorLogs).toEqual([[
+      "Ad detection request returned no usable body.",
+      {
+        errorLabel: "Test request",
+        attempts: AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS,
+        abnormalReason: "abnormal finish",
+        finishReason: "MAX_TOKENS",
+        finishDetails: null,
+      },
+    ]]);
 
     errorLogs.length = 0;
     const safetyRatings = [{ category: "HARM_CATEGORY_HARASSMENT", probability: "HIGH", blocked: true }];
     generateContent.mockImplementation(async (): Promise<unknown> => ({ candidates: [{ finishReason: "SAFETY", safetyRatings }] }));
     await expect(requestGoogleAdDetectJson(params)).resolves.toBeNull();
-    expect(errorLogs).toEqual([
-      `Test request returned no usable body in ${AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS} attempt(s) ` +
-      `(finishReason=SAFETY, details=${JSON.stringify({ safetyRatings })}).`,
-    ]);
+    expect(errorLogs).toEqual([[
+      "Ad detection request returned no usable body.",
+      {
+        errorLabel: "Test request",
+        attempts: AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS,
+        abnormalReason: "abnormal finish",
+        finishReason: "SAFETY",
+        finishDetails: JSON.stringify({ safetyRatings }),
+      },
+    ]]);
 
     errorLogs.length = 0;
     generateContent.mockImplementation(async (): Promise<unknown> => ({ candidates: [{ finishReason: "STOP" }], text: " " }));
     await expect(requestGoogleAdDetectJson(params)).resolves.toBeNull();
-    expect(errorLogs).toEqual([`Test request returned no usable body in ${AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS} attempt(s) (empty body).`]);
+    expect(errorLogs).toEqual([[
+      "Ad detection request returned no usable body.",
+      {
+        errorLabel: "Test request",
+        attempts: AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS,
+        abnormalReason: null,
+        finishReason: "STOP",
+        finishDetails: null,
+      },
+    ]]);
   });
 
   test("空白正文按不可用处理，下一次拿到正文即返回", async () => {
@@ -245,127 +206,27 @@ describe("Google 广告检测请求入口", () => {
     expect(generateContent).toHaveBeenCalledTimes(2);
     expect(errorLogs).toEqual([]);
   });
-});
+  test("两个系统事实变体共用完全相同的 systemInstruction，fact 置于正文之前以复用隐式前缀缓存", async () => {
+    await requestGoogleAdDetectJson({ ...params, fact: "【系统事实】刚入群", systemPrompt: "规则与示例\n【系统事实】刚入群" });
+    await requestGoogleAdDetectJson({ ...params, fact: "【系统事实】非刚入群", systemPrompt: "规则与示例\n【系统事实】非刚入群", userContent: "2. 另一条消息" });
 
-describe("ad_detect 显式缓存", () => {
-  test("缓存只装规则与示例段；建成后引用 cachedContent、不带系统指令，contents 与不带缓存时逐字一致", async () => {
-    await warmCache();
-
-    expect(cacheCreate).toHaveBeenCalledTimes(1);
-    const created = cacheCreate.mock.calls[0]![0] as unknown as { model: string; config: Record<string, unknown> };
-    expect(created.model).toBe(params.model);
-    expect(created.config.systemInstruction).toBe(params.instructions);
-    expect(created.config.ttl).toBe(`${GEMINI_CONTEXT_CACHE_TTL_SECONDS}s`);
-    expect(created.config.tools).toBeUndefined();
-    expect(created.config.toolConfig).toBeUndefined();
-    expect(String(created.config.displayName).startsWith(AD_DETECT_GEMINI_CACHE_DISPLAY_NAME_PREFIX)).toBe(true);
-
-    await requestGoogleAdDetectJson(params);
-    const uncached: SentRequest = sentAt(0);
-    const cached: SentRequest = sentAt(2);
-    expect(cached.config.cachedContent).toBe("cachedContents/ad-1");
-    expect(cached.config.systemInstruction).toBeUndefined();
-    expect(cached.config.responseMimeType).toBe("application/json");
-    expect(cached.config.responseJsonSchema).toEqual(uncached.config.responseJsonSchema);
-    expect(cached.contents).toEqual(uncached.contents);
-    expect(cached.contents).toEqual([{ role: "user", parts: [{ text: params.fact }, { text: params.userContent }] }]);
+    const first: SentRequest = sentAt(0);
+    const second: SentRequest = sentAt(1);
+    expect(first.config.systemInstruction).toBe(params.instructions);
+    expect(second.config.systemInstruction).toBe(params.instructions);
+    expect(first.config.cachedContent).toBeUndefined();
+    expect(second.config.cachedContent).toBeUndefined();
+    expect(first.contents).toEqual([{ role: "user", parts: [{ text: "【系统事实】刚入群" }, { text: params.userContent }] }]);
+    expect(second.contents).toEqual([{ role: "user", parts: [{ text: "【系统事实】非刚入群" }, { text: "2. 另一条消息" }] }]);
   });
 
-  test("两个系统事实变体共用同一个槽", async () => {
-    await warmCache();
-    await requestGoogleAdDetectJson({ ...params, fact: "【系统事实】另一侧", systemPrompt: "规则与示例\n【系统事实】另一侧" });
-    const last: SentRequest = sentAt(generateContent.mock.calls.length - 1);
-    expect(last.config.cachedContent).toBe("cachedContents/ad-1");
-    expect(cacheCreate).toHaveBeenCalledTimes(1);
-    expect(registry().slots.size).toBe(1);
-  });
-
-  test("指纹随规则与示例段缓存：启动扫描开始前不计算，之后模型与系统指令不变时每次判定复用同一份", async () => {
-    await requestGoogleAdDetectJson(params);
-    expect(adDetectGeminiCacheContent.current).toBeNull();
-    expect(await waitUntil((): boolean => registry().scan === "done")).toBe(true);
-    await requestGoogleAdDetectJson(params);
-    const memo = adDetectGeminiCacheContent.current;
-    expect(memo).not.toBeNull();
-    await requestGoogleAdDetectJson({ ...params, userContent: "2. 另一串" });
-    expect(adDetectGeminiCacheContent.current).toBe(memo);
-
-    await requestGoogleAdDetectJson({ ...params, instructions: "新的规则与示例" });
-    expect(adDetectGeminiCacheContent.current).not.toBe(memo);
-    expect(adDetectGeminiCacheContent.current!.systemInstruction).toBe("新的规则与示例");
-    await Promise.allSettled([...registry().creations.values()]);
-  });
-
-  test("缓存被端点拒绝时释放登记，当场用完整请求补发一次", async () => {
-    await warmCache();
-    generateContent.mockImplementationOnce((): never => { throw new FakeApiError("cache not found", 403); });
-
-    await expect(requestGoogleAdDetectJson(params)).resolves.toContain("闲聊");
-    const calls: number = generateContent.mock.calls.length;
-    expect(sentAt(calls - 2).config.cachedContent).toBe("cachedContents/ad-1");
-    const resent: SentRequest = sentAt(calls - 1);
-    expect(resent.config.cachedContent).toBeUndefined();
-    expect(resent.config.systemInstruction).toBe(params.instructions);
-    expect(resent.contents).toEqual(sentAt(calls - 2).contents);
-    expect(registry().slots.size).toBe(0);
-    expect(cacheDelete).toHaveBeenCalledWith(expect.objectContaining({ name: "cachedContents/ad-1" }));
-    expect(errorLogs).toEqual(["Test request failed: 403 cache not found"]);
-  });
-
-  test("端点故障不补发，也不释放登记", async () => {
-    await warmCache();
-    generateContent.mockImplementationOnce((): never => { throw new FakeApiError("unavailable", 503); });
-    const before: number = generateContent.mock.calls.length;
-
-    await expect(requestGoogleAdDetectJson(params)).resolves.toBeNull();
-    expect(generateContent.mock.calls.length - before).toBe(1);
-    expect(registry().slots.size).toBe(1);
-  });
-
-  test("示例换了走新槽；超过槽数上限时回收最久未用的旧槽", async () => {
-    await warmCache();
-    for (let version: number = 1; version <= AD_DETECT_GEMINI_CACHE_MAX_SLOTS; version++) {
-      await Bun.sleep(2);
-      await warmCache({ ...params, instructions: `规则与示例 v${version}` });
-    }
-    expect(cacheCreate).toHaveBeenCalledTimes(AD_DETECT_GEMINI_CACHE_MAX_SLOTS + 1);
-    expect(registry().slots.size).toBe(AD_DETECT_GEMINI_CACHE_MAX_SLOTS);
-    expect(cacheDelete).toHaveBeenCalledWith(expect.objectContaining({ name: "cachedContents/ad-1" }));
-  });
-
-  test("scope 的后台请求使用 Anti-Raid 派发信号，停机后随之取消", async () => {
-    expect(AD_DETECT_GEMINI_CONTEXT_CACHE_SCOPE.signal().aborted).toBe(false);
-    await requestGoogleAdDetectJson(params);
-    expect(await waitUntil((): boolean => registry().scan === "done")).toBe(true);
-
-    cacheCreate.mockImplementationOnce(async (created: FakeCreateParams): Promise<FakeCache> => {
-      quiesceAntiRaidDispatch();
-      expect(created.config.abortSignal?.aborted).toBe(true);
-      throw created.config.abortSignal?.reason;
+  test("首轮空正文后进入停机状态时停止第 2 轮重试并静默返回 null", async () => {
+    generateContent.mockImplementationOnce(async (): Promise<unknown> => {
+      adDetectStopping.current = true;
+      return { candidates: [{ finishReason: "STOP" }], text: "" };
     });
-    await requestGoogleAdDetectJson(params);
-    await Promise.allSettled([...registry().creations.values()]);
-    await Bun.sleep(0);
-    expect(AD_DETECT_GEMINI_CONTEXT_CACHE_SCOPE.signal().aborted).toBe(true);
-    expect(registry().failures.size).toBe(0);
+    await expect(requestGoogleAdDetectJson(params)).resolves.toBeNull();
+    expect(generateContent).toHaveBeenCalledTimes(1);
     expect(errorLogs).toEqual([]);
-  });
-
-  test("切换为不支持显式缓存的 gemini-4-argon 时，探测标为 unsupported 并直接走隐式缓存，不走显式缓存预热路径", async () => {
-    configuredModel = "gemini-4-argon";
-    probeGeminiContextCache(AD_DETECT_GEMINI_CONTEXT_CACHE_SCOPE);
-    expect(await waitUntil((): boolean => registry().scan === "unsupported")).toBe(true);
-    expect(modelGet).toHaveBeenCalledTimes(1);
-    expect(modelGet).toHaveBeenCalledWith(expect.objectContaining({ model: "gemini-4-argon" }));
-    expect(cacheList).not.toHaveBeenCalled();
-
-    const argonParams: AdDetectJsonRequestParams = { ...params, model: "gemini-4-argon" };
-    await expect(requestGoogleAdDetectJson(argonParams)).resolves.toContain("闲聊");
-    await expect(requestGoogleAdDetectJson(argonParams)).resolves.toContain("闲聊");
-    expect(cacheCreate).not.toHaveBeenCalled();
-    expect(sentAt(0).config.cachedContent).toBeUndefined();
-    expect(sentAt(0).config.systemInstruction).toBe(argonParams.instructions);
-    expect(sentAt(1).config.cachedContent).toBeUndefined();
-    expect(sentAt(1).config.systemInstruction).toBe(argonParams.instructions);
   });
 });

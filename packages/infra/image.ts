@@ -1,4 +1,6 @@
 import { logger } from "./logger";
+import { sniffImageFormat } from "../libs/imageFormat";
+import type { SniffedImageFormat } from "../libs/imageFormat";
 import {
   RIFF_CHUNK_HEADER_BYTES,
   VISION_TRANSCODE_MAX_EDGE,
@@ -22,33 +24,8 @@ import {
 import type { VisionImage } from "../types/media";
 import type { ImageDimensions } from "../types/hImage";
 
-/** 魔数嗅探得到的图片格式；unknown 表示不属于 jpeg、png、webp、gif 中任何一种。 */
-export type SniffedImageFormat = "jpeg" | "png" | "webp" | "gif" | "unknown";
-
-/**
- * 按文件头魔数嗅探格式，不依赖 Telegram 的 file_path 扩展名。
- * @param bytes 待嗅探的图片原始字节。
- * @returns 识别出的图片格式；不匹配已知魔数时返回 `"unknown"`。
- */
-export function sniffImageFormat(bytes: Uint8Array): SniffedImageFormat {
-  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "jpeg";
-  if (
-    bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 &&
-    bytes[2] === 0x4e && bytes[3] === 0x47 && bytes[4] === 0x0d &&
-    bytes[5] === 0x0a && bytes[6] === 0x1a && bytes[7] === 0x0a
-  ) return "png";
-  if (
-    bytes.length >= 12 && bytes[0] === 0x52 && bytes[1] === 0x49 &&
-    bytes[2] === 0x46 && bytes[3] === 0x46 && bytes[8] === 0x57 &&
-    bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50
-  ) return "webp";
-  if (
-    bytes.length >= 6 && bytes[0] === 0x47 && bytes[1] === 0x49 &&
-    bytes[2] === 0x46 && bytes[3] === 0x38 &&
-    (bytes[4] === 0x37 || bytes[4] === 0x39) && bytes[5] === 0x61
-  ) return "gif";
-  return "unknown";
-}
+export { sniffImageFormat } from "../libs/imageFormat";
+export type { SniffedImageFormat } from "../libs/imageFormat";
 
 /** RIFF 容器里的一个块：四字符码（小端 uint32）、载荷起点与载荷长度（不含奇数长度的补齐字节）。 */
 interface RiffChunk {
@@ -165,7 +142,7 @@ export async function prepareVisionImage(bytes: Uint8Array): Promise<VisionImage
       .bytes();
     return { bytes: png, mime: "image/png" };
   } catch (error: unknown) {
-    logger.error(`Failed to transcode ${format} image to png for vision API:`, error);
+    logger.error("Failed to transcode image to png for vision API:", { format }, error);
     return null;
   }
 }

@@ -1,6 +1,10 @@
 import { afterEach, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { basename, join } from "node:path";
+import {
+  randomImageDirectoryCache,
+  randomImageGalleryCache,
+} from "../../packages/cache/main/hImage";
 import {
   adDetectAgentConfigCache,
   agentDeploymentConfigCache,
@@ -83,6 +87,8 @@ afterEach(async (): Promise<void> => {
   cronConfigCache.current = baseline.cron;
   rmSync(ASSETS_CONFIG_PATH, { force: true });
   assetConfigCache.current = DEFAULT_ASSET_CONFIG;
+  randomImageDirectoryCache.current = null;
+  randomImageGalleryCache.current = null;
 });
 
 async function reload(): Promise<HotDeploymentConfigChanges> {
@@ -693,6 +699,26 @@ describe("config/dynamic/assets.json 热重载", () => {
       expect(assetConfigCache.current).toBe(DEFAULT_ASSET_CONFIG);
     } finally {
       rmSync(polluted, { recursive: true, force: true });
+    }
+  });
+
+  test("只读阶段 readHotDeploymentConfigs 不创建新图库目录也不写图库缓存；applyHotDeploymentConfigs 才接管并建目录", async () => {
+    const newDir: string = join(RUNTIME_DATA_ROOT, "reload-lazy-gallery");
+    rmSync(newDir, { recursive: true, force: true });
+    await writeJson(ASSETS_CONFIG_PATH, { [ASSET_ONLY_PATH_GROUP]: { random_h_image_dir: "./reload-lazy-gallery" } });
+    try {
+      const reads = await readHotDeploymentConfigs();
+      expect(existsSync(newDir)).toBeFalse();
+      expect(randomImageDirectoryCache.current).toBeNull();
+      expect(randomImageGalleryCache.current).toBeNull();
+
+      const changes: HotDeploymentConfigChanges = applyHotDeploymentConfigs(reads);
+      expect(changes.assets).toBeTrue();
+      expect(existsSync(newDir)).toBeTrue();
+      expect(randomImageDirectoryCache.current?.directory).toBe(newDir);
+      expect(randomImageGalleryCache.current?.directory).toBe(newDir);
+    } finally {
+      rmSync(newDir, { recursive: true, force: true });
     }
   });
 });

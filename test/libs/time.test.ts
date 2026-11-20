@@ -257,6 +257,53 @@ describe("libs/time getDateKey 与 formatLogTimestamp", () => {
       expect(formatLogTimestamp(timestampMs)).toBe(referenceLogTimestamp(timestampMs));
     }
   });
+
+  test("日志日期前缀单槽：跨零点、两日交替、夏令时、换时区与 1000/9999 年边界均与参照一致", () => {
+    // 东京零点前后与两日交替
+    const beforeMidnight: number = Date.UTC(2026, 0, 1, 14, 59, 59, 999);
+    const atMidnight: number = Date.UTC(2026, 0, 1, 15, 0, 0, 0);
+    const otherDay: number = Date.UTC(1999, 11, 31, 20, 0, 0, 45);
+    for (const ms of [beforeMidnight, beforeMidnight - 500, atMidnight, atMidnight + 123, otherDay, atMidnight + 999, beforeMidnight]) {
+      expect(formatLogTimestamp(ms)).toBe(referenceLogTimestamp(ms));
+    }
+
+    // 换时区时缓存随 TimeZoneState 整体重建
+    const crossZone: number = Date.UTC(2026, 6, 1, 20, 0, 0, 7);
+    expect(formatLogTimestamp(crossZone)).toBe("2026-07-02 05:00:00.007");
+    adoptTimeZone("America/New_York");
+    expect(formatLogTimestamp(crossZone)).toBe("2026-07-01 16:00:00.007");
+    adoptTimeZone("Asia/Kathmandu");
+    expect(formatLogTimestamp(crossZone)).toBe("2026-07-02 01:45:00.007");
+
+    // 夏令时春跳（23h）、秋回（25h）与零点跳过日
+    adoptTimeZone("America/New_York");
+    for (const ms of [
+      Date.parse("2026-03-08T06:59:59.999Z"),
+      Date.parse("2026-03-08T07:00:00.000Z"),
+      Date.parse("2026-03-09T03:59:59.999Z"),
+      Date.parse("2026-03-09T04:00:00.000Z"),
+      Date.parse("2026-11-01T05:30:00.005Z"),
+      Date.parse("2026-11-01T06:30:00.005Z"),
+      Date.parse("2026-11-02T04:59:59.999Z"),
+      Date.parse("2026-11-02T05:00:00.000Z"),
+    ]) {
+      expect(formatLogTimestamp(ms)).toBe(temporalReference(ms, "America/New_York")[2]);
+    }
+    adoptTimeZone("America/Sao_Paulo");
+    const saoStart: number = Date.parse("2018-11-04T03:00:00.000Z");
+    expect(formatLogTimestamp(saoStart - 1)).toBe("2018-11-03 23:59:59.999");
+    expect(formatLogTimestamp(saoStart)).toBe("2018-11-04 01:00:00.000");
+
+    // 1000 年与 9999 年定义域两端交替访问
+    for (const timeZone of ["Pacific/Kiritimati", "Etc/GMT+12", "Asia/Tokyo"]) {
+      adoptTimeZone(timeZone);
+      const low: number = Date.UTC(1000, 0, 2, 0, 0, 0, 5);
+      const high: number = Date.UTC(9999, 11, 30, 23, 59, 59, 999);
+      for (const ms of [low, high, low + 1_000, high - 1_000]) {
+        expect(formatLogTimestamp(ms)).toBe(temporalReference(ms, timeZone)[2]);
+      }
+    }
+  });
 });
 
 test("配置时区影响日期、时间、日志前缀、小时及模型报时", (): void => {

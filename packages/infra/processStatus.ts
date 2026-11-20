@@ -1,4 +1,4 @@
-import { availableParallelism, freemem, totalmem } from "node:os";
+import { freemem, totalmem } from "node:os";
 import {
   BOT_STATUS_MICROSECONDS_PER_SECOND,
   BOT_STATUS_PERCENT_SCALE,
@@ -89,7 +89,7 @@ export function readBotProcessStatus(): BotProcessStatus {
     uptimeSeconds: process.uptime(),
     cpuUserMicroseconds: cpuUsage.user,
     cpuSystemMicroseconds: cpuUsage.system,
-    availableCpuCount: availableParallelism(),
+    availableCpuCount: navigator.hardwareConcurrency,
     memoryFootprintBytes: Bun.unsafe.memoryFootprint() ?? null,
     constrainedMemoryBytes: process.constrainedMemory(),
     totalMemoryBytes: totalmem(),

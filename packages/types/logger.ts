@@ -16,3 +16,11 @@ export interface LoggerSecretsSnapshot extends LogRedactionSecrets {
   readonly adDetect: AdDetectAgentConfig | null;
   readonly agent: AgentDeploymentConfig | null;
 }
+
+/** `trackBackgroundTask` 的结构化失败日志配置。 */
+export interface BackgroundTaskFailureLog {
+  /** 失败时输出的静态英文错误摘要（含冒号）。 */
+  readonly message: string;
+  /** 随摘要一并输出的驼峰命名结构化上下文字段。 */
+  readonly context: Readonly<Record<string, unknown>>;
+}

@@ -379,7 +379,6 @@ describe("trackedMessage", () => {
     const confirmed = transitionVerification(overflow.next, {
       type: "confirmedThreadComment",
       messageId: 46,
-      now: 10_000,
       allowFloodTerminalExemption: true,
     });
     expect(confirmed.next).toEqual({
@@ -423,7 +422,6 @@ describe("trackedMessage", () => {
       transitionVerification(terminal, {
         type: "confirmedThreadComment",
         messageId: 46,
-        now: 10_000,
         allowFloodTerminalExemption: false,
       }).next
     ).toBe(terminal);
@@ -432,7 +430,6 @@ describe("trackedMessage", () => {
       transitionVerification(terminal, {
         type: "confirmedThreadComment",
         messageId: 46,
-        now: 10_000,
         allowFloodTerminalExemption: true,
       }).next
     ).toBe(terminal);

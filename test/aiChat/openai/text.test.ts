@@ -20,7 +20,7 @@ const getOpenAiClient = mock((): unknown => ({
   audio: { transcriptions: { create: createTranscription } },
 }));
 
-mock.module("../../../packages/aiChat/openai/client", () => ({
+mock.module("../../../packages/workers/aiChat/openai/client", () => ({
   getOpenAiClient,
   requestOpenAiTextResult,
 }));
@@ -33,7 +33,7 @@ const {
   generateOpenAiJson,
   generateOpenAiText,
   transcribeOpenAiVoice,
-} = await import("../../../packages/aiChat/openai/text");
+} = await import("../../../packages/workers/aiChat/openai/text");
 const {
   OPENAI_JSON_MAX_TOKENS,
   OPENAI_STORE_RESPONSES,
@@ -336,8 +336,12 @@ describe("语音转写", () => {
       errorLabel: "AI voice transcription API",
       normalize: (text: string): string => text,
     })).resolves.toEqual({ ok: false, retryable: false });
-    // 真实 SDK 的 APIError.message 已以状态码开头，日志里状态码只出现一次。
-    expect(loggerError).toHaveBeenCalledWith("AI voice transcription API error: 422 invalid audio payload");
+    // APIError.message 保留在结构化 message 字段，status 单独结构化输出。
+    expect(loggerError).toHaveBeenCalledWith("Provider API error.", {
+      errorLabel: "AI voice transcription API",
+      status: 422,
+      message: "422 invalid audio payload",
+    });
   });
 
   test("429、5xx 与网络错误归为瞬时端点故障", async () => {

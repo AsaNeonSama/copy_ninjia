@@ -2,12 +2,10 @@ import { TTS_DEFAULT_BOT_LANGUAGE, TTS_DEFAULT_STYLE } from "../../packages/cons
 import { afterAll, afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test";
 import type { TtsDailyUsage } from "../../packages/types/aiChat/voiceMessage";
 import { loggerStub } from "../helpers/loggerMock";
-import type { GoogleGenAI } from "@google/genai";
 import type {
   AgentCapability,
   AgentDeploymentConfig,
 } from "../../packages/types/config";
-import type { GeminiContextCacheRegistry } from "../../packages/types/geminiContextCache";
 import { SEND_VOICE_TOOL } from "../../packages/consts/tools";
 
 let agentConfig: AgentDeploymentConfig;
@@ -30,17 +28,11 @@ const loggerWarn = mock((..._args: unknown[]): void => {});
 mock.module("../../packages/infra/logger", () => ({
   logger: loggerStub({ error: loggerError, warn: loggerWarn }),
 }));
-const probeGeminiContextCache = mock((..._args: unknown[]): void => {});
-const realGeminiContextCache = await import("../../packages/infra/geminiContextCache");
-mock.module("../../packages/infra/geminiContextCache", () => ({
-  ...realGeminiContextCache,
-  probeGeminiContextCache,
-}));
 
 const {
   AGENT_PROVIDER_LABELS,
 } = await import("../../packages/consts/agent");
-const { capabilityClient } = await import("../../packages/aiChat/capabilityClient");
+const { capabilityClient } = await import("../../packages/workers/aiChat/capabilityClient");
 const {
   imageAiProvider,
   mediaAiProvider,
@@ -52,21 +44,18 @@ const {
   textWebSearchAiProvider,
   ttsAiProvider,
   webSearchAiProvider,
-} = await import("../../packages/aiChat/provider");
-const { TEXT_GEMINI_CONTEXT_CACHE_SCOPE } = await import("../../packages/aiChat/gemini/contextCache");
+} = await import("../../packages/workers/aiChat/provider");
 const { geminiClientCache } = await import("../../packages/cache/workers/aiChat/gemini");
-const { geminiReplyLastRequestAt, textGeminiContextCache } = await import("../../packages/cache/workers/aiChat/geminiContextCache");
-const { createGeminiContextCacheRegistry } = realGeminiContextCache;
 const { ttsDailyUsage } = await import("../../packages/cache/workers/aiChat/ttsUsage");
 const { openAiClientCache } = await import("../../packages/cache/workers/aiChat/openai");
 const {
   getMediaInputState,
   mediaInputSupportCache,
 } = await import("../../packages/cache/workers/aiChat/mediaInputSupport");
-const { recordMediaInputResult } = await import("../../packages/aiChat/ai/mediaInputSupport");
-const { geminiProvider } = await import("../../packages/aiChat/gemini");
-const { openAiProvider } = await import("../../packages/aiChat/openai");
-const { anthropicProvider } = await import("../../packages/aiChat/anthropic");
+const { recordMediaInputResult } = await import("../../packages/workers/aiChat/ai/mediaInputSupport");
+const { geminiProvider } = await import("../../packages/workers/aiChat/gemini");
+const { openAiProvider } = await import("../../packages/workers/aiChat/openai");
+const { anthropicProvider } = await import("../../packages/workers/aiChat/anthropic");
 const { aiProviderQuotaLanes, resetAiProviderSchedulerCache } =
   await import("../../packages/cache/workers/aiChat/providerScheduler");
 const {
@@ -95,7 +84,6 @@ beforeEach((): void => {
   };
   loggerError.mockClear();
   loggerWarn.mockClear();
-  probeGeminiContextCache.mockClear();
 });
 
 test("每项能力按 agent 配置独立选择 provider", () => {
@@ -258,7 +246,10 @@ test("media 选 anthropic 时语音转写缺席，只在启动时记一次诊断
   expect(structuredTextAiProvider().name).toBe("anthropic");
   reportUnimplementedAgentCapabilities();
   expect(loggerWarn).toHaveBeenCalledTimes(1);
-  expect(String(loggerWarn.mock.calls[0]![0])).toContain("$.agent.media");
+  expect(loggerWarn).toHaveBeenCalledWith(
+    "Voice transcription stays unavailable; voice messages will fall back to a placeholder in the transcript.",
+    { configPath: "$.agent.media", provider: "anthropic" }
+  );
   expect(loggerError).not.toHaveBeenCalled();
 });
 
@@ -273,11 +264,14 @@ test("配了但这一家没实现的可选能力，只在启动时记一次诊�
   });
   expect(loggerWarn).toHaveBeenCalledTimes(1);
   expect(loggerError).not.toHaveBeenCalled();
+  expect(loggerWarn).toHaveBeenCalledWith(
+    "Speech synthesis stays unavailable; the send_voice tool will not be registered.",
+    { configPath: "$.agent.tts", provider: "openai" }
+  );
   const diagnostic: string = String(loggerWarn.mock.calls[0]![0]);
-  expect(diagnostic).toContain("$.agent.tts");
   expect(diagnostic).toContain(SEND_VOICE_TOOL);
   // 诊断不回显凭据。
-  expect(diagnostic).not.toContain("openai-tts-key");
+  expect(JSON.stringify(loggerWarn.mock.calls[0])).not.toContain("openai-tts-key");
 });
 
 test("OpenAI 两种语音协议都经 tts 门面进入 OpenAI 实现包，xai 配置按端点与凭据归入已有配额 lane", async () => {
@@ -633,37 +627,6 @@ test("只有 media 能力变化时两种输入模态才回到未探测状态", (
   expect(getMediaInputState("voice").configGeneration).toBe(1);
 });
 
-test("text 能力变化丢弃登记表时，各群上一次回复请求的触发时刻原样保留", () => {
-  geminiReplyLastRequestAt.set(-100, 1);
-  try {
-    reloadAgentDeploymentConfig({ ...agentConfig, text: { ...agentConfig.text, model: "gemini-text-reloaded" } });
-    expect(geminiReplyLastRequestAt.get(-100)).toBe(1);
-  } finally {
-    geminiReplyLastRequestAt.clear();
-  }
-});
-
-test("只有 text 能力变化时才丢弃 Gemini 回复共用显式缓存的登记表，并在选用 Google 时重新探测显式缓存支持度", () => {
-  const registry: GeminiContextCacheRegistry = createGeminiContextCacheRegistry({} as unknown as GoogleGenAI);
-  textGeminiContextCache.current = registry;
-
-  reloadAgentDeploymentConfig({ ...agentConfig, media: { ...agentConfig.media, model: "gemini-media-2" } });
-  expect(textGeminiContextCache.current).toBe(registry);
-  expect(probeGeminiContextCache).not.toHaveBeenCalled();
-
-  reloadAgentDeploymentConfig({ ...agentConfig, text: { ...agentConfig.text, apiKey: "google-text-key-rotated" } });
-  expect(textGeminiContextCache.current).toBeNull();
-  expect(probeGeminiContextCache).toHaveBeenCalledTimes(1);
-  expect(probeGeminiContextCache).toHaveBeenCalledWith(TEXT_GEMINI_CONTEXT_CACHE_SCOPE);
-
-  probeGeminiContextCache.mockClear();
-  reloadAgentDeploymentConfig({
-    ...agentConfig,
-    text: { provider: "openai", apiKey: "openai-text-key", baseUrl: undefined, model: "gpt-text" },
-  });
-  expect(probeGeminiContextCache).not.toHaveBeenCalled();
-});
-
 test("agent 热重载后按新快照重记「配了但没实现」的诊断", () => {
   withoutOpenAiSpeech((): void => {
     reloadAgentDeploymentConfig({
@@ -672,7 +635,10 @@ test("agent 热重载后按新快照重记「配了但没实现」的诊断", ()
     });
   });
   expect(loggerWarn).toHaveBeenCalledTimes(1);
-  expect(String(loggerWarn.mock.calls[0]![0])).toContain("$.agent.tts");
+  expect(loggerWarn).toHaveBeenCalledWith(
+    "Speech synthesis stays unavailable; the send_voice tool will not be registered.",
+    { configPath: "$.agent.tts", provider: "openai" }
+  );
 });
 
 test("agent 热重载删除 tts 后摘除它独占的配额 lane", () => {

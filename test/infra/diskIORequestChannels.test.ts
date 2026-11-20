@@ -517,7 +517,10 @@ describe("Disk I/O 请求通道、运行时恢复与诊断缓冲", () => {
       expect(batch.messages).toHaveLength(1);
       expect(batch.messages[0]).toMatchObject({
         type: "log",
-        args: [expect.stringContaining("dropped 1 diagnostic message")],
+        args: [
+          "[diskIO] Dropped diagnostic messages after the in-process queue reached its hard limits.",
+          { droppedMessages: 1, droppedSerializedBytes: expect.any(Number) },
+        ],
       });
       expect(diskIORuntime.diagnosticDroppedMessages).toBe(0);
       expect(diskIORuntime.diagnosticDroppedSerializedBytes).toBe(0);

@@ -1,4 +1,4 @@
-/** owner: workers/aiChat。Google GenAI 客户端按能力缓存（packages/aiChat/gemini/client.ts）。 */
+/** owner: workers/aiChat。Google GenAI 客户端按能力缓存（packages/workers/aiChat/gemini/client.ts）。 */
 
 import type { GoogleGenAI } from "@google/genai";
 import type { AgentCapability } from "../../../types/config";

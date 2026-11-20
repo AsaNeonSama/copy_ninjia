@@ -1,11 +1,8 @@
 import { asPayloadRecord } from "../libs/record";
 import type { WhitelistPermissionKey } from "../types/identityPolicy";
-import type {
-  MiniAppFeatureKey,
-  MiniAppLanguage,
-  TelegramWebApp,
-  TelegramWindow,
-} from "../types/miniApp";
+import type { MiniAppFeatureKey } from "../types/miniApp/chats";
+import type { TelegramWebApp, TelegramWindow } from "../types/miniApp/host";
+import type { MiniAppLanguage } from "../types/miniApp/ui";
 import type {
   MiniAppServerNoticeParams,
   MiniAppTranslations,
@@ -172,10 +169,13 @@ export function extractServerNoticeParams(
     hours: typeof record.hours === "number" ? record.hours : undefined,
     recordCount:
       typeof record.recordCount === "number" ? record.recordCount : undefined,
+    errorDetail:
+      typeof record.errorDetail === "string"
+        ? record.errorDetail
+        : typeof record.error === "string"
+          ? record.error
+          : undefined,
   };
 }
 
-export type {
-  MiniAppServerNoticeParams,
-  MiniAppTranslations,
-} from "../types/miniAppI18n";
+export type { MiniAppTranslations } from "../types/miniAppI18n";

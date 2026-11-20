@@ -1,6 +1,6 @@
 /**
  * Mini App 前端样式表稳定性门禁测试：覆盖字体抗锯齿、按钮无 `transform` 悬停过渡、
- * 弹窗与折叠面板合成层驻留、问答编辑浮层堆叠顺序，以及切角控件禁用态选择器优先级。
+ * 侧栏常驻合成层与收起态按钮静默切换、弹窗与折叠面板静止态主层驻留及退场/飞行态合成层隔离、问答编辑浮层堆叠顺序，以及切角控件禁用态选择器优先级。
  */
 
 import { describe, expect, test } from "bun:test";
@@ -52,20 +52,31 @@ function extractFlatRules(css: string): readonly Readonly<CssFlatRule>[] {
 }
 
 describe("Mini App 按钮悬停稳定性与弹窗字体渲染一致性", () => {
-  test("全局灰度抗锯齿、按钮主层静态驻留、弹窗与折叠抽屉合成层常驻及级联特异性符合约定", async (): Promise<void> => {
-    const baseCss: string = await Bun.file("packages/mini-app-frontend/styles/base.css").text();
-    const primitivesCss: string = await Bun.file("packages/mini-app-frontend/styles/primitives.css").text();
-    const shellCss: string = await Bun.file("packages/mini-app-frontend/styles/shell.css").text();
-    const overlaysCss: string = await Bun.file("packages/mini-app-frontend/styles/overlays.css").text();
-    const paginationCss: string = await Bun.file("packages/mini-app-frontend/styles/pagination.css").text();
-    const authCss: string = await Bun.file("packages/mini-app-frontend/styles/auth.css").text();
-    const chatsCss: string = await Bun.file("packages/mini-app-frontend/styles/chats.css").text();
-    const chatsDetailCss: string = await Bun.file("packages/mini-app-frontend/styles/chats-detail.css").text();
-    const chatsTargetsCss: string = await Bun.file("packages/mini-app-frontend/styles/chats-targets.css").text();
-    const identitiesCss: string = await Bun.file("packages/mini-app-frontend/styles/identities.css").text();
-    const statusCss: string = await Bun.file("packages/mini-app-frontend/styles/status.css").text();
-    const galleryCss: string = await Bun.file("packages/mini-app-frontend/styles/gallery.css").text();
-    const skeletonsCss: string = await Bun.file("packages/mini-app-frontend/styles/skeletons.css").text();
+  test("全局灰度抗锯齿、按钮与弹窗静止态主层驻留、退场/飞行态合成层隔离及级联特异性符合约定", async (): Promise<void> => {
+    const discoveredFiles: readonly string[] = (
+      await Array.fromAsync(new Bun.Glob("*.css").scan("packages/mini-app-frontend/styles"))
+    ).sort();
+    const cssByName: Map<string, string> = new Map<string, string>();
+    for (const fileName of discoveredFiles) {
+      cssByName.set(
+        fileName,
+        await Bun.file(`packages/mini-app-frontend/styles/${fileName}`).text()
+      );
+    }
+    expect(cssByName.has("configs.css")).toBeTrue();
+
+    const baseCss: string = cssByName.get("base.css")!;
+    const primitivesCss: string = cssByName.get("primitives.css")!;
+    const shellCss: string = cssByName.get("shell.css")!;
+    const overlaysCss: string = cssByName.get("overlays.css")!;
+    const paginationCss: string = cssByName.get("pagination.css")!;
+    const authCss: string = cssByName.get("auth.css")!;
+    const chatsCss: string = cssByName.get("chats.css")!;
+    const chatsDetailCss: string = cssByName.get("chats-detail.css")!;
+    const chatsTargetsCss: string = cssByName.get("chats-targets.css")!;
+    const identitiesCss: string = cssByName.get("identities.css")!;
+    const statusCss: string = cssByName.get("status.css")!;
+    const galleryCss: string = cssByName.get("gallery.css")!;
 
     // 1. 全局 `body` 统一启用灰度抗锯齿，且位于 `* {` 之后（处于 `reject.html` 内联头部镜像区间之外）。
     const bodyRuleBody: string = extractRuleBody(baseCss, /(?:^|\n)body\s*\{([^}]*)\}/u);
@@ -74,21 +85,7 @@ describe("Mini App 按钮悬停稳定性与弹窗字体渲染一致性", () => {
     expect(baseCss.slice(0, baseCss.indexOf("* {"))).not.toContain("-webkit-font-smoothing");
 
     // 2. 全量样式表 `transition` 边界门禁：禁止过渡 `filter`，禁止伪元素过渡颜色，仅空间位移动画允许过渡 `transform`。
-    const allStylesheets: readonly (readonly [string, string])[] = [
-      ["base.css", baseCss],
-      ["primitives.css", primitivesCss],
-      ["shell.css", shellCss],
-      ["overlays.css", overlaysCss],
-      ["pagination.css", paginationCss],
-      ["auth.css", authCss],
-      ["chats.css", chatsCss],
-      ["chats-detail.css", chatsDetailCss],
-      ["chats-targets.css", chatsTargetsCss],
-      ["identities.css", identitiesCss],
-      ["status.css", statusCss],
-      ["gallery.css", galleryCss],
-      ["skeletons.css", skeletonsCss],
-    ];
+    const allStylesheets: readonly (readonly [string, string])[] = [...cssByName.entries()];
     for (const [name, css] of allStylesheets) {
       const rules: readonly Readonly<CssFlatRule>[] = extractFlatRules(css);
       expect(rules.length).toBeGreaterThan(0);
@@ -231,7 +228,7 @@ describe("Mini App 按钮悬停稳定性与弹窗字体渲染一致性", () => {
       "filter: drop-shadow(2px 2px 0 var(--btn-shadow-color));"
     );
 
-    // 6. 弹窗遮罩叶子伪元素隔离与弹窗/浮层/折叠抽屉常驻合成层门禁。
+    // 6. 弹窗遮罩叶子伪元素隔离、整数像素尺寸对齐、静止态主绘制层驻留及退场/飞行态合成层按需提升门禁。
     const confirmBackdropBody: string = extractRuleBody(overlaysCss, /(?:^|\n)\.confirm-backdrop\s*\{([^}]*)\}/u);
     expect(confirmBackdropBody).toContain("background: transparent;");
     expect(confirmBackdropBody).not.toContain("animation:");
@@ -242,11 +239,21 @@ describe("Mini App 按钮悬停稳定性与弹窗字体渲染一致性", () => {
     expect(confirmBackdropBeforeBody).toContain("background: var(--backdrop);");
     expect(confirmBackdropBeforeBody).toContain("will-change: opacity;");
     expect(confirmBackdropBeforeBody).toContain("animation: miniapp-backdrop-fade-in");
-    expect(
-      extractRuleBody(chatsTargetsCss, /(?:^|\n)\.confirm-backdrop\.chat-targets-backdrop\s*\{([^}]*)\}/u)
-    ).not.toContain("animation:");
+    const chatTargetsBackdropBody: string = extractRuleBody(
+      chatsTargetsCss,
+      /(?:^|\n)\.confirm-backdrop\.chat-targets-backdrop\s*\{([^}]*)\}/u
+    );
+    expect(chatTargetsBackdropBody).not.toContain("animation:");
+    expect(chatTargetsBackdropBody).toContain("padding-top: round(nearest, clamp(24px, 7vh, 64px), 1px);");
+    expect(extractRuleBody(overlaysCss, /(?:^|\n)\.toast\s*\{([^}]*)\}/u)).toContain(
+      "width: min(calc(100vw - 24px), 560px);"
+    );
+    expect(extractRuleBody(overlaysCss, /(?:^|\n)\.confirm-dialog\s*\{([^}]*)\}/u)).toContain(
+      "width: min(calc(100vw - 32px), 384px);"
+    );
+    expect(chatsTargetsCss).not.toContain("@media (hover: none) and (pointer: coarse)");
 
-    const popupLayerRules: readonly (readonly [string, string, RegExp])[] = [
+    const popupIdleMainLayerRules: readonly (readonly [string, string, RegExp])[] = [
       ["overlays.css .toast.show", overlaysCss, /(?:^|\n)\.toast\.show\s*\{([^}]*)\}/u],
       ["overlays.css .confirm-dialog", overlaysCss, /(?:^|\n)\.confirm-dialog\s*\{([^}]*)\}/u],
       ["shell.css .lang-menu-popover", shellCss, /(?:^|\n)\.lang-menu-popover\s*\{([^}]*)\}/u],
@@ -259,54 +266,121 @@ describe("Mini App 按钮悬停稳定性与弹窗字体渲染一致性", () => {
         /\.chat-targets-tab-pane\.tab-slide-forward\s*>\s*\.chat-targets-tab-content,\s*\.chat-targets-tab-pane\.tab-slide-backward\s*>\s*\.chat-targets-tab-content\s*\{([^}]*)\}/u,
       ],
     ];
-    for (const [label, css, pattern] of popupLayerRules) {
+    for (const [label, css, pattern] of popupIdleMainLayerRules) {
+      const body: string = extractRuleBody(css, pattern);
+      expect(`${label}: ${body}`).toContain("will-change: auto;");
+      expect(`${label}: ${body}`).toContain("backface-visibility: visible;");
+      expect(`${label}: ${body}`).not.toContain("translate3d(");
+    }
+
+    // 侧边抽屉常驻不透明整数像素宽度与纯像素收起位移的独立 transform 合成层，收起态冻结按钮颜色过渡与悬停位移，壳层保持恒定 flex 布局并在侧栏运动时屏蔽主内容区指针穿透且不暂停背景动画。
+    const appShellBody: string = extractRuleBody(
+      shellCss,
+      /(?:^|\n)\.app-shell\s*\{([^}]*)\}/u
+    );
+    expect(appShellBody).toContain("display: flex;");
+    expect(appShellBody).toContain("flex-direction: column;");
+
+    const appMainMotionPointerBody: string = extractRuleBody(
+      shellCss,
+      /\.app-main\[data-sidebar-motion="active"\]\s*\{([^}]*)\}/u
+    );
+    expect(appMainMotionPointerBody).toContain("pointer-events: none;");
+    expect(appMainMotionPointerBody).not.toContain("animation-play-state");
+    expect(shellCss).not.toContain("animation-play-state");
+
+    const sidebarDrawerBody: string = extractRuleBody(
+      shellCss,
+      /(?:^|\n)\.sidebar-drawer\s*\{([^}]*)\}/u
+    );
+    expect(sidebarDrawerBody).toContain("width: min(312px, 86vw);");
+    expect(sidebarDrawerBody).toContain("width: round(nearest, min(312px, 86vw), 1px);");
+    expect(sidebarDrawerBody).toContain("will-change: transform;");
+    expect(sidebarDrawerBody).toContain("backface-visibility: hidden;");
+    expect(sidebarDrawerBody).toContain("transform: translate3d(-324px, 0, 0);");
+    expect(sidebarDrawerBody).not.toMatch(/transform\s*:[^;]*(?:%|calc\()/u);
+
+    const sidebarDrawerOpenBody: string = extractRuleBody(
+      shellCss,
+      /(?:^|\n)\.sidebar-drawer\.open\s*\{([^}]*)\}/u
+    );
+    expect(sidebarDrawerOpenBody).toContain("transform: translate3d(0, 0, 0);");
+    expect(sidebarDrawerOpenBody).toContain("pointer-events: auto;");
+    expect(sidebarDrawerOpenBody).not.toContain("will-change");
+    expect(sidebarDrawerOpenBody).not.toContain("backface-visibility");
+    expect(sidebarDrawerOpenBody).not.toContain("transform: none");
+
+    const sidebarClosingNavItemBody: string = extractRuleBody(
+      shellCss,
+      /\.sidebar-drawer:not\(\.open\)\s+\.sidebar-nav-item[^{]*\{([^}]*)\}/u
+    );
+    expect(sidebarClosingNavItemBody).toContain("transition: none;");
+    expect(shellCss).toContain(
+      ".sidebar-drawer.open .sidebar-nav-item:hover:not(:disabled):not(.active)"
+    );
+    expect(shellCss).toContain(
+      ".sidebar-drawer.open .sidebar-nav-item:hover:not(:disabled):not(.active) .sidebar-nav-icon"
+    );
+    expect(shellCss).not.toMatch(/(?:^|\n|\{\s*)\.sidebar-nav-item:hover\b/u);
+    expect(
+      extractRuleBody(
+        shellCss,
+        /\.sidebar-drawer:not\(\.open\)\s+\.sidebar-header\s*>\s*\.btn\.icon-btn:hover:not\(:disabled\):not\(\.is-disabled\)\s*\{([^}]*)\}/u
+      )
+    ).toContain("transform: skewX(var(--btn-skew, 0deg));");
+
+    const popupClosingLayerRules: readonly (readonly [string, string, RegExp])[] = [
+      ["overlays.css .toast.closing", overlaysCss, /(?:^|\n)\.toast\.closing\s*\{([^}]*)\}/u],
+      ["overlays.css .confirm-dialog.closing", overlaysCss, /(?:^|\n)\.confirm-dialog\.closing\s*\{([^}]*)\}/u],
+      ["shell.css .lang-menu-popover.closing", shellCss, /(?:^|\n)\.lang-menu-popover\.closing\s*\{([^}]*)\}/u],
+      ["chats-detail.css .chat-targets-menu-popover.closing", chatsDetailCss, /(?:^|\n)\.chat-targets-menu-popover\.closing\s*\{([^}]*)\}/u],
+      ["chats-targets.css .chat-targets-modal.closing", chatsTargetsCss, /(?:^|\n)\.chat-targets-modal\.closing\s*\{([^}]*)\}/u],
+      ["chats-targets.css .chat-targets-lang-popover.closing", chatsTargetsCss, /(?:^|\n)\.chat-targets-lang-popover\.closing\s*\{([^}]*)\}/u],
+    ];
+    for (const [label, css, pattern] of popupClosingLayerRules) {
       const body: string = extractRuleBody(css, pattern);
       expect(`${label}: ${body}`).toContain("will-change: transform, opacity;");
-      expect(`${label}: ${body}`).toContain("transform: translate3d(0, 0, 0);");
       expect(`${label}: ${body}`).toContain("backface-visibility: hidden;");
     }
-    expect(extractRuleBody(overlaysCss, /(?:^|\n)\.toast\.closing\s*\{([^}]*)\}/u)).toContain(
-      "will-change: transform, opacity;"
-    );
 
     const collapseInnerLayerRules: readonly (readonly [string, string, RegExp])[] = [
       [
         "primitives.css inline-notice",
         primitivesCss,
         new RegExp(
-          `\\.${MINI_APP_INLINE_NOTICE_GRID_CLASS_NAME}\\.expanded\\s*>\\s*\\.${MINI_APP_INLINE_NOTICE_INNER_CLASS_NAME},[\\s\\S]*?\\.${MINI_APP_INLINE_NOTICE_INNER_CLASS_NAME}\\s*\\{([^}]*)\\}`,
+          `\\.${MINI_APP_INLINE_NOTICE_GRID_CLASS_NAME}\\.flip-closing\\s*>\\s*\\.${MINI_APP_INLINE_NOTICE_INNER_CLASS_NAME},\\s*\\.${MINI_APP_INLINE_NOTICE_INNER_CLASS_NAME}\\[data-flip-in-flight="1"\\]\\s*\\{([^}]*)\\}`,
           "u"
         ),
       ],
       [
         "identities.css fold/perm drawers",
         identitiesCss,
-        /\.add-fold-collapse-grid\.expanded\s*>\s*\.add-fold-collapse-inner,[\s\S]*?\.perm-drawer-collapse-inner\s*\{([^}]*)\}/u,
+        /\.add-fold-collapse-grid\.flip-closing\s*>\s*\.add-fold-collapse-inner,[\s\S]*?\.perm-drawer-collapse-inner\[data-flip-in-flight="1"\]\s*\{([^}]*)\}/u,
       ],
       [
         "status.css cap-collapse-inner",
         statusCss,
-        /\.cap-collapse-wrap\.expanded\s*>\s*\.cap-collapse-inner,[\s\S]*?\.cap-collapse-inner\s*\{([^}]*)\}/u,
+        /\.cap-collapse-wrap\.flip-closing\s*>\s*\.cap-collapse-inner,\s*\.cap-collapse-inner\[data-flip-in-flight="1"\]\s*\{([^}]*)\}/u,
       ],
       [
         "chats.css bot-perm-collapse-inner",
         chatsCss,
-        /\.bot-perm-collapse-grid\.expanded\s*>\s*\.bot-perm-collapse-inner,[\s\S]*?\.bot-perm-collapse-inner\s*\{([^}]*)\}/u,
+        /\.bot-perm-collapse-grid\.flip-closing\s*>\s*\.bot-perm-collapse-inner,\s*\.bot-perm-collapse-inner\[data-flip-in-flight="1"\]\s*\{([^}]*)\}/u,
       ],
       [
         "chats-targets.css qa-collapse-inner",
         chatsTargetsCss,
-        /\.chat-targets-qa-trigger-collapse:not\(\.collapsed\)\s*>\s*\.chat-targets-qa-collapse-inner,[\s\S]*?\.chat-targets-qa-collapse-inner\s*\{([^}]*)\}/u,
+        /\.chat-targets-qa-trigger-collapse\.flip-closing\s*>\s*\.chat-targets-qa-collapse-inner,[\s\S]*?\.chat-targets-qa-collapse-inner\[data-flip-in-flight="1"\]\s*\{([^}]*)\}/u,
       ],
       [
         "auth.css totp-collapse-inner",
         authCss,
-        /\.totp-trigger-collapse-grid:not\(\.collapsed\)\s*>\s*\.totp-collapse-inner,[\s\S]*?\.totp-collapse-inner\s*\{([^}]*)\}/u,
+        /\.totp-trigger-collapse-grid\.flip-closing\s*>\s*\.totp-collapse-inner,[\s\S]*?\.totp-collapse-inner\[data-flip-in-flight="1"\]\s*\{([^}]*)\}/u,
       ],
       [
         "gallery.css gallery-preview-collapse-inner",
         galleryCss,
-        /\.gallery-preview-collapse-grid\.expanded\s*>\s*\.gallery-preview-collapse-inner,[\s\S]*?\.gallery-preview-collapse-inner\s*\{([^}]*)\}/u,
+        /\.gallery-preview-collapse-grid\.flip-closing\s*>\s*\.gallery-preview-collapse-inner,\s*\.gallery-preview-collapse-inner\[data-flip-in-flight="1"\]\s*\{([^}]*)\}/u,
       ],
     ];
     for (const [label, css, pattern] of collapseInnerLayerRules) {
@@ -314,6 +388,17 @@ describe("Mini App 按钮悬停稳定性与弹窗字体渲染一致性", () => {
       expect(`${label}: ${body}`).toContain("will-change: transform");
       expect(`${label}: ${body}`).toContain("transform: translate3d(0, 0, 0);");
       expect(`${label}: ${body}`).toContain("backface-visibility: hidden;");
+    }
+    for (const [name, css] of [
+      ["primitives.css", primitivesCss],
+      ["identities.css", identitiesCss],
+      ["status.css", statusCss],
+      ["chats.css", chatsCss],
+      ["chats-targets.css", chatsTargetsCss],
+      ["auth.css", authCss],
+      ["gallery.css", galleryCss],
+    ] as const) {
+      expect(`${name}: ${css}`).not.toMatch(/\.(?:expanded|not\(\.collapsed\))\s*>\s*\.[a-z-]+-inner\s*[,{]/u);
     }
 
     // 7. 级联特异性与 `:hover`/`:active` 并发命中权重门禁。
@@ -407,5 +492,19 @@ describe("Mini App 按钮悬停稳定性与弹窗字体渲染一致性", () => {
     for (const [css, selector] of disabledGuardedShadowSelectors) {
       expect(css).toContain(selector);
     }
+
+    // 9. 权限控制搜索框放大镜图标光学垂直居中与单行输入行高锁定。
+    const searchInputIconBody: string = extractRuleBody(
+      identitiesCss,
+      /(?:^|\n)\.search-input-icon\s*\{([^}]*)\}/u
+    );
+    expect(searchInputIconBody).toContain("top: 50%;");
+    expect(searchInputIconBody).toContain("transform: translateY(calc(-50% + 1px));");
+    expect(searchInputIconBody).toContain("display: block;");
+    const searchInputBody: string = extractRuleBody(
+      identitiesCss,
+      /(?:^|\n)\.search-input\s*\{([^}]*)\}/u
+    );
+    expect(searchInputBody).toContain("line-height: normal;");
   });
 });

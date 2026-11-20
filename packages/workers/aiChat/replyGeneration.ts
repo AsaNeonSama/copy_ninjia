@@ -128,8 +128,12 @@ export function invalidateChatReplies(chatId: number): Promise<void> {
   return settleWithinBudget(tasks, AI_CHAT_INVALIDATE_DRAIN_TIMEOUT_MS).then((settled: boolean): void => {
     if (!settled) {
       logger.error(
-        `AI chat invalidation for chat ${chatId} gave up waiting on ${pending} generation task(s) ` +
-        `after ${AI_CHAT_INVALIDATE_DRAIN_TIMEOUT_MS}ms; they stay generation-guarded and cannot write anymore.`
+        "AI chat invalidation gave up waiting on generation tasks; they stay generation-guarded and cannot write anymore.",
+        {
+          chatId,
+          pendingTasks: pending,
+          timeoutMs: AI_CHAT_INVALIDATE_DRAIN_TIMEOUT_MS,
+        }
       );
     }
     replyGenerationTasks.delete(generation);

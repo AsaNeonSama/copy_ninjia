@@ -867,4 +867,56 @@ describe("pending verification daily append JSON", () => {
 
     expect((await recoverVerificationDay(DAY_ONE, dir)).get("-1001:42")).toEqual(record);
   });
+
+  test("已落盘且待写缓冲为空时，重放同代同版 critical upsert 立即补回 verificationPersisted", async () => {
+    const { phase: _phase, ...pending } = snapshot(1, { trackedMessageTimes: [], reminderSuperseded: true });
+    const record: VerificationSnapshot = {
+      ...pending,
+      phase: "expelling",
+      expelReason: "timeout",
+    };
+    await upsert({ type: "verificationUpsert", record, critical: true });
+    expect(replies).toEqual([{
+      type: "verificationPersisted",
+      key: "-1001:42",
+      generation: 1,
+      revision: 1,
+      deleted: false,
+    }]);
+
+    // 模拟 Disk I/O Worker 重建后从磁盘加载同代同版终态快照，此时待写缓冲为空。
+    replies = [];
+    resetVerificationPersistenceCache();
+    const recovered: Map<string, VerificationSnapshot> = await recoverVerificationDay(DAY_ONE, dir);
+    const reloaded: VerificationSnapshot | undefined = recovered.get("-1001:42");
+    expect(reloaded).toEqual(record);
+    verificationWorkerCache.set("-1001:42", reloaded!);
+    expect(verificationPendingChanges.size).toBe(0);
+
+    await upsert({ type: "verificationUpsert", record, critical: true });
+    expect(replies).toEqual([{
+      type: "verificationPersisted",
+      key: "-1001:42",
+      generation: 1,
+      revision: 1,
+      deleted: false,
+    }]);
+  });
+
+  test("待写缓冲命中同版普通变更时，收到 critical: true 重放会立即 flush 并回执", async () => {
+    await upsert({ type: "verificationUpsert", record: snapshot(1), critical: false });
+    expect(replies).toHaveLength(0);
+    expect(verificationPendingChanges.size).toBe(1);
+
+    await upsert({ type: "verificationUpsert", record: snapshot(1), critical: true });
+    expect(replies).toEqual([{
+      type: "verificationPersisted",
+      key: "-1001:42",
+      generation: 1,
+      revision: 1,
+      deleted: false,
+    }]);
+    expect(verificationPendingChanges.size).toBe(0);
+    expect((await recoverVerificationDay(DAY_ONE, dir)).get("-1001:42")).toMatchObject({ revision: 1 });
+  });
 });

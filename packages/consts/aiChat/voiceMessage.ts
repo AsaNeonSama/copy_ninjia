@@ -1,5 +1,5 @@
 /**
- * 语音合成公共实现（packages/aiChat/ai/voiceSynthesis.ts）与它的三个调用方——AI 语音
+ * 语音合成公共实现（packages/workers/aiChat/ai/voiceSynthesis.ts）与它的三个调用方——AI 语音
  * 工具、`/send` 代发的 TTS 请求、cron `send_voice`——的领域预算、默认基础风格、AI 台词语言，
  * 以及 Telegram 语音消息的编码参数。群聊语音转写的常量在 consts/aiChat/voice.ts。
  *
@@ -18,13 +18,13 @@ import { exhaustiveList } from "../exhaustiveList";
  * `agent.tts.style` 缺省时的基础朗读风格（google 与 openai 两种接受风格的协议；xai 协议不接受
  * style）。Gemini 经 `speech_metadata.style`、OpenAI 经 `instructions` 随台词提交；AI 回复的合成
  * 请求以 TTS_LANGUAGE_SEPARATOR 接上朗读语言要求，调用方给出本句语气时再以 TTS_TONE_SEPARATOR
- * 接在最后（见 aiChat/ai/utils/speechStyle.ts）。
+ * 接在最后（见 workers/aiChat/ai/utils/speechStyle.ts）。
  */
 export const TTS_DEFAULT_STYLE: string = "いたずらすきそうな音調が高い小悪魔の甘く、弾むようなツンデレ音色";
 
 /**
  * 基础朗读风格与朗读语言要求之间的连接段，拼成 `<基础风格>; <朗读语言>`；只有 AI 回复的合成请求
- * 带朗读语言（VOICE_LANGUAGE_PROMPTS 的 speechLanguageStyle）。所属模块：aiChat/ai/utils/speechStyle.ts。
+ * 带朗读语言（VOICE_LANGUAGE_PROMPTS 的 speechLanguageStyle）。所属模块：workers/aiChat/ai/utils/speechStyle.ts。
  */
 export const TTS_LANGUAGE_SEPARATOR: string = "; ";
 
@@ -40,7 +40,7 @@ export const TTS_BOT_LANGUAGES: readonly TtsBotLanguage[] = exhaustiveList<TtsBo
 /**
  * `agent.tts.bot_language` 缺省时的台词语言；`agent.tts` 整段缺省时 AI 回复的 send_message 与
  * 「行动与停止」段同样按它从 consts/aiChat/prompts/tools.ts 的 VOICE_LANGUAGE_PROMPTS 取值
- * （见 aiChat/ai/tools/replyToolset/orchestrator.ts）。
+ * （见 workers/aiChat/ai/tools/replyToolset/orchestrator.ts）。
  */
 export const TTS_DEFAULT_BOT_LANGUAGE: TtsBotLanguage = "ja";
 
@@ -58,7 +58,7 @@ export function isTtsBotLanguage(value: string): value is TtsBotLanguage {
 
 /**
  * `agent.tts.daily_limit` 缺省时的每日总预算：每个窗口拆为 AI 与预留两份独立额度。
- * 计数口径见 aiChat/ai/ttsUsage.ts：AI 语音工具在工具调用时预留、TTS 调用成功时登记，
+ * 计数口径见 workers/aiChat/ai/ttsUsage.ts：AI 语音工具在工具调用时预留、TTS 调用成功时登记，
  * `/send` 与 cron 由 tts 门面在发起供应商请求前登记；窗口与次数持久化在
  * memory/global/state.json 的 `ttsUsage`。
  */
@@ -85,7 +85,7 @@ export const MAX_VOICES_PER_REPLY: number = 1;
  * 窗口内合成结束时链上按调用顺序投递；到点仍未结束时链上收回「正在录音」并把投递转入后台，
  * 链继续执行后续步骤。工具回执不等合成。合成自身的超时不受本值影响
  * （consts/aiChat/gemini.ts 的 GEMINI_SPEECH_REQUEST_TIMEOUT_MS、consts/aiChat/openai.ts 的
- * OPENAI_SPEECH_REQUEST_TIMEOUT_MS）。所属模块：aiChat/ai/tools/replyToolset/voiceMessage.ts。
+ * OPENAI_SPEECH_REQUEST_TIMEOUT_MS）。所属模块：workers/aiChat/ai/tools/replyToolset/voiceMessage.ts。
  */
 export const VOICE_FOREGROUND_WAIT_MS: number = 25_000;
 
@@ -97,7 +97,7 @@ export const VOICE_TEXT_MAX_CHARS: number = 64;
 
 /**
  * 模型为单句台词追加的说话语气描述的最大字符数。语气拼在基础朗读风格之后作为
- * 本句的风格说明（见 aiChat/ai/utils/speechStyle.ts），只描述这一句怎么说；xai 协议
+ * 本句的风格说明（见 workers/aiChat/ai/utils/speechStyle.ts），只描述这一句怎么说；xai 协议
  * 没有风格指令字段，不发送语气。
  */
 export const VOICE_TONE_MAX_CHARS: number = 64;
@@ -129,7 +129,7 @@ export const VOICE_SPEECH_MAX_ENCODED_CHARS: number = Math.ceil(VOICE_SPEECH_MAX
 
 /**
  * OGG/Opus 语音的上传文件名：发到 Telegram 的语音（本地编码结果与 OpenAI 响应），以及
- * 交给 OpenAI 兼容转写接口的群语音（aiChat/openai/text.ts）。
+ * 交给 OpenAI 兼容转写接口的群语音（workers/aiChat/openai/text.ts）。
  */
 export const VOICE_OGG_FILE_NAME: string = "voice.ogg";
 
@@ -146,7 +146,7 @@ export const VOICE_OPUS_COMPLEXITY: number = 5;
 export const VOICE_OPUS_APPLICATION: "voip" | "audio" | "lowdelay" = "audio";
 
 /**
- * WAV 转 Opus 时每块输入的目标时长（秒），属 aiChat/ai/voiceEncoding.ts。整段语音按块重采样并编码，
+ * WAV 转 Opus 时每块输入的目标时长（秒），属 workers/aiChat/ai/voiceEncoding.ts。整段语音按块重采样并编码，
  * 块间让出 AI Worker 事件循环；单块同步占用随块长增加，整段总耗时不变。
  */
 export const VOICE_OPUS_ENCODE_CHUNK_SECONDS: number = 1;

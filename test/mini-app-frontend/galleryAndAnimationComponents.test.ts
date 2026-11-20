@@ -2,7 +2,7 @@
  * Mini App 前端图库网格/预览卡片、分页栏、延时卸载钩子、白名单退场保留行与弹窗重置测试。
  */
 
-import { afterEach, describe, expect, jest, test } from "bun:test";
+import { afterEach, describe, expect, jest, spyOn, test } from "bun:test";
 import { act, createElement } from "react";
 import type React from "react";
 import { createRoot } from "react-dom/client";
@@ -38,12 +38,22 @@ import {
   CHAT_QA_QUESTION_MAX_CHARS,
   DELETE_MESSAGE_CHAT_TARGET_MAX,
   MINI_APP_EXPAND_SCROLL_MIN_DELTA_PX,
+  MINI_APP_GALLERY_BLOB_CACHE_MAX,
   MINI_APP_IDENTITY_PAGE_SIZE_OPTIONS,
+  MINI_APP_MIN_LOADING_MS,
   TRANSLATE_CHAT_USER_LIMIT,
 } from "../../packages/mini-app-frontend/consts/miniApp";
 import { WHITELIST_PERMISSION_KEYS } from "../../packages/mini-app-frontend/consts/whitelist";
 import { getMiniAppTranslations } from "../../packages/mini-app-frontend/i18n";
+import {
+  clearMiniAppSessionToken,
+  readMiniAppSessionToken,
+} from "../../packages/mini-app-frontend/libs/credentials";
+import { useGalleryImageUrls } from "../../packages/mini-app-frontend/libs/useGalleryImageUrls";
+import { GalleryPage } from "../../packages/mini-app-frontend/pages/GalleryPage";
+import { resetMiniAppStoreForTest, useMiniAppStore } from "../../packages/mini-app-frontend/store/app";
 import { createChatsStore } from "../../packages/mini-app-frontend/store/chats";
+import { createGalleryStore } from "../../packages/mini-app-frontend/store/gallery";
 import type { WhitelistPermissionKey } from "../../packages/mini-app-frontend/types/identityPolicy";
 import type {
   MiniAppChatTargetKind,
@@ -59,6 +69,10 @@ import {
   installMiniDom,
 } from "../helpers/miniAppDom";
 import type { MiniDomEnvironment, MiniDomNode } from "../helpers/miniAppDom";
+import {
+  seedTestMiniAppSession,
+  wrapEncryptedTestFetch,
+} from "./helpers/encryptedFetchMock";
 
 const zh: Readonly<MiniAppTranslations> = getMiniAppTranslations("zh");
 
@@ -114,6 +128,23 @@ describe("Mini App 图库、分页与折叠动画组件", () => {
     expect(html).toContain("gallery-thumb loading");
     expect(html).toContain("gallery-thumb loaded");
     expect(html).toContain(zh.gallery.deletingButton);
+    expect(html).not.toContain("src=");
+
+    const withUrlsHtml: string = renderToStaticMarkup(createElement(GalleryGridList, {
+      items: [items[0]!],
+      imageObjectUrls: { [items[0]!.fileName]: "blob:https://mini.test/thumb-0" },
+      previewItem: null,
+      deletingFileName: null,
+      downloadingFileName: null,
+      loadedImages: { [items[0]!.fileName]: true },
+      batchEpoch: 2,
+      t: zh,
+      onMarkThumbLoaded: (): void => {},
+      onSelectPreviewItem: (): void => {},
+      onDownloadImage: (): void => {},
+      onDeleteImage: (): void => {},
+    }));
+    expect(withUrlsHtml).toContain('src="blob:https://mini.test/thumb-0"');
 
     const downloadingHtml: string = renderToStaticMarkup(createElement(GalleryGridList, {
       items: [items[1]!],
@@ -150,9 +181,11 @@ describe("Mini App 图库、分页与折叠动画组件", () => {
     }));
     expect(loadingHtml).toContain("gallery-preview-img loading");
     expect(loadingHtml).toContain(zh.gallery.downloadingButton);
+    expect(loadingHtml).not.toContain("src=");
 
     const closingHtml: string = renderToStaticMarkup(createElement(GalleryPreviewCard, {
       previewItem: item,
+      imageObjectUrl: "blob:https://mini.test/preview-0",
       previewLoaded: true,
       isClosing: true,
       downloadingFileName: null,
@@ -163,6 +196,7 @@ describe("Mini App 图库、分页与折叠动画组件", () => {
       onClosePreview: (): void => {},
     }));
     expect(closingHtml).toContain("gallery-preview-img loaded");
+    expect(closingHtml).toContain('src="blob:https://mini.test/preview-0"');
     expect(closingHtml).toContain(zh.gallery.deletingButton);
     expect(closingHtml).toContain("disabled=\"\"");
   });
@@ -492,6 +526,471 @@ describe("Mini App 图库、分页与折叠动画组件", () => {
     expect(closingRowHtml).toContain('class="identity-row-group" aria-hidden="true" style="pointer-events:none"');
     expect(closingRowHtml.match(/<button[^>]*tabindex="-1"/gu)?.length).toBe(2);
     expect(closingRowHtml).not.toContain("disabled");
+  });
+
+  test("GalleryPage 与 useGalleryImageUrls 覆盖加密拉取 blob URL 渲染、预览复用、失败骨架结算、认证失效锁定、上限淘汰与卸载释放", async () => {
+    jest.useFakeTimers();
+    const originalFetch: typeof fetch = globalThis.fetch;
+    const revokeSpy = spyOn(URL, "revokeObjectURL");
+    const flushGalleryAsync = async (advanceMs: number = 0): Promise<void> => {
+      await act(async (): Promise<void> => {
+        for (let tick: number = 0; tick < 8; tick += 1) {
+          Bun.sleepSync(2);
+          await new Promise<void>((resolve: () => void): void => {
+            setImmediate(resolve);
+          });
+        }
+        if (advanceMs > 0) {
+          jest.advanceTimersByTime(advanceMs);
+          for (let tick: number = 0; tick < 8; tick += 1) {
+            Bun.sleepSync(2);
+            await new Promise<void>((resolve: () => void): void => {
+              setImmediate(resolve);
+            });
+          }
+        }
+      });
+    };
+
+    try {
+      (globalThis as { Telegram?: unknown }).Telegram = { WebApp: { initData: "signed-init-data" } };
+      seedTestMiniAppSession("f".repeat(64), Date.now() + 600_000);
+      resetMiniAppStoreForTest();
+      useMiniAppStore.setState({ gateState: "unlocked", sessionExpiresAt: Date.now() + 600_000 });
+
+      const fileRequests: string[] = [];
+      let pendingGate: PromiseWithResolvers<void> | null = null;
+      let pendingSignal: AbortSignal | undefined;
+      let currentMode: "main" | "authFail" = "main";
+      let pageBatchTag: string = "init";
+
+      const makeItem = (name: string): MiniAppGalleryItem => ({
+        fileName: name,
+        mimeType: "image/png",
+        sizeBytes: 1024,
+        updatedAt: "2026-01-01 10:00:00",
+      });
+
+      globalThis.fetch = wrapEncryptedTestFetch(
+        async (url: URL, _decryptedInit: RequestInit | undefined, rawInit: RequestInit | undefined): Promise<Response> => {
+          if (url.pathname === "/api/gallery") {
+            const page: number = Number(url.searchParams.get("page") ?? "1");
+            if (currentMode === "authFail") {
+              return Response.json({
+                directory: "/data/gallery",
+                exists: true,
+                total: 1,
+                page: 1,
+                pageSize: 10,
+                totalPages: 1,
+                items: [makeItem("auth-expired.png")],
+              });
+            }
+            if (pageBatchTag === "evict") {
+              const items: MiniAppGalleryItem[] = Array.from(
+                { length: 20 },
+                (_: unknown, idx: number): MiniAppGalleryItem =>
+                  makeItem(`evict-p${page}-${idx}.png`)
+              );
+              return Response.json({
+                directory: "/data/gallery",
+                exists: true,
+                total: 80,
+                page,
+                pageSize: 20,
+                totalPages: 4,
+                items,
+              });
+            }
+            if (pageBatchTag === "pending") {
+              return Response.json({
+                directory: "/data/gallery",
+                exists: true,
+                total: 2,
+                page,
+                pageSize: 10,
+                totalPages: 2,
+                items: [makeItem("pending-cancel.png")],
+              });
+            }
+            return Response.json({
+              directory: "/data/gallery",
+              exists: true,
+              total: 2,
+              page,
+              pageSize: 10,
+              totalPages: 2,
+              items: [makeItem("thumb-ok.png"), makeItem("thumb-fail.png")],
+            });
+          }
+          if (url.pathname === "/api/gallery/file") {
+            const fileName: string = url.searchParams.get("fileName") ?? "";
+            fileRequests.push(fileName);
+            if (fileName === "thumb-fail.png") {
+              return Response.json({ error: "IMAGE_NOT_FOUND" }, { status: 404 });
+            }
+            if (fileName === "auth-expired.png") {
+              return Response.json({ code: "PASSWORD_REQUIRED", error: "expired" }, { status: 401 });
+            }
+            if (fileName === "pending-cancel.png" && pendingGate !== null) {
+              pendingSignal = rawInit?.signal ?? undefined;
+              await pendingGate.promise;
+            }
+            return new Response(new Uint8Array([0x89, 0x50, 0x4e, 0x47]), {
+              status: 200,
+              headers: { "Content-Type": "image/png" },
+            });
+          }
+          return Response.json({ error: "not found" }, { status: 404 });
+        }
+      );
+
+      // 1. 挂载 GalleryPage：成功条目渲染 blob URL，失败条目结算骨架不卡死，预览复用缓存不重发请求，预览失败也结算骨架，
+      //    超限淘汰最旧非可见 URL，切页中止在途请求，卸载全量调用 URL.revokeObjectURL。
+      const environment: MiniDomEnvironment = installMiniDom();
+      try {
+        const container: MiniDomNode = environment.document.createElement("div");
+        const root: ReturnType<typeof createRoot> = createRoot(container as unknown as Element);
+        const galleryStore = createGalleryStore();
+        (galleryStore as { getInitialState: typeof galleryStore.getState }).getInitialState =
+          galleryStore.getState;
+
+        await act(async (): Promise<void> => {
+          root.render(createElement(GalleryPage, { storeFactory: () => galleryStore }));
+        });
+        await flushGalleryAsync(MINI_APP_MIN_LOADING_MS);
+        await flushGalleryAsync(MINI_APP_MIN_LOADING_MS);
+
+        const thumbImages = (): MiniDomNode[] =>
+          findElements(
+            container,
+            (el: MiniDomNode): boolean => el.tagName === "IMG" && hasClass(el, "gallery-thumb")
+          );
+        const okThumb: MiniDomNode | undefined = thumbImages().find(
+          (el: MiniDomNode): boolean => el.getAttribute("alt") === "thumb-ok.png"
+        );
+        const failThumb: MiniDomNode | undefined = thumbImages().find(
+          (el: MiniDomNode): boolean => el.getAttribute("alt") === "thumb-fail.png"
+        );
+        expect(okThumb?.getAttribute("src")).toStartWith("blob:");
+        expect(failThumb?.getAttribute("src")).toBeNull();
+        expect(galleryStore.getState().loadedImages["thumb-fail.png"]).toBeTrue();
+
+        // 打开已缓存图片的预览：复用内存 blob URL，不再向 /api/gallery/file 发重复请求。
+        const fileCallsBeforeCachedPreview: number = fileRequests.length;
+        await act(async (): Promise<void> => {
+          galleryStore.getState().setPreviewItem(makeItem("thumb-ok.png"));
+        });
+        await flushGalleryAsync();
+        const previewImg: MiniDomNode | undefined = findElements(
+          container,
+          (el: MiniDomNode): boolean => el.tagName === "IMG" && hasClass(el, "gallery-preview-img")
+        )[0];
+        expect(previewImg?.getAttribute("src")).toBe(okThumb?.getAttribute("src") ?? null);
+        expect(fileRequests.length).toBe(fileCallsBeforeCachedPreview);
+
+        // 打开失败图片的预览：重新请求但仍失败后，预览骨架在最短时长后结算为 previewLoaded: true。
+        await act(async (): Promise<void> => {
+          galleryStore.getState().setPreviewItem(makeItem("thumb-fail.png"));
+        });
+        await flushGalleryAsync(MINI_APP_MIN_LOADING_MS);
+        expect(galleryStore.getState().previewLoaded).toBeTrue();
+        await act(async (): Promise<void> => {
+          galleryStore.getState().setPreviewItem(null);
+        });
+        await flushGalleryAsync(500);
+
+        // 连续加载 4 页共 80 张不同图片（加上此前 1 张共 81 张 > MINI_APP_GALLERY_BLOB_CACHE_MAX = 64）：触发最旧非可见条目淘汰。
+        pageBatchTag = "evict";
+        for (let page: number = 1; page <= 4; page += 1) {
+          await act(async (): Promise<void> => {
+            void galleryStore.getState().loadGallery(page, 20);
+          });
+          await flushGalleryAsync(MINI_APP_MIN_LOADING_MS);
+        }
+        expect(revokeSpy.mock.calls.length).toBeGreaterThanOrEqual(81 - MINI_APP_GALLERY_BLOB_CACHE_MAX);
+        expect(thumbImages()).toHaveLength(20);
+        expect(
+          thumbImages().every((img: MiniDomNode): boolean => (img.getAttribute("src") ?? "").startsWith("blob:"))
+        ).toBeTrue();
+
+        // 切页时立即中止上一页尚未返回的在途请求。
+        pageBatchTag = "pending";
+        pendingGate = Promise.withResolvers<void>();
+        await act(async (): Promise<void> => {
+          void galleryStore.getState().loadGallery(1, 10);
+        });
+        await flushGalleryAsync(MINI_APP_MIN_LOADING_MS);
+        expect(pendingSignal).toBeDefined();
+        expect(pendingSignal?.aborted).toBeFalse();
+
+        pageBatchTag = "init";
+        await act(async (): Promise<void> => {
+          void galleryStore.getState().loadGallery(2, 10);
+        });
+        await flushGalleryAsync(MINI_APP_MIN_LOADING_MS);
+        expect(pendingSignal?.aborted).toBeTrue();
+        pendingGate.resolve();
+        await flushGalleryAsync();
+
+        // 卸载 GalleryPage：释放缓存中全部剩余的 blob URL。
+        const revokesBeforeUnmount: number = revokeSpy.mock.calls.length;
+        await act(async (): Promise<void> => {
+          root.unmount();
+        });
+        expect(revokeSpy.mock.calls.length - revokesBeforeUnmount).toBe(MINI_APP_GALLERY_BLOB_CACHE_MAX);
+      } finally {
+        environment.restore();
+      }
+
+      // 2. 独立挂载验证：图库文件请求收到 401 PASSWORD_REQUIRED 时立即清除凭据并锁定全局门禁，同时结算骨架。
+      currentMode = "authFail";
+      seedTestMiniAppSession("e".repeat(64), Date.now() + 600_000);
+      useMiniAppStore.setState({ gateState: "unlocked", sessionExpiresAt: Date.now() + 600_000 });
+      await withMountedMiniDom(async (_authContainer: MiniDomNode, authRoot: ReturnType<typeof createRoot>): Promise<void> => {
+        const authGalleryStore = createGalleryStore();
+        (authGalleryStore as { getInitialState: typeof authGalleryStore.getState }).getInitialState =
+          authGalleryStore.getState;
+        await act(async (): Promise<void> => {
+          authRoot.render(createElement(GalleryPage, { storeFactory: () => authGalleryStore }));
+        });
+        await flushGalleryAsync(MINI_APP_MIN_LOADING_MS);
+        await flushGalleryAsync(MINI_APP_MIN_LOADING_MS);
+        expect(useMiniAppStore.getState().gateState).toBe("password");
+        expect(readMiniAppSessionToken()).toBe("");
+        expect(authGalleryStore.getState().loadedImages["auth-expired.png"]).toBeTrue();
+      });
+    } finally {
+      revokeSpy.mockRestore();
+      globalThis.fetch = originalFetch;
+      Reflect.deleteProperty(globalThis, "Telegram");
+      clearMiniAppSessionToken();
+      resetMiniAppStoreForTest();
+    }
+  });
+
+  test("useGalleryImageUrls 覆盖删除完成后立即释放并移除对象 URL、并发加载微任务合批提交及取消/卸载失效保护", async () => {
+    const originalFetch: typeof fetch = globalThis.fetch;
+    const revokeSpy = spyOn(URL, "revokeObjectURL");
+    const createSpy = spyOn(URL, "createObjectURL");
+    const flushTicks = async (): Promise<void> => {
+      for (let tick: number = 0; tick < 8; tick += 1) {
+        await new Promise<void>((resolve: () => void): void => { setImmediate(resolve); });
+      }
+    };
+    const flushMicrotasksAndReact = async (): Promise<void> => {
+      await act(flushTicks);
+    };
+    const waitUntil = async (predicate: () => boolean): Promise<void> => {
+      const deadline: number = Date.now() + 3_000;
+      while (!predicate() && Date.now() < deadline) {
+        await flushMicrotasksAndReact();
+        if (predicate()) break;
+        await Bun.sleep(2);
+      }
+      expect(predicate()).toBeTrue();
+    };
+    const makePngResponse = (): Response =>
+      new Response(new Uint8Array([0x89, 0x50, 0x4e, 0x47]), {
+        status: 200,
+        headers: { "Content-Type": "image/png" },
+      });
+    const pendingByFile: Map<string, PromiseWithResolvers<Response>> = new Map<
+      string,
+      PromiseWithResolvers<Response>
+    >();
+
+    try {
+      (globalThis as { Telegram?: unknown }).Telegram = { WebApp: { initData: "signed-init-data" } };
+      seedTestMiniAppSession("f".repeat(64), Date.now() + 600_000);
+      resetMiniAppStoreForTest();
+      useMiniAppStore.setState({ gateState: "unlocked", sessionExpiresAt: Date.now() + 600_000 });
+
+      const abortedByFile: Map<string, boolean> = new Map<string, boolean>();
+      const fetchCalls: string[] = [];
+
+      globalThis.fetch = wrapEncryptedTestFetch(
+        async (url: URL, _decryptedInit: RequestInit | undefined, rawInit: RequestInit | undefined): Promise<Response> => {
+          if (url.pathname === "/api/gallery/file") {
+            const fileName: string = url.searchParams.get("fileName") ?? "";
+            fetchCalls.push(fileName);
+            const deferred = pendingByFile.get(fileName);
+            if (deferred !== undefined) {
+              rawInit?.signal?.addEventListener("abort", (): void => { abortedByFile.set(fileName, true); });
+              return await deferred.promise;
+            }
+            return makePngResponse();
+          }
+          return Response.json({ error: "not found" }, { status: 404 });
+        }
+      );
+
+      const makeItem = (name: string): MiniAppGalleryItem => ({
+        fileName: name, mimeType: "image/png", sizeBytes: 1024, updatedAt: "2026-01-01 10:00:00",
+      });
+      const [itemA, itemB, itemC, itemD, itemE] = [
+        makeItem("batch-a.png"), makeItem("batch-b.png"), makeItem("batch-c.png"),
+        makeItem("cancel-d.png"), makeItem("unmount-e.png"),
+      ] as const;
+
+      const snapshots: Readonly<Record<string, string>>[] = [];
+      let latestUrls: Readonly<Record<string, string>> = {};
+      const noopThumb = (): void => {};
+      const noopPreview = (): void => {};
+
+      const HookProbe = (props: {
+        readonly items: readonly Readonly<MiniAppGalleryItem>[] | null;
+        readonly deletingFileName: string | null;
+      }): React.JSX.Element => {
+        const urls: Readonly<Record<string, string>> = useGalleryImageUrls({
+          items: props.items,
+          displayPreviewItem: null,
+          batchEpoch: 1,
+          deletingFileName: props.deletingFileName,
+          onMarkThumbLoaded: noopThumb,
+          onMarkPreviewLoaded: noopPreview,
+        });
+        latestUrls = urls;
+        snapshots.push(urls);
+        return createElement("div", null, String(Object.keys(urls).length));
+      };
+
+      await withMountedMiniDom(async (_container: MiniDomNode, root: ReturnType<typeof createRoot>): Promise<void> => {
+        // 1. items 为 null 时不发起请求。
+        await act(async (): Promise<void> => {
+          root.render(createElement(HookProbe, { items: null, deletingFileName: null }));
+        });
+        await flushMicrotasksAndReact();
+        expect(fetchCalls).toEqual([]);
+        expect(latestUrls).toEqual({});
+
+        // 2. 并发拉取多张图片并在同一微任务轮次完成，验证仅触发一次快照合并提交。
+        const deferredA = Promise.withResolvers<Response>();
+        const deferredB = Promise.withResolvers<Response>();
+        const deferredC = Promise.withResolvers<Response>();
+        pendingByFile.set("batch-a.png", deferredA);
+        pendingByFile.set("batch-b.png", deferredB);
+        pendingByFile.set("batch-c.png", deferredC);
+
+        await act(async (): Promise<void> => {
+          root.render(createElement(HookProbe, { items: [itemA, itemB, itemC], deletingFileName: null }));
+        });
+        await waitUntil((): boolean => fetchCalls.length === 3);
+        expect([...fetchCalls].sort()).toEqual(["batch-a.png", "batch-b.png", "batch-c.png"]);
+
+        const snapshotsBeforeBatchResolve: number = snapshots.length;
+        await act(async (): Promise<void> => {
+          deferredA.resolve(makePngResponse());
+          deferredB.resolve(makePngResponse());
+          deferredC.resolve(makePngResponse());
+          pendingByFile.delete("batch-a.png");
+          pendingByFile.delete("batch-b.png");
+          pendingByFile.delete("batch-c.png");
+          await new Promise<void>((resolve: () => void): void => { setImmediate(resolve); });
+        });
+        await flushMicrotasksAndReact();
+
+        const batchAddedSnapshots: Readonly<Record<string, string>>[] = snapshots
+          .slice(snapshotsBeforeBatchResolve)
+          .filter((snap: Readonly<Record<string, string>>): boolean => Object.keys(snap).length > 0);
+        expect(batchAddedSnapshots).toHaveLength(1);
+        const urlA: string = latestUrls["batch-a.png"] ?? "";
+        const urlB: string = latestUrls["batch-b.png"] ?? "";
+        const urlC: string = latestUrls["batch-c.png"] ?? "";
+        expect(urlA).toStartWith("blob:");
+        expect(urlB).toStartWith("blob:");
+        expect(urlC).toStartWith("blob:");
+        expect(revokeSpy).not.toHaveBeenCalled();
+
+        // 3. 删除失败回退（deletingFileName 回到 null 但 items 仍含目标文件）不得提前释放 URL。
+        await act(async (): Promise<void> => {
+          root.render(createElement(HookProbe, { items: [itemA, itemB, itemC], deletingFileName: "batch-a.png" }));
+        });
+        await act(async (): Promise<void> => {
+          root.render(createElement(HookProbe, { items: [itemA, itemB, itemC], deletingFileName: null }));
+        });
+        expect(revokeSpy).not.toHaveBeenCalled();
+        expect(latestUrls["batch-a.png"]).toBe(urlA);
+
+        // 4. 删除完成（deletingFileName 从 batch-a.png 变为 null 且 items 不再包含 batch-a.png）立即释放并移除快照，无需等待 LRU 淘汰。
+        await act(async (): Promise<void> => {
+          root.render(createElement(HookProbe, { items: [itemA, itemB, itemC], deletingFileName: "batch-a.png" }));
+        });
+        expect(revokeSpy).not.toHaveBeenCalled();
+        await act(async (): Promise<void> => {
+          root.render(createElement(HookProbe, { items: [itemB, itemC], deletingFileName: null }));
+        });
+        expect(revokeSpy).toHaveBeenCalledTimes(1);
+        expect(revokeSpy).toHaveBeenCalledWith(urlA);
+        expect(latestUrls["batch-a.png"]).toBeUndefined();
+        expect(latestUrls["batch-b.png"]).toBe(urlB);
+        expect(latestUrls["batch-c.png"]).toBe(urlC);
+
+        // 5. 切离页面取消在途请求：即便底层 mock 在中止后才返回响应，也不写入状态且立即 revoke 新建 URL。
+        const deferredD = Promise.withResolvers<Response>();
+        pendingByFile.set("cancel-d.png", deferredD);
+        await act(async (): Promise<void> => {
+          root.render(createElement(HookProbe, { items: [itemB, itemC, itemD], deletingFileName: null }));
+        });
+        await waitUntil((): boolean => fetchCalls.includes("cancel-d.png"));
+        await act(async (): Promise<void> => {
+          root.render(createElement(HookProbe, { items: [itemB, itemC], deletingFileName: null }));
+        });
+        expect(abortedByFile.get("cancel-d.png")).toBeTrue();
+
+        const createdBeforeCancelledResolve: number = createSpy.mock.calls.length;
+        const revokesBeforeCancelledResolve: number = revokeSpy.mock.calls.length;
+        await act(async (): Promise<void> => {
+          deferredD.resolve(makePngResponse());
+          pendingByFile.delete("cancel-d.png");
+        });
+        await flushMicrotasksAndReact();
+        expect(latestUrls["cancel-d.png"]).toBeUndefined();
+        expect(revokeSpy.mock.calls.length - revokesBeforeCancelledResolve).toBe(
+          createSpy.mock.calls.length - createdBeforeCancelledResolve
+        );
+
+        // 6. 卸载清理：立即中止在途请求并释放剩余缓存 URL；卸载后滞后返回的响应同样立即释放且不再提交状态。
+        const deferredE = Promise.withResolvers<Response>();
+        pendingByFile.set("unmount-e.png", deferredE);
+        await act(async (): Promise<void> => {
+          root.render(createElement(HookProbe, { items: [itemB, itemC, itemE], deletingFileName: null }));
+        });
+        await waitUntil((): boolean => fetchCalls.includes("unmount-e.png"));
+
+        const revokesBeforeUnmount: number = revokeSpy.mock.calls.length;
+        await act(async (): Promise<void> => { root.unmount(); });
+        expect(abortedByFile.get("unmount-e.png")).toBeTrue();
+        expect(revokeSpy.mock.calls.length - revokesBeforeUnmount).toBe(2);
+        expect(revokeSpy).toHaveBeenCalledWith(urlB);
+        expect(revokeSpy).toHaveBeenCalledWith(urlC);
+
+        const createdBeforeUnmountedResolve: number = createSpy.mock.calls.length;
+        const revokesBeforeUnmountedResolve: number = revokeSpy.mock.calls.length;
+        const snapshotsAtUnmount: number = snapshots.length;
+        await act(async (): Promise<void> => {
+          deferredE.resolve(makePngResponse());
+          pendingByFile.delete("unmount-e.png");
+        });
+        await flushMicrotasksAndReact();
+        expect(snapshots.length).toBe(snapshotsAtUnmount);
+        expect(revokeSpy.mock.calls.length - revokesBeforeUnmountedResolve).toBe(
+          createSpy.mock.calls.length - createdBeforeUnmountedResolve
+        );
+      });
+    } finally {
+      for (const [, deferred] of pendingByFile) {
+        deferred.resolve(makePngResponse());
+      }
+      pendingByFile.clear();
+      await flushTicks();
+      createSpy.mockRestore();
+      revokeSpy.mockRestore();
+      globalThis.fetch = originalFetch;
+      Reflect.deleteProperty(globalThis, "Telegram");
+      clearMiniAppSessionToken();
+      resetMiniAppStoreForTest();
+    }
   });
 });
 

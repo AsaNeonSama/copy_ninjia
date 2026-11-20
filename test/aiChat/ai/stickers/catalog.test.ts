@@ -12,7 +12,7 @@ const retryableFailure: AiTextResult = { ok: false, retryable: true };
 const requestFailure: AiTextResult = { ok: false, retryable: false };
 
 /**
- * aiChat/ai/stickers/sets.ts、aiChat/ai/imageDescription.ts 与 aiChat/provider.ts
+ * workers/aiChat/ai/stickers/sets.ts、workers/aiChat/ai/imageDescription.ts 与 workers/aiChat/provider.ts
  * 均替换为测试可控的假实现，本文件只覆盖 generatePackCatalog 的对账逻辑
  * （补/剪/失败时按兵不动/整包简介的生成时机）。
  */
@@ -23,19 +23,19 @@ const describeMediaForStickerCatalogMock = mock(async (..._args: unknown[]): Pro
 const generateTextMock = mock(async (..._args: unknown[]): Promise<AiTextResult> => generatedText("一包默认简介"));
 const sleepMock = mock(async (..._args: unknown[]): Promise<void> => {});
 
-mock.module("../../../../packages/aiChat/ai/stickers/sets", () => ({
+mock.module("../../../../packages/workers/aiChat/ai/stickers/sets", () => ({
   getStickerSet: getStickerSetMock,
 }));
-mock.module("../../../../packages/aiChat/ai/stickers/describe", () => ({
+mock.module("../../../../packages/aiChat/stickerDescribe", () => ({
   pickStickerVisionSource: (sticker: any) => ({ fileId: `${sticker.file_id}`, fileUniqueId: sticker.file_unique_id }),
 }));
-mock.module("../../../../packages/aiChat/ai/imageDescription", () => ({
+mock.module("../../../../packages/workers/aiChat/ai/imageDescription", () => ({
   describeMedia: describeMediaMock,
   describeMediaForStickerCatalog: describeMediaForStickerCatalogMock,
 }));
 // 单次调用失败会按 STICKER_CATALOG_RETRY_DELAYS_MS 退避重试；测试里把睡眠打成即时返回。
 mock.module("../../../../packages/libs/sleep", () => ({ sleep: sleepMock }));
-mock.module("../../../../packages/aiChat/provider", () => ({
+mock.module("../../../../packages/workers/aiChat/provider", () => ({
   summaryAiProvider: () => ({ name: "google", generateText: generateTextMock }),
 }));
 
@@ -48,7 +48,7 @@ const {
   hydrateStickerCatalogs,
   pruneStickerCatalogs,
   retryIncompleteStickerCatalogs,
-} = await import("../../../../packages/aiChat/ai/stickers/catalog");
+} = await import("../../../../packages/workers/aiChat/ai/stickers/catalog");
 const { transientDescriptionCache } = await import("../../../../packages/cache/workers/aiChat/imageDescription");
 const {
   catalogs,
@@ -108,6 +108,7 @@ test.each(["complete", "removed", "abort"] as const)("部分目录已有简介�
   aiChatWorkerAbortController.current = controller;
   stickerCatalogRetryState.lastAttemptAt = 0;
   try {
+    adoptStickerConfig({ packs: [pack] });
     getStickerSetMock.mockResolvedValue({ title: pack, stickers: [sticker(good, "👍"), sticker(bad, "👎")] });
     describeMediaForStickerCatalogMock.mockResolvedValueOnce(generatedText("成功项")).mockResolvedValueOnce(requestFailure);
     await generatePackCatalog(pack);
@@ -123,7 +124,7 @@ test.each(["complete", "removed", "abort"] as const)("部分目录已有简介�
     if (outcome === "removed") getStickerSetMock.mockResolvedValue({ title: pack, stickers: [sticker(good, "👍")] });
     else describeMediaForStickerCatalogMock.mockImplementationOnce((): Promise<AiTextResult> => result.promise);
     retryIncompleteStickerCatalogs([pack], now);
-    retryIncompleteStickerCatalogs([pack], now + STICKER_CATALOG_RETRY_INTERVAL_MS);
+    retryIncompleteStickerCatalogs([pack], now + STICKER_CATALOG_RETRY_INTERVAL_MS + 1);
     await Promise.resolve();
     if (outcome === "abort") controller.abort();
     result.resolve(generatedText("补齐项"));
@@ -149,7 +150,7 @@ test.each(["complete", "removed", "abort"] as const)("部分目录已有简介�
   }
 });
 
-describe("aiChat/ai/stickers/catalog generatePackCatalog 对账", () => {
+describe("workers/aiChat/ai/stickers/catalog generatePackCatalog 对账", () => {
   test("停机排空等待后台目录任务结算，不会在最终快照之后继续改写", async () => {
     let releaseLookup: (() => void) | undefined;
     getStickerSetMock.mockImplementationOnce((): Promise<any> =>
@@ -157,6 +158,7 @@ describe("aiChat/ai/stickers/catalog generatePackCatalog 对账", () => {
         releaseLookup = (): void => resolve(null);
       }));
 
+    adoptStickerConfig({ packs: ["pack_drain"] });
     ensureStickerCatalogs(["pack_drain"]);
     let drained: boolean = false;
     const drain: Promise<void> = drainStickerCatalogTasks().then((): void => { drained = true; });
@@ -195,6 +197,7 @@ describe("aiChat/ai/stickers/catalog generatePackCatalog 对账", () => {
     }));
     describeMediaForStickerCatalogMock.mockImplementationOnce(async () => retryableFailure);
 
+    adoptStickerConfig({ packs: ["pack_cancelled"] });
     const task: Promise<void> = generatePackCatalog("pack_cancelled", controller.signal);
     await sleeping;
     controller.abort(new DOMException("test cancellation", "AbortError"));
@@ -224,6 +227,7 @@ describe("aiChat/ai/stickers/catalog generatePackCatalog 对账", () => {
   });
 
   test("线上有、目录没有的补：生成描述并写入，随后生成整包简介", async () => {
+    adoptStickerConfig({ packs: ["pack_add"] });
     transientDescriptionCache.set("new-uid", Promise.resolve("临时旧描述"));
     getStickerSetMock.mockImplementationOnce(async () => ({ title: "新包", stickers: [sticker("new-uid", "😂")] }));
     describeMediaForStickerCatalogMock.mockImplementationOnce(async () => generatedText("一只猫大笑"));
@@ -239,6 +243,7 @@ describe("aiChat/ai/stickers/catalog generatePackCatalog 对账", () => {
   });
 
   test("整包生成只在结算时让贴纸菜单失效一次，生成途中工具声明保持不变", async () => {
+    adoptStickerConfig({ packs: ["pack_menu_once"] });
     getStickerSetMock.mockImplementationOnce(async () => ({
       title: "新包",
       stickers: [sticker("menu-a", "😂"), sticker("menu-b", "😭"), sticker("menu-c", "😡")],
@@ -258,6 +263,7 @@ describe("aiChat/ai/stickers/catalog generatePackCatalog 对账", () => {
   });
 
   test("剪枝当场让贴纸菜单失效，新增描述仍只在结算时再失效一次", async () => {
+    adoptStickerConfig({ packs: ["pack_prune_menu"] });
     hydrateStickerCatalogs(persisted("pack_prune_menu", { "gone-uid": { emoji: "😭", description: "已被移出包的贴纸" } }));
     getStickerSetMock.mockImplementationOnce(async () => ({
       title: "剪枝包",
@@ -278,6 +284,7 @@ describe("aiChat/ai/stickers/catalog generatePackCatalog 对账", () => {
   });
 
   test("目录有、线上已经没有的剪：不再出现在线上列表的条目被删除", async () => {
+    adoptStickerConfig({ packs: ["pack_prune"] });
     hydrateStickerCatalogs(persisted("pack_prune", { "stale-uid": { emoji: "😭", description: "已经不存在的贴纸" } }));
     expect(getCatalogEntry("stale-uid")).toBeDefined();
     transientDescriptionCache.set("stale-uid", Promise.resolve("不应复活的旧描述"));
@@ -291,6 +298,7 @@ describe("aiChat/ai/stickers/catalog generatePackCatalog 对账", () => {
   });
 
   test("查线上失败（getStickerSet 返回 null）：不补也不剪，保留现状", async () => {
+    adoptStickerConfig({ packs: ["pack_fail"] });
     hydrateStickerCatalogs(persisted("pack_fail", { "kept-uid": { emoji: "😴", description: "保留的贴纸" } }, "保留的简介"));
 
     getStickerSetMock.mockImplementationOnce(async () => null);
@@ -302,6 +310,7 @@ describe("aiChat/ai/stickers/catalog generatePackCatalog 对账", () => {
   });
 
   test("同一枚贴纸已有描述则不重复生成（不调用 describeMedia）", async () => {
+    adoptStickerConfig({ packs: ["pack_skip"] });
     hydrateStickerCatalogs(persisted("pack_skip", { "existing-uid": { emoji: "👍", description: "已经生成过" } }, "已有简介"));
     getStickerSetMock.mockImplementationOnce(async () => ({ title: "老包", stickers: [sticker("existing-uid", "👍")] }));
 
@@ -312,6 +321,7 @@ describe("aiChat/ai/stickers/catalog generatePackCatalog 对账", () => {
   });
 
   test("条目没变化且已有整包简介：不重新生成简介", async () => {
+    adoptStickerConfig({ packs: ["pack_summary_keep"] });
     hydrateStickerCatalogs(persisted("pack_summary_keep", { "uid-a": { emoji: "👍", description: "描述A" } }, "旧简介"));
     getStickerSetMock.mockImplementationOnce(async () => ({ title: "稳定包", stickers: [sticker("uid-a", "👍")] }));
 
@@ -322,6 +332,7 @@ describe("aiChat/ai/stickers/catalog generatePackCatalog 对账", () => {
   });
 
   test("条目没变化但还没有简介：补生成简介", async () => {
+    adoptStickerConfig({ packs: ["pack_summary_backfill"] });
     hydrateStickerCatalogs(persisted("pack_summary_backfill", { "uid-b": { emoji: "👍", description: "描述B" } }, null));
     getStickerSetMock.mockImplementationOnce(async () => ({ title: "待补简介包", stickers: [sticker("uid-b", "👍")] }));
     generateTextMock.mockImplementationOnce(async () => generatedText("补出来的简介"));
@@ -332,6 +343,7 @@ describe("aiChat/ai/stickers/catalog generatePackCatalog 对账", () => {
   });
 
   test("简介生成失败且退避重试用尽（1 + 3 次）：保留旧简介，不清掉", async () => {
+    adoptStickerConfig({ packs: ["pack_summary_fail"] });
     hydrateStickerCatalogs(persisted("pack_summary_fail", { "uid-c": { emoji: "👍", description: "描述C" } }, "旧简介仍在"));
     // 包内容有变化（新增一枚），简介要重生成，但首次和全部重试都失败。
     getStickerSetMock.mockImplementationOnce(async () => ({ title: "变动包", stickers: [sticker("uid-c", "👍"), sticker("uid-d", "😂")] }));
@@ -350,6 +362,7 @@ describe("aiChat/ai/stickers/catalog generatePackCatalog 对账", () => {
   });
 
   test("SDK 已耗尽请求重试时不再套目录业务重试", async () => {
+    adoptStickerConfig({ packs: ["pack_request_fail"] });
     hydrateStickerCatalogs(persisted("pack_request_fail", { "uid-e": { emoji: "👍", description: "描述E" } }, "旧简介保留"));
     getStickerSetMock.mockImplementationOnce(async () => ({
       title: "请求失败包",
@@ -365,6 +378,7 @@ describe("aiChat/ai/stickers/catalog generatePackCatalog 对账", () => {
   });
 
   test("单枚解析与简介生成瞬时失败：退避重试内成功即正常写入", async () => {
+    adoptStickerConfig({ packs: ["pack_retry"] });
     getStickerSetMock.mockImplementationOnce(async () => ({ title: "抖动包", stickers: [sticker("retry-uid", "😂")] }));
     describeMediaForStickerCatalogMock
       .mockImplementationOnce(async () => retryableFailure)
@@ -381,6 +395,7 @@ describe("aiChat/ai/stickers/catalog generatePackCatalog 对账", () => {
   });
 
   test("目录还没建起来的包在维护节拍上按间隔重试，建好之后不再打扰", async () => {
+    adoptStickerConfig({ packs: ["pack_periodic"] });
     getStickerSetMock.mockImplementation(async () => null);
     stickerCatalogRetryState.lastAttemptAt = 0;
 
@@ -388,27 +403,34 @@ describe("aiChat/ai/stickers/catalog generatePackCatalog 对账", () => {
     await drainStickerCatalogTasks();
     expect(getStickerSetMock).toHaveBeenCalledTimes(1);
 
-    // 间隔没到不重复打请求。
+    // 间隔没到（含恰等于窗口上界）不重复打请求。
     retryIncompleteStickerCatalogs(["pack_periodic"], 10_001);
+    retryIncompleteStickerCatalogs(["pack_periodic"], 10_000 + STICKER_CATALOG_RETRY_INTERVAL_MS);
     await drainStickerCatalogTasks();
     expect(getStickerSetMock).toHaveBeenCalledTimes(1);
 
-    // 间隔到了就再试一次，这次拉到了。
+    // 墙钟回拨按窗口已结束处理，立即允许重试。
+    retryIncompleteStickerCatalogs(["pack_periodic"], 9_000);
+    await drainStickerCatalogTasks();
+    expect(getStickerSetMock).toHaveBeenCalledTimes(2);
+
+    // 间隔超出窗口后就再试一次，这次拉到了。
     getStickerSetMock.mockImplementation(async () => ({ title: "补回来的包", stickers: [sticker("late-uid", "😂")] }));
     describeMediaForStickerCatalogMock.mockImplementationOnce(async () => generatedText("补出来的描述"));
     generateTextMock.mockImplementationOnce(async () => generatedText("补出来的简介"));
-    retryIncompleteStickerCatalogs(["pack_periodic"], 10_000 + STICKER_CATALOG_RETRY_INTERVAL_MS);
+    retryIncompleteStickerCatalogs(["pack_periodic"], 9_000 + STICKER_CATALOG_RETRY_INTERVAL_MS + 1);
     await drainStickerCatalogTasks();
-    expect(getStickerSetMock).toHaveBeenCalledTimes(2);
+    expect(getStickerSetMock).toHaveBeenCalledTimes(3);
     expect(getCatalogEntry("late-uid")).toEqual({ emoji: "😂", description: "补出来的描述" });
 
     // 目录与简介都齐了：此后每一轮都是一次判空，不再发请求。
-    retryIncompleteStickerCatalogs(["pack_periodic"], 10_000 + STICKER_CATALOG_RETRY_INTERVAL_MS * 2);
+    retryIncompleteStickerCatalogs(["pack_periodic"], 9_000 + STICKER_CATALOG_RETRY_INTERVAL_MS * 2 + 2);
     await drainStickerCatalogTasks();
-    expect(getStickerSetMock).toHaveBeenCalledTimes(2);
+    expect(getStickerSetMock).toHaveBeenCalledTimes(3);
   });
 
   test("整包描述全失败不永久闩死：失败负缓存到期后对账真的会重描", async () => {
+    adoptStickerConfig({ packs: ["pack_latch"] });
     getStickerSetMock.mockImplementation(async () => ({ title: "闩死包", stickers: [sticker("latch-uid", "😂")] }));
     describeMediaForStickerCatalogMock.mockImplementation(async () => retryableFailure);
 
@@ -432,9 +454,29 @@ describe("aiChat/ai/stickers/catalog generatePackCatalog 对账", () => {
     expect(packSummaries.get("pack_latch")).toBe("自愈出来的简介");
     expect(failedEntries.has("pack_latch")).toBe(false);
   });
+
+  test("生成途中贴纸包被移出白名单时立即停止后续条目与整包简介生成", async () => {
+    const pack: string = "pack_removed_midway";
+    adoptStickerConfig({ packs: [pack] });
+    getStickerSetMock.mockImplementationOnce(async () => ({
+      title: "中途下架包",
+      stickers: [sticker("mid-1", "😂"), sticker("mid-2", "😭"), sticker("mid-3", "😡")],
+    }));
+    describeMediaForStickerCatalogMock.mockImplementationOnce(async () => {
+      adoptStickerConfig({ packs: [] });
+      return generatedText("第一枚描述");
+    });
+
+    await generatePackCatalog(pack);
+
+    expect(describeMediaForStickerCatalogMock).toHaveBeenCalledTimes(1);
+    expect(generateTextMock).not.toHaveBeenCalled();
+    expect(getCatalogEntry("mid-2")).toBeUndefined();
+    expect(packSummaries.get(pack)).toBeUndefined();
+  });
 });
 
-describe("aiChat/ai/stickers/catalog pruneStickerCatalogs 按白名单剪枝", () => {
+describe("workers/aiChat/ai/stickers/catalog pruneStickerCatalogs 按白名单剪枝", () => {
   test.each([false, true])("移出的在途目录在任务结算及上报后释放（拉取成功=%s）", async (succeeded: boolean): Promise<void> => {
     const pack: string = "settling_pack";
     adoptStickerConfig({ packs: [pack] });

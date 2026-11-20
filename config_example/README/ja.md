@@ -17,7 +17,7 @@ done
 ```
 
 > [!CAUTION]
-> 既存のファイルを上書きするコピーコマンドを使用しないでください。また、`config_example/` をデプロイ設定のバックアップとして扱わないでください。`config/` には機密情報が含まれるため、サービスアカウントのみに読み取り権限を付与することを推奨します。
+> 既存のファイルを上書きするコピーコマンドを使用しないでください。また、`config_example/` をデプロイ設定のバックアップとして扱わないでください。`config/` には機密情報が含まれるため、既定ではサービスアカウントに読み取り権限のみを付与し、Mini App のオンライン設定編集を使用する場合に限り `config/dynamic/` および／または `config/static/` への書き込み・アトミック `rename` 権限を付与することを推奨します（新規作成の任意ファイルは `0600`）。
 
 `config/` は設定の反映方法に応じて厳格な 3 階層ディレクトリホワイトリストを適用します（`config/` 直下は `static/` と `dynamic/` の 2 サブディレクトリのみ許可）：
 - `config/static/`：`bot.json`、`g-auth.json` のみ許可。変更後は**サービスの再起動が必要**です。
@@ -45,7 +45,7 @@ done
   <tr>
     <td><code>static/bot.json</code></td>
     <td><nobr>静的（再起動が必要）</nobr></td>
-    <td>Telegram Bot Token、唯一のスーパー管理者、既定の口調、タイムゾーン、任意の Mini App コンソール</td>
+    <td>Telegram Bot Token、唯一のスーパー管理者、ログレベル、既定の口調、タイムゾーン、任意の Mini App コンソール</td>
     <td><b>起動を拒否（致命的エラー）</b></td>
   </tr>
   <tr>
@@ -130,6 +130,7 @@ Bot は `config/dynamic/` ディレクトリを常時監視しています。デ
   "super_admin_user_id": 987654321,
   "atmosphere": "mesugaki",
   "time_zone": "Asia/Tokyo",
+  "log_level": "operation",
   "mini_app": {
     "url": "https://miniapp.example.com",
     "port": 3000,
@@ -147,11 +148,12 @@ Bot は `config/dynamic/` ディレクトリを常時監視しています。デ
 | `super_admin_user_id` | `number` | **必須** | 正の安全な整数（`> 0`） | 唯一のスーパー管理者の Telegram ユーザー数値 ID（@ユーザー名ではありません）。全権限を本質的に保持します |
 | `atmosphere` | `string` | 任意 | `"mesugaki"` または `"normal"`。前後の空白を除いて厳格に検証。省略時はカスタムペルソナの有無で選択 | システム通知と操作レシートの文体。明示設定を優先（`mesugaki` はメスガキ風、`normal` は通常）。省略時は `prompt/persona.md` があれば通常、なければメスガキ風。AI ペルソナは変更しない |
 | `time_zone` | `string` | 任意 | IANA 名、既定 `DEFAULT_BOT_TIME_ZONE`。前後の空白を除いて厳格に検証 | 運勢、ログ、広告の発言累計、AI の時刻、日次保守、タイムゾーンを省略した cron の既定暦タイムゾーン。`TOKYO_TIME_ZONE`（省略時を含む）の場合だけ東京天気ツールを登録。不正値は起動拒否。データルートは作成時にこのタイムゾーンへ固定され、以後の変更は起動時に拒否されます（[07 運用とトラブルシューティング](../../docs/ja/07-operations.md#暦タイムゾーン) を参照） |
-| `mini_app` | `object` | 任意 | `url`、`port`、`host`、`password` のみを許可する厳格なオブジェクト。省略時はローカル HTTP サーバーやルートを起動せず、個人チャットの `MenuButtonWebApp` も登録しない。`config_example/` から手動でコピーして Mini App を使用しない場合はこのセクションを削除するか `password` を実際のパスワードに置き換えること（プレースホルダーのままでは起動を拒否） | SuperAdmin 専用 Telegram Mini App 管理コンソール（Dashboard）設定。完全な設定手順と Cloudflare Tunnel 推奨構成は [10 Mini App の設定方法と推奨構成](../../docs/ja/10-mini-app.md) を参照 |
+| `log_level` | `string` | 任意 | `LOG_LEVELS` のいずれか（`"info"`、`"operation"`、`"warn"`、`"error"`）、省略時は既定で `DEFAULT_LOG_LEVEL`（`"operation"`）。指定時は前後の空白を除いて厳格に検証し、不正値は起動拒否 | コンソール出力および `logs/<YYYY-MM-DD>.json` 永続化の最低重大度しきい値（`info` < `operation` < `warn` < `error`）。`info` は以下全レベルと主要な内部挙動を記録、`operation` は Telegram の `/` コマンド・`/wed` コールバック・`/qa set` フォーム投入および Mini App のログイン／ログアウト・状態変更操作（＋`warn`／`error`）を記録、`warn` は警告とエラーのみ、`error` はエラーのみ記録。`info`・`operation`・`warn` はメインスレッドで最大 32 件または 30 秒間隔でバッファ後に永続化され、`error` ログは即時永続化 |
+| `mini_app` | `object` | 任意 | `url`・`port`・`host`・`password` の 4 フィールドのみを許可する厳格なオブジェクト（`url`・`port`・`password` は必須、`host` は任意で既定 `MINI_APP_DEFAULT_HOST`；未知項目や旧署名鍵フィールドは拒否）。省略時はローカル HTTP サーバーやルートを起動せず、個人チャットの `MenuButtonWebApp` も登録しない。`config_example/` から手動でコピーして Mini App を使用しない場合はこのセクションを削除するか `password` を実際のパスワードに置き換えること（プレースホルダーのままでは起動を拒否） | SuperAdmin 専用 Telegram Mini App 管理コンソール（Dashboard）設定。完全な設定手順と Cloudflare Tunnel 推奨構成は [10 Mini App の設定方法と推奨構成](../../docs/ja/10-mini-app.md) を参照 |
 | `mini_app.url` | `string` | `mini_app` 指定時は**必須** | 有効な `https://` URL。サブパスプレフィックス（例：`https://example.com/sub`）に対応し、パスプレフィックスを保持または除去するリバースプロキシの双方と互換 | Telegram WebApp クライアントが読み込む公開 HTTPS エンドポイント URL |
 | `mini_app.port` | `number` | `mini_app` 指定時は**必須** | `MINI_APP_PORT_MIN`–`MINI_APP_PORT_MAX`（`1`–`65535`）の安全な整数、サンプル設定は `3000` | ローカル `Bun.serve` HTTP 待受ポート |
 | `mini_app.host` | `string` | 任意 | 非空文字列、既定 `MINI_APP_DEFAULT_HOST`（`"127.0.0.1"`） | ローカル `Bun.serve` HTTP 待受アドレス |
-| `mini_app.password` | `string` | `mini_app` 指定時は**必須** | 6 桁以上の数字（`0-9`）を含む非空文字列（プレースホルダー `MINI_APP_PASSWORD_PLACEHOLDER` 不可）。未指定や不正値の場合は起動を拒否 | Mini App 初回画面のアクセスパスワード（`initData` と認証セッションはいずれも 45 分間有効、3 回連続で誤入力するとスーパー管理者 ID を 30 分間ロック。コンソールで Google Authenticator TOTP をバインドするとログインは 6 桁コード検証に切り替わり、解除するとパスワード認証に戻る） |
+| `mini_app.password` | `string` | `mini_app` 指定時は**必須** | 6 桁以上の数字（`0-9`）を含む非空文字列（プレースホルダー `MINI_APP_PASSWORD_PLACEHOLDER` 不可）。未指定や不正値の場合は起動を拒否 | Mini App 初回画面のアクセスパスワード（`initData` とセッション基本有効期限は 45 分間、各世代 5 秒～5 分のランダム待機後にリクエスト駆動で鍵更新・スライディング延長し、上限は `MINI_APP_SESSION_MAX_LIFETIME_MS` = 2 時間、未期限切れセッションと 256-bit 一時鍵の同時保持上限は `MINI_APP_SESSION_MAX` = 5 件。3 回連続で誤入力するとスーパー管理者 ID を 30 分間ロック。コンソールで Google Authenticator TOTP をバインドするとログインは 6 桁コード検証に切り替わり、解除するとパスワード認証に戻る） |
 
 ---
 
@@ -496,7 +498,7 @@ Bot は `config/dynamic/` ディレクトリを常時監視しています。デ
 | `kick`、`block_scope: "global"` | 恒久ブラックリスト（`/block` と同じリスト）に登録し、全管理対象グループで BAN | 同左 |
 
 - ミュート・BAN なしのキック・該当グループのみの BAN は発生グループだけに作用し、永続 outbox には書き込みません。停止時の排出がタイムアウトした場合やプロセス再起動時は、未完了の要求をそのまま放棄します。要求が成功しなかった場合、通知で Bot の権限確認を管理者に促します。
-- 該当グループのみの BAN は Bot の恒久ブラックリストに入らないため `/unblock` では解除できず、Telegram のグループ管理画面で解除します。無期限ミュートは `/unmute` で解除します。
+- 該当グループのみの BAN は Bot の恒久ブラックリストに入らないため `/block <対象> disable` では解除できず、Telegram のグループ管理画面で解除します。無期限ミュートは `/unmute` で解除します。
 - BAN なしのキックの前に対象がまだグループにいることを確認し、グループ種別や在室状態が確認できない場合は外す要求を送りません。
 - 処罰設定はホットリロードに従い、処置のたびに現在の設定を読みます。ファイルが削除された場合、処理中の命中はメッセージ削除のみで処罰しません。
 
@@ -511,7 +513,7 @@ Bot は `config/dynamic/` ディレクトリを常時監視しています。デ
 | `punishment.kick` | `object` | `mute` と二者択一 | `block`、`block_scope` の 2 キーのみ | キック設定 |
 | `punishment.kick.block` | `boolean` | **必須** | — | `false` で BAN なしのキック、`true` で `block_scope` に従って BAN |
 | `punishment.kick.block_scope` | `string` | `block` が `true` のとき必須、`false` のときは省略必須 | 前後の空白を除いて `"chat"` または `"global"`（`AD_BLOCK_SCOPES`） | `"chat"` は発生グループだけで BAN、`"global"` は恒久ブラックリストに登録して全管理対象グループで BAN |
-| `samples` | `string[]` | **必須** | 配列長 `0 〜 MAX_CONFIGURED_AD_SAMPLES`、重複不可 | 広告正例サンプル文字列配列。各サンプルは連続する空白を 1 つのスペースにまとめ前後の空白を除いた後に非空かつ `≤ AD_SAMPLE_MAX_CHARS` 文字で、重複判定もこの正規化結果で行います。`provider: "google"` の場合、Gemini 明示的コンテキストキャッシュが自動構築され、残りの存続時間が `GEMINI_CONTEXT_CACHE_RENEW_BEFORE_MS` を下回るとバックグラウンドで延長されます |
+| `samples` | `string[]` | **必須** | 配列長 `0 〜 MAX_CONFIGURED_AD_SAMPLES`、重複不可 | 広告正例サンプル文字列配列。各サンプルは連続する空白を 1 つのスペースにまとめ前後の空白を除いた後に非空かつ `≤ AD_SAMPLE_MAX_CHARS` 文字で、重複判定もこの正規化結果で行います |
 | `sticker_black_list` | `string[]` | **必須** | 配列長 `0 〜 MAX_CONFIGURED_AD_BLACKLIST_PACKS`、要素は前後の空白を除いて `STICKER_PACK_NAME_PATTERN` に一致し重複不可 | ステッカーパック short name ブラックリスト（`https://t.me/addstickers/<short_name>` の末尾部分）。免除対象外の送信者がこのリストに含まれるパックのステッカーを送信した場合、後続の判定をスキップして `punishment` に従って処罰します |
 | `emoji_black_list` | `string[]` | **必須** | 配列長 `0 〜 MAX_CONFIGURED_AD_BLACKLIST_PACKS`、要素は前後の空白を除いて `STICKER_PACK_NAME_PATTERN` に一致し重複不可 | カスタム絵文字パック short name ブラックリスト（`https://t.me/addemoji/<short_name>` の末尾部分）。免除対象外の送信者のメッセージに `custom_emoji` エンティティが含まれる場合、メインスレッドの統一 Telegram 送信境界経由で所属パックを照会し、一致した場合は AI 判定をスキップして `punishment` に従って処罰します |
 
@@ -535,7 +537,7 @@ Google Cloud からダウンロードしたサービスアカウントの JSON �
 | `project_id` | `string` | 任意 | 非空文字列 | GCP プロジェクト ID |
 | `private_key_id` | `string` | 任意 | 非空文字列 | 秘密鍵識別子 |
 | `quota_project_id`、`universe_domain` | `string` | 任意 | 非空文字列 | クォータプロジェクトと universe ドメイン |
-| その他フィールド | 任意の型 | 任意 | 検証せず、そのまま保持 | `client_id`、`auth_uri`、`token_uri` 等、Google Cloud SDK が消費 |
+| その他フィールド | 任意の型 | 任意 | 起動時と Mini App `/api/configs/save` は共通の `parseGoogleServiceAccountKey` を使用し、指定時の `private_key_id`・`project_id`・`quota_project_id`・`universe_domain` はトリム後の非空文字列必須、その他のフィールドは追加検証せずそのまま保持 | `client_id`、`auth_uri`、`token_uri` 等、Google Cloud SDK が消費 |
 
 ---
 

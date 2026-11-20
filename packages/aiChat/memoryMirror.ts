@@ -133,6 +133,7 @@ function waitForAiMemoryDelete(chatId: number, revision: number): Promise<void> 
         ));
       }, AI_MEMORY_FLUSH_TIMEOUT_MS),
     };
+    waiter.timer.unref();
     const waiters: AiMemoryDeleteWaiter[] = aiMemoryDeleteWaiters.get(chatId) ?? [];
     waiters.push(waiter);
     aiMemoryDeleteWaiters.set(chatId, waiters);

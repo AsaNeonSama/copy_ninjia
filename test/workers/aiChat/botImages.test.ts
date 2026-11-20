@@ -4,7 +4,7 @@ import type { BufferedMessage } from "../../../packages/types/aiChat/memory";
 import type { AiRecordMessage, RepliedBotImage } from "../../../packages/types/aiChat/protocol";
 
 const describeMedia = mock(async (..._args: unknown[]): Promise<string | null> => "一只戴帽子的猫");
-mock.module("../../../packages/aiChat/ai/imageDescription", () => ({ describeMedia }));
+mock.module("../../../packages/workers/aiChat/ai/imageDescription", () => ({ describeMedia }));
 
 const {
   recordBotImage,

@@ -238,8 +238,11 @@ export function hydrateMemories(memories: Map<number, string>): void {
   }
   if (skippedOverCapacity > 0) {
     logger.error(
-      `Left the persisted AI memory of ${skippedOverCapacity} chat(s) on disk without hydrating it: ` +
-      `the in-memory ceiling of ${AI_MEMORY_MAX_CHATS} chat(s) was already reached.`
+      "Left persisted AI memory on disk without hydrating because the in-memory chat ceiling was reached.",
+      {
+        skippedChats: skippedOverCapacity,
+        maxChats: AI_MEMORY_MAX_CHATS,
+      }
     );
   }
 }

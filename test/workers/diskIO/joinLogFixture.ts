@@ -58,6 +58,7 @@ const {
 const {
   isRecentJoinLogDay,
   joinLogSnapshotChunks,
+  joinLogSnapshotEntryBytes,
   measureJoinLogSnapshotBytes,
   serializeJoinLogSnapshotEntry,
   trimJoinLogRecordsToCapacity,
@@ -206,6 +207,7 @@ export {
   readJoinLog,
   isRecentJoinLogDay,
   joinLogSnapshotChunks,
+  joinLogSnapshotEntryBytes,
   measureJoinLogSnapshotBytes,
   serializeJoinLogSnapshotEntry,
   trimJoinLogRecordsToCapacity,

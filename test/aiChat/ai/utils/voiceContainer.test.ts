@@ -4,8 +4,8 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { probeMp3, probeOggOpus } from "../../../../packages/aiChat/ai/utils/voiceContainer";
-import { encodeVoiceMessage } from "../../../../packages/aiChat/ai/voiceEncoding";
+import { probeMp3, probeOggOpus } from "../../../../packages/workers/aiChat/ai/utils/voiceContainer";
+import { encodeVoiceMessage } from "../../../../packages/workers/aiChat/ai/voiceEncoding";
 import type { VoiceContainerProbeResult, VoiceEncodeResult } from "../../../../packages/types/aiChat/voiceMessage";
 import { concatBytes, id3v1Tag, id3v2Tag, mp3Frame, mp3Frames, MPEG2_24K_64K_FRAME_BYTES } from "../../../helpers/mp3";
 import { sineWav } from "../../../helpers/wav";

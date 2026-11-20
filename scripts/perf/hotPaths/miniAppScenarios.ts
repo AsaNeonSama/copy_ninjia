@@ -19,8 +19,13 @@ import {
   verifyMiniAppInitData,
 } from "../../../packages/libs/miniAppAuth";
 import {
+  commitMiniAppSessionAccess,
   issueMiniAppAuthSession,
-  resolveAndRefreshMiniAppAuthSession,
+  lookupMiniAppSessionState,
+} from "../../../packages/mini-app-api-server/auth/session";
+import type {
+  CommitMiniAppSessionAccessResult,
+  LookedUpMiniAppSessionState,
 } from "../../../packages/mini-app-api-server/auth/session";
 import { listManagedChats } from "../../../packages/mini-app-api-server/view/chats/query";
 import {
@@ -29,7 +34,7 @@ import {
 import type { ExpandedBodyGeometry } from "../../../packages/mini-app-frontend/components/animations/expandFollowScroll";
 import {
   computeFlipCollapseDurationMs,
-  formatTranslate3dY,
+  formatTranslate3dYWithDpr,
 } from "../../../packages/mini-app-frontend/components/animations/flipCollapse";
 import { evaluateCubicBezierEase } from "../../../packages/mini-app-frontend/components/animations/frameMotion";
 import {
@@ -43,13 +48,11 @@ import {
   formatUptime,
   truncateDisplayText,
 } from "../../../packages/mini-app-frontend/libs/formatters";
-import type { MiniAppCapabilityStatus as FrontendCapabilityStatus } from "../../../packages/mini-app-frontend/types/miniApp";
+import type { MiniAppCapabilityStatus as FrontendCapabilityStatus } from "../../../packages/mini-app-frontend/types/miniApp/status";
 import type { ChatState } from "../../../packages/types/chatState";
-import type {
-  MiniAppAuthResult,
-  MiniAppAuthSession,
-} from "../../../packages/types/miniApp/auth";
+import type { MiniAppAuthResult } from "../../../packages/types/miniApp/auth";
 import type { MiniAppChatSummary } from "../../../packages/types/miniApp/chats";
+import { buildBenchmarkSignedInitData } from "../miniAppInitData";
 import { BENCHMARK_CHAT_ID, BENCHMARK_EPOCH_MS } from "./fixtures";
 import type { Scenario } from "./types";
 
@@ -58,30 +61,9 @@ const BENCHMARK_INIT_DATA_SECRET_KEY: Uint8Array =
   deriveMiniAppInitDataSecretKey(BOT_TOKEN);
 
 /**
- * 构造已按 Telegram WebApp 规范 HMAC-SHA256 签名的基准测试 `initData` 查询字符串。
- * @param authDate 秒级签发时间戳。
- * @returns URLSearchParams 编码后的 `initData`。
- */
-function buildBenchmarkSignedInitData(authDate: number): string {
-  const userJson: string = JSON.stringify({
-    id: SUPER_ADMIN_USER_ID,
-    first_name: "SuperAdmin",
-    username: "super_admin",
-  });
-  const dataCheckString: string = `auth_date=${authDate}\nuser=${userJson}`;
-  const hashHex: string = new Bun.CryptoHasher("sha256", BENCHMARK_INIT_DATA_SECRET_KEY)
-    .update(dataCheckString, "utf8")
-    .digest("hex");
-  const searchParams: URLSearchParams = new URLSearchParams();
-  searchParams.set("auth_date", String(authDate));
-  searchParams.set("user", userJson);
-  searchParams.set("hash", hashHex);
-  return searchParams.toString();
-}
-
-/**
  * Mini App 后端双层鉴权与受管群列表路由处理热路径基准：
- * 覆盖 Telegram WebApp HMAC-SHA256 签名与超管身份校验、二级认证会话（`MINI_APP_SESSION_TTL_MS`）核验与滑窗续期、
+ * 覆盖 Telegram WebApp HMAC-SHA256 签名与超管身份校验、鉴权管道同款的二级认证会话只读查找与提交（`lookupMiniAppSessionState` → `commitMiniAppSessionAccess`，
+ * 会话于基准起点签发，迭代时间窗短于最短轮换间隔 `MINI_APP_SESSION_REFRESH_MIN_MS`，每轮都走不轮换的提交路径）、
  * 以及受管群列表状态汇总（功能开关、热消息条数、QA 条数、封锁倒计时与排序）。
  *
  * @returns Mini App 后端路由热路径场景定义
@@ -96,8 +78,12 @@ export function miniAppStatusRouteScenario(): Scenario {
     warmupIterations: 60_000,
     prepare: (): void => {
       baseNowMs = BENCHMARK_EPOCH_MS;
-      initData = buildBenchmarkSignedInitData(Math.floor(baseNowMs / 1000) - 60);
-      sessionToken = issueMiniAppAuthSession(baseNowMs - 10_000).token;
+      initData = buildBenchmarkSignedInitData(
+        BENCHMARK_INIT_DATA_SECRET_KEY,
+        SUPER_ADMIN_USER_ID,
+        Math.floor(baseNowMs / 1000) - 60
+      );
+      sessionToken = issueMiniAppAuthSession(baseNowMs).token;
       for (let i: number = 0; i < STATE_MANAGED_CHAT_LIMIT; i += 1) {
         const chatId: number = BENCHMARK_CHAT_ID - i;
         const chatState: ChatState = getOrCreateChatState(chatId);
@@ -134,13 +120,23 @@ export function miniAppStatusRouteScenario(): Scenario {
         if (!authResult.ok) {
           throw new Error("Expected valid Mini App benchmark initData.");
         }
-        const session: Readonly<MiniAppAuthSession> | null =
-          resolveAndRefreshMiniAppAuthSession(sessionToken, nowMs);
-        if (session === null) {
+        const lookedUp: Readonly<LookedUpMiniAppSessionState> | null =
+          lookupMiniAppSessionState(sessionToken, nowMs);
+        if (lookedUp === null) {
           throw new Error("Expected active Mini App benchmark auth session.");
         }
+        const committed: CommitMiniAppSessionAccessResult = commitMiniAppSessionAccess({
+          session: lookedUp.session,
+          requestToken: lookedUp.requestToken,
+          matchedViaPrevious: lookedUp.matchedViaPrevious,
+          allowRotation: true,
+          nowMs,
+        });
+        if (!committed.ok || committed.rotated) {
+          throw new Error("Expected non-rotating Mini App benchmark session commit.");
+        }
         const chats: readonly Readonly<MiniAppChatSummary>[] = listManagedChats();
-        checksum += authResult.user.id + (session.expiresAt & 0xffff) + chats.length;
+        checksum += authResult.user.id + (committed.session.expiresAt & 0xffff) + chats.length;
       }
       return checksum;
     },
@@ -153,7 +149,8 @@ export function miniAppStatusRouteScenario(): Scenario {
     },
     probes: {
       verifyMiniAppInitData,
-      resolveAndRefreshMiniAppAuthSession,
+      lookupMiniAppSessionState,
+      commitMiniAppSessionAccess,
       listManagedChats,
     },
   };
@@ -238,7 +235,7 @@ export function miniAppFrontendRenderScenario(): Scenario {
           180 + (index & 255),
           (index & 1) === 0
         );
-        const transformCss: string = formatTranslate3dY((1 - eased) * -24);
+        const transformCss: string = formatTranslate3dYWithDpr((1 - eased) * -24, 2);
         const geometry: Readonly<ExpandedBodyGeometry> =
           FRONTEND_EXPAND_GEOMETRIES[index % geometryCount]!;
         const scrollDelta: number = computeExpandFollowScrollDelta(geometry, 780);
@@ -259,6 +256,7 @@ export function miniAppFrontendRenderScenario(): Scenario {
     probes: {
       areCapabilityStatusEqual,
       evaluateCubicBezierEase,
+      formatTranslate3dYWithDpr,
       computeFlipCollapseDurationMs,
       computeExpandFollowScrollDelta,
       interpolateSpringRangeValue,

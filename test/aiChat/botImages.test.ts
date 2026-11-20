@@ -47,5 +47,9 @@ test("AI Worker 不可用时只记错误日志，不把异常抛回发送路径"
   });
   expect((): void => recordBotImage({ chatId: -1001, messageId: 5, caption: "", edited: false })).not.toThrow();
   expect(logError).toHaveBeenCalledTimes(1);
-  expect(String(logError.mock.calls[0]?.[0])).toContain("Failed to record bot image 5 in AI memory (chat -1001)");
+  expect(logError).toHaveBeenCalledWith(
+    "Failed to record bot image in AI memory:",
+    { chatId: -1001, messageId: 5 },
+    expect.any(Error)
+  );
 });

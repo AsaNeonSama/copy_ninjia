@@ -1,6 +1,11 @@
 import { relative } from "node:path";
 import ts from "typescript";
-import { unwrapExpression } from "./staticAccess";
+import {
+  calledFunction,
+  collectResetFunctions,
+  isInResetFunction,
+  mockSymbols,
+} from "./testMockShared";
 import { collectTopLevelSpyRestoreProblems } from "./testSpyRestore";
 
 /**
@@ -10,9 +15,10 @@ import { collectTopLevelSpyRestoreProblems } from "./testSpyRestore";
  *
  * - 复位钩子：`beforeEach`/`afterEach`/`beforeAll`/`afterAll` 的回调，以及从这些回调里
  *   调用到的函数（跨文件、可传递）。用例中途只为清调用记录的 `mockClear()` 不在判定范围内。
- * - 替身按 TypeScript checker 解析到声明符号：静态 import 与 `await import()` 解构都解析到
- *   被导入模块的导出，属性访问解析到属性声明，`for (const x of [a, b]) x.mockClear()`
- *   归到数组里的每个元素。解析不到符号的接收者（调用结果、下标访问）不参与判定。
+ * - 替身按 TypeScript checker 解析到声明符号（见 `scripts/conventions/testMockShared.ts`）：
+ *   静态 import 与 `await import()` 解构都解析到被导入模块的导出，属性访问解析到属性声明，
+ *   `for (const x of [a, b]) x.mockClear()` 归到数组里的每个元素。解析不到符号的接收者
+ *   （调用结果、下标访问）不参与判定。
  * - 同一符号既出现 {@link ONCE_METHODS} 调用、又在复位钩子里出现 `mockClear()` 即报错，
  *   报错写出两处位置。
  * - 顶层 `spyOn` 恢复规则由 `scripts/conventions/testSpyRestore.ts` 的
@@ -45,171 +51,6 @@ interface MockCall {
   readonly node: ts.CallExpression;
   readonly symbols: readonly ts.Symbol[];
   readonly position: string;
-}
-
-/**
- * `await import("x")` 解构出的绑定解析到模块 `x` 的同名导出；其它绑定原样返回。
- *
- * @param checker TypeScript 类型检查器
- * @param symbol 待解析的符号
- * @returns 解析到的被导入模块导出符号或原符号
- */
-function resolveImportBinding(checker: ts.TypeChecker, symbol: ts.Symbol): ts.Symbol {
-  const declaration: ts.Declaration | undefined = symbol.valueDeclaration;
-  if (
-    declaration === undefined ||
-    !ts.isBindingElement(declaration) ||
-    !ts.isObjectBindingPattern(declaration.parent) ||
-    !ts.isVariableDeclaration(declaration.parent.parent)
-  ) {
-    return symbol;
-  }
-  const initializer: ts.Expression | undefined = declaration.parent.parent.initializer;
-  if (initializer === undefined) return symbol;
-  let call: ts.Expression = unwrapExpression(initializer);
-  if (ts.isAwaitExpression(call)) call = unwrapExpression(call.expression);
-  if (!ts.isCallExpression(call) || call.expression.kind !== ts.SyntaxKind.ImportKeyword) return symbol;
-  const specifier: ts.Expression | undefined = call.arguments[0];
-  if (specifier === undefined || !ts.isStringLiteral(specifier)) return symbol;
-  const moduleSymbol: ts.Symbol | undefined = checker.getSymbolAtLocation(specifier);
-  if (moduleSymbol === undefined) return symbol;
-  const prop: ts.PropertyName | ts.BindingName = declaration.propertyName ?? declaration.name;
-  const name: string = ts.isIdentifier(prop) || ts.isStringLiteral(prop) ? prop.text : prop.getText();
-  const exported: ts.Symbol | undefined = checker
-    .getExportsOfModule(moduleSymbol)
-    .find((candidate: ts.Symbol): boolean => candidate.name === name);
-  return exported === undefined ? symbol : canonicalSymbol(checker, exported);
-}
-
-/**
- * 沿 import 别名与 `await import()` 解构走到声明符号。
- *
- * @param checker TypeScript 类型检查器
- * @param symbol 待归一化的符号
- * @returns 源声明符号
- */
-export function canonicalSymbol(checker: ts.TypeChecker, symbol: ts.Symbol): ts.Symbol {
-  const target: ts.Symbol = (symbol.flags & ts.SymbolFlags.Alias) !== 0
-    ? checker.getAliasedSymbol(symbol)
-    : symbol;
-  return resolveImportBinding(checker, target);
-}
-
-/**
- * 标识符或属性访问的名字节点上的符号；其它表达式返回 undefined。
- *
- * @param checker TypeScript 类型检查器
- * @param expression 待检查的表达式节点
- * @returns 关联的 TypeScript 符号，无法解析时返回 undefined
- */
-export function referencedSymbol(checker: ts.TypeChecker, expression: ts.Expression): ts.Symbol | undefined {
-  const target: ts.Expression = unwrapExpression(expression);
-  if (ts.isIdentifier(target)) return checker.getSymbolAtLocation(target);
-  if (ts.isPropertyAccessExpression(target)) return checker.getSymbolAtLocation(target.name);
-  return undefined;
-}
-
-/**
- * `for (const x of [a, b])` 的循环变量对应的数组元素；不是这种形态时返回 null。
- *
- * @param symbol 待检查的循环变量符号
- * @returns 数组字面量元素列表，非此类循环变量时返回 null
- */
-function forOfArrayElements(symbol: ts.Symbol): readonly ts.Expression[] | null {
-  const declaration: ts.Declaration | undefined = symbol.valueDeclaration;
-  if (declaration === undefined || !ts.isVariableDeclaration(declaration)) return null;
-  const list: ts.Node = declaration.parent;
-  if (!ts.isVariableDeclarationList(list) || !ts.isForOfStatement(list.parent)) return null;
-  const iterated: ts.Expression = unwrapExpression(list.parent.expression);
-  return ts.isArrayLiteralExpression(iterated) ? iterated.elements : null;
-}
-
-/**
- * 把替身表达式解析到声明符号；解析不到时返回空数组。
- *
- * @param checker TypeScript 类型检查器
- * @param expression 替身接收者表达式
- * @returns 归一化后的声明符号列表
- */
-export function mockSymbols(checker: ts.TypeChecker, expression: ts.Expression): ts.Symbol[] {
-  const symbol: ts.Symbol | undefined = referencedSymbol(checker, expression);
-  if (symbol === undefined) return [];
-  const elements: readonly ts.Expression[] | null = forOfArrayElements(symbol);
-  if (elements !== null) {
-    return elements.flatMap((element: ts.Expression): ts.Symbol[] => mockSymbols(checker, element));
-  }
-  return [canonicalSymbol(checker, symbol)];
-}
-
-/**
- * 被调用表达式指向的、带函数体的函数声明或 `const f = () => {}` 初始化器。
- *
- * @param checker TypeScript 类型检查器
- * @param callee 被调用方表达式
- * @returns 解析到的函数声明节点，未找到时返回 null
- */
-export function calledFunction(checker: ts.TypeChecker, callee: ts.Expression): ts.FunctionLikeDeclaration | null {
-  const target: ts.Expression = unwrapExpression(callee);
-  if (ts.isArrowFunction(target) || ts.isFunctionExpression(target)) return target;
-  const symbol: ts.Symbol | undefined = referencedSymbol(checker, target);
-  if (symbol === undefined) return null;
-  const declaration: ts.Declaration | undefined = canonicalSymbol(checker, symbol).valueDeclaration;
-  if (declaration === undefined) return null;
-  if (ts.isFunctionDeclaration(declaration) || ts.isMethodDeclaration(declaration)) {
-    return declaration.body === undefined ? null : declaration;
-  }
-  if (ts.isVariableDeclaration(declaration) && declaration.initializer !== undefined) {
-    const initializer: ts.Expression = unwrapExpression(declaration.initializer);
-    if (ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer)) return initializer;
-  }
-  return null;
-}
-
-/**
- * 钩子回调与从中可传递调用到的测试侧函数；生产代码里没有替身复位，不往里走。
- *
- * @param checker TypeScript 类型检查器
- * @param hookRoots 生命周期钩子根函数列表
- * @param testFiles 测试文件绝对路径集合
- * @returns 所有可达复位函数节点的只读集合
- */
-export function collectResetFunctions(
-  checker: ts.TypeChecker,
-  hookRoots: readonly ts.FunctionLikeDeclaration[],
-  testFiles: ReadonlySet<string>
-): ReadonlySet<ts.Node> {
-  const reached: Set<ts.Node> = new Set(hookRoots);
-  const queue: ts.FunctionLikeDeclaration[] = [...hookRoots];
-  // 遍历途中新找到的函数追加到 queue 末尾，for...of 会继续走到它们。
-  for (const current of queue) {
-    const visit = (node: ts.Node): void => {
-      if (ts.isCallExpression(node)) {
-        const target: ts.FunctionLikeDeclaration | null = calledFunction(checker, node.expression);
-        if (target !== null && !reached.has(target) && testFiles.has(target.getSourceFile().fileName)) {
-          reached.add(target);
-          queue.push(target);
-        }
-      }
-      ts.forEachChild(node, visit);
-    };
-    const body: ts.Node | undefined = current.body;
-    if (body !== undefined) visit(body);
-  }
-  return reached;
-}
-
-/**
- * 节点是否位于复位钩子或其调用到的函数里。
- *
- * @param node 待检查的 AST 节点
- * @param resetFunctions 复位函数节点集合
- * @returns 位于复位函数内部时返回 true
- */
-export function isInResetFunction(node: ts.Node, resetFunctions: ReadonlySet<ts.Node>): boolean {
-  for (let current: ts.Node | undefined = node.parent; current !== undefined; current = current.parent) {
-    if (resetFunctions.has(current)) return true;
-  }
-  return false;
 }
 
 /**

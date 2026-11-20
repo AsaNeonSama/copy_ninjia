@@ -1,4 +1,4 @@
-/** owner: workers/aiChat。Anthropic 客户端按能力缓存（packages/aiChat/anthropic/client.ts）。 */
+/** owner: workers/aiChat。Anthropic 客户端按能力缓存（packages/workers/aiChat/anthropic/client.ts）。 */
 
 import type { AnthropicClient } from "../../../types/aiChat/anthropic";
 import type { AgentCapability } from "../../../types/config";

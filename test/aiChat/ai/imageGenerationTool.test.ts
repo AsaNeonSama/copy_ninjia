@@ -43,7 +43,7 @@ const sendMessageWithResult = mock(async (..._args: unknown[]): Promise<Telegram
 /** 拟人停顿的桩实现；beforeEach 的 mockReset 之后按这一份原样装回。 */
 async function sleepStub(..._args: unknown[]): Promise<void> {}
 const sleepMock = mock(sleepStub);
-const realProvider = await import("../../../packages/aiChat/provider");
+const realProvider = await import("../../../packages/workers/aiChat/provider");
 /** 当前生图供应商；用例置 null 模拟 agent.json 没有配置 image 能力。 */
 const imageProvider: { current: { name: "gemini"; generateImage: typeof generateImage } | null } = { current: null };
 const realTelegram = await import("../../../packages/infra/telegram");
@@ -52,17 +52,17 @@ const loggerError = mock((..._args: unknown[]): void => {});
 mock.module("../../../packages/libs/sleep", () => ({ sleep: sleepMock }));
 mock.module("../../../packages/infra/logger", () => ({ logger: loggerStub({ error: loggerError }) }));
 
-mock.module("../../../packages/aiChat/provider", () => ({
+mock.module("../../../packages/workers/aiChat/provider", () => ({
   ...realProvider,
   imageAiProvider: () => imageProvider.current,
 }));
 mock.module("../../../packages/infra/telegram", () => ({ ...realTelegram, sendPhotoWithResult, sendMessageWithResult }));
-mock.module("../../../packages/aiChat/ai/telegramImage", () => ({ downloadTelegramVisionImage }));
+mock.module("../../../packages/workers/aiChat/ai/telegramImage", () => ({ downloadTelegramVisionImage }));
 mock.module("../../../packages/cache/workers/aiChat/mediaTasks", () => ({ mediaTaskRunner: { run: runMediaTask } }));
 
-const { buildGenerateImageToolDefinition, createGenerateImageExecutor } = await import("../../../packages/aiChat/ai/tools/replyToolset/imageGeneration");
-const { createSimulatedPause } = await import("../../../packages/aiChat/ai/tools/replyToolset/pacing");
-const { buildToolStatusBlock } = await import("../../../packages/aiChat/ai/tools/replyToolset/toolStatus");
+const { buildGenerateImageToolDefinition, createGenerateImageExecutor } = await import("../../../packages/workers/aiChat/ai/tools/replyToolset/imageGeneration");
+const { createSimulatedPause } = await import("../../../packages/workers/aiChat/ai/tools/replyToolset/pacing");
+const { buildToolStatusBlock } = await import("../../../packages/workers/aiChat/ai/tools/replyToolset/toolStatus");
 const {
   IMAGE_REFERENCE_ABSENT,
   IMAGE_REFERENCE_POINTER,
@@ -71,7 +71,7 @@ const {
   imageReferencePresent,
   imageToolStatusAvailable,
 } = await import("../../../packages/consts/aiChat/prompts/tools");
-const { acceptRoundText, createRoundMessageState } = await import("../../../packages/aiChat/ai/tools/replyToolset/messageState");
+const { acceptRoundText, createRoundMessageState } = await import("../../../packages/workers/aiChat/ai/tools/replyToolset/messageState");
 const { claimImageGeneration, resetImageGenerationCache } = await import("../../../packages/cache/workers/aiChat/imageGeneration");
 const { HARD_MAX_ACTIONS_PER_REPLY } = await import("../../../packages/consts/aiChat/tools");
 
@@ -340,7 +340,11 @@ describe("generate_image 工具执行器", () => {
     ));
     expect(oversized.error).toBe("Failed to load the reference images from Telegram");
     expect(loggerError).toHaveBeenCalledWith(
-      `Image generation reference images exceeded the combined size limit (${half.bytes.byteLength * 2} bytes).`
+      "Image generation reference images exceeded the combined size limit.",
+      {
+        totalBytes: half.bytes.byteLength * 2,
+        maxBytes: MEDIA_MAX_DOWNLOAD_BYTES,
+      }
     );
     expect(generateImage).not.toHaveBeenCalled();
   });

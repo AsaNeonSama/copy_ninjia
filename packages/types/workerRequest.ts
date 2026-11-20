@@ -1,17 +1,19 @@
 /** 主线程向 Worker 发起、按 requestId 等回执的请求（libs/workerRequestTable.ts）。 */
 
 /** 一次请求的等待者；结算时清掉 timer 并摘下调用方 signal 的监听。 */
-export interface WorkerRequestWaiter<T> {
+export interface WorkerRequestWaiter<T, Tag extends string = never> {
   readonly resolve: (result: T) => void;
   readonly timer: ReturnType<typeof setTimeout>;
   /** 调用方取消信号及其监听；没给 signal 时两者均为 undefined。 */
   readonly signal: AbortSignal | undefined;
   readonly onAbort: (() => void) | undefined;
+  /** 预期匹配的回执事件类型标签；未启用标签校验时为 `undefined`。 */
+  readonly expectedTag?: Tag;
 }
 
 /** 一类请求的等待表与本进程内单调递增的 requestId 计数器。 */
-export interface WorkerRequestTable<T> {
-  readonly waiters: Map<number, WorkerRequestWaiter<T>>;
+export interface WorkerRequestTable<T, Tag extends string = never> {
+  readonly waiters: Map<number, WorkerRequestWaiter<T, Tag>>;
   readonly counter: { current: number };
 }
 

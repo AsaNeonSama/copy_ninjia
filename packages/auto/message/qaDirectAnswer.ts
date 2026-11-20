@@ -2,8 +2,9 @@
  * 群问答直答：消息文本与本群已登记问题精确匹配时直接回复答案，排在 AI 触发之前。
  *
  * - 未登记问答的群在 `chatQaEntries.get(chatId)`（`cache/main/qa.ts`）处直接返回 `undefined`。
- * - 已登记问答的群先用 `message.text` 原串精确查表（登记入库时已完成首尾空白裁剪）；未命中且首个实体为前导 `@<botUsername>`
- *   提及时，剥离该前缀并 `trim` 后再次查表。语义相近但字面不同的提问不在此处命中，交由 AI 工具 `group_qa_answer` 处理。
+ * - 已登记问答的群先用 `message.text` 原串精确查表（登记入库时已完成首尾空白裁剪）；未命中且存在起始于偏移 `0` 的
+ *   `@<botUsername>` 提及实体时（兼容外层加粗、剧透等样式包裹），剥离该前缀并 `trim` 后再次查表。
+ *   语义相近但字面不同的提问不在此处命中，交由 AI 工具 `group_qa_answer` 处理。
  */
 
 import type { Message, MessageEntity } from "grammy/types";
@@ -13,11 +14,36 @@ import { renderFencedText } from "../../libs/codeFence";
 import type { RichTextMessage } from "../../types/telegram";
 
 /**
- * 首个实体正好是从 0 开始的本机器人 @提及时返回它的长度，否则返回 0。
+ * 按 ASCII 大小写无关（`A-Z` / `a-z`）逐码元比对 `text` 从 `offset` 起的子串与 `target`。
+ * 调用方保证 `offset + target.length <= text.length`。
  *
- * 只认 offset 为 0 的首个实体，句中的提及不剥离。
- * 用户名比对折大小写，口径同 infra/updateGate.ts、auto/message/facts.ts、
- * commands/cjkAction.ts；问题文本不折大小写，仍要求一字不差。
+ * @param text 原始消息文本
+ * @param offset `text` 中起始比对下标
+ * @param target 目标 ASCII 字符串
+ * @returns 逐码元相等（忽略 ASCII 大小写）时返回 `true`，否则返回 `false`
+ */
+function matchesAsciiIgnoreCase(
+  text: string,
+  offset: number,
+  target: string
+): boolean {
+  for (let index: number = 0; index < target.length; index += 1) {
+    const left: number = text.charCodeAt(offset + index);
+    const right: number = target.charCodeAt(index);
+    if (left === right) continue;
+    const lowerLeft: number = left >= 0x41 && left <= 0x5a ? left + 0x20 : left;
+    const lowerRight: number = right >= 0x41 && right <= 0x5a ? right + 0x20 : right;
+    if (lowerLeft !== lowerRight) return false;
+  }
+  return true;
+}
+
+/**
+ * 扫描全部起始于偏移 0 的实体，命中本机器人 `@` 提及时返回其长度，否则返回 0。
+ *
+ * 只认 `offset === 0` 的实体（兼容外层加粗、剧透等样式实体排在 `mention` 之前的情形），句中的提及不剥离。
+ * 先以 `botUsername.length + 1` 做长度预检，再按 ASCII 大小写无关（`A-Z` / `a-z`）逐码元比对用户名
+ * （Telegram `mention` 实体仅包含 ASCII 字母、数字与下划线）；问题文本区分大小写，仍要求一字不差。
  *
  * @param message Telegram 入站消息
  * @param botUsername 本机器人用户名（不含 `@`）
@@ -25,13 +51,21 @@ import type { RichTextMessage } from "../../types/telegram";
  */
 function leadingBotMentionLength(message: Message, botUsername: string): number {
   const entities: readonly MessageEntity[] | undefined = message.entities;
-  const first: MessageEntity | undefined = entities?.[0];
-  if (first?.offset !== 0 || first.type !== "mention") return 0;
+  if (entities === undefined) return 0;
   const text: string | undefined = message.text;
   if (text === undefined) return 0;
-  // mention 实体的正文含前导 @，比对时跳过首字符并按实体完整长度切取。
-  if (text.slice(1, first.length).toLowerCase() !== botUsername.toLowerCase()) return 0;
-  return first.length;
+  const expectedLength: number = botUsername.length + 1;
+  if (text.length < expectedLength) return 0;
+  for (const entity of entities) {
+    if (entity.offset !== 0 || entity.type !== "mention" || entity.length !== expectedLength) {
+      continue;
+    }
+    // mention 实体的正文含前导 @，跳过首字符并按 ASCII 大小写无关逐码元比对。
+    if (matchesAsciiIgnoreCase(text, 1, botUsername)) {
+      return entity.length;
+    }
+  }
+  return 0;
 }
 
 /**

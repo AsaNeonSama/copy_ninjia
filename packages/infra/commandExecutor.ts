@@ -40,6 +40,8 @@ export interface SubmitCommandExecutorTaskOptions {
   readonly task: () => Promise<unknown>;
   /** 任务意外抛错时写进错误日志的英文前缀。 */
   readonly errorLabel: string;
+  /** 任务意外抛错时附带的结构化上下文；缺省只输出 `errorLabel` 与异常对象。 */
+  readonly errorContext?: Readonly<Record<string, unknown>>;
   /** 只撤销尚未开始的任务的额外取消信号（如 `/wed` 的群取消）；在途任务不受它影响。 */
   readonly queueSignal?: AbortSignal;
   /** 已接纳的任务没有开跑就被撤销（停机、update 取消或 queueSignal）时调用一次；开跑过的任务不调用。 */
@@ -59,6 +61,7 @@ export function submitCommandExecutorTask({
   priority,
   task,
   errorLabel,
+  errorContext,
   queueSignal,
   onSkipped,
 }: SubmitCommandExecutorTaskOptions): boolean {
@@ -74,7 +77,11 @@ export function submitCommandExecutorTask({
     .catch((error: unknown): void => {
       if (!taskSignal.aborted) throw error;
     });
-  trackBackgroundTask(runtime.tasks, completion, errorLabel);
+  trackBackgroundTask(
+    runtime.tasks,
+    completion,
+    errorContext === undefined ? errorLabel : { message: errorLabel, context: errorContext }
+  );
   if (onSkipped !== undefined) {
     // 只有开跑过的任务才可能拒绝，拒绝由 trackBackgroundTask 上报；这条派生链只看是否开跑。
     void completion.then((): void => {

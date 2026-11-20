@@ -220,7 +220,8 @@ async function prefetchIdentityPolicyChunk(
     return true;
   } catch (error: unknown) {
     logger.error(
-      `Failed to prefetch ${totalMissing} identity policy row(s); leaving them cold:`,
+      "Failed to prefetch identity policy rows; leaving them cold:",
+      { totalMissing, chunkSize: chunk.length },
       error
     );
     return false;
@@ -322,7 +323,8 @@ export async function readIdentityPolicyVerdicts(
       );
     } catch (error: unknown) {
       logger.error(
-        `Failed to read identity policy verdicts for ${ids.length} identity(ies):`,
+        "Failed to read identity policy verdicts:",
+        { identityCount: ids.length },
         error
       );
       return null;

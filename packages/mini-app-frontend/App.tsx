@@ -7,7 +7,8 @@ import { AccessDeniedPage } from "./pages/AccessDeniedPage";
 import { AuthGatePage } from "./pages/AuthGatePage";
 import { applyMiniAppThemeToDocument, useMiniAppStore } from "./store/app";
 import type { MiniAppGateState, MiniAppUiStoreState } from "./store/app";
-import type { MiniAppLanguage, MiniAppThemeMode, TelegramWindow } from "./types/miniApp";
+import type { TelegramWindow } from "./types/miniApp/host";
+import type { MiniAppLanguage, MiniAppThemeMode } from "./types/miniApp/ui";
 import type { MiniAppTranslations } from "./types/miniAppI18n";
 
 /**

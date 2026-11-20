@@ -17,6 +17,7 @@ function entry(seq: number, text: string): AdCandidateEntry {
     messageId: seq,
     seq,
     text,
+    senderText: text,
     directText: text,
     receivedAt: 1_000 + seq,
     withinReferencedWarning: false,

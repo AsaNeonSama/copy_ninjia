@@ -18,7 +18,8 @@ import type { CachedUser } from "../types/chatState";
 export async function readLiveTargetIdentity(chatId: number, target: CachedUser): Promise<CachedUser | undefined> {
   if (target.isChannel === true) {
     return runTelegramAction<ChatFullInfo, CachedUser | undefined>({
-      action: `read chat ${target.id} to verify a @username target`,
+      action: "read chat to verify a @username target",
+      errorContext: { chatId: target.id },
       execute: (signal?: AbortSignal): Promise<ChatFullInfo> => telegramApi.getChat(target.id, telegramSignal(signal)),
       map: channelIdentity,
       fallback: undefined,

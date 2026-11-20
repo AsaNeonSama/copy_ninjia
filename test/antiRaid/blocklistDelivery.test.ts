@@ -7,7 +7,7 @@ import type { RemoveBlockedMembersParams } from "../../packages/types/blocklist"
  * 投递前的 durable 对账（antiRaid/blocklistDelivery.ts）：处置消息在 outbox flush
  * 等待期里可能被并发的 `/block disable` 取消，此时需判断是否要补投被取代的 join 消息。
  */
-const errorLogs: string[] = [];
+const errorLogs: unknown[][] = [];
 const requestBlocklistResweep = mock((_chatId: number): void => {});
 const persistPendingBlockedRemovals = mock(async (): Promise<void> => {});
 const effectiveBlockedIds: Set<number> = new Set<number>();
@@ -18,7 +18,7 @@ const retainCurrentlyBlockedIdentityIds = mock(
 let authoritative = new Map<number, RemoveBlockedMembersParams>();
 
 mock.module("../../packages/infra/logger", () => ({
-  logger: loggerStub({ error(message: unknown): void { errorLogs.push(String(message)); } }),
+  logger: loggerStub({ error(...args: unknown[]): void { errorLogs.push(args); } }),
 }));
 mock.module("../../packages/infra/blocklist/outbox", () => ({
   getPendingBlockedRemovalParams: (
@@ -162,6 +162,9 @@ describe("黑名单处置投递前的 durable 对账", () => {
 
     expect(result).toEqual([]);
     expect(requestBlocklistResweep).toHaveBeenCalledWith(-1001);
-    expect(errorLogs.some((line: string): boolean => line.includes("durability rounds"))).toBeTrue();
+    expect(errorLogs).toEqual([[
+      expect.stringContaining("durability rounds"),
+      { maxRounds: expect.any(Number), stalledChatIds: [-1001] },
+    ]]);
   });
 });

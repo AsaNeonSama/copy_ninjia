@@ -1,4 +1,6 @@
-import type { MiniAppAccessDiagnostics, TelegramWindow } from "../types/miniApp";
+import type { MiniAppAccessDiagnostics } from "../types/miniApp/auth";
+import type { TelegramWindow } from "../types/miniApp/host";
+import { formatUtcTimestamp } from "./formatters";
 
 /**
  * 构造网络异常或缺少服务端诊断时的兜底访问诊断对象（`403 ACCESS_DENIED`，Host 取当前页面地址）。
@@ -15,7 +17,7 @@ export function buildFallbackDiagnostics(
     rawHost !== undefined && rawHost.length > 0 ? rawHost : "localhost";
   return {
     requestId: "0000000000000000",
-    timestamp: `${new Date().toISOString().slice(0, 19).replace("T", " ")} UTC`,
+    timestamp: formatUtcTimestamp(),
     clientIp: "127.0.0.1",
     host,
     path: "/api/auth/precheck",

@@ -116,9 +116,7 @@ export function forgetSupersededChatSweepBatches(
     }
   }
   if (!posted) {
-    logger.error(
-      `Failed to queue superseded blocklist sweep cleanup for chat ${chatId}.`
-    );
+    logger.error("Failed to queue superseded blocklist sweep cleanup.", { chatId });
   }
 }
 
@@ -312,7 +310,7 @@ export function forgetUserBlocklistRemovals(userId: number): void {
     if (!queueBlocklistRemovalWrite(removalId)) posted = false;
   }
   if (!posted) {
-    logger.error(`Failed to queue blocklist removal outbox cleanup for unblocked user ${userId}.`);
+    logger.error("Failed to queue blocklist removal outbox cleanup for unblocked user.", { userId });
   }
 }
 
@@ -383,7 +381,7 @@ export function forgetChatBlocklistWork(chatId: number): void {
     if (!queueBlocklistRemovalWrite(removalId)) posted = false;
   }
   if (!posted) {
-    logger.error(`Failed to queue blocklist removal outbox cleanup for unmanaged chat ${chatId}.`);
+    logger.error("Failed to queue blocklist removal outbox cleanup for unmanaged chat.", { chatId });
   }
 }
 

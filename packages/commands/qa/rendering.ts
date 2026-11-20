@@ -1,5 +1,5 @@
 /**
- * 群问答的文本解析与渲染：表单投递消息的字段解析，以及表单提示正文。
+ * 群问答的文本解析与渲染：表单投递消息的字段解析、表单提示正文，以及 `/qa` 未命中时的问题回显清洗。
  *
  * `/qa query` 看板的分页渲染在同目录的 board.ts。
  */
@@ -7,10 +7,16 @@
 import type { AtmosphereTexts } from "../../types/atmosphere";
 import type { Message, MessageEntity } from "grammy/types";
 import { captureFencedText } from "../../libs/codeFence";
-import { QA_ANSWER_LABELS, QA_QUESTION_LABELS, QA_TRUNCATION_MARK } from "../../consts/qa";
-
+import {
+  CHAT_QA_QUESTION_MAX_CHARS,
+  QA_ANSWER_LABELS,
+  QA_QUESTION_LABELS,
+  QA_TRUNCATION_MARK,
+} from "../../consts/qa";
+import { BIDI_CONTROL_PATTERN } from "../../consts/text";
 import { TELEGRAM_MESSAGE_MAX_CHARS } from "../../consts/telegram";
-import { truncateInline } from "../../libs/text";
+import { neutralizeRenderableCommands } from "../../libs/renderableCommand";
+import { truncateInline, truncateWithEllipsis } from "../../libs/text";
 import type { QaFieldInput } from "../../types/qa";
 
 /** 一次行首标签命中：哪个字段、标签从哪开始、取值从哪开始。 */
@@ -155,4 +161,21 @@ export function renderQaFormPrompt(
   return head +
     truncateInline(answer, budget - QA_TRUNCATION_MARK.length) +
     QA_TRUNCATION_MARK;
+}
+
+/**
+ * 清洗并截断 `/qa query`、`/qa remove` 未命中回显中的用户输入：
+ * 先剥除 Unicode 双向控制符、再中和可点击 `/command` 片段，最后按 `maxChars`（含 `QA_TRUNCATION_MARK`）截断；
+ * 保留正常换行与空白，不折叠多行文本。
+ *
+ * @param raw 用户输入的未命中问题原文。
+ * @param maxChars 回显的最大 UTF-16 码元数（含省略号），默认 `CHAT_QA_QUESTION_MAX_CHARS`。
+ * @returns 清洗并截断后的安全回显文本。
+ */
+export function formatMissingQaQuestionEcho(
+  raw: string,
+  maxChars: number = CHAT_QA_QUESTION_MAX_CHARS
+): string {
+  const sanitized: string = neutralizeRenderableCommands(raw.replace(BIDI_CONTROL_PATTERN, ""));
+  return truncateWithEllipsis(sanitized, maxChars, QA_TRUNCATION_MARK);
 }

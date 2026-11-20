@@ -86,7 +86,7 @@ async function queryMood(ctx: CommandContext<Context>): Promise<void> {
   try {
     moodName = await requestAiMood("queryMood");
   } catch (error: unknown) {
-    logger.error(`Failed to confirm AI mood query for chat ${chatId}:`, error);
+    logger.error("Failed to confirm AI mood query:", { chatId }, error);
     await replyCommandNotice(ctx, chatAtmosphere().NOTICE_TEXTS.moodQueryFailed);
     return;
   }
@@ -125,7 +125,7 @@ async function switchMood(ctx: CommandContext<Context>): Promise<void> {
   try {
     moodName = await requestAiMood("switchMood");
   } catch (error: unknown) {
-    logger.error(`Failed to confirm AI mood switch for chat ${chatId}:`, error);
+    logger.error("Failed to confirm AI mood switch:", { chatId }, error);
     await replyCommandNotice(ctx, chatAtmosphere().NOTICE_TEXTS.moodSwitchFailed);
     return;
   }

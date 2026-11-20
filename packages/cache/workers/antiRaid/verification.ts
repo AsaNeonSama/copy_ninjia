@@ -1,6 +1,7 @@
 /** owner: workers/antiRaid。入群验证状态机运行态（packages/workers/antiRaid/verificationRuntime.ts）。 */
 
 import { VERIFICATION_REVISION_CAPACITY, VERIFICATION_REVISION_RETENTION_MS } from "../../../consts/antiRaid/verification";
+import { isRecordedWithin } from "../../../libs/clockWindow";
 import type {
   ReminderDelivery,
   ThreadCommentConfirmation,
@@ -79,7 +80,7 @@ export const threadCommentConfirmations: Map<string, ThreadCommentConfirmation> 
 export const reminderDeliveries: Map<string, ReminderDelivery> = new Map();
 
 /**
- * 清理已超过 VERIFICATION_REVISION_RETENTION_MS 保留期的终结修订号墓碑。
+ * 清理已超过 VERIFICATION_REVISION_RETENTION_MS 保留期的终结修订号墓碑（墙钟回拨按保留期已结束处理）。
  *
  * @param now 当前毫秒时间戳
  * @returns 本次清理删除的过期墓碑条数
@@ -87,7 +88,7 @@ export const reminderDeliveries: Map<string, ReminderDelivery> = new Map();
 export function sweepVerificationRevisionCache(now: number = Date.now()): number {
   let deleted: number = 0;
   for (const [key, revision] of verificationRevisions) {
-    if (revision.retiredAt !== undefined && now - revision.retiredAt > VERIFICATION_REVISION_RETENTION_MS) {
+    if (revision.retiredAt !== undefined && !isRecordedWithin(revision.retiredAt, now, VERIFICATION_REVISION_RETENTION_MS)) {
       verificationRevisions.delete(key);
       deleted++;
     }

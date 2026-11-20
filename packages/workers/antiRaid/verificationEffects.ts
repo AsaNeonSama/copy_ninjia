@@ -155,7 +155,7 @@ async function acquireTerminalAttempt({
     permit = await requestTerminalAttempt(key, generation, revision);
   } catch (error: unknown) {
     if (!isSameTransition(key, token)) return null;
-    logger.error(`Failed to acquire verification terminal attempt permit for ${key}:`, error);
+    logger.error("Failed to acquire verification terminal attempt permit:", { key }, error);
     // 当前许可无法确认时卸载运行态，沿既有延后边界保留磁盘快照；
     // 主线程接管延后闩锁，完整进程重启后再恢复，不消耗本地 Telegram 重试计数。
     dispatchVerification(chatId, userId, { type: "terminalAttemptBudgetExhausted" });
@@ -254,6 +254,7 @@ export async function runVerificationEffects({
             userId,
             label: effect.label,
             isBot: effect.isBot,
+            expectedState: transitionState,
             dispatchVerification,
           });
           break;
@@ -264,21 +265,26 @@ export async function runVerificationEffects({
             label: effect.label,
             isBot: effect.isBot,
             targetMessageId: effect.targetMessageId,
+            expectedState: transitionState,
             dispatchVerification,
           });
           break;
         case "sendWelcome": {
+          logger.info(
+            "Join verification passed.",
+            { chatId, userId, variant: effect.variant }
+          );
           const welcomeText: string = welcomeTextFor(effect);
-          await runBooleanTelegramAction(
-            "send message",
-            (signal?: AbortSignal): Promise<TelegramWorkerTemporaryMessageResult | undefined> => sendTemporaryMessageFromMain({
+          await runBooleanTelegramAction({
+            action: "send message",
+            execute: (signal?: AbortSignal): Promise<TelegramWorkerTemporaryMessageResult | undefined> => sendTemporaryMessageFromMain({
               purpose: "notice",
               chatId,
               text: welcomeText,
               replyToMessageId: effect.anchorMessageId,
               signal,
-            })
-          );
+            }),
+          });
           break;
         }
         case "answerCallback":
@@ -289,6 +295,7 @@ export async function runVerificationEffects({
             chatId,
             userId,
             actorId: effect.actorId,
+            expectedState: transitionState,
             dispatchVerification,
           });
           break;
@@ -298,9 +305,8 @@ export async function runVerificationEffects({
         case "logUncancelableKickExemption":
           // Worker 经 error 日志向主线程中继，供人工纠正误踢。
           logger.error(
-            `The kick request for member ${effect.label} (chat ${chatId}, user ${userId}) had already been sent or completed ` +
-            "when exemption proof (admin identity) arrived; it cannot be undone automatically — " +
-            "an admin may need to manually re-invite them if this was a false positive."
+            "The kick request for member had already been sent or completed when exemption proof arrived; it cannot be undone automatically — an admin may need to manually re-invite them if this was a false positive.",
+            { chatId, userId, label: effect.label }
           );
           break;
       }
@@ -338,34 +344,38 @@ interface StartAdminCheckParams {
   userId: number;
   /** 执行拉人操作的用户 ID。 */
   actorId: number;
+  /** 触发本批副作用时的验证状态引用；与当前条目不一致时放弃核查。 */
+  expectedState: VerificationState | undefined;
   /** 验证状态机派发函数。 */
   dispatchVerification: VerificationDispatcher;
 }
 
 /**
- * 异步核查拉人者管理员身份；只向仍是同一对象的 pending 状态回投结果。
+ * 异步核查拉人者管理员身份；仅当当前运行态仍指向同一 `expectedState` pending 对象时发起并回投结果。
  * @param params 管理员邀请豁免异步核查参数。
  */
 function startAdminCheck({
   chatId,
   userId,
   actorId,
+  expectedState,
   dispatchVerification,
 }: StartAdminCheckParams): void {
+  if (expectedState?.kind !== "pending") return;
   const key: string = verificationKey(chatId, userId);
-  const captured: VerificationState | undefined = verificationEntries.get(key)?.state;
-  if (captured?.kind !== "pending") return;
+  if (verificationEntries.get(key)?.state !== expectedState) return;
   void trackAntiRaidTask({
     task: fetchAdminIds(chatId)
       .then((adminIds: Set<number>): void => {
         if (!adminIds.has(actorId)) return;
-        if (verificationEntries.get(key)?.state === captured) {
+        if (verificationEntries.get(key)?.state === expectedState) {
           dispatchVerification(chatId, userId, { type: "adminCheckResolved" });
         }
       })
       .catch((error: unknown): void => {
         logger.error(
-          `Error fetching chat admins for admin-invite exemption in chat ${chatId}:`,
+          "Error fetching chat admins for admin-invite exemption:",
+          { chatId },
           error
         );
       }),

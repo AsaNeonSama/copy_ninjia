@@ -9,7 +9,10 @@
  * `bot.botInfo`）。
  */
 
-import { assertBenchmarkRuntimeRoot } from "./mockRoot";
+import {
+  assertBenchmarkRuntimeRoot,
+  assertInsidePerformanceMockRoot,
+} from "./mockRoot";
 import {
   diffProcessIo,
   readProcessIo,
@@ -18,6 +21,8 @@ import type { ProcessIoSnapshot } from "./processIo";
 // 只导类型：`import type` 在运行期被擦除，不加载生产模块图。
 import type { ApplicationLifecycleDependencies } from
   "../../../packages/app/lifecycleDependencies";
+import type { CachedUser } from "../../../packages/types/chatState";
+import type { AssetConfig } from "../../../packages/types/config";
 import type { LoadedData } from "../../../packages/types/diskIO/replies";
 import type {
   ColdStartPhaseTimings,
@@ -70,6 +75,7 @@ async function runColdStartChild(): Promise<ColdStartRound> {
   try {
     const cleanupStartedAtNs: number = Bun.nanoseconds();
     await lifecycleDependencies.cleanupOrphanedTempFiles();
+    await lifecycleDependencies.assertDeploymentConfigLayout();
     const orphanCleanupMs: number = elapsedMsSince(cleanupStartedAtNs);
 
     const stateStartedAtNs: number = Bun.nanoseconds();
@@ -78,6 +84,11 @@ async function runColdStartChild(): Promise<ColdStartRound> {
 
     const inputStartedAtNs: number = Bun.nanoseconds();
     await lifecycleDependencies.validateExistingDeploymentInputs();
+    const getAssetConfig: () => Readonly<AssetConfig> = (
+      await import("../../../packages/config/assets")
+    ).getAssetConfig;
+    assertInsidePerformanceMockRoot(getAssetConfig().randomHImageDirectory);
+    await lifecycleDependencies.prepareRandomImageDirectory();
     const deploymentInputMs: number = elapsedMsSince(inputStartedAtNs);
 
     const diskIOStartedAtNs: number = Bun.nanoseconds();
@@ -96,6 +107,20 @@ async function runColdStartChild(): Promise<ColdStartRound> {
       loaded.permissionEntryCount,
       loaded.blocklistEntryCount
     );
+    await lifecycleDependencies.assertSuperAdminNotBlocked(
+      lifecycleDependencies.SUPER_ADMIN_USER_ID
+    );
+    lifecycleDependencies.assertSuperAdminNotDeleteMessageTarget(
+      lifecycleDependencies.SUPER_ADMIN_USER_ID
+    );
+    const restoredCopiedUser: CachedUser | null =
+      lifecycleDependencies.getGlobalCopyState().copiedUser;
+    if (restoredCopiedUser !== null) {
+      lifecycleDependencies.seedSenderCache(restoredCopiedUser);
+    }
+    lifecycleDependencies.seedTranslateTargets();
+    lifecycleDependencies.restoreLuckState(loaded.luckReceiptSecret, loaded.luckDay);
+    lifecycleDependencies.hydratePendingVerifications(loaded.verifications);
     const hydrateMs: number = elapsedMsSince(hydrateStartedAtNs);
 
     phases = {

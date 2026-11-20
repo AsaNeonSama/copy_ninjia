@@ -40,9 +40,11 @@ function handleAntiRaidMessageIngress(message: Message, botId: number): boolean 
 const { LOCKDOWN_PERSIST_RECONCILE_MAX_ROUNDS } = await import("../../../packages/consts/antiRaid/protocol");
 
 /** 对账轮数用尽时 events.ts 记下的那一行错误。 */
-function reconcileExhaustedLog(chatId: number): string {
-  return `Anti-raid lockdown intent for chat ${chatId} kept changing across ` +
-    `${LOCKDOWN_PERSIST_RECONCILE_MAX_ROUNDS} durability rounds; yielding before retrying the latest intent.`;
+function reconcileExhaustedLog(chatId: number): unknown[] {
+  return [
+    "Anti-raid lockdown intent kept changing across durability rounds; yielding before retrying the latest intent.",
+    { chatId, maxRounds: LOCKDOWN_PERSIST_RECONCILE_MAX_ROUNDS },
+  ];
 }
 
 /** Worker 发往主线程、针对 chatId 的全部消息。 */
@@ -197,7 +199,8 @@ describe("Anti-Raid mirror persistence barriers", () => {
 
     expect(saveState).toHaveBeenCalledTimes(1);
     expect(loggerError.mock.calls).toEqual([[
-      "Anti-raid lockdown durability loop for chat -2008 failed:",
+      "Anti-raid lockdown durability loop failed:",
+      { chatId: -2008 },
       expect.objectContaining({ message: "Anti-Raid Worker is unavailable." }),
     ]]);
     expect(pendingLockdownPersistence.has(-2008)).toBeFalse();
@@ -232,9 +235,10 @@ describe("Anti-Raid mirror persistence barriers", () => {
     await waitUntil((): boolean => !pendingLockdownPersistence.has(-2009));
 
     expect(loggerError.mock.calls).toEqual([
-      ["Failed to persist anti-raid lockdown intent for chat -2009:", diskFull],
+      ["Failed to persist anti-raid lockdown intent:", { chatId: -2009 }, diskFull],
       [
-        "Anti-raid lockdown durability loop for chat -2009 failed:",
+        "Anti-raid lockdown durability loop failed:",
+        { chatId: -2009 },
         expect.objectContaining({ message: "Anti-Raid Worker is unavailable." }),
       ],
     ]);
@@ -327,7 +331,7 @@ describe("Anti-Raid mirror persistence barriers", () => {
     await Bun.sleep(0);
 
     expect(saveState).toHaveBeenCalledTimes(LOCKDOWN_PERSIST_RECONCILE_MAX_ROUNDS);
-    expect(loggerError.mock.calls).toEqual([[reconcileExhaustedLog(chatId)]]);
+    expect(loggerError.mock.calls).toEqual([reconcileExhaustedLog(chatId)]);
     expect(workerPostsFor(chatId)).toEqual([]);
     expect(persistedLockdownFingerprints.has(chatId)).toBeFalse();
     expect(pendingLockdownPersistence.has(chatId)).toBeFalse();
@@ -364,7 +368,7 @@ describe("Anti-Raid mirror persistence barriers", () => {
     await Bun.sleep(0);
 
     expect(saveState).toHaveBeenCalledTimes(LOCKDOWN_PERSIST_RECONCILE_MAX_ROUNDS + 1);
-    expect(loggerError.mock.calls).toEqual([[reconcileExhaustedLog(chatId)]]);
+    expect(loggerError.mock.calls).toEqual([reconcileExhaustedLog(chatId)]);
     expect(workerPostsFor(chatId)).toEqual([
       { type: "lockdownPersisted", chatId, phase: "active", intentId: latestIntentId },
     ]);

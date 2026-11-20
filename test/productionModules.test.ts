@@ -6,6 +6,9 @@ import { join } from "node:path";
 
 const projectRoot: string = join(import.meta.dir, "..");
 
+/** 前端独立入口在模块顶层直接调用 `mountMiniApp()` 挂载 `#root`，不属于可无副作用 import 的运行时模块。 */
+const MINI_APP_MAIN_ENTRY: string = join(projectRoot, "packages", "mini-app-frontend", "main.tsx");
+
 function findRuntimeModules(dir: string): string[] {
   const result: string[] = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -14,7 +17,11 @@ function findRuntimeModules(dir: string): string[] {
       // packages/types/ 只含被 TypeScript 擦除的 interface/type 声明，没有运行时代码。
       if (path === join(projectRoot, "packages", "types")) continue;
       result.push(...findRuntimeModules(path));
-    } else if (entry.isFile() && entry.name.endsWith(".ts")) {
+    } else if (
+      entry.isFile() &&
+      (entry.name.endsWith(".ts") || entry.name.endsWith(".tsx")) &&
+      path !== MINI_APP_MAIN_ENTRY
+    ) {
       result.push(path);
     }
   }

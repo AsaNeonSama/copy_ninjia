@@ -9,9 +9,11 @@ import { logApiError } from "../client";
 import { telegramErrorDetails } from "../errors";
 
 /** `runTelegramAction` 统一执行 Telegram 出站请求、结果映射与错误处理的入参。 */
-interface RunTelegramActionParams<T, R> {
+export interface RunTelegramActionParams<T, R> {
   /** 日志中记录的动作描述。 */
   action: string;
+  /** 发生错误时随 `action` 一并写入日志的结构化上下文字段。 */
+  errorContext?: Readonly<Record<string, unknown>>;
   /** 接收合成取消信号并发起 Telegram 请求的函数。 */
   execute: (signal?: AbortSignal) => Promise<T>;
   /** 将 API 原始响应转换为业务结果的函数。 */
@@ -48,6 +50,7 @@ interface RunTelegramActionParams<T, R> {
  */
 export async function runTelegramAction<T, R>({
   action,
+  errorContext,
   execute,
   map,
   fallback,
@@ -72,7 +75,8 @@ export async function runTelegramAction<T, R>({
       throwIfUpdateAborted(updateSignal);
     }
     if (shouldLogError(error, actionSignal) && !isAbortError(error)) {
-      logApiError(action, error);
+      if (errorContext === undefined) logApiError(action, error);
+      else logApiError(action, error, errorContext);
     }
     return fallback;
   } finally {
@@ -98,21 +102,41 @@ export function logUnlessAborted(
 }
 
 /**
+ * 无返回值动作结果映射为 true 的固定映射函数，避免每次调用分配临时闭包。
+ * @returns 恒返回 true。
+ */
+export function mapToTrue(): boolean {
+  return true;
+}
+
+/** `runBooleanTelegramAction` 执行布尔成功状态 Telegram 动作的参数。 */
+export interface RunBooleanTelegramActionParams {
+  /** 日志中记录的动作描述。 */
+  readonly action: string;
+  /** 发生错误时随 `action` 一并写入日志的结构化上下文字段。 */
+  readonly errorContext?: Readonly<Record<string, unknown>>;
+  /** 发起 Telegram 请求的函数。 */
+  readonly execute: (signal?: AbortSignal) => Promise<unknown>;
+  /** 调用方的取消信号。 */
+  readonly signal?: AbortSignal;
+}
+
+/**
  * 执行只关心是否成功的 Telegram 动作。
- * @param action 日志中记录的动作描述。
- * @param execute 发起 Telegram 请求的函数。
- * @param signal 调用方的取消信号。
+ * @param params 布尔动作执行、日志与取消参数。
  * @returns 请求成功返回 true，失败返回 false。
  */
-export async function runBooleanTelegramAction(
-  action: string,
-  execute: (signal?: AbortSignal) => Promise<unknown>,
-  signal?: AbortSignal
-): Promise<boolean> {
+export async function runBooleanTelegramAction({
+  action,
+  errorContext,
+  execute,
+  signal,
+}: RunBooleanTelegramActionParams): Promise<boolean> {
   return runTelegramAction({
     action,
+    errorContext,
     execute,
-    map: (): boolean => true,
+    map: mapToTrue,
     fallback: false,
     signal,
   });
@@ -132,6 +156,8 @@ export type PermissionAwareOutcome =
 export interface RunPermissionAwareTelegramActionParams {
   /** 日志中记录的动作描述。 */
   action: string;
+  /** 发生错误时随 `action` 一并写入日志的结构化上下文字段。 */
+  errorContext?: Readonly<Record<string, unknown>>;
   /** 发起 Telegram 请求的函数。 */
   execute: (signal?: AbortSignal) => Promise<unknown>;
   /** 调用方的取消信号。 */
@@ -156,6 +182,7 @@ export interface RunPermissionAwareTelegramActionParams {
  */
 export async function runPermissionAwareTelegramAction({
   action,
+  errorContext,
   execute,
   signal,
   claimError,
@@ -163,8 +190,9 @@ export async function runPermissionAwareTelegramAction({
   let outcome: PermissionAwareOutcome = "failed";
   const succeeded: boolean = await runTelegramAction({
     action,
+    errorContext,
     execute,
-    map: (): boolean => true,
+    map: mapToTrue,
     fallback: false,
     signal,
     shouldLogError: (

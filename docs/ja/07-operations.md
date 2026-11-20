@@ -95,7 +95,7 @@ WantedBy=multi-user.target
 > [!WARNING]
 > **マルチテナント環境のデータ隔離**：
 > `memory/` 配下に新規作成されるファイルの既定モードは `PERSISTED_FILE_MODE`（`packages/consts/diskIO/common.ts`、`0644`）です。親ディレクトリが他のローカルユーザーに読み取り・通過を許していると、共有サーバー上の別アカウントからログを読まれる恐れがあります。共有環境ではデータルートと `memory/` を `0750`、既存ファイルを `0600` または `0640` に絞ってください（ランタイムは既存ファイルの権限を勝手に変更しません）。
-> `database/` は上限 `IDENTITY_DATABASE_DIRECTORY_MODE`（共有サービスグループ運用では `setgid` 付き `02770` も可）、DB 本体と WAL/SHM の作成モードは `IDENTITY_DATABASE_FILE_MODE` です。`database/` はグループ書き込み権限を必要とするため、**データルート全体に再帰的な `chmod 0750` を実行しないでください**。`config/` は読み取り専用のまま維持します。
+> `database/` は上限 `IDENTITY_DATABASE_DIRECTORY_MODE`（共有サービスグループ運用では `setgid` 付き `02770` も可）、DB 本体と WAL/SHM の作成モードは `IDENTITY_DATABASE_FILE_MODE` です。`database/` はグループ書き込み権限を必要とするため、**データルート全体に再帰的な `chmod 0750` を実行しないでください**。`config/` は既定で読み取り専用のまま維持します。Mini App のオンライン設定編集を使用する場合は、サービス実行アカウントに `config/dynamic/` および／または `config/static/` への書き込み・アトミック `rename` 権限を付与し（新規作成の任意ファイルは `0600`）、非 `root` アカウントで静的設定のオンライン再起動を行う場合はサービスアカウントに `copy-ninjia.service` の再起動を許可する polkit 認可も設定してください（[10 Mini App の設定方法と推奨構成](10-mini-app.md) を参照）。
 
 - **クラッシュ時の自動復旧**：異常終了時は systemd の `Restart=on-failure` で自動再起動され、参加認証待ち、ロックダウンタイマー、ID 書き込み、AI 会話メモリ、未確認の Telegram update は [04 実行時の正式な不変条件](04-invariants.md#永続化) に従って復元されます。
 
@@ -192,7 +192,7 @@ WantedBy=multi-user.target
   - **対象範囲**：`AGENT_CAPABILITY_NAMES` の全機能を網羅します。
 
 ### 8. ログとインスタンスロック：`logs/` と `bot.lock`
-- **`logs/`**：Disk I/O Worker が非同期バッチ追記する英語の構造化エラーログです。
+- **`logs/`**：`config/static/bot.json` の任意項目 `log_level`（`info` / `operation` / `warn` / `error`、省略時は既定値 `"operation"`）でフィルタされた英語の構造化実行ログです。各レコードは `{ level, message, args? }` 形式（`message` は文字列引数の連結、`args` は非文字列の構造化コンテキストや展開済み `Error` のみを格納し、存在しない場合は省略）で、`info`・`operation`・`warn` はメインスレッドで最大 32 件または 30 秒間隔でバッファ後に Disk I/O Worker がバッチ追記し、`error` ログは即時永続化されます。
 - **`bot.lock`**（および `.guard` / `.recovery`）：Linux `/proc` ベースの単一インスタンス排他ロックで、同一データルートへの多重起動を防止します。
 
 ---
@@ -347,32 +347,30 @@ WantedBy=multi-user.target
 
 ### 主要ログの特徴とトラブルシューティング
 
-- **構造化英語ログ**：Disk I/O Worker が `logs/` 配下へ非同期バッチ追記します。すべて英語出力のため `grep` やログ収集基盤で容易に検索できます。
+- **構造化英語ログ**：コンソール出力はレベル別プレフィックス（`[INFO]` / `[OPERATION]` / `[WARN]` / `[ERROR]`、`CONSOLE_PREFIX_BY_LOG_LEVEL`）を前置し、ディスク出力は `config/static/bot.json` の任意項目 `log_level`（省略時既定値 `"operation"`）でフィルタして `{ level, message, args? }` 形式で `logs/<YYYY-MM-DD>.json` へ保存します（`info`・`operation`・`warn` はメインスレッドで最大 32 件または 30 秒窓でバッファ後に、`error` は即時に Disk I/O Worker がバッチ追記）。固定の英語サマリーとキャメルケースの構造化コンテキストにより、`grep`・`jq` やログ収集基盤で容易に検索できます。
 - **Worker クラッシュの自動復旧**：個別 Worker が異常終了すると、メインスレッドがレート制限付きで新スレッドを起動し、保持中のスナップショットから状態を自動再注入します。
 - **永続化失敗時の Fail-Fast 終了**：ディスク書き込みが有限回のリトライ後も失敗し続ける場合、メモリとディスクの乖離を防ぐため非ゼロ終了して systemd のクリーン再起動に委ねます。
 
 #### よくあるログメッセージ
 
-- `Cron task "<name>" action #<n> (<type>) failed after <k> attempt(s)`：
-  定期タスクのアクションが最終失敗に達しました：
+- `Cron task action failed; skipping the remaining actions for this chat.` / `Cron task action failed; skipping the remaining actions of this run.`（`{ task, actionIndex, actionType, chatId?, attempts, detail }`）：
+  定期タスクのアクションが最終失敗に達しました。主な `detail` の切り分け先：
   - `403`：Bot が対象グループ / チャンネルから退出させられている、または送信権限がない。
   - `400`：外部メディア URL が無効、または画像 / 音声形式が Telegram 非対応。
   - `local file ... is missing`：指定したローカル素材ファイルが存在しない。
   - `speech synthesis failed: ...`：音声合成の失敗（`tts unconfigured` / `tts unsupported`＝設定不一致、`worker unavailable`＝AI Worker 初期化中、`synthesis failed` / `timed out`＝上流 API・通信エラー、`daily limit reached`＝日次枠の上限到達）。
-- `/send TTS for chat <id> produced no voice: <原因>`：
+- `/send TTS produced no voice.`（`{ chatId, reason }`）：
   スーパー管理者の DM `/send` 中継での音声合成失敗です（原因は同上）。DM にエラーが返り、中継セッション自体は維持されます。
-- `AI reply voice was not sent (chat <id>): <原因>`：
+- `AI reply voice was not sent.`（`{ chatId, reason }`）：
   グループ AI 返信中の `send_voice` 失敗です（タイムアウトや日次枠到達など）。テキスト返信の送信は通常どおり継続します。
-- `Failed to probe chat membership ... PARTICIPANT_ID_INVALID`：
+- `Telegram API call failed.`（`{ action: "probe chat membership", chatId, userId, errorCode: 400, description }`、`description` に `PARTICIPANT_ID_INVALID` を含む）：
   ブラックリスト巡回中に削除済み Telegram アカウントを検出しました。同一 ID で `BLOCKLIST_PARTICIPANT_INVALID_LIMIT` 回連続して返った場合、ブラックリストから自動削除されます。
-- `Chat <id> was upgraded to supergroup <newId>; tearing down the old chat.`：
+- `Chat upgraded to supergroup; tearing down the old chat.`（`{ chatId, supergroupChatId }`）：
   管理中の通常グループがスーパーグループへ昇格したため、旧グループ ID を `gone` として後始末（データ削除・管理枠解放）しました。新しいスーパーグループで改めて `/init enable` を実行してください（旧設定は自動引き継ぎされません）。
-- `Chat <id> was gone|departed in <n> lookups <ms>ms apart; tearing it down.`：
+- `Chat confirmed unreachable; tearing it down.`（`{ chatId, reason, attempts, intervalMs }`、`reason` は `"gone"` または `"departed"`）：
   起動時のタイトル更新で、グループの消滅（`gone`）または Bot の非メンバー化（`departed`）が複数回連続で確認されたため自動後始末しました（`departed` グループに未復元のロックダウン記録がある場合は保持され、Bot が再参加してメンバー制限権限を得た時点で自動復元されます）。
-- `Chat <id> looked gone|departed at startup but lookup <n> disagreed; keeping it.`：
+- `Chat absence check disagreed on retry; keeping chat.`（`{ chatId, initialReason, attempt }`）：
   初回照会では到達不能に見えたものの再照会で結果が異なったため（多くは Telegram 側の一時エラー）、今回は後始末を見送り次回起動時に再確認します。
-- `Gemini context cache API ... create rejected (<n>/<max>): 400`：
-  Gemini のコンテキストキャッシュ作成が HTTP 400 で拒否されました（最小トークン数未満やパラメータ不一致など）。`GEMINI_CONTEXT_CACHE_REJECTION_RETRY_AFTER_MS` 後に再試行し、累計 `GEMINI_CONTEXT_CACHE_MAX_REJECTIONS` 回拒否された時点でその内容のキャッシュ作成を停止します（通常のキャッシュなし応答はそのまま継続します）。
 
 ---
 

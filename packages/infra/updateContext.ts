@@ -5,8 +5,9 @@ import type { UpdateScope, UpdateTopic } from "../types/lifecycle";
  * 一条 update 的取消边界、统一时刻与触发话题。app/updateRunner.ts 为每条 update
  * 填入独立 signal 与触发话题；wed/runtime.ts 与 commands/deferredCommands.ts 在任务
  * 出队时恢复接纳时的话题，并以自己的停机边界作为信号；commands/deleteMessage/queue.ts 的
- * 消费循环以待删队列自己的取消边界运行，不带话题。存储实例见
- * cache/perThread/updateContext.ts，Worker isolate 不共享主线程的作用域。
+ * 消费循环以待删队列自己的取消边界运行，不带话题；后台队列、定时器与 translate/message.ts 等
+ * 通过 `runOutsideUpdateScope` 彻底脱离触发 update 的作用域（`translate/message.ts` 再绑定
+ * `translateRuntime.controller.signal`）。存储实例见 cache/perThread/updateContext.ts，Worker isolate 不共享主线程的作用域。
  */
 
 /**
@@ -22,6 +23,16 @@ export function runWithUpdateAbortSignal<T>(
   topic?: UpdateTopic
 ): Promise<T> {
   return updateScopeStorage.run({ signal, now: null, topic }, run);
+}
+
+/**
+ * 在彻底脱离当前 `update` `AsyncLocalStorage` 上下文的同步边界内执行回调，避免后台循环或定时器
+ * 继承触发它们的 `update` 取消信号与触发话题（需保留话题时应先捕获后显式传入）。
+ * @param run 在无 `update` 作用域内执行的回调函数。
+ * @returns `run` 的返回值。
+ */
+export function runOutsideUpdateScope<T>(run: () => T): T {
+  return updateScopeStorage.exit(run);
 }
 
 /**

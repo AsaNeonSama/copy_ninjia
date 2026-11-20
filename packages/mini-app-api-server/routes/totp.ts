@@ -21,7 +21,7 @@ export const MINI_APP_TOTP_BUN_ROUTES: MiniAppBunRouteTable = {
     DELETE: withMiniAppAuth(
       MINI_APP_API_AUTH_POLICY,
       (ctx: Readonly<MiniAppRouteContext>): Promise<Response> =>
-        handleDeleteTotpRoute(ctx.request)
+        handleDeleteTotpRoute(ctx.sessionLineageId)
     ),
   },
   "/api/totp/setup": {
@@ -34,14 +34,14 @@ export const MINI_APP_TOTP_BUN_ROUTES: MiniAppBunRouteTable = {
     POST: withMiniAppAuth(
       MINI_APP_API_AUTH_POLICY,
       (ctx: Readonly<MiniAppRouteContext>): Promise<Response> =>
-        handlePostTotpEnableRoute(ctx.request)
+        handlePostTotpEnableRoute(ctx.request, ctx.sessionLineageId)
     ),
   },
   "/api/totp/delete": {
     POST: withMiniAppAuth(
       MINI_APP_API_AUTH_POLICY,
       (ctx: Readonly<MiniAppRouteContext>): Promise<Response> =>
-        handleDeleteTotpRoute(ctx.request)
+        handleDeleteTotpRoute(ctx.sessionLineageId)
     ),
   },
 };

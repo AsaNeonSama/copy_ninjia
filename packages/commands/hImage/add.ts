@@ -88,7 +88,9 @@ async function downloadImage(candidate: MessageImageCandidate, signal: AbortSign
     });
     if (download.status !== "ok") {
       if (download.status !== "tooLarge" && download.status !== "empty") {
-        logger.error(`Failed to download a picture for /h_image add (${download.status}).`);
+        logger.error("Failed to download a picture for /h_image add.", {
+          status: download.status,
+        });
       }
       return "failed";
     }

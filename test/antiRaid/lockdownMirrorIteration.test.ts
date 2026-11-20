@@ -32,21 +32,25 @@ mock.module("../../packages/infra/chatStateStorage", () => ({
   saveChatStateInBackground,
 }));
 mock.module("../../packages/infra/telegram/client", () => ({
+  logApiError: (): void => {},
   telegramApi: { kind: "lockdown-iteration-test-api" },
 }));
 mock.module("../../packages/infra/telegram/lockdownPermissions", () => ({
   restoreLockdownInvitePermission,
 }));
-mock.module("../../packages/infra/telegram/actions", () => ({
+const realMessageLifecycle = await import("../../packages/infra/telegram/actions/messageLifecycle");
+mock.module("../../packages/infra/telegram/actions/messageLifecycle", () => ({
+  ...realMessageLifecycle,
   deleteMessageWithOutcome,
 }));
 
 const {
   abandonEmergencyLockdownRecovery,
+  buildAdoptLockdownsMessage,
   recoverAbandonedLockdowns,
   stopEmergencyLockdownRecoveries,
 } = await import("../../packages/antiRaid/lockdownMirror");
-const { RESTORE_RETRY_MS } = await import("../../packages/consts/antiRaid/lockdown");
+const { LOCKDOWN_MS, RESTORE_RETRY_MS } = await import("../../packages/consts/antiRaid/lockdown");
 const {
   emergencyLockdownRecoveries,
   emergencyLockdownRecoveryRuntime,
@@ -176,10 +180,10 @@ describe("主线程紧急恢复遍历真实群状态 LRU", () => {
     expect(chatStates.size).toBe(chatIds.length);
     const takeover: unknown[] | undefined = loggerError.mock.calls.find((call: unknown[]): boolean =>
       String(call[0]).startsWith("Anti-raid Worker gave up self-healing"));
-    expect(takeover?.[0]).toBe(
-      "Anti-raid Worker gave up self-healing; main-thread emergency permission recovery started for chats: " +
-      chatIds.join(", ")
-    );
+    expect(takeover).toEqual([
+      "Anti-raid Worker gave up self-healing; main-thread emergency permission recovery started.",
+      { chatIds: [...chatIds] },
+    ]);
   });
 });
 
@@ -254,8 +258,11 @@ describe("主线程紧急恢复收尾时清理本轮封锁公告", () => {
     }
     expect(deleteMessageWithOutcome).toHaveBeenCalledTimes(3);
     expect(saveChatStateInBackground).toHaveBeenCalledTimes(3);
-    expect(loggerError.mock.calls.some((call: unknown[]): boolean =>
-      String(call[0]).includes(`announcement in chat ${silentChatId}`))).toBeTrue();
+    expect(loggerError.mock.calls).toContainEqual([
+      "Error deleting the anti-raid lockdown announcement after emergency restore:",
+      { chatId: silentChatId },
+      expect.any(Error),
+    ]);
   });
 
   test("恢复期间意图已换代或恢复已停止时，不删新一轮或留给下一进程的公告", async () => {
@@ -319,5 +326,18 @@ describe("主线程紧急恢复收尾时清理本轮封锁公告", () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+
+  test("墙钟回拨使到期时刻超出一个锁定时长时，adopt 消息 remainingMs 钳位到 LOCKDOWN_MS", () => {
+    chatStates.set(announcedChatId, {
+      lockdown: {
+        ...announcedLockdown(241, 361),
+        expiresAt: Date.now() + LOCKDOWN_MS * 3,
+      },
+    } as ChatState);
+
+    const adopt = buildAdoptLockdownsMessage();
+    expect(adopt.lockdowns).toHaveLength(1);
+    expect(adopt.lockdowns[0]?.remainingMs).toBe(LOCKDOWN_MS);
   });
 });

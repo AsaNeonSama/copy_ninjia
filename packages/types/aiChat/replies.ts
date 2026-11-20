@@ -92,15 +92,15 @@ export interface ReplyToolContext {
   /** superAdmin 触发：跳过生图的群共享冷却。 */
   bypassMediaToolCooldown: boolean;
   /**
-   * 本轮聊天状态心跳句柄（见 aiChat/ai/chatActionHeartbeat.ts）。动作的挡位只由串行动作链按工具
-   * 调用顺序切换（见 aiChat/ai/tools/replyToolset/actionChains.ts）；直接轮另由工具集在链空闲时
+   * 本轮聊天状态心跳句柄（见 workers/aiChat/ai/chatActionHeartbeat.ts）。动作的挡位只由串行动作链按工具
+   * 调用顺序切换（见 workers/aiChat/ai/tools/replyToolset/actionChains.ts）；直接轮另由工具集在链空闲时
    * 亮请求期间的挡位：还没接纳过动作的请求亮「正在输入」、挑贴纸的请求亮「正在选择贴纸」（见
-   * aiChat/ai/tools/replyToolset/pacing.ts 与 aiChat/ai/tools/replyToolset/orchestrator.ts）。
+   * workers/aiChat/ai/tools/replyToolset/pacing.ts 与 workers/aiChat/ai/tools/replyToolset/orchestrator.ts）。
    */
   chatAction: ChatActionControl;
   /**
    * 本轮是直接轮（群里没有在途轮次时启动，见 workers/aiChat/replyDelivery.ts）：串行链不设闸，动作
-   * 按直接轮节奏停顿（见 aiChat/ai/tools/replyToolset/pacing.ts）；为 false 时是有序并行轮。两种轮次的动作都在
+   * 按直接轮节奏停顿（见 workers/aiChat/ai/tools/replyToolset/pacing.ts）；为 false 时是有序并行轮。两种轮次的动作都在
    * 接纳时回接纳回执，由串行链执行。
    */
   direct: boolean;
@@ -137,7 +137,7 @@ export interface SentGeneratedImage {
   photo: TelegramVisionSource;
 }
 
-/** 一次 web_search 函数工具调用的结果（aiChat/ai/tools/webSearch.ts）。 */
+/** 一次 web_search 函数工具调用的结果（workers/aiChat/ai/tools/webSearch.ts）。 */
 export interface WebSearchToolOutcome {
   /** 交回模型的工具结果 JSON。 */
   readonly result: string;
@@ -157,7 +157,7 @@ export interface ReplyToolset {
   readonly functions: readonly AiToolDefinition[];
   /**
    * 本轮工具状态段（含段首标签），拼进运行时状态区块（见
-   * aiChat/ai/tools/replyToolset/toolStatus.ts）。按轮变化的可用性（直接触发资格、
+   * workers/aiChat/ai/tools/replyToolset/toolStatus.ts）。按轮变化的可用性（直接触发资格、
    * 群冷却、参考素材、语音余量、问答条数）只写在这里，不进工具声明。
    */
   readonly toolStatus: string;
@@ -174,23 +174,23 @@ export interface ReplyToolset {
   readonly searchWeb: WebSearchToolExecutor | null;
   /**
    * 系统提示词「行动与停止」段：组装工具时按 `agent.tts.bot_language` 从 VOICE_LANGUAGE_PROMPTS 取的
-   * 同一份文案，与 functions 里 send_message、send_voice 的声明语言一致（见 aiChat/ai/tools/replyToolset/orchestrator.ts）。
+   * 同一份文案，与 functions 里 send_message、send_voice 的声明语言一致（见 workers/aiChat/ai/tools/replyToolset/orchestrator.ts）。
    */
   readonly replyActionInstruction: string;
   readonly has: (name: string) => boolean;
   /**
    * 每次请求模型前调用：直接轮在还没接纳过动作时亮「正在输入」，刚看过贴纸包时亮「正在选择贴纸」，
-   * 其余请求不亮，串行链忙时等排空再亮；有序并行轮不切挡（见 aiChat/ai/tools/replyToolset/orchestrator.ts）。
+   * 其余请求不亮，串行链忙时等排空再亮；有序并行轮不切挡（见 workers/aiChat/ai/tools/replyToolset/orchestrator.ts）。
    */
   readonly beforeModelRequest: () => void;
   /**
    * 模型阶段结束时调用：直接轮收回请求期间亮着、还没被动作接走的状态；有序并行轮不切挡
-   * （见 aiChat/ai/tools/replyToolset/orchestrator.ts）。
+   * （见 workers/aiChat/ai/tools/replyToolset/orchestrator.ts）。
    */
   readonly afterModel: () => void;
   /**
    * 按模型的调用顺序同步完成校验与接纳，当场返回回执；接纳的动作交串行链执行，查看与查询
-   * 返回真实数据（见 aiChat/ai/tools/replyToolset/orchestrator.ts）。
+   * 返回真实数据（见 workers/aiChat/ai/tools/replyToolset/orchestrator.ts）。
    */
   readonly execute: (name: string, argumentsJson: string) => string;
   /** 已接纳动作的预占额度；失败或取消不退回给模型重复提交。 */
@@ -207,7 +207,7 @@ export interface ReplyToolset {
 /**
  * 动作执行中的拟人停顿：亮 phase 挡并等 delayMs（心跳还在静默期时顺延剩余静默）；本轮作废时返回
  * 交给调用方结算的工具错误，走完返回 null。有序并行轮每个动作都停顿，直接轮只有「正在输入」请求
- * 交回的第一条文字不停顿（见 aiChat/ai/tools/replyToolset/pacing.ts）。
+ * 交回的第一条文字不停顿（见 workers/aiChat/ai/tools/replyToolset/pacing.ts）。
  */
 export type ReplyActionPause = (phase: ChatActionPhase, delayMs: number) => Promise<string | null>;
 
@@ -243,7 +243,7 @@ export interface PreparedReplyAction {
 
 /**
  * 本轮唯一的串行动作链：已接纳动作按工具调用顺序排队执行，动作的聊天状态只由链上正在执行的
- * 那一步切换；转入后台的动作结算后排到链尾（见 aiChat/ai/tools/replyToolset/actionChains.ts）。
+ * 那一步切换；转入后台的动作结算后排到链尾（见 workers/aiChat/ai/tools/replyToolset/actionChains.ts）。
  */
 export interface ReplyActionChains {
   /**
@@ -255,6 +255,11 @@ export interface ReplyActionChains {
    * settle 连同它排入的步骤一起等待。
    */
   readonly defer: (name: string, pending: Promise<ReplyActionRun | null>) => void;
+  /**
+   * 登记脱离动作链但本轮结算（`settle`）仍须等待的后台工作（如 `send_voice` 的异步合成与额度退回）；
+   * 即使本轮作废而未启动投递步骤，`settle` 仍等其结算后再返回，拒绝仅记录错误日志不阻断其余等待。
+   */
+  readonly track: (pending: Promise<unknown>) => void;
   /** 等链上与后台全部结算；调用前须结束模型工具派发。 */
   readonly settle: () => Promise<void>;
   /** 链上步骤的真实落地数；步骤结果带 error 时记英文日志、不计数。 */
@@ -301,7 +306,7 @@ export interface ReplyDeliveryWindow {
 export interface RoundMessageState {
   typoUsedThisRound: boolean;
   /**
-   * 接纳时登记的正文及媒体附言的归一化形态（见 aiChat/ai/tools/replyToolset/messageState.ts 的
+   * 接纳时登记的正文及媒体附言的归一化形态（见 workers/aiChat/ai/tools/replyToolset/messageState.ts 的
    * acceptRoundText），容量受本轮动作硬顶约束，随轮次释放。
    */
   acceptedCanonicalTexts: Set<string>;

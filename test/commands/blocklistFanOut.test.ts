@@ -7,9 +7,9 @@ import {
   DEFERRED_COMMAND_MAX_CONCURRENT,
 } from "../../packages/consts/deferredCommands";
 
-const errorLogs: string[] = [];
+const errorLogs: unknown[][] = [];
 mock.module("../../packages/infra/logger", () => ({
-  logger: loggerStub({ error(message: unknown): void { errorLogs.push(String(message)); } }),
+  logger: loggerStub({ error(...args: unknown[]): void { errorLogs.push(args); } }),
 }));
 
 const { runBlocklistFanOut } = await import("../../packages/commands/blocklistFanOut");
@@ -154,10 +154,15 @@ describe("/block 名单写入与跨群扇出的同身份顺序", () => {
     await drainDeferredCommandRuntime(0);
     await inline;
     expect(order).toEqual(["inline"]);
-    expect(errorLogs).toEqual([
-      `Cancelled the deferred /block test for identity ${IDENTITY_ID} before it ran; ` +
-      "the cross-chat fan-out did not run and no receipt was sent.",
-    ]);
+    expect(errorLogs).toEqual([[
+      "Cancelled deferred blocklist command before it ran; no receipt was sent.",
+      {
+        command: "/block test",
+        identityId: IDENTITY_ID,
+        blocklistChanged: true,
+        skippedStep: "fanOut",
+      },
+    ]]);
     await expect(blocklistIdentityMutationRunner.run(IDENTITY_ID, (): string => "after")).resolves.toBe("after");
   });
 
@@ -175,10 +180,15 @@ describe("/block 名单写入与跨群扇出的同身份顺序", () => {
     releaseEarlier();
     await expect(blocklistIdentityMutationRunner.run(IDENTITY_ID, (): string => "after")).resolves.toBe("after");
     expect(prepare).not.toHaveBeenCalled();
-    expect(errorLogs).toEqual([
-      `Cancelled the deferred /block disable for identity ${IDENTITY_ID} before it ran; ` +
-      "the blocklist was not changed and no receipt was sent.",
-    ]);
+    expect(errorLogs).toEqual([[
+      "Cancelled deferred blocklist command before it ran; no receipt was sent.",
+      {
+        command: "/block disable",
+        identityId: IDENTITY_ID,
+        blocklistChanged: false,
+        skippedStep: "prepare",
+      },
+    ]]);
   });
 
   test("名单写入在调用方内抛错时释放串行位并交回调用方", async () => {

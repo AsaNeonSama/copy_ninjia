@@ -66,4 +66,82 @@ describe("LruCache", () => {
     expect(cache.has("a")).toBe(true);
     expect(cache.has("b")).toBe(false);
   });
+
+  test("容量为 1 的满容节点复用及随机操作序列（含迭代中删当前项）与参照 LRU 一致", () => {
+    const single = new LruCache<string, number>(1);
+    single.set("a", 1);
+    expect(single.get("a")).toBe(1);
+    single.set("b", 2);
+    expect(single.has("a")).toBe(false);
+    expect([...single]).toEqual([["b", 2]]);
+    expect(single.oldestKey()).toBe("b");
+
+    let seed: number = 0x73c1_9e45;
+    const nextInt = (max: number): number => {
+      seed = (Math.imul(seed, 1_664_525) + 1_013_904_223) >>> 0;
+      return seed % max;
+    };
+
+    for (const capacity of [1, 2, 3, 7, 16]) {
+      const lru = new LruCache<number, number | undefined>(capacity);
+      const ref: Map<number, number | undefined> = new Map<number, number | undefined>();
+      const keySpace: number = capacity * 3 + 2;
+
+      for (let step: number = 0; step < 500; step += 1) {
+        const op: number = nextInt(100);
+        const key: number = nextInt(keySpace);
+        if (op < 40) {
+          const val: number | undefined = nextInt(10) === 0 ? undefined : step;
+          lru.set(key, val);
+          if (ref.has(key)) {
+            ref.delete(key);
+            ref.set(key, val);
+          } else {
+            if (ref.size >= capacity) {
+              const oldest: number | undefined = ref.keys().next().value;
+              if (oldest !== undefined) ref.delete(oldest);
+            }
+            ref.set(key, val);
+          }
+        } else if (op < 60) {
+          const actual: number | undefined = lru.get(key);
+          let expected: number | undefined;
+          if (ref.has(key)) {
+            expected = ref.get(key);
+            ref.delete(key);
+            ref.set(key, expected);
+          }
+          expect(actual).toBe(expected);
+        } else if (op < 70) {
+          expect(lru.peek(key)).toBe(ref.get(key));
+        } else if (op < 78) {
+          expect(lru.has(key)).toBe(ref.has(key));
+        } else if (op < 88) {
+          expect(lru.delete(key)).toBe(ref.delete(key));
+        } else if (op < 92) {
+          lru.clear();
+          ref.clear();
+        } else {
+          const seenLru: number[] = [];
+          const seenRef: number[] = [];
+          const deleteMod: number = 2 + nextInt(3);
+          for (const itemKey of lru.keys()) {
+            seenLru.push(itemKey);
+            if (itemKey % deleteMod === 0) lru.delete(itemKey);
+          }
+          for (const itemKey of [...ref.keys()]) {
+            seenRef.push(itemKey);
+            if (itemKey % deleteMod === 0) ref.delete(itemKey);
+          }
+          expect(seenLru).toEqual(seenRef);
+        }
+        expect(lru.size).toBe(ref.size);
+        expect(lru.oldestKey()).toBe(ref.keys().next().value);
+        if (step % 25 === 0) {
+          expect([...lru.entries()]).toEqual([...ref.entries()]);
+        }
+      }
+      expect([...lru.entries()]).toEqual([...ref.entries()]);
+    }
+  });
 });

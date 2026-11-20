@@ -21,6 +21,7 @@ import {
   requirePositiveFinite,
 } from "./diskIO/requests";
 import {
+  clearDiskDiagnosticFlushTimer,
   enqueueDiskIODiagnostic,
   resetDiskIODiagnosticChannel,
   waitForDiskIODiagnostics,
@@ -108,6 +109,8 @@ export function initDiskIO({
     maxMessages: maxPendingBusinessMessages + DISK_OPERATION_CONTROL_RESERVE,
     maxCost: DISK_OPERATION_MAX_RETAINED_BYTES,
   });
+  clearDiskDiagnosticFlushTimer();
+  diskIORuntime.diagnosticFlushPendingCount = 0;
   diskIORuntime.fatalSignaled = false;
   diskIORuntime.consecutiveDiagnosticWriteFailures = 0;
   diskIORuntime.consecutiveDiagnosticRebuilds = 0;
@@ -127,11 +130,12 @@ export function isDiskIOInitialized(): boolean {
 }
 
 /**
- * 把 error 日志交给主线程有界 FIFO：主线程自身的日志由 logger.ts 直接调用，其它 Worker
- * 线程转发来的日志由 infra/supervisedWorker.ts 调用（logger.ts 的转发模式）。
- * DiskIO Worker 不可写、崩溃或同步拒收时延后重投；容量越界时释放原消息引用并
- * 记入后续汇总，本函数仍返回已接管，来源 Worker 随即释放原批。
- * @param message 已序列化的错误日志消息。
+ * 把已启用级别（`>= log_level`）的日志交给主线程有界 FIFO：主线程自身的日志由 logger.ts 直接调用，
+ * 其它 Worker 线程转发来的日志由 infra/supervisedWorker.ts 调用（logger.ts 的转发模式）。
+ * 普通级别日志（`info`/`operation`/`warn`）在主线程按批上限或定时窗口缓冲，
+ * `error` 日志、汇总日志与显式 flush 立即推送落盘；DiskIO Worker 不可写、崩溃或同步拒收时延后重投；
+ * 容量越界时释放原消息引用并记入后续汇总，本函数仍返回已接管，来源 Worker 随即释放原批。
+ * @param message 已序列化且达到 `log_level` 阈值的日志消息。
  * @returns 已由诊断通道接管时返回 true，Disk I/O 尚未初始化时返回 false。
  */
 export function relayLogMessage(message: LogMessage): boolean {
@@ -239,7 +243,40 @@ export function loadPersistedData(timeoutMs: number = LOAD_TIMEOUT_MS): Promise<
 }
 
 /**
- * 先排空主线程 `diagnosticQueue` 旁路诊断队列，再要求 `diskIOWorker` 立即把所有 dirty 数据（含待验证增量）全部落盘，
+ * 在截止时间前循环排空主线程 `diagnosticQueue` 旁路诊断队列及溢出汇总，直到与发送 flush 处于同一同步片段。
+ * @param deadline 基于 `performance.now()` 的单调截止时间戳。
+ * @returns 诊断队列排空结果（`"flushed"`、`"timedOut"` 或 `"failed"`）。
+ */
+/**
+ * 判断主线程诊断 FIFO 或溢出汇总中是否仍有尚未交付 ACK 的条目。
+ * @returns 存在待排空诊断或待补写溢出汇总时返回 `true`，否则返回 `false`。
+ */
+function hasPendingDiskIODiagnostics(): boolean {
+  return (
+    diskIORuntime.diagnosticQueue.size > 0 ||
+    diskIORuntime.diagnosticDroppedMessages > 0
+  );
+}
+
+/**
+ * 在截止时间前循环排空主线程 `diagnosticQueue` 旁路诊断队列及溢出汇总，直到与发送 flush 处于同一同步片段。
+ * @param deadline 基于 `performance.now()` 的单调截止时间戳。
+ * @returns 诊断队列排空结果（`"flushed"`、`"timedOut"` 或 `"failed"`）。
+ */
+async function drainDiskIODiagnosticsUntilDeadline(deadline: number): Promise<FlushResult> {
+  while (hasPendingDiskIODiagnostics()) {
+    const remaining: number = deadline - performance.now();
+    if (remaining <= 0) return "timedOut";
+    const diagnostics: FlushResult = await waitForDiskIODiagnostics(remaining);
+    if (diagnostics !== "flushed") return diagnostics;
+    // Promise 续体恢复前可能已有新的主线程诊断入队；循环重检，直到与发送
+    // flush 处于同一个同步片段，诊断先于 flush 信封。
+  }
+  return "flushed";
+}
+
+/**
+ * 先排空主线程 `diagnosticQueue` 旁路诊断队列（含尚在缓冲的普通级别日志），再要求 `diskIOWorker` 立即把所有 dirty 数据（含待验证增量）全部落盘，
  * 并等待完成，用于进程退出前的最后一刷。等待最长 timeoutMs；resolve 只代表
  * 等待已结束，返回值区分 flushed、timedOut 与 failed。Worker 在这次
  * flush 期间崩溃时，onerror 立即以 failed 结算。
@@ -249,16 +286,9 @@ export function loadPersistedData(timeoutMs: number = LOAD_TIMEOUT_MS): Promise<
 export async function flushDiskIO(timeoutMs: number = DISK_IO_FLUSH_TIMEOUT_MS): Promise<FlushResult> {
   requirePositiveFinite(timeoutMs, "Disk I/O flush timeout");
   const deadline: number = performance.now() + timeoutMs;
-  while (
-    diskIORuntime.diagnosticQueue.size > 0 ||
-    diskIORuntime.diagnosticDroppedMessages > 0
-  ) {
-    const remaining: number = deadline - performance.now();
-    if (remaining <= 0) return "timedOut";
-    const diagnostics: FlushResult = await waitForDiskIODiagnostics(remaining);
+  if (hasPendingDiskIODiagnostics()) {
+    const diagnostics: FlushResult = await drainDiskIODiagnosticsUntilDeadline(deadline);
     if (diagnostics !== "flushed") return diagnostics;
-    // Promise 续体恢复前可能已有新的主线程诊断入队；循环重检，直到与发送
-    // flush 处于同一个同步片段，诊断先于 flush 信封。
   }
   const remaining: number = deadline - performance.now();
   if (remaining <= 0) return "timedOut";
@@ -279,9 +309,28 @@ async function flushWritableScope(scope: DiskFlushScope, timeoutMs: number): Pro
 }
 
 /**
+ * 排空主线程缓冲日志与诊断后下发 `"log"` 领域落盘屏障；不可写时直接按 `"failed"` 结算。
+ * @param timeoutMs 刷盘等待的超时毫秒数。
+ * @returns 包含刷盘结果与失败领域列表的结构化回执。
+ */
+async function flushLogDomain(timeoutMs: number): Promise<DomainFlushOutcome> {
+  requirePositiveFinite(timeoutMs, "Disk I/O flush timeout");
+  const worker: Worker | null = diskIORuntime.worker;
+  if (!worker || !diskIORuntime.writable) return { result: "failed" };
+  const deadline: number = performance.now() + timeoutMs;
+  if (hasPendingDiskIODiagnostics()) {
+    const diagnostics: FlushResult = await drainDiskIODiagnosticsUntilDeadline(deadline);
+    if (diagnostics !== "flushed") return { result: diagnostics };
+  }
+  const remaining: number = deadline - performance.now();
+  if (remaining <= 0) return { result: "timedOut" };
+  return flushWritableScope("log", remaining);
+}
+
+/**
  * 单个领域的落盘屏障：Worker 只刷这一个领域（共享 SQLite 的各领域共用一个事务，见
  * types/diskIO/messages.ts 的 DiskFlushScope），回执只带该领域自己的失败
- * （见 workers/diskIO/domainFlush.ts）。
+ * （见 workers/diskIO/domainFlush.ts）。`"log"` 领域会先排空主线程诊断队列中的缓冲日志再发送屏障。
  * @param domain 待刷盘的单个持久化领域名。
  * @param timeoutMs 刷盘等待的超时毫秒数。
  * @returns result 为 "flushed" 表示该领域已 durable，"timedOut"/"failed" 表示没写进去；failedDomains 为本次
@@ -291,6 +340,7 @@ export function flushDiskIODomain(
   domain: DiskIODomain,
   timeoutMs: number = DISK_IO_FLUSH_TIMEOUT_MS
 ): Promise<DomainFlushOutcome> {
+  if (domain === "log") return flushLogDomain(timeoutMs);
   return flushWritableScope(domain, timeoutMs);
 }
 

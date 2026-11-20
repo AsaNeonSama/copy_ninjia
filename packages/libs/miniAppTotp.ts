@@ -110,6 +110,15 @@ export function computeMiniAppTotpCode(secret: string, counter: number): string 
 }
 
 /**
+ * 计算给定毫秒时间戳对应的 30 秒 TOTP 时间步计数器。
+ * @param nowMs 当前毫秒时间戳（缺省取 `Date.now()`）。
+ * @returns 向下取整的 TOTP 时间步整计数器。
+ */
+export function computeMiniAppTotpCounter(nowMs: number = Date.now()): number {
+  return Math.floor(nowMs / 1_000 / MINI_APP_TOTP_STEP_SECONDS);
+}
+
+/**
  * 计算给定毫秒时间戳对应的当前 6 位 TOTP 验证码。
  * @param secret 32 位 Base32 密钥字符串。
  * @param nowMs 当前毫秒时间戳（缺省取 `Date.now()`）。
@@ -119,9 +128,7 @@ export function generateMiniAppTotpCodeAt(
   secret: string,
   nowMs: number = Date.now()
 ): string {
-  const counter: number = Math.floor(
-    nowMs / 1000 / MINI_APP_TOTP_STEP_SECONDS
-  );
+  const counter: number = computeMiniAppTotpCounter(nowMs);
   return computeMiniAppTotpCode(secret, counter);
 }
 

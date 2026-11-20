@@ -14,14 +14,14 @@ const generateText = mock(generateTextStub);
 const sleep = mock(async (..._args: unknown[]): Promise<void> => {});
 const logError = mock((..._args: unknown[]): void => {});
 
-mock.module("../../../packages/aiChat/provider", () => ({
+mock.module("../../../packages/workers/aiChat/provider", () => ({
   summaryAiProvider: () => ({ name: "google", generateText }),
 }));
 mock.module("../../../packages/libs/sleep", () => ({ sleep }));
 mock.module("../../../packages/infra/logger", () => ({
   logger: loggerStub({ error: logError }),
 }));
-mock.module("../../../packages/aiChat/ai/timeSentence", () => ({
+mock.module("../../../packages/workers/aiChat/ai/timeSentence", () => ({
   currentTimeSentence: (): string => "当前实际时间：测试。",
 }));
 

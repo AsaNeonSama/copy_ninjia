@@ -170,6 +170,7 @@ export const NOTICE_TEXTS: Readonly<AtmosphereNotices> = {
   proxyTtsBusy: "正在处理的请求过多，请稍后再发这条语音。",
   proxyTtsFailed: (targetChatId: number): string => `语音合成或发送到 ${targetChatId} 失败，转发会话仍在进行。`,
   proxyTtsDailyLimit: (dailyLimit: number): string => `语音合成预留额度已用尽（每天 ${dailyLimit} 次，与定时语音共用），额度恢复前无法代发语音，转发会话仍在进行。`,
+  proxyTtsTargetInactive: (targetChatId: number): string => `语音合成完成时 ${targetChatId} 的转发会话或机器人接管已关闭，本次语音未发送。`,
   translateConfigInvalid: (file: string): string => `配置 ${file} 缺失或无效，无法翻译。请修正配置并重启。`,
   translateNotRunning: (targetLabel: string): string => `${targetLabel} 没有正在进行的翻译。`,
   translateStopped: (targetLabel: string): string => `已停止为 ${targetLabel} 翻译，其他会话继续。`,

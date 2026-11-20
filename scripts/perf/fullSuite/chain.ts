@@ -54,6 +54,7 @@ import { WHITE_ENTRY } from "../identityDatabase/fixtures";
 import { aiMemoryUsages } from "../../../packages/cache/main/aiChat";
 import { identityPolicyCache } from "../../../packages/cache/main/identityStorage";
 import {
+  miniAppAuthHandshakes,
   miniAppAuthSessions,
   miniAppPasswordGuardHolder,
   miniAppRejectHtmlHolder,
@@ -84,18 +85,20 @@ import {
 import { getOrCreateChatState, persistChatState } from
   "../../../packages/infra/chatStateStorage";
 import {
+  adoptRandomImageDirectory,
   deleteRandomImageFile,
-  ensureRandomImageDirectory,
+  inspectRandomImageDirectory,
   storeRandomImage,
 } from "../../../packages/infra/imageGallery";
 import { setChatQa } from "../../../packages/infra/qaStore";
 import { recordJoinLog } from "../../../packages/infra/joinLog";
 import {
-  deriveMiniAppAssetToken,
   deriveMiniAppInitDataSecretKey,
   deriveMiniAppPageGateSecretKey,
   issueMiniAppPageGateToken,
 } from "../../../packages/libs/miniAppAuth";
+import { ensureMiniAppRuntimeSigningKeyPair } from
+  "../../../packages/mini-app-api-server/auth/handshake";
 import { evaluateMiniAppPageGateRequest } from
   "../../../packages/mini-app-api-server/auth/pageGate";
 import { issueMiniAppAuthSession } from
@@ -104,6 +107,18 @@ import { resetMiniAppTotpMemoryCache } from
   "../../../packages/mini-app-api-server/auth/totpStorage";
 import { serveMiniAppRejectHtml } from
   "../../../packages/mini-app-api-server/handlers/page";
+import {
+  decryptMiniAppPayload,
+  encryptMiniAppPayload,
+  isMiniAppEncryptedEnvelope,
+  sealMiniAppQuery,
+} from "../../../packages/mini-app-frontend/libs/crypto";
+import {
+  deriveClientMiniAppHandshakeKeys,
+  generateClientMiniAppX25519KeyPair,
+  verifyMiniAppHandshakeOfferDetailed,
+} from "../../../packages/mini-app-frontend/libs/handshakeCrypto";
+import { setMiniAppServerSigningPublicKeyForTest } from "../../../packages/mini-app-frontend/libs/signingKey";
 import { recordEligibleTemporaryAdBypassActivity } from
   "../../../packages/antiRaid/temporaryAdBypass";
 import { drainAdDisposals, handleAdDetected } from
@@ -134,7 +149,7 @@ import { recordChatMessage } from
 import { generateAndSendReply } from
   "../../../packages/workers/aiChat/replyPipeline";
 import { resolveSpeechSynthesizer, synthesizeVoiceMessage } from
-  "../../../packages/aiChat/ai/voiceSynthesis";
+  "../../../packages/workers/aiChat/ai/voiceSynthesis";
 import { deliverCronAction } from "../../../packages/cron/delivery";
 import {
   applyHotDeploymentConfigs,
@@ -248,6 +263,7 @@ const MINI_APP_CHAIN_DEPENDENCIES: MiniAppChainDependencies = {
   botToken: BOT_TOKEN,
   superAdminUserId: SUPER_ADMIN_USER_ID,
   miniAppPassword: BENCHMARK_MINI_APP_PASSWORD,
+  ensureMiniAppRuntimeSigningKeyPair,
   benchmarkChatId,
   benchmarkUserId,
   getOrCreateChatState,
@@ -257,17 +273,26 @@ const MINI_APP_CHAIN_DEPENDENCIES: MiniAppChainDependencies = {
   flushDiskIODomain,
   issueMiniAppAuthSession,
   miniAppAuthSessions,
+  miniAppAuthHandshakes,
   miniAppPasswordGuardHolder,
   miniAppRejectHtmlHolder,
   resetMiniAppTotpMemoryCache,
   serveMiniAppRejectHtml,
   evaluateMiniAppPageGateRequest,
+  decryptMiniAppPayload,
+  encryptMiniAppPayload,
+  isMiniAppEncryptedEnvelope,
+  setMiniAppServerSigningPublicKeyForTest,
+  verifyMiniAppHandshakeOfferDetailed,
+  generateClientMiniAppX25519KeyPair,
+  deriveClientMiniAppHandshakeKeys,
+  sealMiniAppQuery,
   deriveMiniAppInitDataSecretKey,
   deriveMiniAppPageGateSecretKey,
   issueMiniAppPageGateToken,
-  deriveMiniAppAssetToken,
   getAssetConfig,
-  ensureRandomImageDirectory,
+  inspectRandomImageDirectory,
+  adoptRandomImageDirectory,
   storeRandomImage,
   deleteRandomImageFile,
   loadChatsBunRoutes: async (): Promise<MiniAppBunRouteTable> =>

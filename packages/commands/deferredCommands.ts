@@ -29,6 +29,8 @@ export interface SubmitDeferredCommandOptions {
   readonly task: () => Promise<void>;
   /** 任务意外抛错时写进错误日志的英文前缀。 */
   readonly errorLabel: string;
+  /** 任务意外抛错时附带的结构化上下文；缺省只输出 `errorLabel` 与异常对象。 */
+  readonly errorContext?: Readonly<Record<string, unknown>>;
   /** 已接纳的任务没有开跑就被停机或 update 取消撤销时调用一次。 */
   readonly onSkipped?: () => void;
 }
@@ -37,19 +39,20 @@ export interface SubmitDeferredCommandOptions {
  * 同步接纳一个命令任务；执行器未启动、已停止接纳或该档等待位已满时返回 false，调用方
  * 回「稍后再试」或就地执行（commands/blocklistFanOut.ts）。任务在自己的 update 取消上下文里
  * 运行，停机取消后的异常不再上报。
- * @param options 调度优先级 `priority`、异步任务闭包 `task`、错误日志前缀 `errorLabel` 与未开跑撤销回调 `onSkipped`。
+ * @param options 调度优先级 `priority`、异步任务闭包 `task`、错误日志前缀 `errorLabel`、可选错误上下文 `errorContext` 与未开跑撤销回调 `onSkipped`。
  * @returns 已成功接纳时返回 true；未接纳时返回 false。
  */
 export function submitDeferredCommand({
   priority,
   task,
   errorLabel,
+  errorContext,
   onSkipped,
 }: SubmitDeferredCommandOptions): boolean {
   const runtime: CommandExecutorRuntime | null = deferredCommandRuntime.current;
   if (runtime === null || !runtime.accepting || runtime.runner.pendingCount >= DEFERRED_COMMAND_MAX_PENDING) return false;
   if (priority === "background" && runtime.runner.backgroundPendingCount >= DEFERRED_COMMAND_MAX_BACKGROUND_PENDING) return false;
-  return submitCommandExecutorTask({ runtime, priority, task, errorLabel, onSkipped });
+  return submitCommandExecutorTask({ runtime, priority, task, errorLabel, errorContext, onSkipped });
 }
 
 /** 启动时创建唯一执行器；上一代还有任务时禁止重建。 */

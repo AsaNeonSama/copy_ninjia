@@ -140,7 +140,7 @@ describe("registerHandlers SDK 链边界", () => {
     await expect(bot.middleware()(ctx, (): Promise<void> => {
       outerCalls += 1;
       return Promise.resolve();
-    })).rejects.toThrow();
+    })).rejects.toThrow("`next` already called before!");
     expect(outerCalls).toBe(1);
   });
 

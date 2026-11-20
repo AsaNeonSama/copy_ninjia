@@ -394,9 +394,7 @@ export function buildMiniAppStatusView(): Readonly<MiniAppStatusView> {
     },
     telegramOutbound: {
       inFlight: outbound.active,
-      maxConcurrency: outbound.capacity,
-      waiting: outbound.pending,
-      retryQueueSize: outbound.messageRetryPending,
+      retryWaiting: outbound.pending,
       retryQueueMax: TELEGRAM_429_RETRY_QUEUE_MAX,
     },
     capabilities,

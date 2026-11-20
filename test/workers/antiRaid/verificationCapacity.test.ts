@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, jest, mock, test } f
 import {
   LOCKDOWN_KICK_DEDUPE_MS,
   VERIFICATION_REVISION_CAPACITY,
+  VERIFICATION_REVISION_RETENTION_MS,
   VERIFICATION_RUNTIME_CAPACITY,
   VERIFICATION_TIMEOUT_MS,
 } from "../../../packages/consts/antiRaid/verification";
@@ -40,6 +41,7 @@ const runtime = await import("../../../packages/workers/antiRaid/verificationRun
 const { handleJoinEvent } = await import("../../../packages/workers/antiRaid/verificationEvents");
 const { admitVerificationJoin } = await import("../../../packages/workers/antiRaid/verificationAdmission");
 const {
+  sweepVerificationRevisionCache,
   verificationEntries,
   verificationGeneration,
   verificationRevisions,
@@ -313,5 +315,16 @@ describe("验证运行态容量与去重生命周期", () => {
       type: "verificationRuntimeCapacityExceeded", generation: ADOPT_GENERATION,
     }]);
     expect(effects).toEqual([]);
+  });
+
+  test("sweepVerificationRevisionCache 在保留期届满或墙钟回拨时回收终结墓碑，保留活跃项与边界内墓碑", () => {
+    const now: number = 10_000_000;
+    verificationRevisions.set("-1001:1", { revision: 1 });
+    verificationRevisions.set("-1001:2", { revision: 2, retiredAt: now - VERIFICATION_REVISION_RETENTION_MS });
+    verificationRevisions.set("-1001:3", { revision: 3, retiredAt: now - VERIFICATION_REVISION_RETENTION_MS - 1 });
+    verificationRevisions.set("-1001:4", { revision: 4, retiredAt: now + 1 });
+
+    expect(sweepVerificationRevisionCache(now)).toBe(2);
+    expect([...verificationRevisions.keys()]).toEqual(["-1001:1", "-1001:2"]);
   });
 });

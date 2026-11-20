@@ -43,8 +43,8 @@
 <p align="center">
   <a href="#-纯-ai-开发"><img src="https://img.shields.io/badge/Code-100%25_AI--written-e91e63?style=flat-square" alt="100% AI-written"></a>
   <a href="#-纯-ai-开发"><img src="https://img.shields.io/badge/Audits-Claude_/_Gemini_/_Grok-6d4aff?style=flat-square" alt="Audited"></a>
-  <a href="docs/cn/05-dev-workflow.md"><img src="https://img.shields.io/badge/Tests-7200_Passed-2ea44f?style=flat-square" alt="Tests"></a>
-  <a href="docs/cn/05-dev-workflow.md"><img src="https://img.shields.io/badge/Coverage-97.58%25-2ea44f?style=flat-square" alt="Coverage"></a>
+  <a href="docs/cn/05-dev-workflow.md"><img src="https://img.shields.io/badge/Tests-7448_Passed-2ea44f?style=flat-square" alt="Tests"></a>
+  <a href="docs/cn/05-dev-workflow.md"><img src="https://img.shields.io/badge/Coverage-98.07%25-2ea44f?style=flat-square" alt="Coverage"></a>
   <a href="LICENSES/LICENSE"><img src="https://img.shields.io/badge/License-MIT-007ec6?style=flat-square" alt="License: MIT"></a>
 </p>
 
@@ -109,7 +109,7 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="public/coverage_dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="public/coverage_light.svg">
-    <img alt="bun run test:coverage：7200 项测试全部通过 / 605 个测试文件 / 463,493 次 expect() 调用 / 函数覆盖率 96.85% / 行覆盖率 97.58%" src="public/coverage_light.svg" width="780">
+    <img alt="bun run test:coverage：7448 项测试全部通过 / 649 个测试文件 / 592,390 次 expect() 调用 / 函数覆盖率 98.02% / 行覆盖率 98.07%" src="public/coverage_light.svg" width="780">
   </picture>
 </p>
 
@@ -243,7 +243,7 @@
 | Claude | 90%± |
 
 > [!TIP]
-> Gemini 显式缓存与隐式缓存互斥且隐式缓存过期时间不可控；在意缓存命中率可选用其他厂商，注重会话效果可选用 Gemini。
+> Gemini 依赖服务端自动隐式前缀缓存，缓存驻留时长由服务端控制；在意缓存命中率可选用其他厂商，注重会话效果可选用 Gemini。
 
 ### 语音、图片与记忆
 
@@ -328,13 +328,14 @@ git clone https://github.com/AsaNeonSama/copy_ninjia.git
 cd copy_ninjia
 bun install
 
-# 2. 准备配置目录并复制模板（仅补充缺失文件）
+# 2. 准备配置目录并复制模板（仅补充缺失文件；跳过含占位凭据或示例任务的 agent.json、g-auth.json、cron.json）
 mkdir -p config/static config/dynamic
 for example in config_example/static/*.json config_example/dynamic/*.json; do
-  case "${example##*/}" in g-auth.json | cron.json) ;; *) cp -n "$example" "config/${example#config_example/}" ;; esac
+  case "${example##*/}" in agent.json | g-auth.json | cron.json) ;; *) cp -n "$example" "config/${example#config_example/}" ;; esac
 done
 
-# 3. 编辑 config/static/bot.json，填入 bot_token 与 super_admin_user_id
+# 3. 编辑 config/static/bot.json，填入 bot_token 与 super_admin_user_id（log_level 为可选项，缺省默认 "operation"）；
+#    不启用 Mini App 时删除 mini_app 段，启用时按需配置并替换占位 password（启用 AI 时再按需复制并填写 config/dynamic/agent.json）
 ```
 
 初次运行前，请在 @BotFather 处关闭群隐私模式（Privacy Mode）并开启内联模式（Inline Mode），详见 [BotFather 与群权限配置](#botfather-setup)。配置字段规范参见 [`config_example/README/zh.md`](config_example/README/zh.md)，完整运维部署参见 [01 环境搭建与首次运行](docs/cn/01-getting-started.md)。
@@ -421,7 +422,7 @@ Copy Ninjia 的架构总览、模块导览、运行时权威约束、测试流�
   </tr>
   <tr>
     <td><nobr>🖥️ <b>Mini App 控制台</b></nobr></td>
-    <td><code>mini_app</code> 配置、Cloudflare Tunnel 推荐穿透方案、双层认证与 TOTP 绑定</td>
+    <td><code>mini_app</code> 配置、Cloudflare Tunnel 穿透、双层认证与 AES-256-GCM 加密、TOTP 绑定及在线 JSON 配置编辑</td>
     <td align="center"><nobr><a href="docs/cn/10-mini-app.md">📖 10 Mini App 设置与推荐配置</a></nobr></td>
   </tr>
   <tr>

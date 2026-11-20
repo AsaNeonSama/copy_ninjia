@@ -18,8 +18,8 @@ import {
 import { geminiClientCache } from "../../../packages/cache/workers/aiChat/gemini";
 import { adDetectGoogleClientHolder } from "../../../packages/cache/workers/antiRaid/google";
 import { GEMINI_API_BASE_URL } from "../../../packages/consts/aiChat/gemini";
-import { requestGeminiResult } from "../../../packages/aiChat/gemini/client";
-import { synthesizeGeminiSpeech } from "../../../packages/aiChat/gemini/speech";
+import { requestGeminiResult } from "../../../packages/workers/aiChat/gemini/client";
+import { synthesizeGeminiSpeech } from "../../../packages/workers/aiChat/gemini/speech";
 import { requestGoogleAdDetectJson } from "../../../packages/workers/antiRaid/adDetect/ai/google";
 import type { GenerateContentParameters } from "@google/genai";
 import type { SynthesizedSpeech } from "../../../packages/types/aiChat/voiceMessage";
@@ -64,12 +64,6 @@ globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: RequestIni
       status: "completed",
       steps: [{ type: "model_output", content: [{ type: "audio", data: WAV_BYTES.toBase64(), mime_type: "audio/wav" }] }],
     });
-  }
-  if (request.url.includes("/cachedContents")) {
-    return jsonResponse(request.method === "POST" ? { name: "cachedContents/c1" } : { cachedContents: [] });
-  }
-  if (request.url.includes("/models/gemini-test") && !request.url.includes(":")) {
-    return jsonResponse({ name: "models/gemini-test" });
   }
   return jsonResponse({
     candidates: [{ finishReason: "STOP", content: { role: "model", parts: [{ text: "{\"ad\":false,\"reason\":\"ok\"}" }] } }],
@@ -119,13 +113,10 @@ describe("google provider 自定义端点与凭据头", () => {
     expect(captured[0]!.headers.get("x-goog-api-key")).toBe("tts-key");
   });
 
-  test("GEMINI_API_BASE_URL 与 SDK 缺省在五类端点上产出的请求 URL 及请求头逐项一致", async () => {
+  test("GEMINI_API_BASE_URL 与 SDK 缺省在两类端点上产出的请求 URL 及请求头逐项一致", async () => {
     const exercise = async (client: GoogleGenAI): Promise<{ url: string; headers: [string, string][] }[]> => {
       captured.length = 0;
       await client.models.generateContent({ model: "gemini-test", contents: "hi" });
-      await client.models.get({ model: "gemini-test" });
-      for await (const _entry of await client.caches.list()) break;
-      await client.caches.create({ model: "gemini-test", config: { systemInstruction: "sys" } });
       await client.interactions.create({ model: "gemini-test", input: "hi" });
       return captured.map(({ url, headers }: CapturedRequest) => ({
         url,
@@ -147,7 +138,7 @@ describe("google provider 自定义端点与凭据头", () => {
         httpOptions: { baseUrl: GEMINI_API_BASE_URL },
       }));
       expect(explicit).toEqual(implicit);
-      expect(explicit).toHaveLength(5);
+      expect(explicit).toHaveLength(2);
       for (const req of explicit) expect(req.url.startsWith(GEMINI_API_BASE_URL)).toBe(true);
     });
   });
@@ -185,7 +176,6 @@ describe("google provider 自定义端点与凭据头", () => {
         errorLabel: "Google ad_detect default baseUrl test",
       });
 
-      // 两次 generateContent 各一条；显式缓存探测的 models.get 是否已发出取决于后台时序，只核对其端点。
       const urls: string[] = captured.map((req: CapturedRequest): string => req.url);
       expect(urls.filter((url: string): boolean => url.endsWith(":generateContent"))).toHaveLength(2);
       for (const url of urls) {

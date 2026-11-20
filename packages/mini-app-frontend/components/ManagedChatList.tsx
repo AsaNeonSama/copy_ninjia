@@ -4,7 +4,7 @@ import {
   sanitizeBidiText,
   truncateDisplayText,
 } from "../libs/formatters";
-import type { MiniAppChatSummary } from "../types/miniApp";
+import type { MiniAppChatSummary } from "../types/miniApp/chats";
 import type { MiniAppTranslations } from "../types/miniAppI18n";
 
 /** `ManagedChatList` 受管群列表行与操作按钮列表的属性参数。 */

@@ -13,6 +13,7 @@ import {
   cancelsReferencedAdWarning,
   commitReferencedAdWarning,
   referencedAdWarningWindow,
+  sendingReferencedAdWarningState,
 } from "../../../states/adReferenceWarning";
 import type {
   ReferencedAdWarningState,
@@ -34,10 +35,7 @@ export function beginReferencedAdWarning(key: string): number | undefined {
   referencedAdWarningGeneration.current = nextGeneration;
   // 先删再写：本键挪到最新端；满载时 FifoMap 淘汰最早的警告状态。
   referencedAdWarningStates.delete(key);
-  referencedAdWarningStates.set(key, {
-    phase: "sending",
-    generation: nextGeneration,
-  });
+  referencedAdWarningStates.set(key, sendingReferencedAdWarningState(nextGeneration));
   return nextGeneration;
 }
 

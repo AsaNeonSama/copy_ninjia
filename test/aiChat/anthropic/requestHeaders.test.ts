@@ -10,8 +10,8 @@ import { withProcessEnv } from "../../helpers/common";
 import { adoptAgentDeploymentConfig, getAgentDeploymentConfig } from "../../../packages/config/agent";
 import { anthropicClientCache } from "../../../packages/cache/workers/aiChat/anthropic";
 import { ANTHROPIC_API_BASE_URL, ANTHROPIC_SDK_LOG_LEVEL } from "../../../packages/consts/aiChat/anthropic";
-import { requestAnthropicMessage } from "../../../packages/aiChat/anthropic/client";
-import { createAnthropicClient } from "../../../packages/aiChat/anthropic/sdkClient";
+import { requestAnthropicMessage } from "../../../packages/workers/aiChat/anthropic/client";
+import { createAnthropicClient } from "../../../packages/aiProviders/anthropic/sdkClient";
 import type { AgentDeploymentConfig, AnthropicAgentCapabilityConfig } from "../../../packages/types/config";
 
 const PROXY: string = "https://proxy.example/anthropic";

@@ -4,7 +4,7 @@ import {
   executeGroupQaAnswer,
   executeGroupQaQuery,
   parseChatQaJson,
-} from "../../packages/aiChat/ai/tools/replyToolset/groupQa";
+} from "../../packages/workers/aiChat/ai/tools/replyToolset/groupQa";
 import { TOOL_STATUS_POINTER } from "../../packages/consts/aiChat/prompts/tools";
 import { GROUP_QA_ANSWER_TOOL, GROUP_QA_QUERY_TOOL } from "../../packages/consts/tools";
 

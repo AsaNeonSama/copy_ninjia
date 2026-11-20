@@ -1,4 +1,4 @@
-/** owner: workers/aiChat。语音合成每日配额计数与在途预留状态（packages/aiChat/ai/ttsUsage.ts）。 */
+/** owner: workers/aiChat。语音合成每日配额计数与在途预留状态（packages/workers/aiChat/ai/ttsUsage.ts）。 */
 
 import type { TtsDailyUsage } from "../../../types/aiChat/voiceMessage";
 

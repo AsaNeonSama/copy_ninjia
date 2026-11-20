@@ -224,7 +224,9 @@ describe("supervised Worker", () => {
       expect(handle.post({ type: "restore" })).toBeFalse();
       expect(second.messages).toEqual([{ type: "restore" }]);
       expect(error).toHaveBeenCalledWith(
-        "fake Worker postMessage failed:",
+        "[ERROR]",
+        "Worker postMessage failed:",
+        { label: "fake Worker" },
         expect.objectContaining({ message: "post rejected" })
       );
 
@@ -424,7 +426,9 @@ describe("supervised Worker", () => {
       // 本批一条，加上 ACK 投递失败时主线程 logger.error 自己入队的一条。
       expect(diskIORuntime.diagnosticQueue.size).toBe(queuedBeforeRejectedAck + 2);
       expect(scope.consoleError).toHaveBeenCalledWith(
-        "fake Worker postMessage failed:",
+        "[ERROR]",
+        "Worker postMessage failed:",
+        { label: "fake Worker" },
         expect.objectContaining({ message: "ack rejected" })
       );
       expect(replacement.terminated).toBeFalse();
@@ -464,7 +468,9 @@ describe("supervised Worker", () => {
       expect(handle.post({ type: "ping" })).toBeFalse();
       expect(worker.terminated).toBeTrue();
       expect(scope.consoleError).toHaveBeenCalledWith(
-        "fake Worker termination after failure rejected:",
+        "[ERROR]",
+        "Worker termination after failure rejected:",
+        { label: "fake Worker" },
         expect.objectContaining({ message: "terminate exploded" })
       );
       expect(giveUps).toBe(1);
@@ -509,7 +515,9 @@ describe("supervised Worker", () => {
       expect(FakeWorker.instances).toHaveLength(WORKER_MAX_RESTARTS + 1);
       expect(last.terminated).toBeTrue();
       expect(scope.consoleError).toHaveBeenCalledWith(
-        "fake Worker unavailable cleanup failed:",
+        "[ERROR]",
+        "Worker unavailable cleanup failed:",
+        { label: "fake Worker" },
         expect.objectContaining({ message: "cleanup exploded" })
       );
       expect(scope.fatalErrors).toHaveLength(1);
@@ -561,11 +569,15 @@ describe("supervised Worker", () => {
       expect(respawns).toBe(0);
       expect(giveUps).toBe(2);
       expect(scope.consoleError).toHaveBeenCalledWith(
-        "fake Worker replacement construction failed:",
+        "[ERROR]",
+        "Worker replacement construction failed:",
+        { label: "fake Worker" },
         expect.objectContaining({ message: "construction exploded" })
       );
       expect(scope.consoleError).toHaveBeenCalledWith(
-        "fake Worker replacement construction failed:",
+        "[ERROR]",
+        "Worker replacement construction failed:",
+        { label: "fake Worker" },
         "construction refused"
       );
       expect(scope.fatalErrors).toHaveLength(2);
@@ -625,11 +637,15 @@ describe("supervised Worker", () => {
 
       expect(giveUps).toBe(2);
       expect(scope.consoleError).toHaveBeenCalledWith(
-        "fake Worker state replay failed:",
+        "[ERROR]",
+        "Worker state replay failed:",
+        { label: "fake Worker" },
         { code: "replay-broken" }
       );
       expect(scope.consoleError).toHaveBeenCalledWith(
-        "fake Worker state replay failed:",
+        "[ERROR]",
+        "Worker state replay failed:",
+        { label: "fake Worker" },
         expect.objectContaining({ message: "replay exploded" })
       );
       expect(scope.fatalErrors).toHaveLength(2);

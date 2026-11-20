@@ -230,7 +230,10 @@ describe("Anti-Raid 主线程观察者", () => {
 
     captured.persisted?.({ type: "verificationPersisted", key: "-1001:7", generation: 1, revision: 5, deleted: false });
     expect(loggerError).toHaveBeenCalledTimes(1);
-    expect(String(loggerError.mock.calls[0]![0])).toContain("-1001:7");
+    expect(loggerError.mock.calls[0]).toEqual([
+      "Anti-Raid Worker rejected the persisted verification receipt; relying on respawn replay to redeliver it.",
+      { key: "-1001:7" },
+    ]);
   });
 
   test("删除回执只在代际与修订号都对上时才销掉在途删除", () => {

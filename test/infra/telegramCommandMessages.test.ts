@@ -6,9 +6,15 @@ const sendMessage = mock(
 );
 const deleteMessageAfter = mock((..._args: unknown[]): void => {});
 
-mock.module("../../packages/infra/telegram/actions", () => ({
-  deleteMessageAfter,
+const realMessages = await import("../../packages/infra/telegram/actions/messages");
+const realMessageLifecycle = await import("../../packages/infra/telegram/actions/messageLifecycle");
+mock.module("../../packages/infra/telegram/actions/messages", () => ({
+  ...realMessages,
   sendMessage,
+}));
+mock.module("../../packages/infra/telegram/actions/messageLifecycle", () => ({
+  ...realMessageLifecycle,
+  deleteMessageAfter,
 }));
 
 const { replyCommandNotice, sendCommandMessage } = await import(

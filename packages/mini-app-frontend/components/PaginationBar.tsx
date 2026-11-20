@@ -6,7 +6,8 @@ import type { MiniAppTranslations } from "../i18n";
 import { blurEventCurrentTarget } from "../libs/formatters";
 import { useMiniAppStore } from "../store/app";
 import type { MiniAppUiStoreState } from "../store/app";
-import type { MiniAppLanguage, TelegramWindow } from "../types/miniApp";
+import type { TelegramWindow } from "../types/miniApp/host";
+import type { MiniAppLanguage } from "../types/miniApp/ui";
 
 /** `PaginationBar` 通用分页导航组件的属性参数。 */
 export interface PaginationBarProps {

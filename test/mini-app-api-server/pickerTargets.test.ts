@@ -12,6 +12,7 @@ import type {
 import { botPermissions } from "../helpers/botPermissions";
 import {
   buildSuperAdminHeaders,
+  ensureReusableTestSession,
   installMiniAppTestDiskIOMock,
   resetMiniAppTestDiskIOState,
 } from "../helpers/miniAppInitData";
@@ -45,7 +46,7 @@ function superAdminHeaders(): Record<string, string> {
   return buildSuperAdminHeaders({
     botToken: BOT_TOKEN,
     superAdminUserId: SUPER_ADMIN_USER_ID,
-    sessionToken: issueMiniAppAuthSession().token,
+    sessionToken: ensureReusableTestSession(issueMiniAppAuthSession).token,
     contentType: "application/json",
   });
 }

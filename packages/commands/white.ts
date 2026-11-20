@@ -14,15 +14,21 @@ import type { TrailingTokenSplit } from "./arguments";
 import { isUserBlocked } from "../infra/blocklist/membership";
 import { SUPER_ADMIN_USER_ID } from "../config/bot";
 import { runProtectedIdentityMutation } from "../infra/identityPolicy/coordination";
-import { confirmIdentityPolicyPersisted, identityMetadataFromCachedUser } from "../infra/identityStorage";
+import {
+  confirmIdentityPolicyPersisted,
+  identityMetadataFromCachedUser,
+  isIdentityPolicyCached,
+  prefetchIdentityPolicies,
+} from "../infra/identityStorage";
 import { logger } from "../infra/logger";
 import { replyCommandNotice } from "../infra/telegram";
 import { formatActorLabel, formatTargetLabel } from "../users/userLabel";
 import { rejectUnlessPermitted } from "./commandActor";
 import { resolveCommandTarget } from "./targetResolution";
 
-/** 白名单成员变更临界区内的同步判定与写入结果。 */
+/** 白名单成员变更临界区内的判定与写入结果。 */
 type WhiteMutationOutcome =
+  | { readonly kind: "unavailable" }
   | { readonly kind: "blocked" }
   | { readonly kind: "unauthorized" }
   | { readonly kind: "updated"; readonly result: SetWhitelistMembershipResult };
@@ -97,8 +103,15 @@ export async function handleWhiteCommand(
   let outcome: WhiteMutationOutcome;
   try {
     outcome = await runProtectedIdentityMutation(
-      (): WhiteMutationOutcome => {
-        // 授权与成员关系写入在同一个同步临界区线性化：这里重新读取发起人的
+      async (): Promise<WhiteMutationOutcome> => {
+        // 等待互斥锁期间若发起人或目标被挤出 LRU，在临界区内重新预热；失败拒绝执行。
+        if (
+          (!isIdentityPolicyCached(actor.id) || !isIdentityPolicyCached(target.id)) &&
+          !await prefetchIdentityPolicies([actor.id, target.id])
+        ) {
+          return { kind: "unavailable" };
+        }
+        // 授权与成员关系写入在同一个临界区线性化：这里重新读取发起人的
         // isCanWhiteOther，不沿用 handler 入口的快照。
         if (!hasWhitelistPermission(actor.id, "isCanWhiteOther")) {
           return { kind: "unauthorized" };
@@ -119,10 +132,15 @@ export async function handleWhiteCommand(
     }
   } catch (error: unknown) {
     logger.error(
-      `Failed to persist the whitelist membership change for identity ${target.id}:`,
+      "Failed to persist the whitelist membership change:",
+      { identityId: target.id },
       error
     );
     await replyCommandNotice(ctx, chatAtmosphere().WHITE_COMMAND_TEXTS.mutationFailed);
+    return;
+  }
+  if (outcome.kind === "unavailable") {
+    await replyCommandNotice(ctx, chatAtmosphere().IDENTITY_POLICY_UNAVAILABLE_TEXT);
     return;
   }
   if (outcome.kind === "unauthorized") {

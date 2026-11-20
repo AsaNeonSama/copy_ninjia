@@ -71,6 +71,7 @@ const {
   RATE_LIMIT_MAX_CALLS_PER_WINDOW,
 } = await import("../../packages/consts/luckChallenge");
 const { getDateKey } = await import("../../packages/libs/time");
+const { luckCacheKey } = await import("../../packages/commands/luckChallenge/key");
 const luckCache = await import("../../packages/commands/luckChallenge/cache");
 const { signLuckResultText } = await import("../../packages/commands/luckChallenge/receipt");
 const TEST_SECRET = {
@@ -217,12 +218,16 @@ describe("/luck_challenge 预览 -> 选中确认 -> 落盘 全链路", () => {
   test("普通多行文本和缺少实体的伪回执同步返回且不触发跨日密钥刷新", () => {
     mockTodayOverride = "2030-01-02";
     try {
+      const forgedLine: string = `伪造消息\n${LUCK_RECEIPT_DISPLAY_PREFIX}${"a".repeat(64)}`;
       const ordinaryConfirmation: Promise<void> | undefined =
         luckChallenge.confirmLuckDraw("普通消息\n第二行也只是正文");
       const forgedConfirmation: Promise<void> | undefined =
-        luckChallenge.confirmLuckDraw(`伪造消息\n${LUCK_RECEIPT_DISPLAY_PREFIX}${"a".repeat(64)}`);
+        luckChallenge.confirmLuckDraw(forgedLine);
+      const emptyEntitiesConfirmation: Promise<void> | undefined =
+        luckChallenge.confirmLuckDraw(forgedLine, []);
       expect(ordinaryConfirmation).toBeUndefined();
       expect(forgedConfirmation).toBeUndefined();
+      expect(emptyEntitiesConfirmation).toBeUndefined();
 
       expect(ensureLuckReceiptSecretMock).not.toHaveBeenCalled();
       expect(loggerErrorMock).not.toHaveBeenCalled();
@@ -322,11 +327,12 @@ describe("/luck_challenge 预览 -> 选中确认 -> 落盘 全链路", () => {
     // 条目照样留在内存里：Worker 真的重生时 onDiskIORespawn 的全量重放能补上。
     expect(cache.dailyLuckCache.has("444")).toBe(true);
     expect(loggerErrorMock).toHaveBeenCalledWith(
-      expect.stringContaining("Daily luck draw for key 444")
+      "Daily luck draw was not handed to the persistence Worker; it is only in memory until the Worker respawns and the cache is replayed.",
+      { cacheKey: "444", dayKey: TEST_SECRET.day }
     );
   });
 
-  test("落盘线程连续追加失败的诊断被转成一行 logger.error（Worker 侧只有 console.error）", () => {
+  test("落盘线程连续追加失败的诊断被转成结构化 logger.error（Worker 侧只有 console.error）", () => {
     // onDiskIOReply("luckAppendStalled", ...) 是「条目进了 dailyLuckCache 却写不进 memory/luck/」
     // 唯一的可观测出口，见 docs/cn/04-invariants.md 运势与 AI 记忆恢复一节。
     expect(onLuckAppendStalledMock).toHaveBeenCalledTimes(1);
@@ -348,11 +354,15 @@ describe("/luck_challenge 预览 -> 选中确认 -> 落盘 全链路", () => {
     });
 
     expect(loggerErrorMock).toHaveBeenCalledTimes(1);
-    const line: string = loggerErrorMock.mock.calls[0]![0] as string;
-    expect(line).toContain("2030-01-01");
-    expect(line).toContain("3 times in a row");
-    expect(line).toContain("7 confirmed draw(s)");
-    expect(line).toContain("EROFS: read-only file system");
+    expect(loggerErrorMock.mock.calls[0]).toEqual([
+      "Daily luck appends are stalled in the persistence Worker.",
+      {
+        day: "2030-01-01",
+        consecutiveFailures: 3,
+        pendingEntries: 7,
+        lastError: "EROFS: read-only file system",
+      },
+    ]);
   });
 
   test("带文本（所求事项）：选中结果 -> 用带冒号的 key 落盘", async () => {
@@ -362,7 +372,7 @@ describe("/luck_challenge 预览 -> 选中确认 -> 落盘 全链路", () => {
 
     await confirmResult(ctx.results[0]);
 
-    const expectedKey: string = luckChallenge.luckCacheKey(333, "今天适合表白吗");
+    const expectedKey: string = luckCacheKey(333, "今天适合表白吗");
     expect(postDiskIOMock).toHaveBeenCalledTimes(1);
     expect(postDiskIOMock.mock.calls[0]![0]).toMatchObject({ type: "luckDraw", key: expectedKey });
     expect(expectedKey.startsWith("333:")).toBe(true);
@@ -454,9 +464,9 @@ describe("/luck_challenge 预览 -> 选中确认 -> 落盘 全链路", () => {
 
     expect(postDiskIOMock).toHaveBeenCalledTimes(3);
     const expectedKeys = new Set([
-      luckChallenge.luckCacheKey(1, undefined),
-      luckChallenge.luckCacheKey(2, undefined),
-      luckChallenge.luckCacheKey(1, "工作运"),
+      luckCacheKey(1, undefined),
+      luckCacheKey(2, undefined),
+      luckCacheKey(1, "工作运"),
     ]);
     const keys: string[] = postDiskIOMock.mock.calls.map((c: any) => c[0].key);
     expect(new Set(keys)).toEqual(expectedKeys);
@@ -495,12 +505,18 @@ describe("/luck_challenge 预览 -> 选中确认 -> 落盘 全链路", () => {
     expect(cache.dailyLuckCache.size).toBe(DAILY_LUCK_CACHE_MAX);
     // 撑满只记一行，不逐条刷屏。
     expect(loggerErrorMock.mock.calls.filter(
-      (call: unknown[]): boolean => String(call[0]).includes("Daily luck cache reached")
+      (call: unknown[]): boolean =>
+        call[0] === "Daily luck cache reached its entry ceiling; further confirmed draws will not be remembered or persisted until the configured local day rolls over."
     )).toHaveLength(1);
+    expect(loggerErrorMock).toHaveBeenCalledWith(
+      "Daily luck cache reached its entry ceiling; further confirmed draws will not be remembered or persisted until the configured local day rolls over.",
+      { dayKey: TEST_SECRET.day, maxEntries: DAILY_LUCK_CACHE_MAX }
+    );
 
     await confirmResult(ctx.results[0]);
     expect(loggerErrorMock.mock.calls.filter(
-      (call: unknown[]): boolean => String(call[0]).includes("Daily luck cache reached")
+      (call: unknown[]): boolean =>
+        call[0] === "Daily luck cache reached its entry ceiling; further confirmed draws will not be remembered or persisted until the configured local day rolls over."
     )).toHaveLength(1);
   });
 
@@ -561,7 +577,7 @@ describe("/luck_challenge 预览 -> 选中确认 -> 落盘 全链路", () => {
       chosenInlineResult: { result_id: "luck-fortune-text", from: { id: 1000 }, query: "今天买彩票吗" },
     } as any);
 
-    expect(cache.dailyLuckCache.has(luckChallenge.luckCacheKey(1000, "今天买彩票吗"))).toBe(true);
+    expect(cache.dailyLuckCache.has(luckCacheKey(1000, "今天买彩票吗"))).toBe(true);
   });
 
   test("chosen_inline_result 与签名回执兜底先后到达：幂等，只落盘一次", async () => {
@@ -627,7 +643,7 @@ describe("/luck_challenge 预览 -> 选中确认 -> 落盘 全链路", () => {
     luckChallenge.restoreLuckState(TEST_SECRET, null);
     await confirmResult(result);
 
-    const key: string = luckChallenge.luckCacheKey(446, "重启后确认");
+    const key: string = luckCacheKey(446, "重启后确认");
     expect(cache.dailyLuckCache.has(key)).toBe(true);
     expect(postDiskIOMock).toHaveBeenCalledTimes(1);
   });
@@ -635,7 +651,7 @@ describe("/luck_challenge 预览 -> 选中确认 -> 落盘 全链路", () => {
   test("预览后进程重启，chosen_inline_result 也按 uid 与查询重建同一结果", async () => {
     const ctx = makeInlineCtx(447, "主路重启确认");
     await luckChallenge.handleLuckChallengeInlineQuery(ctx as any);
-    const key: string = luckChallenge.luckCacheKey(447, "主路重启确认");
+    const key: string = luckCacheKey(447, "主路重启确认");
     const preview = cache.pendingLuckDraws.get(key);
 
     cache.dailyLuckCache.clear();
@@ -805,6 +821,10 @@ describe("/luck_challenge 预览 -> 选中确认 -> 落盘 全链路", () => {
       expect(cache.luckRuntimeState.daySwitchedInProcess).toBeTrue();
       // 日切竞态不是坏数据，只记 warn。
       expect(loggerWarnMock).toHaveBeenCalledTimes(1);
+      expect(loggerWarnMock).toHaveBeenCalledWith(
+        "Loaded luck receipt secret is from a previous local day; discarding it and re-deriving today's secret on first use.",
+        { secretDay: "2030-01-01", todayKey: "2030-01-02" }
+      );
       expect(loggerErrorMock).not.toHaveBeenCalled();
 
       // 首次用到运势时照常向 Worker 取当天密钥，功能不降级。

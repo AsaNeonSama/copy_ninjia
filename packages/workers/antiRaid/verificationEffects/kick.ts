@@ -62,8 +62,8 @@ export async function runKickMemberEffect({
       return;
     }
     logger.error(
-      `Lockdown kick for user ${userId} in chat ${chatId} was not attempted: the bot is confirmed to lack ` +
-      "can_restrict_members there; retaining the pending action and backing off until the permission returns."
+      "Lockdown kick was not attempted; the bot is confirmed to lack can_restrict_members there, retaining the pending action and backing off until the permission returns.",
+      { chatId, userId }
     );
     retryTerminalAttempt({ chatId, userId, state: transitionState, dispatchVerification });
     return;
@@ -73,8 +73,8 @@ export async function runKickMemberEffect({
   if (verificationEntries.get(key)?.state !== transitionState) return;
   if (isSupergroup === undefined) {
     logger.error(
-      `Lockdown kick for user ${userId} in chat ${chatId} could not resolve whether the chat is a group or supergroup; ` +
-      "retaining the pending action rather than guessing a removal API."
+      "Lockdown kick could not resolve whether the chat is a group or supergroup; retaining the pending action rather than guessing a removal API.",
+      { chatId, userId }
     );
     retryTerminalAttempt({ chatId, userId, state: transitionState, dispatchVerification });
     return;
@@ -92,8 +92,8 @@ export async function runKickMemberEffect({
   }
   if (memberPresentBeforeKick === undefined) {
     logger.error(
-      `Lockdown kick for user ${userId} in chat ${chatId} could not confirm the member is still present; ` +
-      "retaining the pending action rather than issuing a removal that would lift a ban placed in the meantime."
+      "Lockdown kick could not confirm the member is still present; retaining the pending action rather than issuing a removal that would lift a ban placed in the meantime.",
+      { chatId, userId }
     );
     retryTerminalAttempt({ chatId, userId, state: transitionState, dispatchVerification });
     return;
@@ -128,8 +128,9 @@ export async function runKickMemberEffect({
   }
   logger.error(
     outcome === "forbidden"
-      ? `Lockdown kick for user ${userId} in chat ${chatId} was forbidden by Telegram permissions or member status; retaining the pending action for retry.`
-      : `Lockdown kick for user ${userId} in chat ${chatId} did not settle; retaining the pending action for retry.`
+      ? "Lockdown kick was forbidden by Telegram permissions or member status; retaining the pending action for retry."
+      : "Lockdown kick did not settle; retaining the pending action for retry.",
+    { chatId, userId, outcome }
   );
   retryTerminalAttempt({ chatId, userId, state: transitionState, dispatchVerification });
 }

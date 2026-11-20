@@ -119,8 +119,10 @@ describe("调用方 URL 形态保留语义", () => {
     const botConfig: BotConfig = parseBotConfig({
       bot_token: "secret",
       super_admin_user_id: 7,
+      log_level: "operation",
       mini_app: {
         url: "  https://miniapp.example.com  ",
+        host: "127.0.0.1",
         port: 3000,
         password: "s3cr3t-pass-123456",
       },

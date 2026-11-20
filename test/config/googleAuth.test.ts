@@ -70,8 +70,22 @@ for (const field of ["private_key_id", "project_id", "quota_project_id", "univer
 }
 
 test("错误只包含路径、字段与期望，不包含密钥或错误类型原值", (): void => {
-  expect((): GoogleServiceAccountKey => parseGoogleServiceAccountKey({ ...minimal, type: "private_marker" }, source))
-    .toThrow(`${source}: $.type must be "service_account".`);
-  expect((): GoogleServiceAccountKey => parseGoogleServiceAccountKey({ ...minimal, private_key: "private_marker" }, source))
-    .toThrow(`${source}: $.private_key must be a parseable non-empty PEM private key.`);
+  const typeSentinel: string = "GoogleAuthTypeSentinel_DoNotEcho_8192";
+  const keySentinel: string =
+    "-----BEGIN PRIVATE KEY-----\nGoogleAuthPrivateKeySentinel_DoNotEcho_9182\n-----END PRIVATE KEY-----";
+  const parseBadType = (): GoogleServiceAccountKey =>
+    parseGoogleServiceAccountKey({ ...minimal, type: typeSentinel }, source);
+  expect(parseBadType).toThrow(`${source}: $.type must be "service_account".`);
+  expect(parseBadType).not.toThrow(typeSentinel);
+  expect(parseBadType).not.toThrow(privateKey);
+
+  const parseBadKey = (): GoogleServiceAccountKey =>
+    parseGoogleServiceAccountKey({ ...minimal, private_key: keySentinel }, source);
+  expect(parseBadKey).toThrow(`${source}: $.private_key must be a parseable non-empty PEM private key.`);
+  expect(parseBadKey).not.toThrow(keySentinel);
+
+  const parseBadProjectId = (): GoogleServiceAccountKey =>
+    parseGoogleServiceAccountKey({ ...minimal, project_id: "" }, source);
+  expect(parseBadProjectId).toThrow(`${source}: $.project_id must be a non-empty string.`);
+  expect(parseBadProjectId).not.toThrow(privateKey);
 });

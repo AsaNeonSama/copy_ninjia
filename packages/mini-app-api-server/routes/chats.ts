@@ -1,19 +1,19 @@
 import type { MiniAppBunRouteTable, MiniAppRouteContext } from "../../types/miniApp/server";
 import {
-  handleGetChatDetailById,
-  handleGetChatMessagesById,
-  handleGetChatTargetsById,
+  handleGetChatDetailRoute,
+  handleGetChatMessagesRoute,
+  handleGetChatTargetsRoute,
   handleGetChatsRoute,
-  handlePostChatBatchKickById,
-  handlePostChatFeatureById,
-  handlePostChatTargetsById,
+  handlePostChatBatchKickRoute,
+  handlePostChatFeatureRoute,
+  handlePostChatTargetsRoute,
 } from "../handlers/chats";
 import { MINI_APP_API_AUTH_POLICY } from "../../consts/miniApp";
 import { withMiniAppAuth } from "../middleware/pipeline";
 
 /**
- * 受管群路由（`GET /api/chats`、`GET /api/chats/:chatId`、`GET /api/chats/:chatId/messages`、
- * `POST /api/chats/:chatId/feature`、`POST /api/chats/:chatId/batch-kick`、`GET|POST /api/chats/:chatId/targets`）的 `Bun.serve` 原生路由表片段，经完整双层鉴权策略。
+ * 受管群路由（`GET /api/chats`、`GET /api/chats/detail`、`GET /api/chats/messages`、
+ * `POST /api/chats/feature`、`POST /api/chats/batch-kick`、`GET|POST /api/chats/targets`）的 `Bun.serve` 原生路由表片段，经完整双层鉴权策略。
  */
 export const MINI_APP_CHATS_BUN_ROUTES: MiniAppBunRouteTable = {
   "/api/chats": {
@@ -22,44 +22,44 @@ export const MINI_APP_CHATS_BUN_ROUTES: MiniAppBunRouteTable = {
       handleGetChatsRoute
     ),
   },
-  "/api/chats/:chatId": {
+  "/api/chats/detail": {
     GET: withMiniAppAuth(
       MINI_APP_API_AUTH_POLICY,
       (ctx: Readonly<MiniAppRouteContext>): Promise<Response> =>
-        handleGetChatDetailById(ctx.params.chatId ?? "")
+        handleGetChatDetailRoute(ctx.url)
     ),
   },
-  "/api/chats/:chatId/messages": {
-    GET: withMiniAppAuth(
-      MINI_APP_API_AUTH_POLICY,
-      (ctx: Readonly<MiniAppRouteContext>): Response =>
-        handleGetChatMessagesById(ctx.params.chatId ?? "", ctx.url)
-    ),
-  },
-  "/api/chats/:chatId/feature": {
-    POST: withMiniAppAuth(
-      MINI_APP_API_AUTH_POLICY,
-      (ctx: Readonly<MiniAppRouteContext>): Promise<Response> =>
-        handlePostChatFeatureById(ctx.request, ctx.params.chatId ?? "")
-    ),
-  },
-  "/api/chats/:chatId/batch-kick": {
-    POST: withMiniAppAuth(
-      MINI_APP_API_AUTH_POLICY,
-      (ctx: Readonly<MiniAppRouteContext>): Promise<Response> =>
-        handlePostChatBatchKickById(ctx.request, ctx.params.chatId ?? "")
-    ),
-  },
-  "/api/chats/:chatId/targets": {
+  "/api/chats/messages": {
     GET: withMiniAppAuth(
       MINI_APP_API_AUTH_POLICY,
       (ctx: Readonly<MiniAppRouteContext>): Response =>
-        handleGetChatTargetsById(ctx.params.chatId ?? "")
+        handleGetChatMessagesRoute(ctx.url)
+    ),
+  },
+  "/api/chats/feature": {
+    POST: withMiniAppAuth(
+      MINI_APP_API_AUTH_POLICY,
+      (ctx: Readonly<MiniAppRouteContext>): Promise<Response> =>
+        handlePostChatFeatureRoute(ctx.request)
+    ),
+  },
+  "/api/chats/batch-kick": {
+    POST: withMiniAppAuth(
+      MINI_APP_API_AUTH_POLICY,
+      (ctx: Readonly<MiniAppRouteContext>): Promise<Response> =>
+        handlePostChatBatchKickRoute(ctx.request)
+    ),
+  },
+  "/api/chats/targets": {
+    GET: withMiniAppAuth(
+      MINI_APP_API_AUTH_POLICY,
+      (ctx: Readonly<MiniAppRouteContext>): Response =>
+        handleGetChatTargetsRoute(ctx.url)
     ),
     POST: withMiniAppAuth(
       MINI_APP_API_AUTH_POLICY,
       (ctx: Readonly<MiniAppRouteContext>): Promise<Response> =>
-        handlePostChatTargetsById(ctx.request, ctx.params.chatId ?? "")
+        handlePostChatTargetsRoute(ctx.request)
     ),
   },
 };

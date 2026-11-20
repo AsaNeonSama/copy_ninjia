@@ -22,6 +22,7 @@ import {
   readJoinLog,
   isRecentJoinLogDay,
   joinLogSnapshotChunks,
+  joinLogSnapshotEntryBytes,
   measureJoinLogSnapshotBytes,
   serializeJoinLogSnapshotEntry,
   trimJoinLogRecordsToCapacity,
@@ -881,6 +882,61 @@ describe("diskIO/joinLogFiles", () => {
       expect(joinLogDeletions.size).toBe(0);
     } finally {
       diagnostic.mockRestore();
+    }
+  });
+
+  test("群尚留有未清净的待删标记时，重开接纳新记录前先同步完成旧日志删除；仍失败则拒写本条", async () => {
+    const yesterday: string = getDateKey(todayAt(-24 * 60 * 60_000));
+    const now: number = todayAt();
+    mkdirSync(joinLogDir, { recursive: true });
+    await Bun.write(datedFile(-1001, yesterday), "{}");
+    // 用同名目录占位让初次 delete 失败，留下 joinLogDeletions 待删标记，且阻止新文件写入。
+    mkdirSync(currentFile(-1001), { recursive: true });
+    const diagnostic = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      handleJoinLogDeleteMessage({ type: "deleteJoinLog", chatId: -1001 });
+      expect(joinLogDeletions.has(-1001)).toBeTrue();
+
+      // 仍删不掉时：拒写新记录并保留待删标记，记错误日志。
+      diagnostic.mockClear();
+      await handleJoinLogMessage(joinMessage(-1001, 42, now));
+      expect(joinLogBuffer.entries).toHaveLength(0);
+      expect(joinLogDeletions.has(-1001)).toBeTrue();
+      expect(diagnostic).toHaveBeenCalledTimes(2);
+      expect(diagnostic).toHaveBeenLastCalledWith(expect.stringContaining("rejected join log entry for chat -1001"));
+
+      // 阻塞解除后再次收到入群事件：先同步删净旧文件并摘除标记，再接纳新记录且后续重试不误删。
+      rmSync(currentFile(-1001), { recursive: true, force: true });
+      await handleJoinLogMessage(joinMessage(-1001, 43, now + 1));
+      expect(await Bun.file(datedFile(-1001, yesterday)).exists()).toBeFalse();
+      expect(joinLogDeletions.has(-1001)).toBeFalse();
+      expect(await flushJoinLogBuffer()).toBeTrue();
+      expect(purgeJoinLogDeletions()).toBeTrue();
+      expect(JSON.parse(await Bun.file(currentFile(-1001)).text())).toEqual({
+        [`${now + 1}:43`]: { userId: 43, joinedAt: now + 1 },
+      });
+    } finally {
+      rmSync(currentFile(-1001), { recursive: true, force: true });
+      diagnostic.mockRestore();
+    }
+  });
+
+  test("单条字节计算在 10^k±1 与 MAX_SAFE_INTEGER 边界上与实际序列化逐字节一致", () => {
+    const boundaries: number[] = [1, Number.MAX_SAFE_INTEGER - 1, Number.MAX_SAFE_INTEGER];
+    let power: number = 10;
+    for (let digits: number = 2; digits <= 16; digits += 1) {
+      boundaries.push(power - 1, power, power + 1);
+      power *= 10;
+    }
+    for (const value of boundaries) {
+      for (const record of [
+        { userId: value, joinedAt: 1 },
+        { userId: 1, joinedAt: value },
+        { userId: value, joinedAt: value },
+      ]) {
+        const expectedBytes: number = UTF8_ENCODER.encode(serializeJoinLogSnapshotEntry(record)).byteLength;
+        expect(joinLogSnapshotEntryBytes(record)).toBe(expectedBytes);
+      }
     }
   });
 

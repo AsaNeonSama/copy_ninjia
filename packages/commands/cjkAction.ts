@@ -20,6 +20,7 @@ import {
 import { resolveSenderIdentity, updateCachedIdentity } from "../users/senderIdentity";
 import { formatFullName, formatProfileUrl } from "../users/userLabel";
 import { resolveCommandTarget } from "./targetResolution";
+import { logger } from "../infra/logger";
 
 /** 一段待拼接的回复文本；带 url 的段会挂上 t.me 链接。 */
 interface ActionSegment {
@@ -161,6 +162,19 @@ export async function handleCjkActionCommand(ctx: Context, next: NextFunction): 
   // 被本 handler 认领的消息不再流经 handleIncomingMessageMiddleware（cacheSender 只在
   // 那里调用），这里用 updateCachedIdentity 补记发起人的身份缓存。
   updateCachedIdentity(actor);
+
+  if (
+    message.is_automatic_forward !== true &&
+    (message.from?.is_bot !== true || message.sender_chat !== undefined)
+  ) {
+    logger.operation("[TelegramCommand] CJK action invoked.", {
+      command: `/${command.actionWord}`,
+      chatId,
+      chatType: message.chat.type,
+      actorId: actor.id,
+      messageId: message.message_id,
+    });
+  }
 
   // 配额在这里消耗：往下每条路径（含目标解析失败的提示）都会发出一条消息。
   // 超额静默丢弃，不 next()。

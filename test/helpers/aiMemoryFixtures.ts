@@ -81,6 +81,8 @@ export function aiRecordMediaMessageFixture(
     type: "recordMedia",
     messageThreadId: undefined,
     mediaGroupId: undefined,
+    chatQaJson: undefined,
+    chatQaCount: 0,
     chatId: -100_1,
     senderId: 100,
     firstName: "杂鱼",

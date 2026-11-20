@@ -1,7 +1,7 @@
 /**
- * OpenAI 实现包（packages/aiChat/openai/）独占的常量：token 上限、请求超时、
+ * OpenAI 实现包（packages/workers/aiChat/openai/）独占的常量：token 上限、请求超时、
  * SDK 重试次数、画幅表、语音合成两种线协议的参数与请求参数档位。
- * 所属模块：packages/aiChat/openai/。
+ * 所属模块：packages/workers/aiChat/openai/。
  */
 
 import type OpenAI from "openai";
@@ -24,15 +24,15 @@ export const OPENAI_CHAT_SUMMARY_MAX_TOKENS: number = 49_152;
 export const OPENAI_STICKER_PACK_SUMMARY_MAX_TOKENS: number = 16_384;
 /** 单次媒体描述请求的输出 token 上限（含推理 token）。 */
 export const OPENAI_MEDIA_DESCRIPTION_MAX_TOKENS: number = 16_384;
-/** text 能力结构化 JSON 生成（aiChat/openai/text.ts 的 generateOpenAiJson）的输出 token 上限（含推理 token）。 */
+/** text 能力结构化 JSON 生成（workers/aiChat/openai/text.ts 的 generateOpenAiJson）的输出 token 上限（含推理 token）。 */
 export const OPENAI_JSON_MAX_TOKENS: number = 16_384;
-/** 联网检索执行器（aiChat/openai/search.ts）单次请求的输出 token 上限（含推理 token）。 */
+/** 联网检索执行器（workers/aiChat/openai/search.ts）单次请求的输出 token 上限（含推理 token）。 */
 export const OPENAI_WEB_SEARCH_MAX_TOKENS: number = 16_384;
-/** 联网检索执行器在错误日志里的调用名。所属模块：aiChat/openai/search.ts。 */
+/** 联网检索执行器在错误日志里的调用名。所属模块：workers/aiChat/openai/search.ts。 */
 export const OPENAI_WEB_SEARCH_ERROR_LABEL: string = "OpenAI web search";
 
 /**
- * `prompt_cache_key` 的命名空间前缀（见 aiChat/openai/replySession.ts）。
+ * `prompt_cache_key` 的命名空间前缀（见 workers/aiChat/openai/replySession.ts）。
  */
 export const OPENAI_PROMPT_CACHE_KEY_PREFIX: string = "hunhebi-reply";
 
@@ -43,7 +43,7 @@ export const OPENAI_PROMPT_CACHE_KEY_PREFIX: string = "hunhebi-reply";
 export const OPENAI_PROMPT_CACHE_KEY_MAX_LENGTH: number = 64;
 
 /**
- * 支持显式 prompt cache breakpoint 的 OpenAI 官方模型族前缀（见 aiChat/openai/replySession.ts）。
+ * 支持显式 prompt cache breakpoint 的 OpenAI 官方模型族前缀（见 workers/aiChat/openai/replySession.ts）。
  */
 export const OPENAI_PROMPT_CACHE_BREAKPOINT_MODEL_PREFIX: string = "gpt-5.6";
 
@@ -68,8 +68,8 @@ export const OPENAI_IMAGE_ERROR_LABEL: string = "OpenAI image generation API";
 export const OPENAI_IMAGE_REQUEST_TIMEOUT_MS: number = 300_000;
 /**
  * 按能力取 SDK 每次尝试的超时上限，requestOpenAiResult 同时以它作整次调用的 deadline。
- * image 与 tts 分别由 aiChat/openai/image.ts 与 aiChat/openai/speech.ts、aiChat/openai/xaiSpeech.ts 在每次请求上另行覆盖。
- * 所属模块：aiChat/openai/client.ts、aiChat/openai/text.ts。
+ * image 与 tts 分别由 workers/aiChat/openai/image.ts 与 workers/aiChat/openai/speech.ts、workers/aiChat/openai/xaiSpeech.ts 在每次请求上另行覆盖。
+ * 所属模块：workers/aiChat/openai/client.ts、workers/aiChat/openai/text.ts。
  */
 export const OPENAI_REQUEST_TIMEOUTS_MS: Readonly<Record<AgentCapability, number>> = {
   text: 180_000,
@@ -122,7 +122,7 @@ export const OPENAI_STANDARD_IMAGE_SIZE_BY_ASPECT_RATIO: Readonly<
 };
 
 /**
- * xAI 生图请求显式指定的分辨率档位。所属模块：packages/aiChat/openai/image.ts。
+ * xAI 生图请求显式指定的分辨率档位。所属模块：packages/workers/aiChat/openai/image.ts。
  */
 export const XAI_IMAGE_RESOLUTION: string = "1k";
 
@@ -143,24 +143,24 @@ export const XAI_SPEECH_ERROR_LABEL: string = "xAI speech synthesis API";
 
 /**
  * 两种语音协议单次合成的总期限（含全部尝试与退避），同时是每次尝试的超时；口径同
- * consts/aiChat/gemini.ts 的 GEMINI_SPEECH_REQUEST_TIMEOUT_MS。所属模块：aiChat/openai/speech.ts
- * 与 aiChat/openai/xaiSpeech.ts。
+ * consts/aiChat/gemini.ts 的 GEMINI_SPEECH_REQUEST_TIMEOUT_MS。所属模块：workers/aiChat/openai/speech.ts
+ * 与 workers/aiChat/openai/xaiSpeech.ts。
  */
 export const OPENAI_SPEECH_REQUEST_TIMEOUT_MS: number = 60_000;
 
 /**
  * 两种语音协议的总尝试次数（含首次）。openai 协议交给 SDK 的 maxRetries（本值减一），
- * xai 协议由 aiChat/openai/xaiSpeech.ts 对网络错误与 408/429/5xx 按同一上限重试。
+ * xai 协议由 workers/aiChat/openai/xaiSpeech.ts 对网络错误与 408/429/5xx 按同一上限重试。
  */
 export const OPENAI_SPEECH_REQUEST_ATTEMPTS: number = 3;
 
-/** openai 语音协议请求的音频响应格式（见 aiChat/ai/voiceEncoding.ts）。 */
+/** openai 语音协议请求的音频响应格式（见 workers/aiChat/ai/voiceEncoding.ts）。 */
 export const OPENAI_SPEECH_RESPONSE_FORMAT: NonNullable<OpenAI.Audio.SpeechCreateParams["response_format"]> = "opus";
 
-/** `base_url` 缺省时传给 OpenAI SDK 的官方默认端点地址（与 SDK 内置缺省逐字相同）。所属模块：aiChat/openai/client.ts、workers/antiRaid/adDetect/ai/openai.ts。 */
+/** `base_url` 缺省时传给 OpenAI SDK 的官方默认端点地址（与 SDK 内置缺省逐字相同）。所属模块：workers/aiChat/openai/client.ts、workers/antiRaid/adDetect/ai/openai.ts。 */
 export const OPENAI_API_BASE_URL: string = "https://api.openai.com/v1";
 
-/** 传给 OpenAI SDK 的日志级别（与 SDK 缺省相同），显式给出后 SDK 不读取 OPENAI_LOG。所属模块：aiChat/openai/client.ts、workers/antiRaid/adDetect/ai/openai.ts。 */
+/** 传给 OpenAI SDK 的日志级别（与 SDK 缺省相同），显式给出后 SDK 不读取 OPENAI_LOG。所属模块：workers/aiChat/openai/client.ts、workers/antiRaid/adDetect/ai/openai.ts。 */
 export const OPENAI_SDK_LOG_LEVEL: NonNullable<OpenAiClientOptions["logLevel"]> = "warn";
 
 /** xai 语音协议未配置 base_url 时使用的 xAI 官方 API 根地址。 */
@@ -173,7 +173,7 @@ export const XAI_SPEECH_ENDPOINT_PATH: string = "tts";
 export const XAI_SPEECH_DEFAULT_LANGUAGE: string = "auto";
 
 /**
- * xai 语音协议请求的音频编码格式（`output_format.codec`，见 aiChat/ai/voiceEncoding.ts）。
+ * xai 语音协议请求的音频编码格式（`output_format.codec`，见 workers/aiChat/ai/voiceEncoding.ts）。
  */
 export const XAI_SPEECH_CODEC: string = "mp3";
 
@@ -190,7 +190,7 @@ export const XAI_SPEECH_RETRY_BASE_DELAY_MS: number = 500;
 export const XAI_SPEECH_ERROR_BODY_MAX_BYTES: number = 1_024;
 
 /**
- * Responses API 请求的 `store` 参数值（见 aiChat/openai/replySession.ts）。
+ * Responses API 请求的 `store` 参数值（见 workers/aiChat/openai/replySession.ts）。
  */
 export const OPENAI_STORE_RESPONSES: boolean = false;
 

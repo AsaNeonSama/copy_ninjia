@@ -3,6 +3,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  InputValidationError,
+  assertLocalTimestamp,
   readJsonInput,
   readUtf8TextInput,
 } from "../../packages/libs/inputValidation";
@@ -33,6 +35,26 @@ describe("Bun 原生不可信输入读取", () => {
     await Bun.write(path, "ready");
     await Bun.file(path).delete();
 
-    await expect(readUtf8TextInput(path)).rejects.toThrow();
+    await expect(readUtf8TextInput(path)).rejects.toThrow(/ENOENT.*input\.txt/);
+  });
+});
+
+describe("assertLocalTimestamp", () => {
+  test("接受合法公历本地时间并拒绝非法形态与不存在的公历日期时间", () => {
+    expect((): void => assertLocalTimestamp("2026/01/15 12:34:56", "fixture", "$.at")).not.toThrow();
+    expect((): void => assertLocalTimestamp("2024/02/29 23:59:59", "fixture", "$.at")).not.toThrow();
+    for (const invalid of [
+      123,
+      "",
+      "2026-01-15T12:34:56Z",
+      "2026/02/29 00:00:00",
+      "2026/02/30 00:00:00",
+      "2026/13/45 00:00:00",
+      "2026/01/01 24:00:00",
+    ]) {
+      expect((): void => assertLocalTimestamp(invalid, "fixture", "$.at")).toThrow(InputValidationError);
+      expect((): void => assertLocalTimestamp(invalid, "fixture", "$.at"))
+        .toThrow("fixture: $.at must be a valid local calendar time in YYYY/MM/DD HH:mm:ss format.");
+    }
   });
 });

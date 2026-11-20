@@ -45,8 +45,11 @@ export function createFlushBarrier<TDetail = undefined>(options: CreateFlushBarr
     if (entry === undefined) return false;
     pending.delete(id);
     clearTimeout(entry.timer);
-    entry.onDetail?.(detail);
-    entry.resolve(result);
+    try {
+      entry.onDetail?.(detail);
+    } finally {
+      entry.resolve(result);
+    }
     return true;
   }
 
@@ -71,8 +74,21 @@ export function createFlushBarrier<TDetail = undefined>(options: CreateFlushBarr
     },
     settle,
     settleAll: (result: FlushResult): void => {
-      // 按进入时的在途 id 快照逐个结算；onDetail 回调期间新登记的等待不在本次结算范围内。
-      for (const id of [...pending.keys()]) settle(id, result);
+      // 按进入时的在途 id 快照逐个结算；onDetail 回调期间新登记的等待不在本次结算范围内，
+      // 单个回调抛错不阻断其余等待者结算。
+      let firstError: unknown;
+      let hasError: boolean = false;
+      for (const id of [...pending.keys()]) {
+        try {
+          settle(id, result);
+        } catch (error: unknown) {
+          if (!hasError) {
+            firstError = error;
+            hasError = true;
+          }
+        }
+      }
+      if (hasError) throw firstError;
     },
     pendingCount: (): number => pending.size,
   };

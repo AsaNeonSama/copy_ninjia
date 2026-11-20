@@ -2,8 +2,15 @@ import { describe, expect, test } from "bun:test";
 import { AI_MEMORY_HYDRATE_BUFFER_MAX } from "../../packages/consts/aiChat/memory";
 import {
   MINI_APP_BATCH_KICK_MAX_HOURS,
+  MINI_APP_INIT_DATA_HEADER,
   MINI_APP_PAGE_GATE_COOKIE_NAME,
+  MINI_APP_SESSION_HEADER,
 } from "../../packages/consts/miniApp";
+import {
+  MINI_APP_ENCRYPTED_QUERY_PARAM,
+  MINI_APP_LOGIN_REQUEST_AAD,
+  MINI_APP_LOGIN_RESPONSE_AAD,
+} from "../../packages/consts/miniAppCrypto";
 import { HOT_PATH_PROFILE_SCENARIOS } from "../../packages/consts/performance";
 import { CHAT_QA_MAX_PER_CHAT } from "../../packages/consts/qa";
 import { STATE_MANAGED_CHAT_LIMIT } from "../../packages/consts/storage";
@@ -27,8 +34,12 @@ import type { AdDetectionMessageContext } from
   "../../packages/types/antiRaid/adDetect";
 import type { ChatState } from "../../packages/types/chatState";
 import type { DiskIOMessage } from "../../packages/types/diskIO";
-import type { StoreRandomImageResult } from "../../packages/types/imageGallery";
+import type {
+  RandomImageDirectoryInspection,
+  StoreRandomImageResult,
+} from "../../packages/types/imageGallery";
 import type { MiniAppAuthSession } from "../../packages/types/miniApp/auth";
+import type { MiniAppEncryptedPayload } from "../../packages/types/miniApp/configs";
 import type { ChainName } from "../../scripts/perf/fullSuite/types";
 import type { MiniAppChatDetail } from "../../packages/types/miniApp/chats";
 import type { BotChatPermissions } from "../../packages/types/telegram";
@@ -40,6 +51,30 @@ import {
   AI_REPLY_SEED_MESSAGES,
   MINI_APP_API_SEED_JOIN_EVENTS_PER_CHAT,
 } from "../../scripts/perf/fullSuite/constants";
+import {
+  decryptMiniAppText,
+  encryptMiniAppEnvelope,
+  importMiniAppAesGcmKey,
+  unsealMiniAppQuery,
+} from "../../packages/mini-app-api-server/libs/crypto";
+import {
+  deriveMiniAppHandshakeKeys,
+  generateMiniAppEd25519KeyPair,
+  generateMiniAppX25519KeyPair,
+  signMiniAppHandshakeOffer,
+} from "../../packages/mini-app-api-server/libs/handshakeCrypto";
+import {
+  decryptMiniAppPayload,
+  encryptMiniAppPayload,
+  isMiniAppEncryptedEnvelope,
+  sealMiniAppQuery,
+} from "../../packages/mini-app-frontend/libs/crypto";
+import {
+  deriveClientMiniAppHandshakeKeys,
+  generateClientMiniAppX25519KeyPair,
+  verifyMiniAppHandshakeOfferDetailed,
+} from "../../packages/mini-app-frontend/libs/handshakeCrypto";
+import { setMiniAppServerSigningPublicKeyForTest } from "../../packages/mini-app-frontend/libs/signingKey";
 import type { DeliverCronActionOptions } from "../../packages/cron/delivery";
 import type { CronDeliveryOutcome } from "../../packages/types/cron";
 import type { IdentityPolicyCacheEntry } from "../../packages/types/identityStorage";
@@ -466,11 +501,18 @@ describe("Mini App API 请求链路", () => {
       new Map<number, { bufferedCount: number; summaryCount: number }>();
     const qaEntries: Map<number, Map<string, string>> = new Map<number, Map<string, string>>();
     const sessions: Map<string, unknown> = new Map<string, unknown>();
+    const authHandshakes: Map<string, { serverPrivateKey: CryptoKey; serverPublicKey: string; expiresAt: number }> =
+      new Map<string, { serverPrivateKey: CryptoKey; serverPublicKey: string; expiresAt: number }>();
     const rejectHolder: { current: unknown } = { current: "cached-reject" };
     const passwordGuardHolder: { current: unknown } = { current: { userId: 1, failedAttempts: 1, lockedUntil: 0 } };
     const deletedGalleryFiles: string[] = [];
     let totpResets: number = 0;
     let seededJoinLogs: number = 0;
+    const benchSessionKeyHex: string = "a".repeat(64);
+    const benchCryptoKeyPromise: Promise<CryptoKey> =
+      importMiniAppAesGcmKey(benchSessionKeyHex);
+    const benchHandshakeId: string = "c".repeat(32);
+    const benchSigningKeyPromise = generateMiniAppEd25519KeyPair();
     const dependencies: MiniAppChainDependencies = {
       chainMiniAppApiRequests: 2,
       chainMiniAppRejectPages: 2,
@@ -480,6 +522,7 @@ describe("Mini App API 请求链路", () => {
       botToken: "123456789:benchmark-token",
       superAdminUserId: 900_001,
       miniAppPassword: "benchmark-password-123456",
+      ensureMiniAppRuntimeSigningKeyPair: async () => await benchSigningKeyPromise,
       benchmarkChatId: (index: number): number => -1_000 - index,
       benchmarkUserId: (index: number): number => 10_000 + index,
       getOrCreateChatState: (chatId: number): ChatState => {
@@ -499,15 +542,26 @@ describe("Mini App API 请求链路", () => {
       flushDiskIODomain: async (): Promise<{ result: "flushed" }> => ({ result: "flushed" }),
       issueMiniAppAuthSession: (): Readonly<MiniAppAuthSession> => {
         const session: MiniAppAuthSession = {
+          lineageId: "bench-session-lineage",
           token: "bench-session-token",
           previousToken: undefined,
+          pendingSessionKey: benchSessionKeyHex,
+          sealedSessionKey: undefined,
+          cryptoKey: benchCryptoKeyPromise,
+          seenRequestIvs: new Set<string>(),
+          previousCryptoKey: undefined,
+          previousSeenRequestIvs: undefined,
+          issuedAt: 1_000,
           createdAt: 1_000,
+          nextRefreshAt: 1_000 + 60_000,
           expiresAt: 2_000,
+          absoluteExpiresAt: 1_000 + 2 * 60 * 60 * 1_000,
         };
         sessions.set(session.token, session);
         return session;
       },
       miniAppAuthSessions: sessions as never,
+      miniAppAuthHandshakes: authHandshakes as never,
       miniAppPasswordGuardHolder: passwordGuardHolder as never,
       miniAppRejectHtmlHolder: rejectHolder as never,
       resetMiniAppTotpMemoryCache: (): void => {
@@ -516,14 +570,27 @@ describe("Mini App API 请求链路", () => {
       serveMiniAppRejectHtml: async (): Promise<Response> =>
         new Response('<body data-status="401" data-code="MISSING_INIT_DATA"></body>', { status: 200 }),
       evaluateMiniAppPageGateRequest: () => ({ allowed: true, issueGateCookie: false }),
+      decryptMiniAppPayload,
+      encryptMiniAppPayload,
+      isMiniAppEncryptedEnvelope,
+      setMiniAppServerSigningPublicKeyForTest,
+      verifyMiniAppHandshakeOfferDetailed,
+      generateClientMiniAppX25519KeyPair,
+      deriveClientMiniAppHandshakeKeys,
+      sealMiniAppQuery,
       deriveMiniAppInitDataSecretKey: (): Uint8Array => new Uint8Array(32),
       deriveMiniAppPageGateSecretKey: (): Uint8Array => new Uint8Array(32),
       issueMiniAppPageGateToken: (): string => "1700000000000.deadbeef",
-      deriveMiniAppAssetToken: (): string => "asset-token-hex",
       getAssetConfig: () => ({
         randomHImageDirectory: "/fixture/h_image",
       }) as never,
-      ensureRandomImageDirectory: async (): Promise<void> => {},
+      inspectRandomImageDirectory: async (directory: string): Promise<Readonly<RandomImageDirectoryInspection>> => ({
+        directory,
+        exists: true,
+        names: [],
+        galleryEntries: [],
+      }),
+      adoptRandomImageDirectory: (): void => {},
       storeRandomImage: async (): Promise<StoreRandomImageResult> => ({
         status: "stored",
         fileName: "a".repeat(64) + ".png",
@@ -534,11 +601,19 @@ describe("Mini App API 请求链路", () => {
       },
       loadChatsBunRoutes: async () => ({
         "/api/chats": { GET: async (): Promise<Response> => Response.json({ items: [] }) },
-        "/api/chats/:chatId": {
-          GET: async (
-            req: Request & { readonly params: Readonly<{ readonly chatId: string }> }
-          ): Promise<Response> => {
-            const chatId: number = Number(req.params.chatId);
+        "/api/chats/detail": {
+          GET: async (req: Request): Promise<Response> => {
+            const sealed: string =
+              new URL(req.url).searchParams.get(MINI_APP_ENCRYPTED_QUERY_PARAM) ?? "";
+            const plainQuery: string | null = await unsealMiniAppQuery(
+              await benchCryptoKeyPromise,
+              sealed,
+              "GET /api/chats/detail"
+            );
+            expect(plainQuery).not.toBeNull();
+            const chatId: number = Number(
+              new URLSearchParams(plainQuery!).get("chatId")
+            );
             const joinedCountsByHour: number[] = new Array<number>(
               MINI_APP_BATCH_KICK_MAX_HOURS
             ).fill(0);
@@ -574,30 +649,119 @@ describe("Mini App API 请求链路", () => {
                 qaSet: false,
               },
             };
-            return Response.json({ detail });
+            const envelope = await encryptMiniAppEnvelope(
+              await benchCryptoKeyPromise,
+              JSON.stringify({ detail }),
+              new TextEncoder().encode("GET /api/chats/detail:res")
+            );
+            return Response.json(envelope);
           },
         },
       }) as never,
       loadAuthBunRoutes: async () => ({
-        "/api/auth/login": {
-          POST: async (): Promise<Response> =>
-            Response.json(
-              { ok: true, sessionToken: "bench-session", assetToken: "bench-asset" },
+        "/api/auth/precheck": {
+          GET: async (): Promise<Response> => {
+            const x25519 = await generateMiniAppX25519KeyPair();
+            const expiresAt: number = Date.now() + 60_000;
+            const signature: string = await signMiniAppHandshakeOffer(
+              (await benchSigningKeyPromise).privateKey,
               {
-                headers: {
-                  "Set-Cookie": `${MINI_APP_PAGE_GATE_COOKIE_NAME}=gate-token; HttpOnly`,
-                },
+                handshakeId: benchHandshakeId,
+                serverPublicKey: x25519.publicKeyBase64,
+                expiresAt,
               }
-            ),
+            );
+            authHandshakes.set(benchHandshakeId, {
+              serverPrivateKey: x25519.privateKey,
+              serverPublicKey: x25519.publicKeyBase64,
+              expiresAt,
+            });
+            return Response.json({
+              ok: true,
+              ttlMs: 1_000,
+              totpEnabled: false,
+              authMode: "password",
+              handshake: {
+                handshakeId: benchHandshakeId,
+                serverPublicKey: x25519.publicKeyBase64,
+                expiresAt,
+                signature,
+              },
+            });
+          },
+        },
+        "/api/auth/login": {
+          POST: async (req: Request): Promise<Response> => {
+            const parsed = (await req.json()) as {
+              readonly handshakeId: string;
+              readonly clientPublicKey: string;
+              readonly encryptedPayload: Readonly<MiniAppEncryptedPayload>;
+            };
+            expect(parsed.handshakeId).toBe(benchHandshakeId);
+            const handshakeRecord = authHandshakes.get(benchHandshakeId);
+            expect(handshakeRecord).toBeDefined();
+            const derived = await deriveMiniAppHandshakeKeys({
+              serverPrivateKey: handshakeRecord!.serverPrivateKey,
+              handshakeId: benchHandshakeId,
+              serverPublicKeyBase64: handshakeRecord!.serverPublicKey,
+              clientPublicKeyBase64: parsed.clientPublicKey,
+            });
+            expect(derived).not.toBeNull();
+            const decrypted: string | null = await decryptMiniAppText({
+              cryptoKey: derived!.c2sKey,
+              encrypted: parsed.encryptedPayload,
+              additionalData: new TextEncoder().encode(
+                MINI_APP_LOGIN_REQUEST_AAD
+              ),
+            });
+            expect(JSON.parse(decrypted!)).toEqual({
+              handshakeId: benchHandshakeId,
+              password: "benchmark-password-123456",
+            });
+            authHandshakes.delete(benchHandshakeId);
+            sessions.set("bench-session", {});
+            const envelope = await encryptMiniAppEnvelope(
+              derived!.s2cKey,
+              JSON.stringify({
+                ok: true,
+                sessionToken: "bench-session",
+                sessionKey: benchSessionKeyHex,
+                expiresAt: 2_000,
+                ttlMs: 1_000,
+              }),
+              new TextEncoder().encode(MINI_APP_LOGIN_RESPONSE_AAD)
+            );
+            return Response.json(envelope, {
+              headers: {
+                "Set-Cookie": `${MINI_APP_PAGE_GATE_COOKIE_NAME}=gate-token; HttpOnly`,
+              },
+            });
+          },
         },
       }) as never,
       loadGalleryBunRoutes: async () => ({
-        "/api/gallery/file/:fileName": {
-          GET: async (): Promise<Response> =>
-            new Response(new Uint8Array(samplePngBytes), {
+        "/api/gallery/file": {
+          GET: async (req: Request): Promise<Response> => {
+            const initDataHeader: string | null = req.headers.get(MINI_APP_INIT_DATA_HEADER);
+            expect(initDataHeader).not.toBeNull();
+            const initDataParams: URLSearchParams = new URLSearchParams(initDataHeader!);
+            expect(initDataParams.get("hash")).toMatch(/^[0-9a-f]{64}$/);
+            expect(initDataParams.get("auth_date")).toMatch(/^\d+$/);
+            expect(JSON.parse(initDataParams.get("user") ?? "null")).toMatchObject({ id: 900_001 });
+            expect(req.headers.get(MINI_APP_SESSION_HEADER)).toBe("bench-session-token");
+            const sealed: string =
+              new URL(req.url).searchParams.get(MINI_APP_ENCRYPTED_QUERY_PARAM) ?? "";
+            const plainQuery: string | null = await unsealMiniAppQuery(
+              await benchCryptoKeyPromise,
+              sealed,
+              "GET /api/gallery/file"
+            );
+            expect(plainQuery).toBe(`fileName=${"a".repeat(64)}.png`);
+            return new Response(new Uint8Array(samplePngBytes), {
               status: 200,
               headers: { ETag: '"bench-etag"' },
-            }),
+            });
+          },
         },
       }) as never,
       ...overrides,
@@ -656,7 +820,7 @@ describe("Mini App API 请求链路", () => {
     const httpError = miniAppChain({
       loadChatsBunRoutes: async () => ({
         "/api/chats": { GET: async (): Promise<Response> => Response.json({ items: [] }) },
-        "/api/chats/:chatId": {
+        "/api/chats/detail": {
           GET: async (): Promise<Response> => new Response("unauthorized", { status: 401 }),
         },
       }) as never,
@@ -664,23 +828,52 @@ describe("Mini App API 请求链路", () => {
     await httpError.definition.prepare?.();
     await expect(httpError.definition.run(0)).rejects.toThrow("returned HTTP 401");
 
+    const unencryptedDetail = miniAppChain({
+      loadChatsBunRoutes: async () => ({
+        "/api/chats": { GET: async (): Promise<Response> => Response.json({ items: [] }) },
+        "/api/chats/detail": {
+          GET: async (): Promise<Response> => Response.json({ detail: {} }),
+        },
+      }) as never,
+    });
+    await unencryptedDetail.definition.prepare?.();
+    await expect(unencryptedDetail.definition.run(0)).rejects.toThrow(
+      "lacked an encrypted response envelope"
+    );
+
+    const encryptedIncompleteKey: CryptoKey = await importMiniAppAesGcmKey("a".repeat(64));
     const incompleteDetail = miniAppChain({
       loadChatsBunRoutes: async () => ({
         "/api/chats": { GET: async (): Promise<Response> => Response.json({ items: [] }) },
-        "/api/chats/:chatId": {
-          GET: async (
-            req: Request & { readonly params: Readonly<{ readonly chatId: string }> }
-          ): Promise<Response> =>
-            Response.json({
-              detail: {
-                chatId: Number(req.params.chatId),
-                qaPairCount: CHAT_QA_MAX_PER_CHAT,
-                hotMessageCount: AI_MEMORY_HYDRATE_BUFFER_MAX,
-                joinedCountsByHour: new Array<number>(
-                  MINI_APP_BATCH_KICK_MAX_HOURS
-                ).fill(0),
-              },
-            }),
+        "/api/chats/detail": {
+          GET: async (req: Request): Promise<Response> => {
+            const sealed: string =
+              new URL(req.url).searchParams.get(MINI_APP_ENCRYPTED_QUERY_PARAM) ?? "";
+            const plainQuery: string | null = await unsealMiniAppQuery(
+              encryptedIncompleteKey,
+              sealed,
+              "GET /api/chats/detail"
+            );
+            const chatId: number = Number(
+              new URLSearchParams(plainQuery ?? "").get("chatId")
+            );
+            return Response.json(
+              await encryptMiniAppEnvelope(
+                encryptedIncompleteKey,
+                JSON.stringify({
+                  detail: {
+                    chatId,
+                    qaPairCount: CHAT_QA_MAX_PER_CHAT,
+                    hotMessageCount: AI_MEMORY_HYDRATE_BUFFER_MAX,
+                    joinedCountsByHour: new Array<number>(
+                      MINI_APP_BATCH_KICK_MAX_HOURS
+                    ).fill(0),
+                  },
+                }),
+                new TextEncoder().encode("GET /api/chats/detail:res")
+              )
+            );
+          },
         },
       }) as never,
     });
@@ -741,17 +934,20 @@ describe("Mini App API 请求链路", () => {
 
     const badLogin = miniAppChain({
       loadAuthBunRoutes: async () => ({
+        "/api/auth/precheck": {
+          GET: async (): Promise<Response> => Response.json({ ok: true }),
+        },
         "/api/auth/login": {
           POST: async (): Promise<Response> => Response.json({ ok: true }),
         },
       }) as never,
     }, "mini-app-auth-login");
     await badLogin.definition.prepare?.();
-    await expect(badLogin.definition.run(0)).rejects.toThrow("lacked page-gate Set-Cookie");
+    await expect(badLogin.definition.run(0)).rejects.toThrow("invalid or unverified handshake offer");
 
     const badGallery = miniAppChain({
       loadGalleryBunRoutes: async () => ({
-        "/api/gallery/file/:fileName": {
+        "/api/gallery/file": {
           GET: async (): Promise<Response> => new Response("not found", { status: 404 }),
         },
       }) as never,

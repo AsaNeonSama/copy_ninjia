@@ -76,9 +76,10 @@ describe("AI 缓存用量上报边界", () => {
       expect(reported.map(({ timestamp: _timestamp, ...rest }: AiCacheUsage) => rest)).toEqual([
         { kind: "search", capability: "web_search", provider: "openai", model: "m", searchCalls: 3 },
       ]);
-      expect(warning.mock.calls.map((call: unknown[]): unknown => call[0])).toEqual([
-        "AI token usage unavailable: capability=web_search, provider=openai, reason=invalid.",
-      ]);
+      expect(warning.mock.calls).toEqual([[
+        "AI token usage unavailable.",
+        { capability: "web_search", provider: "openai", reason: "invalid" },
+      ]]);
     } finally {
       warning.mockRestore();
     }
@@ -142,17 +143,20 @@ test("用量诊断按固定维度去重、不回显模型或异常，重装出�
     reportAiCacheUsage(report);
     reportAiCacheUsage(report);
     expect(warning).toHaveBeenCalledTimes(1);
-    expect(warning.mock.calls[0]?.[0]).toContain("reason=sink");
+    expect(warning.mock.calls[0]).toEqual([
+      "AI token usage unavailable.",
+      { capability: "image", provider: "openai", reason: "sink" },
+    ]);
     installAiCacheUsageSink((): never => { throw new Error("secret-response"); });
     expect(() => reportAiCacheUsage(report)).not.toThrow();
     reportAiCacheUsage(report);
     reportAiCacheUsage({ ...report, inputTokens: undefined });
     reportAiCacheUsage({ ...report, outputTokens: -1 });
-    expect(warning.mock.calls.map((call: unknown[]): unknown => call[0])).toEqual([
-      "AI token usage unavailable: capability=image, provider=openai, reason=sink.",
-      "AI token usage unavailable: capability=image, provider=openai, reason=transport.",
-      "AI token usage unavailable: capability=image, provider=openai, reason=missing.",
-      "AI token usage unavailable: capability=image, provider=openai, reason=invalid.",
+    expect(warning.mock.calls).toEqual([
+      ["AI token usage unavailable.", { capability: "image", provider: "openai", reason: "sink" }],
+      ["AI token usage unavailable.", { capability: "image", provider: "openai", reason: "transport" }],
+      ["AI token usage unavailable.", { capability: "image", provider: "openai", reason: "missing" }],
+      ["AI token usage unavailable.", { capability: "image", provider: "openai", reason: "invalid" }],
     ]);
   } finally {
     warning.mockRestore();
@@ -218,7 +222,10 @@ test("检索次数非法时诊断且不上报，不把无法恢复的数值交�
     }
     expect(reported).toEqual([]);
     expect(warning).toHaveBeenCalledTimes(1);
-    expect(warning.mock.calls[0]?.[0]).toBe("AI token usage unavailable: capability=web_search, provider=anthropic, reason=invalid.");
+    expect(warning.mock.calls[0]).toEqual([
+      "AI token usage unavailable.",
+      { capability: "web_search", provider: "anthropic", reason: "invalid" },
+    ]);
   } finally {
     warning.mockRestore();
   }
@@ -249,9 +256,9 @@ describe("只给费用的计量与 xAI 用量口径", () => {
       expect(reported.map(({ timestamp: _timestamp, ...rest }: AiCacheUsage) => rest)).toEqual([
         { kind: "cost", capability: "image", provider: "openai", model: "x", costInUsdTicks: 5 },
       ]);
-      expect(warning.mock.calls.map((call: unknown[]): unknown => call[0])).toEqual([
-        "AI token usage unavailable: capability=image, provider=openai, reason=missing.",
-        "AI token usage unavailable: capability=image, provider=google, reason=invalid.",
+      expect(warning.mock.calls).toEqual([
+        ["AI token usage unavailable.", { capability: "image", provider: "openai", reason: "missing" }],
+        ["AI token usage unavailable.", { capability: "image", provider: "google", reason: "invalid" }],
       ]);
     } finally {
       warning.mockRestore();
@@ -282,10 +289,10 @@ describe("只给费用的计量与 xAI 用量口径", () => {
       reportXAiUsage({ capability: "text", model: "x", usage: undefined });
       reportXAiUsage({ capability: "summary", model: "x", usage: [] });
       expect(reported).toEqual([]);
-      expect(warning.mock.calls.map((call: unknown[]): unknown => call[0])).toEqual([
-        "AI token usage unavailable: capability=image, provider=openai, reason=missing.",
-        "AI token usage unavailable: capability=text, provider=openai, reason=missing.",
-        "AI token usage unavailable: capability=summary, provider=openai, reason=invalid.",
+      expect(warning.mock.calls).toEqual([
+        ["AI token usage unavailable.", { capability: "image", provider: "openai", reason: "missing" }],
+        ["AI token usage unavailable.", { capability: "text", provider: "openai", reason: "missing" }],
+        ["AI token usage unavailable.", { capability: "summary", provider: "openai", reason: "invalid" }],
       ]);
     } finally {
       warning.mockRestore();

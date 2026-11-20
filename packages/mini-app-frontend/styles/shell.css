@@ -1,5 +1,7 @@
 /* 应用主壳层、顶栏、语言与主题偏好菜单及左侧抽屉导航样式。 */
 .app-shell {
+  display: flex;
+  flex-direction: column;
   width: 100%;
   max-width: 960px;
   margin: 0 auto;
@@ -9,6 +11,30 @@
 .app-main {
   width: 100%;
   contain: style;
+}
+
+/* 侧边抽屉展开与收起滑动过渡期间屏蔽主内容区指针穿透。 */
+.app-main[data-sidebar-motion="active"] {
+  pointer-events: none;
+}
+
+.app-shell.app-shell-configs {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(
+    var(--tg-viewport-height, var(--tg-viewport-stable-height, 100dvh)) -
+    22px -
+    var(--tg-safe-area-inset-top, env(safe-area-inset-top, 0px)) -
+    var(--tg-content-safe-area-inset-top, 0px) -
+    var(--tg-safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))
+  );
+  margin-bottom: -24px;
+}
+
+.app-main.app-main-configs {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
 }
 
 .gate-top-prefs {
@@ -25,6 +51,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-shrink: 0;
   margin-bottom: 12px;
   gap: 8px;
   flex-wrap: nowrap;
@@ -329,7 +356,7 @@
   }
   to {
     opacity: 1;
-    transform: translate3d(0, 0, 0);
+    transform: translate(0, 0);
   }
 }
 
@@ -370,14 +397,15 @@
   flex-direction: column;
   gap: 6px;
   transform-origin: top left;
-  will-change: transform, opacity;
-  transform: translate3d(0, 0, 0);
-  backface-visibility: hidden;
+  will-change: auto;
+  backface-visibility: visible;
   animation: miniapp-popover-drop 0.18s var(--ease-brutal);
 }
 
 .lang-menu-popover.closing {
   pointer-events: none;
+  will-change: transform, opacity;
+  backface-visibility: hidden;
   animation: miniapp-popover-drop-out 0.18s var(--ease-exit) forwards;
 }
 
@@ -487,13 +515,14 @@
   pointer-events: auto;
 }
 
-/* 侧边抽屉：常驻硬边阴影，收起态位移 calc(-100% - 8px) 覆盖面板宽度与右侧阴影，过渡仅驱动合成层 transform。 */
+/* 侧边抽屉：常驻硬边阴影与整数像素宽度的不透明独立 transform 合成层，收起态固定纯像素位移 -324px 覆盖面板宽度与右侧阴影且不依赖盒子尺寸，开合全程仅驱动合成器位移。 */
 .sidebar-drawer {
   position: fixed;
   top: 0;
   left: 0;
   bottom: 0;
   width: min(312px, 86vw);
+  width: round(nearest, min(312px, 86vw), 1px);
   z-index: 100;
   background: var(--card);
   border-right: 3px solid var(--border-strong);
@@ -505,7 +534,7 @@
   contain: layout style;
   will-change: transform;
   backface-visibility: hidden;
-  transform: translate3d(calc(-100% - 8px), 0, 0);
+  transform: translate3d(-324px, 0, 0);
   transition: transform 0.19s var(--ease-brutal);
 }
 
@@ -591,13 +620,26 @@
     border-color var(--press-duration) var(--ease-brutal);
 }
 
+.sidebar-drawer:not(.open) .sidebar-nav-item,
+.sidebar-drawer:not(.open) .sidebar-header > .btn.icon-btn {
+  transition: none;
+}
+
 @media (hover: hover) and (pointer: fine) {
-  .sidebar-nav-item:hover:not(:disabled):not(.active) {
+  .sidebar-drawer.open .sidebar-nav-item:hover:not(:disabled):not(.active) {
     transform: translate(-1px, -1px);
     box-shadow: var(--btn-shadow-hover);
     border-color: var(--btn-primary-border);
     background: var(--btn-hover-bg);
     color: var(--btn-hover-text);
+  }
+
+  .sidebar-drawer:not(.open) .sidebar-header > .btn.icon-btn:hover:not(:disabled):not(.is-disabled) {
+    transform: skewX(var(--btn-skew, 0deg));
+    box-shadow: var(--btn-shadow);
+    background: var(--btn-bg);
+    color: var(--btn-text);
+    border-color: var(--btn-border);
   }
 }
 
@@ -629,7 +671,7 @@
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .sidebar-nav-item:hover:not(:disabled):not(.active) .sidebar-nav-icon {
+  .sidebar-drawer.open .sidebar-nav-item:hover:not(:disabled):not(.active) .sidebar-nav-icon {
     background: #141413;
     color: var(--brutal-yellow);
     border-color: #141413;

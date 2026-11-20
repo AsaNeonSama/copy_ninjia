@@ -94,3 +94,7 @@ export const CHAT_PERMISSION_KEYS: readonly (keyof ChatPermissions)[] = exhausti
 /** 存储候选文件名中的 owner PID 与 UUID 格式。 */
 export const CANDIDATE_OWNER_PID_PATTERN: RegExp =
   /\.guard\.candidate\.([1-9]\d*)\.[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+/** `libs/atomicFile.ts` 原子写临时文件去掉前导 `.` 与 `TMP_FILE_SUFFIX` 后的严格内部命名格式：`<target>.<pid>.<uuid>`。 */
+export const ATOMIC_TEMP_FILE_INNER_PATTERN: RegExp =
+  /^(.+)\.([1-9]\d*)\.([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/;

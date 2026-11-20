@@ -1,13 +1,13 @@
 /** Mini App HTTP 路由中间件链与处理器共享的请求上下文。 */
 export interface MiniAppRouteContext {
-  /** 原始 HTTP 请求对象。 */
+  /** 原始（或经中间件解密请求体后的）HTTP 请求对象。 */
   readonly request: Request;
   /** 已解析的请求 URL。 */
   readonly url: URL;
   /** 大写 HTTP 方法（如 `"GET"`、`"POST"`、`"DELETE"`、`"HEAD"`）。 */
   readonly method: string;
-  /** 动态路由路径参数映射（如 `{ chatId: "-100123", fileName: "abc.png" }`）。 */
-  readonly params: Readonly<Record<string, string>>;
+  /** 鉴权提交阶段确认后的会话内部谱系标识（仅 `requireSession: true` 路由由已提交会话注入，绝不从请求头派生）。 */
+  readonly sessionLineageId?: string;
 }
 
 /** Mini App 标准路由处理器函数签名。 */
@@ -17,12 +17,16 @@ export type MiniAppRouteHandler = (
 
 /** Mini App 路由静态声明的鉴权策略配置，由鉴权管道按固定同步顺序统一执行。 */
 export interface MiniAppAuthPolicy {
-  /** 是否允许在 `GET`/`HEAD` 请求中从 `token`、`initData` 或 `session` 查询参数提取凭据。 */
-  readonly allowQueryAuth: boolean;
-  /** 已验明查询参数 `?token=` 受保护资源令牌且未显式携带会话令牌时，是否免检二次认证会话。 */
-  readonly allowVerifiedAssetTokenBypass: boolean;
-  /** 是否要求校验二次认证会话（`MINI_APP_SESSION_TTL_MS`），并在距签发超过 `MINI_APP_SESSION_REFRESH_THRESHOLD_MS` 时通过响应头滑动续期。 */
+  /** 是否要求校验二次认证会话（`MINI_APP_SESSION_TTL_MS`），并在达到本代 `[MINI_APP_SESSION_REFRESH_MIN_MS, MINI_APP_SESSION_REFRESH_MAX_MS]` 随机轮换阈值时通过响应头滑动续期。 */
   readonly requireSession: boolean;
+  /** 是否要求非空请求体与 URL 查询参数（`?e=`）采用当前会话 256-bit 临时密钥进行 AES-256-GCM 加密。 */
+  readonly encryptRequest: boolean;
+  /** 当 `encryptRequest` 为 `true` 时，非 `GET`/`HEAD` 请求体是否采用原始二进制 `[12 字节 IV || AES-256-GCM 密文+16 字节标签]` 格式（替代 JSON 信封）。 */
+  readonly encryptBinaryRequest?: boolean;
+  /** 是否将鉴权通过后的非 `HEAD` 响应体采用当前会话 256-bit 临时密钥进行 AES-256-GCM 加密。 */
+  readonly encryptResponse: boolean;
+  /** 可选的加密请求体最大允许字节数覆盖值（缺省使用 `MINI_APP_MAX_ENCRYPTED_JSON_BODY_BYTES`）。 */
+  readonly maxBodyBytes?: number;
 }
 
 /** 经 `withMiniAppAuth` 包装、可直接注册到 `Bun.serve` 原生路由表的 Mini App 路由处理器。 */
@@ -36,12 +40,14 @@ export type MiniAppBunRouteTable = Readonly<
   Record<string, Readonly<Partial<Record<Bun.Serve.HTTPMethod, MiniAppBunRouteHandler>>>>
 >;
 
-/** Mini App 外部访问地址解析出的规范化子路径前缀与主机名快照。 */
+/** Mini App 外部访问地址解析出的规范化子路径前缀、主机名与完整 HTTPS 源站快照。 */
 export interface MiniAppPublicUrlParts {
   /** 规范化后的子路径前缀（根路径为 `"/"`，子路径去尾斜杠如 `"/sub"`）。 */
   readonly basePath: string;
   /** URL 的 `host`（小写主机名含非默认端口，如 `"bot.example.com:8443"`）。 */
   readonly host: string;
+  /** 规范化的完整 `https:` 源站（如 `"https://bot.example.com:8443"`）；配置缺失或非 `https:` URL 时为空串。 */
+  readonly origin: string;
 }
 
 /** 单份已物化的 Mini App 前端打包静态资源（字节内容、MIME 类型与强校验 ETag）。 */
@@ -118,9 +124,7 @@ export interface MiniAppStatusView {
   readonly activeSessions: Readonly<MiniAppActiveSessionCounts>;
   readonly telegramOutbound: Readonly<{
     readonly inFlight: number;
-    readonly maxConcurrency: number;
-    readonly waiting: number;
-    readonly retryQueueSize: number;
+    readonly retryWaiting: number;
     readonly retryQueueMax: number;
   }>;
   readonly capabilities: readonly Readonly<MiniAppCapabilityStatus>[];

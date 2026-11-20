@@ -313,11 +313,11 @@
 
 .skeleton-switch-row {
   padding: 10px 0;
-  min-height: 60px;
+  min-height: 62px;
 }
 
 .chat-feature-row {
-  min-height: 60px;
+  min-height: 62px;
 }
 
 .chat-feature-row.is-loading {
@@ -356,8 +356,8 @@
 }
 
 .skeleton-line.skeleton-cpu-ring {
-  width: 46px;
-  height: 46px;
+  width: 48px;
+  height: 48px;
   transform: none;
   margin: 0;
   max-width: none;
@@ -378,12 +378,12 @@
 }
 
 .skeleton-stat-value {
-  height: 20px;
+  height: 22px;
 }
 
 .skeleton-memory-value {
   width: 74%;
-  height: 15px;
+  height: 16px;
 }
 
 .skeleton-line.skeleton-legend-dot {
@@ -407,8 +407,8 @@
 }
 
 .skeleton-chevron-box {
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
   flex-shrink: 0;
 }
 
@@ -418,7 +418,8 @@
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 11px 12px;
+  padding: 10px 12px;
+  min-height: 50px;
   background: var(--skeleton-card-bg);
   border: var(--border-w-sm) solid var(--border);
   border-radius: 2px 10px 2px 10px;
@@ -436,10 +437,12 @@
 .chat-targets-skeleton-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 9px;
+  padding-right: 3px;
 }
 
 .chat-targets-skeleton-row {
+  min-height: 62px;
   padding: 10px 11px;
   border-radius: 2px 10px 2px 10px;
   background: var(--skeleton-card-bg);
@@ -479,9 +482,19 @@
 }
 
 .chat-targets-skeleton-action {
-  width: 58px;
-  height: 28px;
+  width: 64px;
+  height: 30px;
   flex-shrink: 0;
+}
+
+.loading-box:has(.msg-skeleton-card) {
+  padding: 0;
+  margin-bottom: 10px;
+}
+
+.skeleton-stack:has(> .msg-skeleton-card) {
+  margin-top: 0;
+  gap: 10px;
 }
 
 .msg-skeleton-head-row {
@@ -511,10 +524,11 @@
 
 .skeleton-line.msg-skeleton-bubble {
   width: 100%;
-  max-width: calc(100% - 8px);
-  margin-inline: auto;
-  height: 34px;
+  max-width: 100%;
+  margin: 0;
+  height: 39px;
   border-radius: 2px;
+  transform: none;
 }
 
 .skeleton-line.skeleton-title-bar,

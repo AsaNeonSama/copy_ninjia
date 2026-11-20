@@ -162,7 +162,7 @@ export const CHAIN_MINI_APP_PAGE_GATES: number = 4_000;
 /** Mini App 登录接口（`POST /api/auth/login`）链路的计时次数。 */
 export const CHAIN_MINI_APP_AUTH_LOGINS: number = 1_000;
 
-/** Mini App 受保护图库资源（`GET /api/gallery/file/:fileName?token=`）链路的计时次数。 */
+/** Mini App 受保护图库资源（`GET /api/gallery/file?e=`）链路的计时次数。 */
 export const CHAIN_MINI_APP_GALLERY_ASSETS: number = 400;
 
 /** Mini App API 请求链路在每个受管群近 1 小时窗口预先播种的入群日志条数。 */

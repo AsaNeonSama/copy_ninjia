@@ -2,15 +2,15 @@
  * 语音合成公共实现与 `/send` 代发 TTS 判定的热点场景。
  *
  * voice-message-encode 量的是 AI 语音工具、`/send` 代发 TTS 与 cron `send_voice` 共用的
- * 那一段（aiChat/ai/voiceSynthesis.ts 的 synthesizeVoiceMessage）：供应商交回 WAV 之后的
+ * 那一段（workers/aiChat/ai/voiceSynthesis.ts 的 synthesizeVoiceMessage）：供应商交回 WAV 之后的
  * 解析与 Opus 编码，这段在 AI Worker 线程上同步占用 CPU；供应商用固定 WAV 的替身。
  * proxy-tts-detect 量的是 `/send` 代发会话里每条私聊消息都要先过的 TTS 判定，按普通
  * 文字、非 TTS 代码块与 TTS 请求轮转。
  */
 
-import { encodeVoiceMessage } from "../../../packages/aiChat/ai/voiceEncoding";
-import { synthesizeVoiceMessage } from "../../../packages/aiChat/ai/voiceSynthesis";
-import { decodeWavPcm } from "../../../packages/aiChat/ai/utils/wavPcm";
+import { encodeVoiceMessage } from "../../../packages/workers/aiChat/ai/voiceEncoding";
+import { synthesizeVoiceMessage } from "../../../packages/workers/aiChat/ai/voiceSynthesis";
+import { decodeWavPcm } from "../../../packages/workers/aiChat/ai/utils/wavPcm";
 import { parseProxyTtsRequest } from "../../../packages/auto/message/proxyTts";
 import { VOICE_SPEECH_MAX_BYTES } from "../../../packages/consts/aiChat/voiceMessage";
 import { benchmarkWav } from "../wavFixture";
@@ -36,6 +36,7 @@ export function voiceMessageEncodeScenario(): Scenario {
   const attempt: SpeechSynthesisAttempt = { ok: true, speech };
   const synthesize = (_request: AiMeteredSpeechRequest): Promise<SpeechSynthesisAttempt> => Promise.resolve(attempt);
   const request: AiMeteredSpeechRequest = { text: "性能基准台词", tone: "小声で", quota: "operator" };
+  const logContext: Readonly<Record<string, unknown>> = { context: "benchmark" };
   return {
     iterations: 24,
     warmupIterations: 24,
@@ -43,7 +44,7 @@ export function voiceMessageEncodeScenario(): Scenario {
     run: async (iterations: number): Promise<number> => {
       let checksum: number = 0;
       for (let index: number = 0; index < iterations; index++) {
-        const result: VoiceSynthesisResult = await synthesizeVoiceMessage(synthesize, request, "benchmark");
+        const result: VoiceSynthesisResult = await synthesizeVoiceMessage(synthesize, request, logContext);
         if (!result.ok || result.voice.bytes[0] !== 0x4f) throw new Error("Voice encode fixture produced no OGG voice.");
         checksum += result.voice.bytes.length + result.voice.durationSeconds;
       }

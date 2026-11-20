@@ -1,5 +1,5 @@
 import type React from "react";
-import type { MiniAppIconProps, MiniAppTabIconProps } from "../../types/miniApp";
+import type { MiniAppIconProps, MiniAppTabIconProps } from "../../types/miniApp/ui";
 
 /**
  * 渲染侧边栏展开/收起汉堡菜单 SVG 图标。
@@ -119,6 +119,37 @@ export function IdentitiesSvgIcon({
 }
 
 /**
+ * 渲染配置编辑（JSON 花括号与代码行）SVG 图标。
+ *
+ * @param props 图标尺寸与类名
+ * @returns SVG 节点
+ */
+export function ConfigsSvgIcon({
+  size = 18,
+  className = "",
+}: MiniAppIconProps): React.JSX.Element {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M8 4H6a2 2 0 0 0-2 2v4a2 2 0 0 1-2 2 2 2 0 0 1 2 2v4a2 2 0 0 0 2 2h2" />
+      <path d="M16 4h2a2 2 0 0 1 2 2v4a2 2 0 0 0 2 2 2 2 0 0 0-2 2v4a2 2 0 0 1-2 2h-2" />
+      <line x1="10" y1="10" x2="14" y2="10" />
+      <line x1="10" y1="14" x2="13" y2="14" />
+    </svg>
+  );
+}
+
+/**
  * 渲染色图库（画框相册）SVG 图标。
  *
  * @param props 图标尺寸与类名
@@ -196,6 +227,9 @@ export function TabSvgIcon({
   }
   if (tabKey === "identities") {
     return <IdentitiesSvgIcon size={size} className={className} />;
+  }
+  if (tabKey === "configs") {
+    return <ConfigsSvgIcon size={size} className={className} />;
   }
   if (tabKey === "totp") {
     return <LockSvgIcon size={size} className={className} />;

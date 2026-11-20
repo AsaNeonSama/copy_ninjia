@@ -6,7 +6,6 @@
  */
 
 import { join } from "node:path";
-import { availableParallelism } from "node:os";
 import {
   HOT_PATH_PROFILE_REPEATS,
   HOT_PATH_PROFILE_SCENARIOS,
@@ -75,7 +74,7 @@ if (runtimeProblems.length > 0) throw new Error(runtimeProblems.join("\n"));
 const calibration: HotPathGateCalibration = await readHotPathGateCalibration(
   PERFORMANCE_RESULT_PATH
 );
-const availableCpuCount: number = availableParallelism();
+const availableCpuCount: number = navigator.hardwareConcurrency;
 const gcPauseBudgetPercent: number = selectHotPathGcPausePercentLimit(availableCpuCount);
 const maxGcPausePercent: number = hotPathGcPauseFailPercent(gcPauseBudgetPercent);
 const shouldWriteResult: boolean = Bun.argv.includes("--write-result");

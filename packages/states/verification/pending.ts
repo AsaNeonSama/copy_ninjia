@@ -4,6 +4,7 @@ import {
   VERIFICATION_REMINDER_UNDELIVERED_MAX_MS,
   VERIFICATION_TIMEOUT_MS,
 } from "../../consts/antiRaid/verification";
+import { isRecordedWithin } from "../../libs/clockWindow";
 import { trimSlidingWindowArrayInPlace } from "../../libs/slidingWindowRateLimit";
 import type {
   ApproveCallbackEvent,
@@ -207,7 +208,8 @@ export function handleCallback(
 }
 
 /**
- * 处理验证到期：提醒尚未送达且在重试窗口内时续期重发，否则进入处置终态。
+ * 处理验证到期：提醒尚未送达且在重试窗口内（墙钟回拨按窗口已结束处理）时续期重发并确保 `expiresAt` 不低于 `joinedAt`，
+ * 否则进入处置终态。
  * @param state 当前成员的验证状态，未记录时为 undefined。
  * @param event 验证超时事件载荷。
  * @returns 续期重发提醒或进入 checkingInviter / expelling 终态的转移结果。
@@ -221,9 +223,9 @@ export function handleVerifyTimeout(
   if (
     state.reminderMessageId === undefined &&
     state.replyReminderMessageId === undefined &&
-    event.now - state.joinedAt < VERIFICATION_REMINDER_UNDELIVERED_MAX_MS
+    isRecordedWithin(state.joinedAt, event.now, VERIFICATION_REMINDER_UNDELIVERED_MAX_MS)
   ) {
-    state.expiresAt = event.now + VERIFICATION_TIMEOUT_MS;
+    state.expiresAt = Math.max(state.joinedAt, event.now + VERIFICATION_TIMEOUT_MS);
     return pendingUpdated(state, [reminderResendOf(state)], true);
   }
 
@@ -238,7 +240,7 @@ export function handleVerifyTimeout(
 }
 
 /**
- * 回填已落地的提醒消息 ID，并重置验证到期时间。
+ * 回填已落地的提醒消息 ID，并重置验证到期时间（墙钟回拨时仍保证不低于 `joinedAt`）。
  * @param state 当前成员的验证状态，未记录时为 undefined。
  * @param event 提醒消息发送落地事件载荷。
  * @returns 状态转移结果；非 pending 或已被替代时返回删除该提醒消息的副作用。
@@ -255,7 +257,7 @@ export function handleReminderLanded(
   }
   if (event.reminderKind === "original") state.reminderMessageId = event.messageId;
   else state.replyReminderMessageId = event.messageId;
-  state.expiresAt = event.now + VERIFICATION_TIMEOUT_MS;
+  state.expiresAt = Math.max(state.joinedAt, event.now + VERIFICATION_TIMEOUT_MS);
   return pendingUpdated(state, NO_VERIFICATION_EFFECTS, true);
 }
 

@@ -51,7 +51,8 @@ async function consumeTargetMessageDeletions(): Promise<void> {
   deleteMessageQueueRuntime.running = false;
   if (deleteMessageQueue.size === 0 && deleteMessageQueueRuntime.droppedCount > 0) {
     logger.warn(
-      `Dropped ${deleteMessageQueueRuntime.droppedCount} target message deletions while the queue was full.`
+      "Dropped target message deletions while the queue was full.",
+      { dropped: deleteMessageQueueRuntime.droppedCount }
     );
     deleteMessageQueueRuntime.droppedCount = 0;
   }
@@ -69,7 +70,8 @@ export function enqueueTargetMessageDeletion(chatId: number, messageId: number):
   if (deleteMessageQueue.size >= DELETE_MESSAGE_QUEUE_MAX) {
     if (deleteMessageQueueRuntime.droppedCount === 0) {
       logger.warn(
-        `Target message deletion queue is full (${DELETE_MESSAGE_QUEUE_MAX}); new deletions are dropped until it drains.`
+        "Target message deletion queue is full; new deletions are dropped until it drains.",
+        { maxQueueSize: DELETE_MESSAGE_QUEUE_MAX }
       );
     }
     deleteMessageQueueRuntime.droppedCount += 1;
@@ -100,7 +102,10 @@ function abortTargetMessageDeletions(): void {
   const dropped: number = deleteMessageQueue.size;
   deleteMessageQueue.clear();
   if (dropped > 0) {
-    logger.error(`Target message deletion drain timed out; dropped ${dropped} queued deletions.`);
+    logger.error(
+      "Target message deletion drain timed out; dropped queued deletions.",
+      { dropped }
+    );
   }
   deleteMessageQueueRuntime.controller.abort();
 }

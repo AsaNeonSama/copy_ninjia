@@ -166,6 +166,6 @@ export const TIME_AWARENESS_INSTRUCTION: string =
 
 /**
  * 运行时状态区块与压缩批末尾的当前时间句前缀。所属模块：workers/aiChat/runtimeState.ts、
- * workers/aiChat/compaction.ts（传入 aiChat/ai/timeSentence.ts 的 currentTimeSentence）。
+ * workers/aiChat/compaction.ts（传入 workers/aiChat/ai/timeSentence.ts 的 currentTimeSentence）。
  */
 export const CURRENT_TIME_LABEL: string = "当前实际时间";

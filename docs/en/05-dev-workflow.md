@@ -28,6 +28,7 @@
 | `bun run test:fault-injection` | Deterministic fault-injection suite | Runs `FAULT_INJECTION_TESTS` via `scripts/testFaultInjection.ts`, verifying recovery across process crashes, abnormal exits, database drops, and Worker respawns |
 | `bun run perf:hot-paths -- <scenario> [--profile]` | Hot-path standalone measurement | Measures one hot-path scenario across `HOT_PATH_PROFILE_REPEATS` isolated processes against a temp data root and config copy under `performance/` (`--profile` enables CPU sampling); direct execution of `scripts/perf/hotPaths.ts` is rejected before loading any scenario |
 | `bun run perf:hot-path-gate` | **Hot-path performance gate** | Enforces hard memory, GC, and JIT ceilings on core hot paths (bundled into `check`) |
+| `bun run perf:disk-transport` | Business-channel transport stress | Measures main-thread business-channel queue overhead, ACK throughput, and latency against a mock Worker to isolate IPC transport from disk I/O |
 | `bun run perf:join-log` | Join-log performance benchmark | Standalone process benchmark for join-log capacity limits, snapshots, and append accounting |
 | `bun run perf:identity-database` | Identity database benchmark | Standalone process benchmark for cold/hot SQLite I/O, main-thread LRU reads, and write-through pipelines |
 | `bun run perf:full` | Full performance benchmark suite | Runs every section across independent child processes for `FULL_SUITE_ROUNDS` rounds (`--write-doc` updates all three `11-performance.md` files and `performance-result.json`) |
@@ -38,6 +39,7 @@
 | `bun run release:verify -- --version <tag> --platforms <list>` | Release package verification | Verifies archives, SHA-256 hashes, embedded versions, and Git tree alignment across all target platforms |
 | `bun run release:publish -- --version <tag> --platforms <list> --notes-file <file>` | Publish to GitHub | Verifies remote refs, creates a draft release, uploads and re-verifies assets, and publishes as Latest |
 | `bun run audit:release` | Dependency security audit | Scans dependencies for vulnerabilities rated `moderate` or higher |
+| `bun run migrate:wed-member-window` | `/wed` member-window cold migration | Offline migration converting 17.2.1 `memory/wed` member ID arrays into `{ id, enteredAt }` sliding-window entries (see [07 Operations](07-operations.md)) |
 
 ---
 
@@ -52,8 +54,8 @@
   - Backend files over 512 lines should be evaluated for splitting and must be split before exceeding `MAX_SOURCE_LINES` (1024 lines); `.tsx` and `.css` files under `packages/mini-app-frontend/` and `.html` files are capped at `MAX_FRONTEND_SOURCE_LINES` (1536 lines).
   - The check covers all Git-tracked files and untracked non-ignored files while skipping Git-ignored deployment data. Installer syntax checks cover `install.sh` and every shell module under `scripts/install/`.
 - **Universal source code coverage**:
-  - `test/productionModules.test.ts` eagerly imports `index.ts` and every runtime module under `packages/` (excluding pure type declarations in `packages/types/`), counting untouched modules as 0% in the denominator.
-  - Both function and line coverage must meet `coverageThreshold` in `bunfig.toml`; adding untested runtime modules directly lowers overall coverage.
+  - `test/productionModules.test.ts` eagerly imports `index.ts` and every `.ts` / `.tsx` runtime module under `packages/` (excluding pure type declarations in `packages/types/` and the top-level mount entry `packages/mini-app-frontend/main.tsx`), counting untouched modules as 0% in the denominator.
+  - `bunfig.toml` configures `coverageSkipTestFiles = true` and `coveragePathIgnorePatterns = ["test/**"]` (excluding test files and test helpers under `test/` from coverage reporting), and both function and line coverage must meet `coverageThreshold`; adding untested runtime modules directly lowers overall coverage.
 - **Strict typing and syntax standards**:
   - `tsconfig.json` enables `strict`, `noUncheckedIndexedAccess`, `noUnusedLocals`, and `noUnusedParameters`.
   - Production code forbids `any` (tests are exempt). Native `Promise.all` is rejected by ESLint (`no-restricted-syntax`) in favor of `Promise.allSettled` with bounded concurrency. JSX/TSX fragments must explicitly use `<Fragment>` from `react`; the `<>...</>` shorthand is disallowed.
@@ -80,10 +82,11 @@
   - **Runtime safety and APIs**:
     - Every timer in `packages/workers/` must call `.unref()`.
     - `packages/` forbids `Object.freeze` and forbids reading the oldest entry via `.keys().next()`, `.values().next()`, or `.entries().next()`; bounded FIFO/LRU structures obtain their oldest entry through `FifoMap` in `libs/fifoMap.ts` (or `LruCache`, which extends it).
-    - Node compatibility modules and `Buffer` are restricted to explicit allowlists (unused entries fail); CLI arguments must be read via `Bun.argv`; bare runtime imports must be declared directly in the root `package.json`.
+    - Node compatibility modules and `Buffer` are restricted to explicit allowlists (unused entries fail); CLI arguments must be read via `Bun.argv`; `collectUndeclaredDependencyProblems` restricts bare runtime imports in `index.ts` and `packages/` strictly to packages declared in `package.json` `dependencies` (while `scripts/` and `test/` allow `dependencies` and `devDependencies`).
+    - Direct `console.*` property access is forbidden across `packages/`, except `console.error` strictly at the `packages/workers/diskIOWorker.ts` and `packages/workers/diskIO/` boundary.
   - **Gate reconciliation**:
     - Statically checks JSDoc on top-level functions, class methods, and `*Params`/`*Options` interface properties across `index.ts`, `packages/`, and `scripts/`, including `@param` and non-`void`/`never` `@returns` tags (`collectFunctionJsDocProblems` in `scripts/conventions/sourceRules.ts`).
-    - Reconciles Telegram prompt auto-delete exemptions and topic propagation, matches cold migration scripts against `migrate:*` entries in `package.json`, verifies the fault-injection suite manifest, and checks trilingual coverage and performance figures against `performance-result.json`.
+    - Reconciles Telegram prompt auto-delete exemptions, topic propagation, property-access `*.sendMessage(...)` bypasses, `sendMessageWithResult` imports in command text files, and existence of every `directBoundaries` target file and boundary function in `collectTelegramMessageProblems`; matches cold migration scripts against `migrate:*` entries in `package.json`; verifies the fault-injection suite manifest; and checks trilingual coverage and performance figures against `performance-result.json`.
     - Verifies "`<module>.ts` 的 `<symbol>`" cross-references in comments: `./` and `../` paths resolve from the commented file's directory and fail if the file or symbol is missing; bare paths are checked whenever they resolve to a unique repository file.
   - **Test assertion rules**:
     - Tests must not compare imported uppercase constants against raw literals, nor pass string literals matching `packages/consts` exports (at least `STRING_CONSTANT_MIN_LENGTH` chars) or CJK prompt fragments (at least `CONSTANT_TEXT_FRAGMENT_MIN_CJK` CJK chars) directly to matchers; import the constant or render static template slices via `test/helpers/templateText.ts`.
@@ -121,7 +124,7 @@ All dependency installations enforce the release cooling period configured by `i
 
 ### Measurements for This Documentation Version
 
-`bun run test:coverage`: **7200 tests / 605 files / 463493 `expect()` calls**; full-source **function coverage 96.85% / line coverage 97.58%**. The Coverage badge in each project README displays line coverage.
+`bun run test:coverage`: **7448 tests / 649 files / 592390 `expect()` calls**; full-source **function coverage 98.02% / line coverage 98.07%**. The Coverage badge in each project README displays line coverage.
 
 ---
 
@@ -132,7 +135,7 @@ All tests run via `bun run test` (`bun test --isolate`), providing automatic mul
 1. **Test file context isolation**: Bun gives every test file an independent global context so `mock.module` overrides and module-scoped state never leak across files.
 2. **Dedicated temporary data root**:
    - Before any production module loads, `test/preloadEnv.ts` creates an isolated data root (`mkdtempSync`) for `COPY_NINJIA_DATA_ROOT` and a separate temp directory for `TMPDIR` so `os.tmpdir()` calls from tests and production code stay contained.
-   - Both directories are placed under `/dev/shm` when it is a `tmpfs` with at least `TMPFS_MIN_AVAILABLE_BYTES` free, falling back to the original `os.tmpdir()` otherwise.
+   - Both directories are placed under `/dev/shm` when it is a `tmpfs` with at least `TMPFS_MIN_AVAILABLE_BYTES` (defined in `test/preloadEnv.ts`) free, falling back to the original `os.tmpdir()` otherwise.
    - File I/O never touches live paths (`memory/`, `logs/`, `database/`, `bot.lock`), and both trees are removed while `TMPDIR` is restored on exit.
 3. **Isolated configuration root**: Copies `config_example/static/` and `config_example/dynamic/` into `config/static/` and `config/dynamic/` under the temp root and sets `COPY_NINJIA_CONFIG_ROOT`. Placeholder secrets are replaced with safe dummy credentials, `g-auth.json` is omitted, and `cron.json` starts as an empty schedule.
 4. **Snapshot sync and empty database setup**: `test/preload.ts` adopts the test copies of `agent.json`, `ad_detect.json`, `mood.json`, `stickers.json`, `cron.json`, bot atmosphere, and built-in persona into per-isolate holders, initializes an empty SQLite database with time-zone metadata, and marks feature readiness caches available.
@@ -151,7 +154,7 @@ All tests run via `bun run test` (`bun test --isolate`), providing automatic mul
 
 `bun run test:fault-injection` verifies recovery and state invariants across crashes, abrupt shutdowns, and edge failures (the full manifest lives in `FAULT_INJECTION_TESTS` in [`scripts/conventions/faultInjectionSuite.ts`](../../scripts/conventions/faultInjectionSuite.ts), one path per line in lexical order):
 - **Lifecycle and recovery limits**: Application and Worker lifecycles (including per-stage shutdown budgets and the overall deadline), group lockdown recovery, AI reply concurrency caps and cancellation, credential snapshots, Telegram outbound and auto-delete shutdown drains, and chat teardown cleanup.
-- **Data durability and consistency**: Unacknowledged join-log mirrors and moderation receipts, Anti-Raid task draining and verification recovery, duplex Worker respawn cancellation, SQLite startup validation and shutdown close (pending write commit and WAL checkpoint), cold migrations, and Disk I/O Worker atomic-write failure recovery.
+- **Data durability and consistency**: Unacknowledged join-log mirrors and moderation receipts, Anti-Raid task draining and verification recovery, duplex Worker respawn cancellation, SQLite startup validation and shutdown close (pending write commit and WAL checkpoint), cold migrations, Mini App TOTP and config atomic persistence and service restart boundaries (`test/mini-app-api-server/persistenceAndRestartFaults.test.ts`, `test/mini-app-api-server/totpStorageConcurrency.test.ts`), and Disk I/O Worker atomic-write failure recovery.
 - **Interactive state machines**: `test/workers/antiRaid/verificationWelcome.test.ts` (duplex protocol and temporary notice auto-deletion) and `/wed` interactive workflows (managed-chat cap `STATE_MANAGED_CHAT_LIMIT`, queued cancellation, avatar fetches, and shutdown drain).
 
 ---

@@ -9,7 +9,7 @@ import type {
   MiniAppChatDetail,
   MiniAppChatTargetKind,
   MiniAppChatTargetsView,
-} from "../types/miniApp";
+} from "../types/miniApp/chats";
 import type { MiniAppTranslations } from "../types/miniAppI18n";
 import { useDelayedUnmount } from "./animations/useDelayedUnmount";
 import type { DelayedUnmountState } from "./animations/useDelayedUnmount";

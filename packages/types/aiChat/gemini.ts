@@ -49,8 +49,11 @@ export type GeminiRequestResult =
     /** HTTP 成功但模型结果不可用；可由无副作用调用方决定是否重新采样。 */
     failureKind: "response";
     finishReason?: string;
-    /** 收尾详情的诊断串（见 aiChat/gemini/response.ts 的 geminiFinishDetails）。 */
+    /** 收尾详情的诊断串（见 aiProviders/gemini/response.ts 的 geminiFinishDetails）。 */
     finishDetails?: string;
     /** 仅供异常分支做预算/重试判断；不得解析其中的文本或 functionCall。 */
     response: GenerateContentResponse;
   };
+
+/** Gemini `generateContent` 首个 candidate 异常收尾的分类原因。 */
+export type GeminiAbnormalFinishReason = "no candidates" | "missing finishReason" | "abnormal finish";

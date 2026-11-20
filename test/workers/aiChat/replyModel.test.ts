@@ -97,7 +97,7 @@ const session: AiReplySession = {
 const callToolMock = mock((name: string): string => JSON.stringify({ error: `Unknown tool: ${name}` }));
 const loggerErrorMock = mock((..._args: unknown[]): void => {});
 
-mock.module("../../../packages/aiChat/provider", () => ({
+mock.module("../../../packages/workers/aiChat/provider", () => ({
   textAiProvider: () => ({
     name: "google",
     createReplySession: (params: AiReplySessionParams): AiReplySession => {
@@ -106,10 +106,10 @@ mock.module("../../../packages/aiChat/provider", () => ({
     },
   }),
 }));
-mock.module("../../../packages/aiChat/ai/mood", () => ({ currentMoodInstruction: (): string => "当前心情测试" }));
-mock.module("../../../packages/aiChat/ai/tools", () => ({ callTool: callToolMock }));
+mock.module("../../../packages/workers/aiChat/ai/mood", () => ({ currentMoodInstruction: (): string => "当前心情测试" }));
+mock.module("../../../packages/workers/aiChat/ai/tools", () => ({ callTool: callToolMock }));
 mock.module("../../../packages/infra/logger", () => ({ logger: loggerStub({ error: loggerErrorMock }) }));
-mock.module("../../../packages/aiChat/ai/timeSentence", () => ({ currentTimeSentence: (): string => "当前实际时间：测试。" }));
+mock.module("../../../packages/workers/aiChat/ai/timeSentence", () => ({ currentTimeSentence: (): string => "当前实际时间：测试。" }));
 
 const { generateReply } = await import("../../../packages/workers/aiChat/replyModel");
 
@@ -393,7 +393,10 @@ test("供应商报服务端工具调用超限时，零动作轮关闭检索后�
 
   expect(requestMock).toHaveBeenCalledTimes(2);
   expect(requests[1]!.webSearchEnabled).toBe(false);
-  expect(loggerErrorMock).toHaveBeenCalledWith(expect.stringContaining("retrying once with web search disabled"));
+  expect(loggerErrorMock).toHaveBeenCalledWith(
+    "AI reply hit the provider server-side tool-call limit; retrying once with web search disabled.",
+    { chatId: -1001, round: 0 }
+  );
 });
 
 test("已经产生外部副作用后遇到工具调用超限不做降级重试", async () => {
@@ -422,7 +425,10 @@ test("配置了独立 web_search 时，服务端工具调用超限不会触发�
   expect(requests[0]!.webSearchEnabled).toBe(false);
   expect(requests[0]!.functions.map((definition: AiToolDefinition): string => definition.name)).toContain(WEB_SEARCH_TOOL);
   expect(searchWeb).not.toHaveBeenCalled();
-  expect(loggerErrorMock).not.toHaveBeenCalledWith(expect.stringContaining("retrying once with web search disabled"));
+  expect(loggerErrorMock).not.toHaveBeenCalledWith(
+    "AI reply hit the provider server-side tool-call limit; retrying once with web search disabled.",
+    expect.anything()
+  );
 });
 
 test("同一模型响应中的多个行动工具严格按返回顺序逐个接纳", async () => {
@@ -457,7 +463,14 @@ test("模型轮次不可用时零执行、零最终文本并记录诊断", async
     execute,
   }))).resolves.toBeNull();
   expect(execute).not.toHaveBeenCalled();
-  expect(loggerErrorMock).toHaveBeenCalledWith(expect.stringContaining("finish_reason=PROHIBITED_CONTENT, side_effects="));
+  expect(loggerErrorMock).toHaveBeenCalledWith(
+    "AI reply received an unusable response.",
+    expect.objectContaining({
+      chatId: -1001,
+      finishReason: "PROHIBITED_CONTENT",
+      sideEffects: 0,
+    })
+  );
 });
 
 test("不可用轮次的收尾详情原样写进诊断", async () => {
@@ -468,7 +481,15 @@ test("不可用轮次的收尾详情原样写进诊断", async () => {
     functions: [declaration(SEND_MESSAGE_TOOL)],
     has: (): boolean => true,
   }))).resolves.toBeNull();
-  expect(loggerErrorMock).toHaveBeenCalledWith(expect.stringContaining(`finish_reason=refusal, details=${finishDetails}, side_effects=`));
+  expect(loggerErrorMock).toHaveBeenCalledWith(
+    "AI reply received an unusable response.",
+    expect.objectContaining({
+      chatId: -1001,
+      finishReason: "refusal",
+      finishDetails,
+      sideEffects: 0,
+    })
+  );
 });
 
 test("请求在途时被禁用，响应回来后不再执行任何行动", async () => {
@@ -501,9 +522,12 @@ test("会话交不出可续接的模型轮次时，本轮就此收尾", async ()
   expect(execute).toHaveBeenCalledTimes(1);
   expect(requestMock).toHaveBeenCalledTimes(1);
   // 回复轮对 null 结果不记零动作，原因只由模型侧这一行记录。
-  expect(loggerErrorMock).toHaveBeenCalledWith(
-    "AI reply session could not continue after tool outputs for chat -1001: round=0, custom_calls=1, side_effects=0."
-  );
+  expect(loggerErrorMock).toHaveBeenCalledWith("AI reply session could not continue after tool outputs.", {
+    chatId: -1001,
+    round: 0,
+    customCalls: 1,
+    sideEffects: 0,
+  });
 });
 
 test("不存在通用单工具四次上限，无效调用只受整轮总预算约束", async () => {
@@ -604,7 +628,11 @@ test("供应商超支检索软预算时点名记录，但不关掉检索", async
     actionsUsed: (): number => 1,
   }))).resolves.toBe("收尾");
 
-  expect(loggerErrorMock).toHaveBeenCalledWith(expect.stringContaining("exceeded the soft web search budget"));
+  expect(loggerErrorMock).toHaveBeenCalledWith("AI reply exceeded the soft web search budget.", {
+    chatId: -1001,
+    webSearchCalls: MAX_WEB_SEARCH_CALLS_PER_REPLY + 3,
+    budget: MAX_WEB_SEARCH_CALLS_PER_REPLY,
+  });
   expect(requests[1]!.webSearchEnabled).toBe(true);
   expect(requests[1]!.functions).toBe(requests[0]!.functions);
 });
@@ -627,7 +655,8 @@ test("撞上工具轮上限时不再执行剩余调用，点名后收尾", async
   // 调用只拿到「预算耗尽」的工具结果，不再执行。
   expect(execute).toHaveBeenCalledTimes(MAX_CUSTOM_TOOL_CALLS_PER_REPLY);
   expect(loggerErrorMock).toHaveBeenCalledWith(
-    expect.stringContaining(`hit the tool-round limit (${MAX_TOOL_ROUNDS})`)
+    "AI reply hit the tool-round limit; ending the round.",
+    expect.objectContaining({ chatId: -1001, maxToolRounds: MAX_TOOL_ROUNDS })
   );
 });
 
@@ -645,7 +674,10 @@ test("最后一轮才遇到工具调用超限时，降级重试没有剩余轮�
 
   expect(requestMock).toHaveBeenCalledTimes(MAX_TOOL_ROUNDS + 1);
   expect(requests[MAX_TOOL_ROUNDS]!.webSearchEnabled).toBe(true);
-  expect(loggerErrorMock).toHaveBeenCalledWith(expect.stringContaining("retrying once with web search disabled"));
+  expect(loggerErrorMock).toHaveBeenCalledWith(
+    "AI reply hit the provider server-side tool-call limit; retrying once with web search disabled.",
+    { chatId: -1001, round: MAX_TOOL_ROUNDS }
+  );
 });
 
 test("所有群共用 init 接管的本进程人设，系统前缀逐群逐字相同", async () => {

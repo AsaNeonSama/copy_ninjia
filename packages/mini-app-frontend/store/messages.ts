@@ -4,8 +4,8 @@ import { fetchMiniAppChatMessages } from "../api/chatMessages";
 import { MINI_APP_MESSAGES_DEFAULT_PAGE_SIZE } from "../consts/miniApp";
 import { errorMessage } from "../libs/errorMessage";
 import { waitMinimumLoadingDuration } from "../libs/loading";
-import type { MiniAppMessagePage } from "../types/miniApp";
-import { useMiniAppStore } from "./app";
+import type { MiniAppMessagePage } from "../types/miniApp/chats";
+import { notifyMiniAppIfAuthError, useMiniAppStore } from "./app";
 
 /** `MessagesView` 热发言记录分页的状态与动作接口。 */
 export interface MiniAppMessagesStoreState {
@@ -83,6 +83,7 @@ export function createMessagesStore(): MiniAppMessagesStore {
           } catch (error: unknown) {
             await waitMinimumLoadingDuration(startedAt);
             if (reqId !== requestSeq) {
+              notifyMiniAppIfAuthError(error);
               return;
             }
             const message: string = errorMessage(error);

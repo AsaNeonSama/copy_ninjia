@@ -11,7 +11,7 @@ import type {
   PendingBlockedRemoval,
 } from "../../types/blocklist";
 /**
- * 白名单变更与黑名单新增共用的主线程串行尾链（packages/infra/identityPolicy/coordination.ts）。
+ * 白名单变更与黑名单新增共用的主线程串行尾链（packages/infra/identityPolicy/coordination.ts 经 libs/serialChain.ts 的 runSerialChain 读写）。
  * 每次调用写入新尾节点，结算后释放旧节点（异常由尾链吸收）；holder 仅保留当前尾节点，容量恒为一个 Promise，进程重启后从已决议 Promise 重建。
  */
 export const protectedIdentityMutationQueue: { current: Promise<void> } = {
@@ -41,6 +41,17 @@ export const blocklistIdentityMutationRunner: KeyedSerialTaskRunner<number> =
 export const blocklistParticipantInvalidQueue: { current: Promise<void> } = {
   current: Promise.resolve(),
 };
+
+/**
+ * 到达连续 `PARTICIPANT_ID_INVALID` 上限并排队等待自动解除的 userId -> 当前待执行解锁尝试令牌。
+ *
+ * 填充：`infra/blocklist/participantInvalid.ts` 在判定达到 `BLOCKLIST_PARTICIPANT_INVALID_LIMIT` 时写入。
+ * 清理：同身份收到后续 `settledUserIds` 清零或低于上限的新增量时立即移除；或由 `unblockDeletedAccount`
+ * 在 `finally` 中仅当令牌仍匹配时删除。
+ * 重建：仅存在于主线程内存；Worker 重建不影响，进程重启后从空表开始。
+ * 容量与淘汰：受同时在 `blocklistIdentityMutationQueues` 排队的自动解除任务数天然约束，不设淘汰。
+ */
+export const pendingParticipantInvalidUnblocks: Map<number, symbol> = new Map();
 
 /**
  * 已登记、尚未收到完成回执的黑名单待踢批次（removalId -> PendingBlockedRemoval）。

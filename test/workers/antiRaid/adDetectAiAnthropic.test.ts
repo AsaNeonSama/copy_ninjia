@@ -17,8 +17,8 @@ import { ANTHROPIC_SDK_LOG_LEVEL } from "../../../packages/consts/aiChat/anthrop
 
 const create = mock(async (..._args: unknown[]): Promise<unknown> => response("end_turn"));
 const constructions: unknown[] = [];
-const errors: string[] = [];
-const warnings: string[] = [];
+const errors: unknown[][] = [];
+const warnings: unknown[][] = [];
 const reported: AiCacheUsage[] = [];
 const fallbackMiddleware = mock((fallbacks: unknown, options: unknown): unknown => ({ fallbacks, options }));
 let provider: string = "anthropic";
@@ -35,8 +35,8 @@ function response(stopReason: string, text: string = '{"ad":false,"reason":"闲�
 
 mock.module("../../../packages/infra/logger", () => ({
   logger: loggerStub({
-    error(message: unknown): void { errors.push(String(message)); },
-    warn(message: unknown): void { warnings.push(String(message)); },
+    error(...args: unknown[]): void { errors.push(args); },
+    warn(...args: unknown[]): void { warnings.push(args); },
   }),
 }));
 mock.module("../../../packages/config/agent", () => ({
@@ -55,6 +55,7 @@ mock.module("@anthropic-ai/sdk", () => ({
 }));
 
 const { requestAnthropicAdDetectJson } = await import("../../../packages/workers/antiRaid/adDetect/ai/anthropic");
+const { adDetectStopping } = await import("../../../packages/cache/workers/antiRaid/adDetect");
 const { adDetectAnthropicClientHolder } = await import("../../../packages/cache/workers/antiRaid/anthropic");
 const { installAiCacheUsageSink } = await import("../../../packages/infra/aiCacheUsage");
 const REQUEST: AdDetectJsonRequestParams = {
@@ -63,6 +64,7 @@ const REQUEST: AdDetectJsonRequestParams = {
 };
 
 beforeEach(() => {
+  adDetectStopping.current = false;
   provider = "anthropic";
   fallbackModel = undefined;
   adDetectAnthropicClientHolder.current = null;
@@ -76,6 +78,7 @@ beforeEach(() => {
   installAiCacheUsageSink((usage: AiCacheUsage): void => { reported.push(usage); });
 });
 afterEach(() => {
+  adDetectStopping.current = false;
   adDetectAnthropicClientHolder.current = null;
   installAiCacheUsageSink(null);
 });
@@ -119,7 +122,16 @@ test("回退模型接手时用量记配置的回退模型并记一条改道日�
   });
   expect(await requestAnthropicAdDetectJson(REQUEST)).toBe('{"ad":true,"reason":"引流"}');
   expect(reported[0]).toMatchObject({ capability: "ad_detect", model: "claude-fallback" });
-  expect(warnings).toEqual([`Test ad detection fell back after a refusal: from=claude-test, to=claude-fallback, trigger=${JSON.stringify(trigger)}, fallback_credit=null.`]);
+  expect(warnings).toEqual([[
+    "Anthropic request fell back after a refusal.",
+    {
+      errorLabel: REQUEST.errorLabel,
+      from: "claude-test",
+      to: "claude-fallback",
+      trigger: JSON.stringify(trigger),
+      fallbackCredit: null,
+    },
+  ]]);
 });
 
 test("回退模型也拒答：记改道 warn，日志里的 stop_details 不含回退额度令牌", async () => {
@@ -130,11 +142,23 @@ test("回退模型也拒答：记改道 warn，日志里的 stop_details 不含�
     return { ...(response("refusal", "") as object), model: "claude-fallback", stop_details: { ...stopDetails, fallback_credit_token: "credit-token" } };
   });
   expect(await requestAnthropicAdDetectJson(REQUEST)).toBeNull();
-  expect(warnings).toEqual([
-    "Test ad detection fell back after a refusal: from=claude-test, to=claude-fallback; the fallback model returned stop_reason=refusal.",
-  ]);
-  expect(errors.join("\n")).toContain(`details=${JSON.stringify(stopDetails)}`);
-  expect(errors.join("\n")).not.toContain("credit-token");
+  expect(warnings).toEqual([[
+    "Anthropic request fell back after a refusal.",
+    { errorLabel: REQUEST.errorLabel, from: "claude-test", to: "claude-fallback", stopReason: "refusal" },
+  ]]);
+  expect(errors).toEqual([[
+    "Ad detection request produced no usable body.",
+    {
+      errorLabel: REQUEST.errorLabel,
+      attempts: 1,
+      model: "claude-fallback",
+      stopReason: "refusal",
+      stopDetails: JSON.stringify(stopDetails),
+      hasPartialText: false,
+      maxTokens: REQUEST.maxOutputTokens,
+    },
+  ]]);
+  expect(JSON.stringify(errors)).not.toContain("credit-token");
 });
 
 test("拒答立即放弃不重采样，日志带模型与 stop_details 整个对象", async () => {
@@ -143,10 +167,18 @@ test("拒答立即放弃不重采样，日志带模型与 stop_details 整个对
   expect(await requestAnthropicAdDetectJson(REQUEST)).toBeNull();
   expect(create).toHaveBeenCalledTimes(1);
   expect(reported).toHaveLength(1);
-  expect(errors).toEqual([
-    `Test ad detection produced no usable body in 1 attempt(s) (model=claude-test, stop_reason=refusal, ` +
-    `details=${JSON.stringify(stopDetails)}, hasPartialText=false, max_tokens=${REQUEST.maxOutputTokens}).`,
-  ]);
+  expect(errors).toEqual([[
+    "Ad detection request produced no usable body.",
+    {
+      errorLabel: REQUEST.errorLabel,
+      attempts: 1,
+      model: "claude-test",
+      stopReason: "refusal",
+      stopDetails: JSON.stringify(stopDetails),
+      hasPartialText: false,
+      maxTokens: REQUEST.maxOutputTokens,
+    },
+  ]]);
 });
 
 test.each(["max_tokens", "model_context_window_exceeded", "end_turn"])("%s 不可用或空正文有界重采样，每次响应都记用量", async (stopReason: string) => {
@@ -157,11 +189,21 @@ test.each(["max_tokens", "model_context_window_exceeded", "end_turn"])("%s 不�
   expect(errors).toHaveLength(1);
 });
 
-test("耗尽后的日志带最后一次的模型与收尾原因；没有详情时省略 details", async () => {
+test("耗尽后的日志带最后一次的模型与收尾原因；没有详情时 stopDetails 为 null", async () => {
   create.mockImplementation(async (): Promise<unknown> => response("max_tokens", "{"));
   expect(await requestAnthropicAdDetectJson(REQUEST)).toBeNull();
-  expect(errors).toHaveLength(1);
-  expect(errors[0]).toContain(`in ${AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS} attempt(s) (model=claude-test, stop_reason=max_tokens, hasPartialText=true,`);
+  expect(errors).toEqual([[
+    "Ad detection request produced no usable body.",
+    {
+      errorLabel: REQUEST.errorLabel,
+      attempts: AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS,
+      model: "claude-test",
+      stopReason: "max_tokens",
+      stopDetails: null,
+      hasPartialText: true,
+      maxTokens: REQUEST.maxOutputTokens,
+    },
+  ]]);
 });
 
 test("首次正文为空，后续可用时返回完整正文", async () => {
@@ -182,4 +224,14 @@ test("未配置 Anthropic 的能力拒绝构造客户端", async () => {
   expect(await requestAnthropicAdDetectJson(REQUEST)).toBeNull();
   expect(create).not.toHaveBeenCalled();
   expect(constructions).toEqual([]);
+});
+
+test("首轮空正文后进入停机状态时不再发起第 2 轮重采样", async () => {
+  create.mockImplementationOnce(async (): Promise<unknown> => {
+    adDetectStopping.current = true;
+    return response("end_turn", "");
+  });
+  expect(await requestAnthropicAdDetectJson(REQUEST)).toBeNull();
+  expect(create).toHaveBeenCalledTimes(1);
+  expect(errors).toEqual([]);
 });

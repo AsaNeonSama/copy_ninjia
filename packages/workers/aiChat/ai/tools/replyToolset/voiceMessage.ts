@@ -1,0 +1,360 @@
+/**
+ * `send_voice` 工具声明与执行器：
+ * - 准入：同步校验本轮状态、单轮限额、语音能力与参数，并预留每日 `ai` 配额（reserveAiTtsUsage），
+ *   返回接纳回执。
+ * - 生产：后台并发调用语音合成与编码（synthesizeVoiceMessage），在 TTS 调用完成时通过
+ *   settleAiTtsReservation 结清预留，同时启动 VOICE_FOREGROUND_WAIT_MS 前台等待窗口。
+ * - 投递：串行链步骤在窗口内等待合成，超时未完成则经 chains.defer 转入后台并在完成后排入链尾；
+ *   发送前按语音时长模拟录音停顿，发送成功后登记语音自录记号。
+ */
+
+import type { AiMeteredSpeechRequest, AiToolDefinition } from "../../../../../types/aiChat/provider";
+import { voiceSentTagTemplate } from "../../../../../consts/aiChat/prompts/transcript";
+import {
+  MAX_VOICES_PER_REPLY,
+  VOICE_FOREGROUND_WAIT_MS,
+  VOICE_TEXT_MAX_CHARS,
+  VOICE_TONE_MAX_CHARS,
+} from "../../../../../consts/aiChat/voiceMessage";
+import {
+  REPLY_INVALIDATED_TOOL_ERROR,
+  SEND_VOICE_DAILY_LIMIT_TOOL_ERROR,
+  SEND_VOICE_TOOL,
+} from "../../../../../consts/tools";
+import { agentTtsConfig } from "../../../../../config/agent";
+import { voiceToolPromptCache } from "../../../../../cache/perThread/config";
+import { logger } from "../../../../../infra/logger";
+import { sendVoiceWithResult } from "../../../../../infra/telegram";
+import { sanitizeInline } from "../../../../../libs/text";
+import { ttsAiProvider } from "../../../provider";
+import { aiTtsRemaining, reserveAiTtsUsage, settleAiTtsReservation } from "../../ttsUsage";
+import { ttsQuotaLimit } from "../../utils/ttsUsageWindow";
+import { resolveSpeechSynthesizer, synthesizeVoiceMessage } from "../../voiceSynthesis";
+import { parseToolArguments } from "../../utils/toolArgs";
+import { toolError } from "../../utils/toolResult";
+import { pauseThenSettle } from "./pacing";
+import type { ChatActionControl } from "../../../../../types/aiChat/chatAction";
+import type {
+  ReplyActionChains,
+  ReplyActionPause,
+  ReplyActionRun,
+  ReplyToolContext,
+  ReplyToolExecution,
+} from "../../../../../types/aiChat/replies";
+import type {
+  EncodedVoiceMessage,
+  SpeechSynthesisAttempt,
+  SpeechSynthesizer,
+  SpeechSynthesizerLookup,
+  VoiceLanguagePrompts,
+  VoiceSynthesisResult,
+} from "../../../../../types/aiChat/voiceMessage";
+import type { TelegramSendResult } from "../../../../../types/telegram";
+import type { AgentTtsCapabilityConfig } from "../../../../../types/config";
+
+/**
+ * 本轮是否挂载 send_voice：`agent.tts` 已配置且所选实现具备语音合成。
+ * @returns 当前可挂载 send_voice 工具时返回 true，否则返回 false。
+ */
+export function isSendVoiceAvailable(): boolean {
+  return ttsAiProvider()?.synthesizeSpeech !== undefined;
+}
+
+/**
+ * 构造 send_voice 工具声明；说明优先取本线程 `prompt/voice_tool.md` 缓存，未放置时取 prompts.sendVoiceInstruction。
+ * @param prompts 当前台词语言对应的语音工具说明与字段描述。
+ * @returns send_voice 工具定义对象。
+ */
+export function buildSendVoiceToolDefinition(prompts: Readonly<VoiceLanguagePrompts>): AiToolDefinition {
+  return {
+    name: SEND_VOICE_TOOL,
+    description: voiceToolPromptCache.current ?? prompts.sendVoiceInstruction,
+    parametersJsonSchema: {
+      type: "object",
+      properties: {
+        text: {
+          type: "string",
+          maxLength: VOICE_TEXT_MAX_CHARS,
+          description: prompts.voiceTextDescription,
+        },
+        tone: {
+          type: "string",
+          maxLength: VOICE_TONE_MAX_CHARS,
+          description: prompts.voiceToneDescription,
+        },
+        reply_to_trigger: {
+          type: "boolean",
+          description: "是否以「回复」形式挂在触发你这次回复的那条消息上；省略视为 false。",
+        },
+      },
+      required: ["text"],
+    },
+  };
+}
+
+/** 解析后的语音入参；tone 缺省、为 null 或清洗后为空时是 undefined。 */
+interface ParsedVoiceArguments {
+  text: string;
+  tone: string | undefined;
+  replyToTrigger: boolean;
+}
+
+/**
+ * 解析并校验 send_voice 工具参数。
+ * @param argumentsJson 模型传入的工具参数 JSON 字符串。
+ * @returns 清洗后的语音文本、可选语气与是否回复触发消息；参数不合法时返回 null。
+ */
+function parseArguments(argumentsJson: string): ParsedVoiceArguments | null {
+  const parsed: Record<string, unknown> | null = parseToolArguments(argumentsJson);
+  if (parsed === null || typeof parsed.text !== "string") return null;
+  const text: string = sanitizeInline(parsed.text).trim();
+  if (!text || text.length > VOICE_TEXT_MAX_CHARS) return null;
+  const rawTone: unknown = parsed.tone;
+  if (rawTone !== undefined && rawTone !== null && typeof rawTone !== "string") return null;
+  const tone: string = typeof rawTone === "string" ? sanitizeInline(rawTone).trim() : "";
+  if (tone.length > VOICE_TONE_MAX_CHARS) return null;
+  const replyToTrigger: unknown = parsed.reply_to_trigger;
+  if (replyToTrigger !== undefined && replyToTrigger !== null && typeof replyToTrigger !== "boolean") return null;
+  return { text, tone: tone || undefined, replyToTrigger: replyToTrigger === true };
+}
+
+/** 串行链与后台投递共同读写的一次语音生产状态。 */
+interface VoiceProduction {
+  /** 合成与编码；不 reject：意外异常记日志并按合成失败结算。 */
+  readonly result: Promise<VoiceSynthesisResult>;
+  /** 前台窗口：合成结果，或窗口到点仍未结束时的 null。 */
+  readonly foreground: Promise<VoiceSynthesisResult | null>;
+  /** 合成已结束时的结果；未结束为 null。 */
+  settled: VoiceSynthesisResult | null;
+  /** 前台窗口已到点且合成当时仍未结束。 */
+  windowClosed: boolean;
+}
+
+/**
+ * 包装 TTS 调用，在调用结束时按成功与否结清一次准入预留。
+ * @param synthesize 底层语音合成函数。
+ * @returns 自动结清 AI TTS 预留的包装合成函数。
+ */
+function settlingReservation(synthesize: SpeechSynthesizer): SpeechSynthesizer {
+  return async (request: AiMeteredSpeechRequest): Promise<SpeechSynthesisAttempt> => {
+    let attempt: SpeechSynthesisAttempt;
+    try {
+      attempt = await synthesize(request);
+    } catch (error: unknown) {
+      settleAiTtsReservation(false);
+      throw error;
+    }
+    settleAiTtsReservation(attempt.ok);
+    return attempt;
+  };
+}
+
+/** startVoiceProduction 的入参：把同步启动的后台合成纳入本轮 action chains settle 边界。 */
+interface StartVoiceProductionParams {
+  /** 当前回复轮次的工具共享上下文。 */
+  readonly ctx: ReplyToolContext;
+  /** 本轮串行动作链与结算追踪句柄。 */
+  readonly chains: ReplyActionChains;
+  /** 底层语音合成函数。 */
+  readonly synthesize: SpeechSynthesizer;
+  /** 计量后的语音合成请求参数。 */
+  readonly request: AiMeteredSpeechRequest;
+}
+
+/**
+ * 启动后台语音合成与前台等待窗口计时器，并同步登记 `production.result` 到本轮 `chains.track`，
+ * 确保即使 `voiceStep` 未执行也不会在合成结算与额度退回前结束本轮 `settle`。
+ * @param params 上下文、动作链、底层语音合成函数与计量请求参数。
+ * @returns 跟踪合成结果与前台等待窗口的语音生产状态。
+ */
+function startVoiceProduction({
+  ctx,
+  chains,
+  synthesize,
+  request,
+}: StartVoiceProductionParams): VoiceProduction {
+  const result: Promise<VoiceSynthesisResult> = synthesizeVoiceMessage(
+    settlingReservation(synthesize),
+    request,
+    { chatId: ctx.chatId }
+  );
+  chains.track(result);
+  const { promise: foreground, resolve }: PromiseWithResolvers<VoiceSynthesisResult | null> =
+    Promise.withResolvers<VoiceSynthesisResult | null>();
+  const production: VoiceProduction = { result, foreground, settled: null, windowClosed: false };
+  const timer: ReturnType<typeof setTimeout> = setTimeout((): void => {
+    production.windowClosed = true;
+    resolve(null);
+  }, VOICE_FOREGROUND_WAIT_MS);
+  timer.unref();
+  void result.then((settled: VoiceSynthesisResult): void => {
+    clearTimeout(timer);
+    production.settled = settled;
+    resolve(settled);
+  });
+  return production;
+}
+
+/** 一次已接纳语音的生产状态与投递所需上下文。 */
+interface AcceptedVoice {
+  readonly ctx: ReplyToolContext;
+  readonly chains: ReplyActionChains;
+  readonly parsed: ParsedVoiceArguments;
+  readonly production: VoiceProduction;
+}
+
+/**
+ * 按语音时长模拟录音停顿并发送已编码语音消息。
+ * @param accepted 已接纳语音的上下文与解析参数。
+ * @param voice 编码完成的语音消息载荷。
+ * @returns 串行动作链步骤执行函数。
+ */
+function voiceDelivery(accepted: AcceptedVoice, voice: EncodedVoiceMessage): ReplyActionRun {
+  const { ctx, parsed }: AcceptedVoice = accepted;
+  return async (chatAction: ChatActionControl, pause: ReplyActionPause): Promise<string> => {
+    if (!ctx.isActive()) return toolError(REPLY_INVALIDATED_TOOL_ERROR);
+    const blocked: string | null = await pauseThenSettle({
+      isActive: ctx.isActive,
+      chatAction,
+      pause,
+      phase: "record_voice",
+      delayMs: voice.durationSeconds * 1_000,
+    });
+    if (blocked !== null) return blocked;
+    const sent: TelegramSendResult | undefined = await sendVoiceWithResult({
+      chatId: ctx.chatId,
+      bytes: voice.bytes,
+      fileName: voice.fileName,
+      replyToMessageId: parsed.replyToTrigger ? ctx.replyToMessageId : undefined,
+      signal: ctx.signal,
+      duration: voice.durationSeconds,
+      messageThreadId: ctx.messageThreadId,
+    });
+    if (sent === undefined) return toolError("Failed to send voice message", { retryable: false });
+    ctx.onVoiceSent(voiceSentTagTemplate(parsed.text), sent.messageId, sent.repliedToMessageId);
+    return JSON.stringify({ success: true, message_id: sent.messageId, actions_used: 1, voice_remaining_today: aiTtsRemaining() });
+  };
+}
+
+/**
+ * 接纳回执：带预留后的今日余量并预占一个动作。
+ * @returns 序列化后的语音接纳回执 JSON 字符串。
+ */
+function acceptanceReceipt(): string {
+  return JSON.stringify({
+    success: true,
+    queued: true,
+    actions_used: 1,
+    voice_remaining_today: aiTtsRemaining(),
+  });
+}
+
+/**
+ * 合成失败且本轮仍有效时记录错误日志。
+ * @param ctx 当前回复轮次的工具共享上下文。
+ * @param reason 语音未发出的失败原因。
+ */
+function reportVoiceNotSent(ctx: ReplyToolContext, reason: string): void {
+  if (ctx.isActive()) logger.error("AI reply voice was not sent.", { chatId: ctx.chatId, reason });
+}
+
+/**
+ * 前台窗口超时后转入后台等待，合成成功且本轮仍有效时排入链尾补发。
+ * @param accepted 已接纳语音的上下文与生产状态。
+ */
+function deferVoiceDelivery(accepted: AcceptedVoice): void {
+  const { ctx, chains, production }: AcceptedVoice = accepted;
+  chains.defer(SEND_VOICE_TOOL, production.result.then((late: VoiceSynthesisResult): ReplyActionRun | null => {
+    if (!late.ok) {
+      reportVoiceNotSent(ctx, late.reason);
+      return null;
+    }
+    return ctx.isActive() ? voiceDelivery(accepted, late.voice) : null;
+  }));
+}
+
+/**
+ * 串行链投递步骤：等待前台窗口结果，超时则转后台，成功则投递语音。
+ * @param accepted 已接纳语音的上下文与生产状态。
+ * @returns 串行动作链步骤执行函数。
+ */
+function voiceStep(accepted: AcceptedVoice): ReplyActionRun {
+  const { ctx, production }: AcceptedVoice = accepted;
+  return async (chatAction: ChatActionControl, pause: ReplyActionPause): Promise<string> => {
+    if (!ctx.isActive()) return toolError(REPLY_INVALIDATED_TOOL_ERROR);
+    const waiting: boolean = production.settled === null && !production.windowClosed;
+    if (waiting) chatAction.set("record_voice");
+    const outcome: VoiceSynthesisResult | null = waiting ? await production.foreground : production.settled;
+    if (outcome === null) {
+      if (waiting) chatAction.set("idle");
+      deferVoiceDelivery(accepted);
+      return JSON.stringify({ synthesis: "background" });
+    }
+    if (!outcome.ok) {
+      reportVoiceNotSent(ctx, outcome.reason);
+      return JSON.stringify({ synthesis: "failed" });
+    }
+    return voiceDelivery(accepted, outcome.voice)(chatAction, pause);
+  };
+}
+
+/**
+ * 创建 send_voice 执行器：同步完成准入与配额预留，启动后台合成并返回串行投递步骤。
+ * @param ctx 当前回复轮次的工具共享上下文。
+ * @param chains 本轮串行动作链控制器。
+ * @param languageStyle 当前台词语言对应的朗读风格要求。
+ * @returns 接收参数 JSON 并返回发语音工具执行计划的执行器函数。
+ */
+export function createSendVoiceExecutor(
+  ctx: ReplyToolContext,
+  chains: ReplyActionChains,
+  languageStyle: string
+): (argumentsJson: string) => ReplyToolExecution {
+  let acceptedVoices: number = 0;
+  return (argumentsJson: string): ReplyToolExecution => {
+    if (!ctx.isActive()) return toolError(REPLY_INVALIDATED_TOOL_ERROR);
+    if (acceptedVoices >= MAX_VOICES_PER_REPLY) {
+      return toolError(
+        `Voice limit reached: at most ${MAX_VOICES_PER_REPLY} voice message per reply`,
+        { retryable: false }
+      );
+    }
+    const synthesizer: SpeechSynthesizerLookup = resolveSpeechSynthesizer();
+    if (!synthesizer.ok) {
+      return toolError(
+        `Voice is unavailable: the ${synthesizer.providerName ?? "unconfigured"} provider does not support speech synthesis`,
+        { retryable: false }
+      );
+    }
+    const parsed: ParsedVoiceArguments | null = parseArguments(argumentsJson);
+    if (!parsed) {
+      return toolError(
+        `Invalid voice arguments: text must be a non-empty string of at most ${VOICE_TEXT_MAX_CHARS} characters, ` +
+        `tone must be a string of at most ${VOICE_TONE_MAX_CHARS} characters, and reply_to_trigger must be a boolean`
+      );
+    }
+    const tts: AgentTtsCapabilityConfig | undefined = agentTtsConfig();
+    if (tts === undefined || !reserveAiTtsUsage(ttsQuotaLimit(tts, "ai"))) {
+      return toolError(SEND_VOICE_DAILY_LIMIT_TOOL_ERROR, { retryable: false });
+    }
+    acceptedVoices++;
+    const accepted: AcceptedVoice = {
+      ctx,
+      chains,
+      parsed,
+      production: startVoiceProduction({
+        ctx,
+        chains,
+        synthesize: synthesizer.synthesize,
+        request: {
+          text: parsed.text,
+          languageStyle,
+          tone: parsed.tone,
+          quota: "ai",
+          signal: ctx.signal,
+        },
+      }),
+    };
+    return { result: acceptanceReceipt(), run: voiceStep(accepted) };
+  };
+}

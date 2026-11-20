@@ -286,7 +286,10 @@ export function createUpdatePreamble({
     if (!shouldPassPrivateCommandGate(ctx)) return undefined;
     const message: Message | undefined = ctx.message;
     if (message?.migrate_to_chat_id !== undefined) {
-      logger.info(`Chat ${message.chat.id} was upgraded to supergroup ${message.migrate_to_chat_id}; tearing down the old chat.`);
+      logger.info("Chat upgraded to supergroup; tearing down the old chat.", {
+        chatId: message.chat.id,
+        supergroupChatId: message.migrate_to_chat_id,
+      });
       return completeChatDeparture(message.chat.id, "gone");
     }
     observeWedMembers(ctx, chat, chatState);

@@ -199,11 +199,14 @@ export function releaseAdDetectDedupKey(chatId: number, senderId: number): void 
 export function noteAdDetectSaturation(saturated: boolean): void {
   if (saturated === adDetectSaturated.current) return;
   adDetectSaturated.current = saturated;
-  logger.error(saturated
-    ? `Ad detection reached its ${AD_DETECT_MAX_IN_FLIGHT} in-flight ceiling; ` +
-      `${adDetectQueue.size} accepted key(s) remain queued.`
-    : "Ad detection dropped back below its in-flight ceiling."
-  );
+  if (saturated) {
+    logger.error(
+      "Ad detection reached its in-flight ceiling.",
+      { inFlightLimit: AD_DETECT_MAX_IN_FLIGHT, queuedKeys: adDetectQueue.size }
+    );
+  } else {
+    logger.error("Ad detection dropped back below its in-flight ceiling.");
+  }
 }
 
 /**
@@ -214,11 +217,14 @@ export function noteAdDetectSaturation(saturated: boolean): void {
 function noteAdDetectCapacitySaturation(saturated: boolean): void {
   if (saturated === adDetectCapacitySaturated.current) return;
   adDetectCapacitySaturated.current = saturated;
-  logger.error(saturated
-    ? `Ad detection reached its ${AD_DETECT_MAX_PENDING_SENDERS} pending-key ceiling; ` +
-      "new distinct senders will be rejected until capacity recovers."
-    : "Ad detection pending-key capacity recovered below its ceiling."
-  );
+  if (saturated) {
+    logger.error(
+      "Ad detection reached its pending-key ceiling; new distinct senders will be rejected until capacity recovers.",
+      { pendingKeyLimit: AD_DETECT_MAX_PENDING_SENDERS }
+    );
+  } else {
+    logger.error("Ad detection pending-key capacity recovered below its ceiling.");
+  }
 }
 
 /** 根据当前 `pendingAdBundleCount` 刷新容量饱和状态。 */

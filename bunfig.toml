@@ -5,6 +5,7 @@ bun = true
 [test]
 preload = ["./test/preload.ts"]
 coverageSkipTestFiles = true
+coveragePathIgnorePatterns = ["test/**"]
 coverageThreshold = { line = 0.95, function = 0.95 }
 
 [install]

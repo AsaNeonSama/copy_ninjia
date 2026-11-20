@@ -1,12 +1,11 @@
 import {
   RUNNER_CANCELLATION_SETTLEMENT_TIMEOUT_MS,
-  RUNNER_DRAIN_POLL_INTERVAL_MS,
   RUNNER_DRAIN_TIMEOUT_MS,
 } from "../../consts/lifecycle";
 import { settleWithinBudget } from "../../libs/inflight";
 import {
   createMonotonicDeadline,
-  isMonotonicDeadlineExpired,
+  remainingMonotonicTime,
 } from "../../libs/monotonicDeadline";
 import type { AcknowledgedUpdateRunner } from "../../types/lifecycle";
 import type { ApplicationLifecycleDependencies } from "../lifecycleDependencies";
@@ -26,7 +25,7 @@ export function quiesceLifecycleMaintenance(
       run();
     } catch (error: unknown) {
       succeeded = false;
-      dependencies.logger.error(`Shutdown owner ${owner} quiesce threw during shutdown:`, error);
+      dependencies.logger.error("Shutdown owner quiesce threw during shutdown:", { owner }, error);
     }
   };
   quiesceOwner("avatar", (): void => dependencies.quiesceAvatarUpdates());
@@ -43,6 +42,31 @@ export function quiesceLifecycleMaintenance(
 }
 
 /**
+ * 在给定单调预算内按事件驱动方式等待 runner 的在途 update 结算。
+ * @param runner 已确认更新批处理 runner。
+ * @param timeoutMs 等待预算毫秒数。
+ * @param monotonicNow 单调时钟读取函数。
+ * @returns 预算内 `runner.size()` 归零返回 `true`，预算耗尽或无在途结算句柄返回 `false`。
+ */
+async function waitForRunnerIdle(
+  runner: AcknowledgedUpdateRunner,
+  timeoutMs: number,
+  monotonicNow: ApplicationLifecycleDependencies["monotonicNow"]
+): Promise<boolean> {
+  const deadline: number = createMonotonicDeadline(timeoutMs, monotonicNow);
+  while (runner.size() > 0) {
+    const remainingMs: number = remainingMonotonicTime(deadline, monotonicNow);
+    if (remainingMs <= 0) return false;
+    const task: Promise<void> | null = runner.activeTask();
+    if (task === null) return false;
+    if (!await settleWithinBudget([task], remainingMs)) return false;
+    // 防御已结算句柄未归零 size() 时的空转。
+    if (runner.size() > 0 && runner.activeTask() === task) return false;
+  }
+  return true;
+}
+
+/**
  * 在 RUNNER_DRAIN_TIMEOUT_MS 内等待 runner 排空；超时后取消在途 update，并区分取消是否真正结算。
  * @param runner 已确认更新批处理 runner。
  * @param dependencies 应用生命周期依赖集合。
@@ -52,42 +76,23 @@ export async function drainAcknowledgedUpdateRunner(
   runner: AcknowledgedUpdateRunner,
   dependencies: ApplicationLifecycleDependencies
 ): Promise<"drained" | "aborted" | "unsettled"> {
-  const deadline: number = createMonotonicDeadline(
-    RUNNER_DRAIN_TIMEOUT_MS,
-    dependencies.monotonicNow
-  );
-  while (
-    runner.size() > 0 &&
-    !isMonotonicDeadlineExpired(deadline, dependencies.monotonicNow)
-  ) {
-    await dependencies.sleep(RUNNER_DRAIN_POLL_INTERVAL_MS);
+  if (await waitForRunnerIdle(runner, RUNNER_DRAIN_TIMEOUT_MS, dependencies.monotonicNow)) {
+    return "drained";
   }
-  if (runner.size() === 0) return "drained";
 
   const activeAtDeadline: number = runner.size();
   dependencies.logger.error(
-    `Shutdown drain still had ${activeAtDeadline} active update(s) after ${RUNNER_DRAIN_TIMEOUT_MS}ms; ` +
-    "aborting them and withholding their Telegram offset."
+    "Shutdown drain timed out with active updates; aborting them and withholding their Telegram offset.",
+    { activeUpdates: activeAtDeadline, timeoutMs: RUNNER_DRAIN_TIMEOUT_MS }
   );
   runner.abortActive();
-  const cancellationDeadline: number = createMonotonicDeadline(
-    RUNNER_CANCELLATION_SETTLEMENT_TIMEOUT_MS,
-    dependencies.monotonicNow
-  );
-  while (
-    runner.size() > 0 &&
-    !isMonotonicDeadlineExpired(
-      cancellationDeadline,
-      dependencies.monotonicNow
-    )
-  ) {
-    await dependencies.sleep(RUNNER_DRAIN_POLL_INTERVAL_MS);
+  if (await waitForRunnerIdle(runner, RUNNER_CANCELLATION_SETTLEMENT_TIMEOUT_MS, dependencies.monotonicNow)) {
+    return "aborted";
   }
-  if (runner.size() === 0) return "aborted";
 
   dependencies.logger.error(
-    `${runner.size()} update(s) ignored shutdown cancellation for ` +
-    `${RUNNER_CANCELLATION_SETTLEMENT_TIMEOUT_MS}ms; forcing a failed process exit after best-effort flush.`
+    "Active updates ignored shutdown cancellation; forcing a failed process exit after best-effort flush.",
+    { activeUpdates: runner.size(), timeoutMs: RUNNER_CANCELLATION_SETTLEMENT_TIMEOUT_MS }
   );
   return "unsettled";
 }
@@ -114,7 +119,10 @@ export async function waitForLifecycleBackgroundMaintenance(
   const settled: boolean = await settleWithinBudget([task], timeoutMs);
   if (!settled) {
     dependencies.abortChatTitleRefresh();
-    dependencies.logger.error(`Chat title refresh did not settle within ${timeoutMs}ms and was aborted.`);
+    dependencies.logger.error(
+      "Chat title refresh did not settle within budget and was aborted.",
+      { timeoutMs }
+    );
   }
   return settled;
 }

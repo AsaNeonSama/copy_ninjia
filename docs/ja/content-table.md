@@ -76,7 +76,7 @@
   </tr>
   <tr>
     <td><nobr>🖥️ <b>Mini App コンソール</b></nobr></td>
-    <td><code>mini_app</code> の設定、Cloudflare Tunnel による推奨公開構成、二段階認証と TOTP バインド</td>
+    <td><code>mini_app</code> 設定、Cloudflare Tunnel 公開構成、二段階認証・AES-256-GCM 暗号化、TOTP バインドとオンライン JSON 設定編集</td>
     <td align="center"><nobr><a href="10-mini-app.md">📖 10 Mini App の設定方法と推奨構成</a></nobr></td>
   </tr>
   <tr>
@@ -150,7 +150,7 @@
 10. **[10 Mini App の設定方法と推奨構成](10-mini-app.md)**
     - `config/static/bot.json` の `mini_app` セクションの設定と有効化条件
     - Cloudflare Tunnel（`cloudflared`）による公開 HTTPS エンドポイントの構成、ドメインルーティングと systemd サービス登録手順
-    - 個人チャット左下の `App` ボタン、二段階認証、Google Authenticator (TOTP) のバインド手順
+    - 個人チャット左下の `App` ボタン、二段階認証・256-bit 鍵 AES-256-GCM 通信暗号化、Google Authenticator (TOTP) バインド、およびオンライン JSON 設定エディタ
 
 11. **[11 パフォーマンスベンチマーク](11-performance.md)**
     - `bun run perf:full` の各セクションの計測対象：コールドスタート、本番ホットパス、エンドツーエンドの永続化チェーン、SQLite とメインスレッドキャッシュ、コンテナとアルゴリズム、参加ログ容量線

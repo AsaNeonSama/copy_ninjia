@@ -43,8 +43,8 @@
 <p align="center">
   <a href="#pure-ai-development"><img src="https://img.shields.io/badge/Code-100%25_AI--written-e91e63?style=flat-square" alt="100% AI-written"></a>
   <a href="#pure-ai-development"><img src="https://img.shields.io/badge/Audits-Claude_/_Gemini_/_Grok-6d4aff?style=flat-square" alt="Audited"></a>
-  <a href="05-dev-workflow.md"><img src="https://img.shields.io/badge/Tests-7200_Passed-2ea44f?style=flat-square" alt="Tests"></a>
-  <a href="05-dev-workflow.md"><img src="https://img.shields.io/badge/Coverage-97.58%25-2ea44f?style=flat-square" alt="Coverage"></a>
+  <a href="05-dev-workflow.md"><img src="https://img.shields.io/badge/Tests-7448_Passed-2ea44f?style=flat-square" alt="Tests"></a>
+  <a href="05-dev-workflow.md"><img src="https://img.shields.io/badge/Coverage-98.07%25-2ea44f?style=flat-square" alt="Coverage"></a>
   <a href="../../LICENSES/LICENSE"><img src="https://img.shields.io/badge/License-MIT-007ec6?style=flat-square" alt="License: MIT"></a>
 </p>
 
@@ -111,7 +111,7 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="../../public/coverage_dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="../../public/coverage_light.svg">
-    <img alt="bun run test:coverage — 7200 件のテストが全て成功 / テストファイル 605 件 / expect() 呼び出し 463,493 回 / 関数カバレッジ 96.85% / 行カバレッジ 97.58%" src="../../public/coverage_light.svg" width="780">
+    <img alt="bun run test:coverage — 7448 件のテストが全て成功 / テストファイル 649 件 / expect() 呼び出し 592,390 回 / 関数カバレッジ 98.02% / 行カバレッジ 98.07%" src="../../public/coverage_light.svg" width="780">
   </picture>
 </p>
 
@@ -247,7 +247,7 @@
 | Claude | 90%± |
 
 > [!TIP]
-> Gemini のキャッシュヒット率が低いのは、明示的キャッシュと暗黙的キャッシュが排他であり、暗黙的キャッシュの有効期限もサーバー側で制御できないためです。キャッシュ効率を重視する場合は他社モデルを、会話の自然さや表現力を重視する場合は Gemini を選択してください。
+> Gemini はサーバー側の自動暗黙的プレフィックスキャッシュを利用しており、保持期間はサーバー側で制御されます。キャッシュ効率を重視する場合は他社モデルを、会話の自然さや表現力を重視する場合は Gemini を選択してください。
 
 ### ボイス・画像・記憶
 
@@ -339,13 +339,14 @@ git clone https://github.com/AsaNeonSama/copy_ninjia.git
 cd copy_ninjia
 bun install
 
-# 2. 設定ディレクトリを作成しテンプレートをコピー（不足分のみ）
+# 2. 設定ディレクトリを作成しテンプレートをコピー（不足分のみ。プレースホルダー等を含む agent.json・g-auth.json・cron.json は除外）
 mkdir -p config/static config/dynamic
 for example in config_example/static/*.json config_example/dynamic/*.json; do
-  case "${example##*/}" in g-auth.json | cron.json) ;; *) cp -n "$example" "config/${example#config_example/}" ;; esac
+  case "${example##*/}" in agent.json | g-auth.json | cron.json) ;; *) cp -n "$example" "config/${example#config_example/}" ;; esac
 done
 
-# 3. config/static/bot.json を編集し、bot_token と super_admin_user_id を記入
+# 3. config/static/bot.json を編集し、bot_token と super_admin_user_id を記入（log_level は任意項目、省略時の既定値は "operation"）。
+#    Mini App を使わない場合は mini_app セクションを削除し、使う場合は設定のうえプレースホルダーの password を置換（AI 有効化時は config/dynamic/agent.json を適宜コピーして記入）
 ```
 
 初回起動前に、BotFather 側で Privacy Mode の無効化と Inline Mode の有効化を行ってください（詳細は [BotFather とグループ権限の設定](#botfather-setup)）。各設定値の仕様は [`config_example/README/ja.md`](../../config_example/README/ja.md)、詳細手順は [01 環境構築と初回起動](01-getting-started.md) にあります。
@@ -432,7 +433,7 @@ Copy Ninjia のアーキテクチャ概要、モジュールマップ、実行�
   </tr>
   <tr>
     <td><nobr>🖥️ <b>Mini App コンソール</b></nobr></td>
-    <td><code>mini_app</code> の設定、Cloudflare Tunnel による推奨公開構成、二段階認証と TOTP バインド</td>
+    <td><code>mini_app</code> 設定、Cloudflare Tunnel 公開構成、二段階認証・AES-256-GCM 暗号化、TOTP バインドとオンライン JSON 設定編集</td>
     <td align="center"><nobr><a href="10-mini-app.md">📖 10 Mini App の設定方法と推奨構成</a></nobr></td>
   </tr>
   <tr>

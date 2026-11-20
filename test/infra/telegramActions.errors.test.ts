@@ -25,9 +25,66 @@ mock.module("../../packages/infra/logger", () => ({
   logger: loggerStub({ error: loggerError }),
 }));
 
-const actions = await import("../../packages/infra/telegram/actions");
+const {
+  answerCallbackQuery,
+  editMessageText,
+  sendChatAction,
+  sendMessage,
+  sendMessageWithResult,
+} = await import("../../packages/infra/telegram/actions/messages");
+const {
+  copyMessage,
+  sendPhotoWithResult,
+  sendSticker,
+} = await import("../../packages/infra/telegram/actions/mediaMessages");
+const {
+  deleteMessage,
+  deleteMessageAfter,
+  deleteMessageWithOutcome,
+  drainPendingMessageDeletions,
+  flushPendingMessageDeletions,
+  resetPendingMessageDeletions,
+  setMessageReaction,
+  setMessageReactions,
+} = await import("../../packages/infra/telegram/actions/messageLifecycle");
+const {
+  banChatMember,
+  banChatMemberWithOutcome,
+  banChatSenderChat,
+  banChatSenderChatWithOutcome,
+  kickChatMemberWithOutcome,
+  unbanChatMemberIfBanned,
+  unbanChatSenderChat,
+} = await import("../../packages/infra/telegram/actions/moderation");
+const { probeChatAdmin } = await import("../../packages/infra/telegram/actions/membership");
+const actions = {
+  answerCallbackQuery,
+  banChatMember,
+  banChatMemberWithOutcome,
+  banChatSenderChat,
+  banChatSenderChatWithOutcome,
+  copyMessage,
+  deleteMessage,
+  deleteMessageAfter,
+  deleteMessageWithOutcome,
+  drainPendingMessageDeletions,
+  editMessageText,
+  flushPendingMessageDeletions,
+  kickChatMemberWithOutcome,
+  probeChatAdmin,
+  resetPendingMessageDeletions,
+  sendChatAction,
+  sendMessage,
+  sendMessageWithResult,
+  sendPhotoWithResult,
+  sendSticker,
+  setMessageReaction,
+  setMessageReactions,
+  unbanChatMemberIfBanned,
+  unbanChatSenderChat,
+};
 const { probeChatMembershipWithOutcome } = await import("../../packages/infra/telegram/actions/membership");
-const { runWithUpdateAbortSignal } = await import("../../packages/infra/updateContext");
+const { currentUpdateAbortSignal, runWithUpdateAbortSignal } = await import("../../packages/infra/updateContext");
 const { TELEGRAM_DELETE_MESSAGES_BATCH_MAX } = await import("../../packages/consts/telegram");
 
 function apiWithSuccesses(): TelegramApi {
@@ -398,7 +455,8 @@ describe("Telegram 动作适配层失败归一化", () => {
     await expect(actions.drainPendingMessageDeletions(5)).resolves.toBe("timedOut");
     expect(deleteMessages).toHaveBeenCalledWith(-1001, [48], undefined);
     expect(loggerError.mock.calls).toEqual([[
-      "Delayed Telegram message deletion drain timed out with 0 pending and 1 in flight.",
+      "Delayed Telegram message deletion drain timed out.",
+      { pendingCount: 0, inFlightCount: 1 },
     ]]);
 
     // 超时只放弃等待，不取消请求：它结算后下一次排空立即完成。
@@ -406,6 +464,24 @@ describe("Telegram 动作适配层失败归一化", () => {
     await expect(actions.drainPendingMessageDeletions(1_000)).resolves.toBe("flushed");
     expect(deleteMessages).toHaveBeenCalledTimes(1);
     expect(loggerError).toHaveBeenCalledTimes(1);
+  });
+
+  test("在 update 作用域内登记的延迟删除到点执行时脱离触发 update 的 signal", async () => {
+    let observedSignal: AbortSignal | undefined;
+    const deleteMessage = mock(async (..._args: unknown[]): Promise<true> => {
+      observedSignal = currentUpdateAbortSignal();
+      return true;
+    });
+    const api: Api = { deleteMessage } as unknown as Api;
+    const updateController: AbortController = new AbortController();
+    await runWithUpdateAbortSignal(updateController.signal, async (): Promise<void> => {
+      actions.deleteMessageAfter({ chatId: -1001, messageId: 59, delayMs: 1, api });
+    });
+    updateController.abort();
+    await Bun.sleep(20);
+    await expect(actions.drainPendingMessageDeletions(1_000)).resolves.toBe("flushed");
+    expect(deleteMessage).toHaveBeenCalledWith(-1001, 59, undefined);
+    expect(observedSignal).toBeUndefined();
   });
 });
 

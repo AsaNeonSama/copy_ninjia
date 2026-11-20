@@ -1,6 +1,6 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
 import type { StickerSet } from "grammy/types";
-import { getStickerSet } from "../../../../packages/aiChat/ai/stickers/sets";
+import { getStickerSet } from "../../../../packages/workers/aiChat/ai/stickers/sets";
 import { failedPacks, inflightStickerSets, stickerSetCache } from "../../../../packages/cache/workers/aiChat/stickers/sets";
 import { aiChatWorkerQuiescing } from "../../../../packages/cache/workers/aiChat/worker";
 import { getStickerConfig, parseStickerConfig } from "../../../../packages/config/stickers";

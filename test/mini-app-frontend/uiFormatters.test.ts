@@ -36,6 +36,7 @@ import {
 import { WHITELIST_PERMISSION_KEYS } from "../../packages/mini-app-frontend/consts/whitelist";
 import { getMiniAppTranslations } from "../../packages/mini-app-frontend/i18n";
 import { useComponentStoreApi } from "../../packages/mini-app-frontend/libs/componentStore";
+import { buildFallbackDiagnostics } from "../../packages/mini-app-frontend/libs/diagnostics";
 import {
   blurEventCurrentTarget,
   buildMiniAppGalleryDownloadFileName,
@@ -45,6 +46,7 @@ import {
   formatMemoryMb,
   formatTime,
   formatUptime,
+  formatUtcTimestamp,
   readEventTargetChecked,
   readEventTargetValue,
   sanitizeBidiText,
@@ -55,9 +57,6 @@ import {
   ChatsSvgIcon,
   DownloadSvgIcon,
   GallerySvgIcon,
-  GlobeCnSvgIcon,
-  GlobeEnSvgIcon,
-  GlobeJaSvgIcon,
   GlobeSvgIcon,
   IdentitiesSvgIcon,
   MenuSvgIcon,
@@ -132,9 +131,7 @@ describe("Mini App 前端格式化与展示组件", () => {
       activeSessions: { total: 2, gag: 1, wed: 0, verify: 1, qaSet: 0 },
       telegramOutbound: {
         inFlight: 1,
-        maxConcurrency: 20,
-        waiting: 0,
-        retryQueueSize: 0,
+        retryWaiting: 0,
         retryQueueMax: 100,
       },
       capabilities: [],
@@ -216,15 +213,25 @@ describe("Mini App 前端格式化与展示组件", () => {
       })
     );
     expect(formatClockTime(sampleTimestampMs)).toMatch(/^\d{2}:\d{2}:\d{2}$/u);
+    expect(formatUtcTimestamp(0)).toBe("1970-01-01 00:00:00 UTC");
+    expect(formatUtcTimestamp(sampleTimestampMs)).toBe("2023-11-14 22:13:20 UTC");
+    expect(formatUtcTimestamp(Number.NaN)).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} UTC$/u);
+    expect(formatUtcTimestamp()).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} UTC$/u);
+    expect(buildFallbackDiagnostics("denied").timestamp).toMatch(
+      /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} UTC$/u
+    );
 
     expect(computeRangeProgressPercent(MINI_APP_BATCH_KICK_MIN_HOURS, MINI_APP_BATCH_KICK_MIN_HOURS, MINI_APP_BATCH_KICK_MAX_HOURS)).toBe("0.00%");
     expect(computeRangeProgressPercent(MINI_APP_BATCH_KICK_MAX_HOURS, MINI_APP_BATCH_KICK_MIN_HOURS, MINI_APP_BATCH_KICK_MAX_HOURS)).toBe("100.00%");
     expect(computeRangeProgressPercent((MINI_APP_BATCH_KICK_MIN_HOURS + MINI_APP_BATCH_KICK_MAX_HOURS) / 2, MINI_APP_BATCH_KICK_MIN_HOURS, MINI_APP_BATCH_KICK_MAX_HOURS)).toBe("50.00%");
+    expect(computeRangeProgressPercent(MINI_APP_BATCH_KICK_MIN_HOURS - 1)).toBe("0.00%");
+    expect(computeRangeProgressPercent(MINI_APP_BATCH_KICK_MAX_HOURS + 1)).toBe("100.00%");
 
     for (const icon of [
       MenuSvgIcon({}), StatusSvgIcon({}), ChatsSvgIcon({}), IdentitiesSvgIcon({}),
-      GallerySvgIcon({}), GlobeCnSvgIcon({}), GlobeJaSvgIcon({}), GlobeEnSvgIcon({}),
-      GlobeSvgIcon({}), DownloadSvgIcon({}), SearchSvgIcon({}), TrashSvgIcon({}),
+      GallerySvgIcon({}), GlobeSvgIcon({ language: "zh" }), GlobeSvgIcon({ language: "ja" }),
+      GlobeSvgIcon({ language: "en" }), GlobeSvgIcon({}), DownloadSvgIcon({}),
+      SearchSvgIcon({}), TrashSvgIcon({}),
     ]) {
       expect(icon).toBeDefined();
     }
@@ -287,6 +294,13 @@ describe("Mini App 前端格式化与展示组件", () => {
       idFormOpen: true, disabled: false, interactive: true, t: getMiniAppTranslations("zh"), onSelectMode: (): void => undefined,
     }));
     expect(addModeHtml).toContain("add-mode-grid");
+    const addModeLoadingHtml: string = renderToStaticMarkup(createElement(AddModeButtonList, {
+      idFormOpen: false, disabled: true, loadingMode: "users", interactive: true, t: getMiniAppTranslations("zh"), onSelectMode: (): void => undefined,
+    }));
+    expect(addModeLoadingHtml.match(/add-mode-card is-loading/g)?.length).toBe(1);
+    expect(addModeLoadingHtml.match(/aria-busy="true"/g)?.length).toBe(1);
+    expect(addModeLoadingHtml.match(/add-mode-loading-overlay/g)?.length).toBe(1);
+    expect(addModeLoadingHtml.match(/loading-dot-block/g)?.length).toBe(3);
     const targetsMenuHtml: string = renderToStaticMarkup(createElement(ChatTargetsMenuButtonList, {
       targetsMenuOpen: true, chatDetail: null, chatTargets: null, t: getMiniAppTranslations("zh"),
       onToggleMenu: (): void => undefined, onCloseMenu: (): void => undefined, onSelectTargetKind: (): void => undefined,
@@ -333,6 +347,14 @@ describe("Mini App 前端格式化与展示组件", () => {
       expect((searchInputs[0] as MiniDomNode & { readonly type?: string }).type).toBe("text");
       expect(searchInputs[0]!.getAttribute("inputMode")).toBe("text");
       expect(searchInputs[0]!.getAttribute("lang")).toBe("");
+      expect(searchInputs[0]!.getAttribute("placeholder")).toBe(getMiniAppTranslations("zh").identities.searchPlaceholder);
+      await act(async (): Promise<void> => {
+        useMiniAppStore.getState().setLanguage("ja");
+      });
+      expect(searchInputs[0]!.getAttribute("placeholder")).toBe("はっきり書きなさい");
+      await act(async (): Promise<void> => {
+        useMiniAppStore.getState().setLanguage("zh");
+      });
       expect(searchInputs[0]!.getAttribute("placeholder")).toBe(getMiniAppTranslations("zh").identities.searchPlaceholder);
       expect(findElements(container, (element: MiniDomNode): boolean => hasClass(element, "debounce-status-hint"))).toHaveLength(0);
       await act(async (): Promise<void> => {

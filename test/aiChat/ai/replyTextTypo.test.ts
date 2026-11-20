@@ -3,8 +3,8 @@
  * 以及快速补字与「没发现」的概率分流。不经过工具集，也不需要 Telegram 替身。
  */
 import { describe, expect, test } from "bun:test";
-import { cleanReply, isEmojiOnly } from "../../../packages/aiChat/ai/utils/replyText";
-import { buildCharacterTypo, pickTypoCorrectionMode } from "../../../packages/aiChat/ai/utils/typo";
+import { cleanReply, isEmojiOnly } from "../../../packages/workers/aiChat/ai/utils/replyText";
+import { buildCharacterTypo, pickTypoCorrectionMode } from "../../../packages/workers/aiChat/ai/utils/typo";
 import { TYPO_QUICK_CORRECTION_PROBABILITY } from "../../../packages/consts/aiChat/tools";
 
 describe("isEmojiOnly", () => {

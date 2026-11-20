@@ -5,7 +5,7 @@ import type { AntiRaidWorkerMessage } from "../../packages/types/antiRaid";
 import type { RemoveBlockedMembersParams } from "../../packages/types/blocklist";
 
 const blockedIds = new Set<number>();
-const errorLogs: string[] = [];
+const errorLogs: unknown[][] = [];
 const requestBlocklistResweep = mock((_chatId: number, _nextRetryAt?: number): void => {});
 const deleteMessageWithOutcome = mock(async (..._args: unknown[]): Promise<string> => "deleted");
 let removalCounter: number = 0;
@@ -13,7 +13,7 @@ let trackFails: boolean = false;
 let canDeleteMessages: boolean | undefined = true;
 
 mock.module("../../packages/infra/logger", () => ({
-  logger: loggerStub({ error(message: unknown): void { errorLogs.push(String(message)); } }),
+  logger: loggerStub({ error(...args: unknown[]): void { errorLogs.push(args); } }),
 }));
 mock.module("../../packages/infra/blocklist/membership", () => ({
   isUserBlocked: (userId: number): boolean => blockedIds.has(userId),
@@ -34,7 +34,11 @@ mock.module("../../packages/infra/blocklist/sweep", () => ({ requestBlocklistRes
 mock.module("../../packages/infra/botAdmin", () => ({
   botCanDeleteMessagesIn: (): boolean | undefined => canDeleteMessages,
 }));
-mock.module("../../packages/infra/telegram/actions", () => ({ deleteMessageWithOutcome }));
+const realMessageLifecycle = await import("../../packages/infra/telegram/actions/messageLifecycle");
+mock.module("../../packages/infra/telegram/actions/messageLifecycle", () => ({
+  ...realMessageLifecycle,
+  deleteMessageWithOutcome,
+}));
 
 const {
   claimBlockedJoiner,
@@ -81,7 +85,10 @@ describe("已拉黑频道身份的漏网消息", () => {
     expect(await deleteBlockedSenderChatMessage(senderChatMessage())).toBeTrue();
 
     expect(deleteMessageWithOutcome).not.toHaveBeenCalled();
-    expect(errorLogs.some((line) => line.includes("can_delete_messages"))).toBeTrue();
+    expect(errorLogs).toContainEqual([
+      expect.stringContaining("can_delete_messages"),
+      { chatId: -1001, messageId: 77 },
+    ]);
   });
 
   test("权限未知时让 Telegram 裁决；删除失败也不把黑名单消息放回业务流水线", async () => {
@@ -91,7 +98,10 @@ describe("已拉黑频道身份的漏网消息", () => {
 
     expect(await deleteBlockedSenderChatMessage(senderChatMessage())).toBeTrue();
     expect(deleteMessageWithOutcome).toHaveBeenCalledWith(-1001, 77);
-    expect(errorLogs.some((line) => line.includes("could not be deleted (failed)"))).toBeTrue();
+    expect(errorLogs).toContainEqual([
+      "Blocked sender chat message could not be deleted.",
+      expect.objectContaining({ chatId: -1001, messageId: 77, outcome: "failed" }),
+    ]);
   });
 
   test("非黑名单频道与当前群匿名管理员皮套原样放行", async () => {
@@ -165,7 +175,11 @@ describe("黑名单入群秒踢的投递侧", () => {
     expect(messages).toHaveLength(0);
     // 登记失败时也不留兜底 join，且不重新开验证窗口。
     expect(replacedJoins.size).toBe(0);
-    expect(errorLogs.some((line) => line.includes("Failed to queue removal of blocklisted user 42"))).toBeTrue();
+    expect(errorLogs).toContainEqual([
+      "Failed to queue removal of blocklisted user:",
+      { chatId: -1001, userId: 42 },
+      expect.any(Error),
+    ]);
     // 转由补扫接手：outbox 腾出空间后由下一次管理员身份观测触发。
     expect(requestBlocklistResweep).toHaveBeenCalledWith(-1001);
   });
@@ -192,21 +206,50 @@ describe("黑名单入群秒踢的投递侧", () => {
 });
 
 describe("入群计数去重表的上界与处置注册", () => {
-  test("先从最早项按窗口清掉过期项，遇到第一个仍在窗口内的即停", () => {
+  test("先从最早项按闭区间窗口清掉过期项，遇到第一个仍在窗口内的即停", () => {
     const now: number = 10 * JOIN_WINDOW_MS;
-    recentBlockedJoinCounts.set("expired:0", now - JOIN_WINDOW_MS - 1);
-    recentBlockedJoinCounts.set("expired:1", now - JOIN_WINDOW_MS);
+    recentBlockedJoinCounts.set("expired:0", now - JOIN_WINDOW_MS - 2);
+    recentBlockedJoinCounts.set("expired:1", now - JOIN_WINDOW_MS - 1);
+    recentBlockedJoinCounts.set("live:boundary", now - JOIN_WINDOW_MS);
     recentBlockedJoinCounts.set("live:0", now - 1);
     // 插入序即时间序；排在未过期项之后的条目不再检查。
-    recentBlockedJoinCounts.set("after-live", now - JOIN_WINDOW_MS);
+    recentBlockedJoinCounts.set("after-live", now - JOIN_WINDOW_MS - 1);
     blockedIds.add(42);
     const messages: AntiRaidWorkerMessage[] = [];
 
     expect(claimBlockedJoiner({ chatId: -1001, userId: 42, messages, replacedJoins: new Map(),
       joinGuardEnabled: true, now })).toBeTrue();
 
-    expect([...recentBlockedJoinCounts.keys()]).toEqual(["live:0", "after-live", verificationKey(-1001, 42)]);
+    expect([...recentBlockedJoinCounts.keys()]).toEqual([
+      "live:boundary",
+      "live:0",
+      "after-live",
+      verificationKey(-1001, 42),
+    ]);
     expect((messages[0] as RemoveBlockedMembersParams).joinedAt).toBe(now);
+  });
+
+  test("墙钟回拨时早于记录时刻的去重项按窗口已结束淘汰，重新补记入群计数", () => {
+    const recordedAt: number = 10 * JOIN_WINDOW_MS;
+    blockedIds.add(42);
+    const key: string = verificationKey(-1001, 42);
+    recentBlockedJoinCounts.set("future:0", recordedAt);
+    recentBlockedJoinCounts.set(key, recordedAt);
+
+    const rolledBackNow: number = recordedAt - 1;
+    const messages: AntiRaidWorkerMessage[] = [];
+    expect(claimBlockedJoiner({
+      chatId: -1001,
+      userId: 42,
+      messages,
+      replacedJoins: new Map(),
+      joinGuardEnabled: true,
+      now: rolledBackNow,
+    })).toBeTrue();
+
+    expect(recentBlockedJoinCounts.has("future:0")).toBeFalse();
+    expect(recentBlockedJoinCounts.get(key)).toBe(rolledBackNow);
+    expect((messages[0] as RemoveBlockedMembersParams).joinedAt).toBe(rolledBackNow);
   });
 
   test("容量恒不超过上界：满表时本次记账挤出最早一项", () => {

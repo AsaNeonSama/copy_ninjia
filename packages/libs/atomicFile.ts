@@ -12,9 +12,11 @@ import {
 import { open, rename } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { TMP_FILE_SUFFIX } from "../consts/paths";
+import { ATOMIC_TEMP_FILE_INNER_PATTERN } from "../consts/storage";
 import { bestEffortUnlink } from "./fileAccess";
 import { isErrno } from "./errno";
 import type { FileHandle } from "node:fs/promises";
+import type { ParsedAtomicTempFileName } from "../types/storage";
 
 /** 一次同步写请求；position 为 null 时从文件当前偏移写起并推进偏移。 */
 export interface SyncWriteRequest {
@@ -90,6 +92,36 @@ function temporaryPath(path: string): string {
     dirname(path),
     `.${basename(path)}.${process.pid}.${crypto.randomUUID()}${TMP_FILE_SUFFIX}`
   );
+}
+
+/**
+ * 解析由 `temporaryPath` 生成的原子写临时文件名（严格匹配 `.<file>.<pid>.<uuid><TMP_FILE_SUFFIX>`）。
+ * 供启动清扫识别并回收已退出进程在受管目录中留下的原子写孤儿临时文件；格式不符一律返回 `null`。
+ * @param entryName 目录项基名（不含路径分隔符）。
+ * @returns 解析出的目标文件名、PID 与 UUID；非合法格式返回 `null`。
+ */
+export function parseAtomicTempFileName(
+  entryName: string
+): Readonly<ParsedAtomicTempFileName> | null {
+  if (!entryName.startsWith(".") || !entryName.endsWith(TMP_FILE_SUFFIX)) return null;
+  const inner: string = entryName.slice(1, entryName.length - TMP_FILE_SUFFIX.length);
+  const match: RegExpExecArray | null = ATOMIC_TEMP_FILE_INNER_PATTERN.exec(inner);
+  if (match === null) return null;
+  const targetFileName: string | undefined = match[1];
+  const pidText: string | undefined = match[2];
+  const uuid: string | undefined = match[3];
+  if (
+    targetFileName === undefined ||
+    pidText === undefined ||
+    uuid === undefined ||
+    targetFileName.length === 0 ||
+    targetFileName.includes("/")
+  ) {
+    return null;
+  }
+  const pid: number = Number(pidText);
+  if (!Number.isSafeInteger(pid) || pid <= 0) return null;
+  return { targetFileName, pid, uuid };
 }
 
 /**

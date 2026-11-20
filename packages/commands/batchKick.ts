@@ -43,8 +43,6 @@ import type { CachedUser } from "../types/chatState";
 import type { IdentityPolicyVerdicts } from "../types/identityStorage";
 import type { BatchKickTriggerSource } from "../types/miniApp/chats";
 
-export type { BatchKickStats } from "../types/batchKick";
-
 registerChatTeardown("batchKick", purgeBatchKickChatState);
 
 /**
@@ -146,7 +144,8 @@ async function processJoinRecord({
     } catch (error: unknown) {
       // durable outbox 已经保留重放依据；命令战报仍按失败结算并留下原因。
       logger.error(
-        `Failed to dispatch the blocklist repair after /batch_kick in chat ${chatId}:`,
+        "Failed to dispatch the blocklist repair after /batch_kick:",
+        { chatId },
         error
       );
     }
@@ -251,8 +250,12 @@ async function runBatchKick({
       if (result.status === "fulfilled") continue;
       stats.failed++;
       logger.error(
-        `Unexpected /batch_kick failure for chat ${chatId}, user ${result.item.userId}, ` +
-        `record ${offset + result.index}:`,
+        "Unexpected /batch_kick failure:",
+        {
+          chatId,
+          userId: result.item.userId,
+          recordIndex: offset + result.index,
+        },
         result.reason
       );
     }
@@ -324,7 +327,8 @@ async function deliverBatchKick({
       } catch (error: unknown) {
         // durable outbox 已经保留重放依据；战报照常发出，原因留在日志里。
         logger.error(
-          `Failed to dispatch the blocklist sweep after /batch_kick in chat ${chatId}:`,
+          "Failed to dispatch the blocklist sweep after /batch_kick:",
+          { chatId },
           error
         );
       }
@@ -458,7 +462,7 @@ export async function handleBatchKickCommand(
     const live: boolean = hasLiveBatchKickPreflight(chatId, preflightSeq);
     endBatchKickPreflight(chatId, preflightSeq);
     if (!live || !isBatchKickChatManaged(chatId)) return;
-    logger.error(`Failed to read join logs for /batch_kick in chat ${chatId}:`, error);
+    logger.error("Failed to read join logs for /batch_kick:", { chatId }, error);
     await replyCommandNotice(ctx, chatAtmosphere().NOTICE_TEXTS.joinLogUnavailable);
     return;
   }

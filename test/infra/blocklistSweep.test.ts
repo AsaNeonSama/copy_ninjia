@@ -572,7 +572,10 @@ describe("黑名单清扫", () => {
 
     expect(pendingBlockedRemovals.size).toBe(1);
     expect(loggerError).not.toHaveBeenCalled();
-    expect(loggerLog).toHaveBeenCalledWith(expect.stringContaining("did not fully settle"));
+    expect(loggerLog).toHaveBeenCalledWith(
+      "Blocklist removal did not fully settle; it will be retried.",
+      { removalId: lastRemovalId(), chatId: -1001 }
+    );
   });
 
   test("运行中的未完成回执照常记 error", async () => {
@@ -583,7 +586,10 @@ describe("黑名单清扫", () => {
     settleLast(false);
 
     expect(pendingBlockedRemovals.size).toBe(1);
-    expect(loggerError).toHaveBeenCalledWith(expect.stringContaining("did not fully settle"));
+    expect(loggerError).toHaveBeenCalledWith(
+      "Blocklist removal did not fully settle; it will be retried.",
+      { removalId: lastRemovalId(), chatId: -1001 }
+    );
     quiesceBlocklistSweepScheduler();
   });
 

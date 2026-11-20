@@ -30,7 +30,7 @@ type LockdownCell = readonly [LockdownNextLabel, readonly LockdownEffect["kind"]
 
 const MATRIX_INTENT_ID: number = 7;
 
-/** 每格现造一份状态；除 preparing 外都带一条已落地的封锁公告。 */
+/** 每格现造一份状态；除 preparing 外都带一条已落地的封锁公告，`reconciling` / `restoring` 为等落盘回执状态（`*AfterPersist: true`）。 */
 const LOCKDOWN_ROWS: Readonly<Record<LockdownRowLabel, () => LockdownState | undefined>> = {
   inactive: (): LockdownState | undefined => undefined,
   "applying:preparing": (): LockdownState => ({
@@ -220,7 +220,6 @@ const LOCKDOWN_MATRIX: Readonly<Record<LockdownRowLabel, Readonly<Record<Lockdow
     statePersisted: ["reconciling", ["beginReapply"]],
     persistFailed: ["restoring", ["persistState", "beginRestore", "suppressRetrigger"]],
     restoreTimerFired: ["restoring", ["persistState"]],
-    reapplyRetryFired: ["same", ["beginReapply"]],
     deactivate: ["restoring", ["persistState"]],
     chatGone: ["inactive", ["reportUnlock"]],
     "reapplyResult:ok": ["active", ["persistState"]],
@@ -230,7 +229,6 @@ const LOCKDOWN_MATRIX: Readonly<Record<LockdownRowLabel, Readonly<Record<Lockdow
     thresholdExceeded: ["same", ["prefetchAdmins"]],
     statePersisted: ["restoring", ["beginRestore"]],
     persistFailed: ["restoring", ["beginRestore", "suppressRetrigger"]],
-    restoreRetryFired: ["same", ["beginRestore"]],
     deactivate: ["restoring", ["persistState"]],
     chatGone: ["inactive", ["reportUnlock"]],
     "restoreResult:ok": ["inactive", ["reportUnlock", "deleteLockdownAnnouncement", "announceUnlock"]],
@@ -276,11 +274,32 @@ describe("状态 × 事件矩阵", () => {
     });
   }
 
-  test("恢复重试计时器到点：只有 RESTORING 按原权限再发一次恢复，状态对象不变", () => {
-    const restoring: LockdownState | undefined = LOCKDOWN_ROWS.restoring();
+  test("恢复/纠偏重试计时器到点：仅落盘已完成（AfterPersist: false）的状态重发恢复或纠偏，等落盘与非目标阶段无操作", () => {
+    const waitingRestore: LockdownState | undefined = LOCKDOWN_ROWS.restoring();
+    expect(transitionLockdown(waitingRestore, { type: "restoreRetryFired" })).toEqual({
+      next: waitingRestore,
+      effects: [],
+    });
+    const restoring: LockdownState = {
+      ...(waitingRestore as Extract<LockdownState, { kind: "restoring" }>),
+      restoreAfterPersist: false,
+    };
     const retried: LockdownTransition = transitionLockdown(restoring, { type: "restoreRetryFired" });
     expect(retried.next).toBe(restoring);
     expect(retried.effects).toEqual([{ kind: "beginRestore", originalPermissions: PERMS }]);
+
+    const waitingReapply: LockdownState | undefined = LOCKDOWN_ROWS.reconciling();
+    expect(transitionLockdown(waitingReapply, { type: "reapplyRetryFired" })).toEqual({
+      next: waitingReapply,
+      effects: [],
+    });
+    const reconciling: LockdownState = {
+      ...(waitingReapply as Extract<LockdownState, { kind: "reconciling" }>),
+      reapplyAfterPersist: false,
+    };
+    const reapplied: LockdownTransition = transitionLockdown(reconciling, { type: "reapplyRetryFired" });
+    expect(reapplied.next).toBe(reconciling);
+    expect(reapplied.effects).toEqual([{ kind: "beginReapply" }]);
 
     const active: LockdownState | undefined = LOCKDOWN_ROWS.active();
     const ignored: LockdownTransition = transitionLockdown(active, { type: "restoreRetryFired" });

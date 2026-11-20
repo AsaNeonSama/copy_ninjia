@@ -1,4 +1,4 @@
-/** owner: workers/aiChat。媒体下载、转码与视觉解析共用有界执行器状态（packages/aiChat/ai/imageDescription.ts、packages/aiChat/ai/tools/replyToolset/imageGeneration.ts）。 */
+/** owner: workers/aiChat。媒体下载、转码与视觉解析共用有界执行器状态（packages/workers/aiChat/ai/imageDescription.ts、packages/workers/aiChat/ai/tools/replyToolset/imageGeneration.ts）。 */
 
 import {
   MEDIA_DESCRIPTION_MAX_CONCURRENCY,

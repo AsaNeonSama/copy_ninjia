@@ -25,7 +25,7 @@ const loggerLog = mock((..._args: unknown[]): void => {});
 const loggerError = mock((..._args: unknown[]): void => {});
 
 mock.module("../../packages/infra/logger", () => ({
-  logger: loggerStub({ log: loggerLog, error: loggerError }),
+  logger: loggerStub({ info: loggerLog, error: loggerError }),
 }));
 mock.module("../../packages/antiRaid/workerBridge/controller", () => ({
   postAntiRaid: (message: AntiRaidWorkerMessage): boolean => {
@@ -111,8 +111,11 @@ describe("广告候选被 Worker 拒收的边沿日志", () => {
     for (const messageId of [1, 2, 3]) ingest(messageId);
 
     expect(loggerError).toHaveBeenCalledTimes(1);
-    // 只点名第一条被拒候选所在的群；单个参数，不带错误对象。
-    expect(loggerError.mock.calls[0]).toEqual([expect.stringContaining(String(CHAT_ID))]);
+    // 只点名第一条被拒候选所在的群；两个参数（静态摘要 + 结构化上下文），不带错误对象。
+    expect(loggerError.mock.calls[0]).toEqual([
+      expect.stringContaining("rejected an ad detection candidate"),
+      { chatId: CHAT_ID },
+    ]);
     expect(loggerLog).not.toHaveBeenCalled();
     expect(adCandidatePostRejected.current).toBeTrue();
 
@@ -144,7 +147,10 @@ describe("广告候选被 Worker 拒收的边沿日志", () => {
     ingest(2, otherChatId);
 
     expect(loggerError).toHaveBeenCalledTimes(1);
-    expect(loggerError.mock.calls[0]).toEqual([expect.stringContaining(String(CHAT_ID))]);
+    expect(loggerError.mock.calls[0]).toEqual([
+      expect.stringContaining("rejected an ad detection candidate"),
+      { chatId: CHAT_ID },
+    ]);
 
     delivery.accepts = true;
     ingest(3, otherChatId);

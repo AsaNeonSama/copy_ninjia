@@ -17,7 +17,7 @@
 - **Linux 系统**（必须具备可读的 `/proc` 目录）：单实例锁依赖 `/proc/<pid>/stat` 与内核 boot ID，非 Linux 平台在启动时直接拒绝退出。
 - **Bun**（版本按 `package.json` 的 `packageManager`）：源码安装与本地开发所需，可通过官方安装脚本安装指定版本：
   ```bash
-  curl -fsSL https://bun.sh/install | bash -s bun-v1.4.4
+  curl -fsSL https://bun.sh/install | bash -s bun-v1.4.5
   ```
   > [!NOTE]
   > 二进制发行包已内置 Bun 运行时，无需宿主机预先安装 Bun。整个项目都不需要 Node.js。
@@ -109,14 +109,14 @@ bun install --frozen-lockfile
 mkdir -p config/static config/dynamic
 for example in config_example/static/*.json config_example/dynamic/*.json; do
   case "${example##*/}" in
-    g-auth.json | cron.json) ;;
+    agent.json | g-auth.json | cron.json) ;;
     *) cp -n "$example" "config/${example#config_example/}" ;;
   esac
 done
 ```
 
 > [!WARNING]
-> `config_example/` 目录下的 `g-auth.json` 与 `cron.json` 示例仅作语法示意，切勿直接原样复制到生产环境。复制后的配置文件中如果带有 `replace-with-…` 占位字符串（如 `bot_token` 或各 AI 模型的 `api_key`），必须替换为真实凭据；保留占位符会导致程序在启动阶段报错退出。详细说明见 [`config_example/README/zh.md`](../../config_example/README/zh.md)。
+> `config_example/` 目录下的 `agent.json`、`g-auth.json` 与 `cron.json` 示例含占位凭据或示例任务，需在启用对应功能时按需复制并填写；不启用 Mini App 时须删除 `config/static/bot.json` 中的 `mini_app` 段，启用时按需配置并替换占位 `password`。复制后的配置文件中如果带有 `replace-with-…` 占位字符串（如 `bot_token`、`mini_app.password` 或各 AI 模型的 `api_key`），必须替换为真实凭据；保留占位符会导致程序在启动阶段报错退出。详细说明见 [`config_example/README/zh.md`](../../config_example/README/zh.md)。
 
 ---
 
@@ -138,14 +138,17 @@ done
   - 机器人的基准日历时区，供运势抽签、日志归档、广告统计、AI 时间感知、每日维护以及未指定时区的 cron 任务共同使用（不会直接继承宿主机操作系统时区）。
   - 配置时会自动去除首尾空白并规范化名称（例如 `asia/tokyo` 会标准化为 `Asia/Tokyo`）。
   - **时区绑定**：数据库初始化时会将此时区写入 `storage_metadata` 表中。此后机器人启动或安装脚本均会核对此时区；若中途修改 `time_zone` 将导致启动报错退出。已有数据不支持直接更换时区。
+- **`log_level`**（可选，枚举：`"info"` | `"operation"` | `"warn"` | `"error"`，缺省与示例模板均默认 `"operation"`）
+  - 控制统一日志门面控制台输出与 `logs/<YYYY-MM-DD>.json` 磁盘落盘的最低严重度阈值（`info` < `operation` < `warn` < `error`）；存在时去掉首尾空白后严格校验，非法值导致启动失败。
+  - `info` 含以下全部与必要内部代码行为记录；`operation` 记录 Telegram `/` 命令、`/wed` 回调、`/qa set` 表单、Mini App 登录/登出及改动操作（含 `warn`/`error`）；`warn` 含警告与错误；`error` 仅记录错误。`info`/`operation`/`warn` 日志在主线程按 32 条批上限或 30 秒间隔缓冲落盘，`error` 日志立即落盘。
 - **`mini_app`**（可选，对象：`{ url: string, port: number, host?: string, password: string }`）
-  - 超级管理员专属 Telegram Mini App 管理控制台配置；整节缺省时，机器人不启动本地 HTTP 服务，也不挂载私聊入口按钮。
+  - 超级管理员专属 Telegram Mini App 管理控制台配置；整节缺省时，机器人不启动本地 HTTP 服务，也不挂载私聊入口按钮；配置存在时 `url`、`port`、`password` 必填，`host` 可选。
   - **字段要求**：
     - `url`：必填，公网 `https://` 绝对地址（支持带子路径前缀）。
     - `port`：必填，本地监听端口（`MINI_APP_PORT_MIN`～`MINI_APP_PORT_MAX` 正整数，示例配置为 `3000`）。
-    - `host`：可选，缺省为 `MINI_APP_DEFAULT_HOST`（`"127.0.0.1"`）。
+    - `host`：可选，非空本地监听地址，缺省为 `MINI_APP_DEFAULT_HOST`（`"127.0.0.1"`）。
     - `password`：必填，首屏访问密码（非占位符字符串，至少包含 6 位数字 `0-9`；手工从 `config_example/` 复制配置且不使用 Mini App 时须删除整节 `mini_app`）。
-  - **运行与认证**：配置后启动本地 `Bun.serve` HTTP 控制台，在超级管理员私聊左下角挂载 `MenuButtonWebApp`（`App` 按钮），启用 `initData` 签名 + 首屏凭据的双层鉴权，并支持绑定 Google Authenticator TOTP 动态码（持久化于 `memory/mini-app-totp/totp.json`）。完整设置步骤、Cloudflare Tunnel 推荐配置、会话续接/防爆破锁定规则与 TOTP 绑定见 [10 Mini App 设置与推荐配置](10-mini-app.md)。
+  - **运行与认证**：配置后启动本地 `Bun.serve` HTTP 控制台，在超级管理员私聊左下角挂载 `MenuButtonWebApp`（`App` 按钮），启用 `initData` 签名 + 首屏凭据的双层鉴权（每次启动内存生成 `Ed25519` 验签公钥 + 临时 `X25519` ECDH 协商）、256-bit 临时会话密钥 AES-256-GCM 传输加密（5 秒～5 分钟随机冷却后触发 45 分钟滑动续期、单次登录最长 2 小时）与在线高亮 JSON 配置编辑器，并支持绑定 Google Authenticator TOTP 动态码（持久化于 `memory/mini-app-totp/totp.json`）。完整设置步骤、Cloudflare Tunnel 推荐配置、会话续接/防爆破锁定规则与 TOTP 绑定见 [10 Mini App 设置与推荐配置](10-mini-app.md)。
 
 ---
 

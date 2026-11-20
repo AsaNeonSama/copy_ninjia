@@ -12,7 +12,7 @@ import { redactUrlForLog } from "../../../libs/redaction";
 import { logger } from "../../logger";
 import { logApiError } from "../client";
 import { runTelegramCategorizedRequest } from "../outboundGate";
-import { defaultAvatarPhotoType, describeDefaultAvatar } from "./photoType";
+import { defaultAvatarPhotoType, describeDefaultAvatar } from "../../../libs/avatarPhotoType";
 import { avatarFailureFor, runAvatarFetchAttempts, setBotProfilePhoto } from "./shared";
 import type {
   AvatarFetchAttemptsOutcome,
@@ -61,7 +61,6 @@ async function attemptRestoreDefaultProfilePhoto(
   attempt: number,
   signal?: AbortSignal
 ): Promise<AvatarOperationAttemptResult> {
-  const label: string = source.kind === "url" ? redactUrlForLog(source.url) : source.path;
   try {
     const media: DefaultAvatarRead = source.kind === "url"
       ? await downloadDefaultAvatar(source.url, attempt, signal)
@@ -71,7 +70,13 @@ async function attemptRestoreDefaultProfilePhoto(
     return "ok";
   } catch (error: unknown) {
     if (signal?.aborted) return "permanent-failure";
-    logApiError(`restore default profile photo from ${label} (attempt ${attempt}/${AVATAR_FETCH_MAX_ATTEMPTS})`, error);
+    logApiError(
+      "restore default profile photo",
+      error,
+      source.kind === "url"
+        ? { sourceKind: "url", url: redactUrlForLog(source.url), attempt, maxAttempts: AVATAR_FETCH_MAX_ATTEMPTS }
+        : { sourceKind: "path", path: source.path, attempt, maxAttempts: AVATAR_FETCH_MAX_ATTEMPTS }
+    );
     return avatarFailureFor(error);
   }
 }
@@ -94,20 +99,32 @@ async function downloadDefaultAvatar(url: string, attempt: number, signal?: Abor
   });
   if (!response.ok) {
     void discardResponseBody(response);
-    logger.error(`Failed to download the default avatar (${response.status}) from ${redactUrlForLog(url)} (attempt ${attempt}/${AVATAR_FETCH_MAX_ATTEMPTS})`);
+    logger.error("Failed to download the default avatar.", {
+      url: redactUrlForLog(url),
+      status: response.status,
+      attempt,
+      maxAttempts: AVATAR_FETCH_MAX_ATTEMPTS,
+    });
     return "transient-failure";
   }
   const download: BoundedResponseResult = await readBoundedResponseBytes(response, DEFAULT_AVATAR_MAX_READ_BYTES);
   if (!download.ok) {
-    logger.error(`The default avatar at ${redactUrlForLog(url)} exceeded the download limit (${download.observedBytes} bytes)`);
+    logger.error("Default avatar exceeded the download limit.", {
+      url: redactUrlForLog(url),
+      observedBytes: download.observedBytes,
+    });
     return "permanent-failure";
   }
   const type: InputProfilePhoto["type"] | null = defaultAvatarPhotoType(download.bytes);
   if (type === null) {
     logger.error(
-      `The default avatar link ${redactUrlForLog(url)} did not return ${DEFAULT_AVATAR_EXPECTED_FORM} ` +
-      `(sniffed=${describeDefaultAvatar(download.bytes)}, bytes=${download.bytes.byteLength}); ` +
-      "it must serve raw media bytes rather than an HTML page such as a login, quota or virus-scan interstitial"
+      "Default avatar link did not return supported media bytes; it must serve raw media bytes rather than an HTML page such as a login, quota or virus-scan interstitial.",
+      {
+        url: redactUrlForLog(url),
+        expectedForm: DEFAULT_AVATAR_EXPECTED_FORM,
+        sniffed: describeDefaultAvatar(download.bytes),
+        bytes: download.bytes.byteLength,
+      }
     );
     return "permanent-failure";
   }
@@ -125,19 +142,24 @@ async function readDefaultAvatarFile(path: string): Promise<DefaultAvatarRead> {
   try {
     bytes = await Bun.file(path).slice(0, DEFAULT_AVATAR_MAX_READ_BYTES + 1).bytes();
   } catch (error: unknown) {
-    logger.error(`Failed to read the default avatar file ${path}:`, error);
+    logger.error("Failed to read the default avatar file:", { path }, error);
     return "permanent-failure";
   }
   if (bytes.byteLength > DEFAULT_AVATAR_MAX_READ_BYTES) {
-    logger.error(`The default avatar file ${path} exceeds the size limit (${DEFAULT_AVATAR_MAX_READ_BYTES} bytes)`);
+    logger.error("Default avatar file exceeds the size limit.", {
+      path,
+      maxBytes: DEFAULT_AVATAR_MAX_READ_BYTES,
+    });
     return "permanent-failure";
   }
   const type: InputProfilePhoto["type"] | null = defaultAvatarPhotoType(bytes);
   if (type === null) {
-    logger.error(
-      `The default avatar file ${path} is not ${DEFAULT_AVATAR_EXPECTED_FORM} ` +
-      `(sniffed=${describeDefaultAvatar(bytes)}, bytes=${bytes.byteLength})`
-    );
+    logger.error("Default avatar file is not in a supported media format.", {
+      path,
+      expectedForm: DEFAULT_AVATAR_EXPECTED_FORM,
+      sniffed: describeDefaultAvatar(bytes),
+      bytes: bytes.byteLength,
+    });
     return "permanent-failure";
   }
   return { bytes, type };

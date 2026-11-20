@@ -143,7 +143,7 @@ function createFakeDependencies(): {
       createFixture,
       runInstaller,
       systemdPrompt: (): PromptReply => ({ prompt: `systemd ${REQUIRED_BUN_VERSION}`, reply: "y" }),
-      validTelegram: (): string => JSON.stringify({ bot_token: "1:mock", super_admin_user_id: 1 }),
+      validTelegram: (): string => JSON.stringify({ bot_token: "1:mock", super_admin_user_id: 1, log_level: "operation" }),
       writeText: mockWriteText,
     },
     getCallCount: (): number => installerCallCount,

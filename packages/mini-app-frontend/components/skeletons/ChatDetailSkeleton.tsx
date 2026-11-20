@@ -1,6 +1,6 @@
 import type React from "react";
 import { MINI_APP_FEATURE_KEYS } from "../../consts/miniApp";
-import type { MiniAppFeatureKey } from "../../types/miniApp";
+import type { MiniAppFeatureKey } from "../../types/miniApp/chats";
 
 /**
  * 渲染受管群详细状态与功能开关面板的三卡片骨架屏（群概览卡片、入群统计卡片与 7 项功能开关行占位）。
@@ -10,7 +10,7 @@ import type { MiniAppFeatureKey } from "../../types/miniApp";
 export function ChatDetailSkeleton(): React.JSX.Element {
   return (
     <div className="skeleton-detail-wrap animate-fade-in" aria-hidden="true">
-      <div className="card">
+      <div className="card chat-detail-skeleton-overview">
         <div className="skeleton-row-between">
           <div className="skeleton-line skeleton-title-bar" />
           <div className="skeleton-line skeleton-badge-pill" />
@@ -18,12 +18,12 @@ export function ChatDetailSkeleton(): React.JSX.Element {
         <div className="skeleton-line skeleton-sub-bar" />
         <div className="skeleton-line skeleton-perm-banner" />
       </div>
-      <div className="card">
+      <div className="card chat-detail-skeleton-join">
         <div className="skeleton-line skeleton-section-bar" />
         <div className="skeleton-line skeleton-perm-banner skeleton-perm-banner-spaced" />
         <div className="skeleton-line skeleton-perm-banner" />
       </div>
-      <div className="card">
+      <div className="card chat-detail-skeleton-features">
         <div className="skeleton-line skeleton-section-bar" />
         {MINI_APP_FEATURE_KEYS.map((key: MiniAppFeatureKey): React.JSX.Element => (
           <div key={key} className="row skeleton-switch-row">

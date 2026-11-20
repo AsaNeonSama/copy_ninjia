@@ -246,4 +246,29 @@ describe("AI 主线程消息入口", () => {
     expect(workerPosts).toEqual([message]);
     expect(message.replyTelegramBackpressured).toBeUndefined();
   });
+
+  test("本群登记了问答时，发起回复的媒体同步携带与复用群问答 JSON，不发起回复的媒体保持缺省", () => {
+    const entries: Map<string, string> = new Map<string, string>([
+      ["几点集合", "早上九点"],
+      ["带什么", "身份证"],
+    ]);
+    chatQaEntries.set(-1001, entries);
+    try {
+      const replying = aiRecordMediaMessageFixture({ replyTelegramBackpressured: false });
+      const silent = aiRecordMediaMessageFixture({ replyTelegramBackpressured: undefined });
+
+      recordChatMedia(replying);
+      recordChatMedia(silent);
+
+      const expectedJson: string = JSON.stringify([...entries]);
+      expect(chatQaTriggerJson.get(-1001)).toBe(expectedJson);
+      expect(replying.chatQaJson).toBe(expectedJson);
+      expect(replying.chatQaCount).toBe(2);
+      expect(silent.chatQaJson).toBeUndefined();
+      expect(silent.chatQaCount).toBe(0);
+    } finally {
+      chatQaEntries.delete(-1001);
+      chatQaTriggerJson.clear();
+    }
+  });
 });

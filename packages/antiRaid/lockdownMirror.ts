@@ -12,9 +12,9 @@ import {
   saveChatStateInBackground,
 } from "../infra/chatStateStorage";
 import { telegramApi } from "../infra/telegram/client";
-import { deleteMessageWithOutcome } from "../infra/telegram/actions";
+import { deleteMessageWithOutcome } from "../infra/telegram/actions/messageLifecycle";
 import { restoreLockdownInvitePermission } from "../infra/telegram/lockdownPermissions";
-import { RESTORE_RETRY_MS } from "../consts/antiRaid/lockdown";
+import { LOCKDOWN_MS, RESTORE_RETRY_MS } from "../consts/antiRaid/lockdown";
 import { antiRaidRuntimeState } from "../cache/main/antiRaid/proxy";
 import {
   emergencyLockdownRecoveries,
@@ -88,7 +88,7 @@ function lockdownIntentMatches(
 }
 
 /**
- * 将群状态中的封锁记录换算为可供 Worker 接管的快照条目。
+ * 将群状态中的封锁记录换算为可供 Worker 接管的快照条目（`remainingMs` 夹紧在 `[0, LOCKDOWN_MS]`）。
  *
  * @param chatId 群聊 ID
  * @param record 群状态中的封锁记录
@@ -107,7 +107,7 @@ function toAdoptableLockdown(
     originalPermissions: record.originalPermissions,
     announced: record.announced,
     announcementMessageId: record.announcementMessageId,
-    remainingMs: Math.max(0, record.expiresAt - now),
+    remainingMs: Math.min(LOCKDOWN_MS, Math.max(0, record.expiresAt - now)),
     persisted: lockdownFingerprintMatches(record, persistedLockdownFingerprints.get(chatId)),
   };
 }
@@ -167,7 +167,8 @@ function finishEmergencyLockdownRecovery(
 function deleteEmergencyLockdownAnnouncement(chatId: number, messageId: number): void {
   void deleteMessageWithOutcome(chatId, messageId, telegramApi).catch((error: unknown): void => {
     logger.error(
-      `Error deleting the anti-raid lockdown announcement in chat ${chatId} after emergency restore:`,
+      "Error deleting the anti-raid lockdown announcement after emergency restore:",
+      { chatId },
       error
     );
   });
@@ -217,8 +218,8 @@ function runEmergencyLockdownRecovery(
         !lockdownIntentMatches(current, recovery.fingerprint)
       ) {
         logger.warn(
-          `Emergency anti-raid restore for chat ${chatId} completed after its lockdown intent changed; ` +
-          "leaving the newer state untouched."
+          "Emergency anti-raid restore completed after its lockdown intent changed; leaving the newer state untouched.",
+          { chatId }
         );
         finishEmergencyLockdownRecovery(chatId, recovery);
         return;
@@ -231,7 +232,7 @@ function runEmergencyLockdownRecovery(
         saveChatStateInBackground(chatId, "emergency anti-raid unlock");
         antiRaidRuntimeState.lockdownVersion++;
       }
-      logger.log(`Emergency anti-raid permission restore completed for chat ${chatId}.`);
+      logger.info("Emergency anti-raid permission restore completed.", { chatId });
       finishEmergencyLockdownRecovery(chatId, recovery);
     } catch (error: unknown) {
       const current: LockdownRecord | undefined = getChatStateCache().get(chatId)?.lockdown;
@@ -245,8 +246,8 @@ function runEmergencyLockdownRecovery(
         return;
       }
       logger.error(
-        `Emergency anti-raid permission restore failed for chat ${chatId}; ` +
-        `retrying in ${RESTORE_RETRY_MS / 1000}s:`,
+        "Emergency anti-raid permission restore failed; retrying shortly:",
+        { chatId, retryDelaySeconds: RESTORE_RETRY_MS / 1000 },
         error
       );
       recovery.retryTimer = setTimeout((): void => {
@@ -332,7 +333,7 @@ export function recoverAbandonedLockdowns(): void {
   }
   if (abandoned.length === 0) return;
   logger.error(
-    "Anti-raid Worker gave up self-healing; main-thread emergency permission recovery started for chats: " +
-    abandoned.join(", ")
+    "Anti-raid Worker gave up self-healing; main-thread emergency permission recovery started.",
+    { chatIds: abandoned }
   );
 }

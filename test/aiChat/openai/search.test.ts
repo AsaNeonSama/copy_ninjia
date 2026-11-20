@@ -16,9 +16,9 @@ async function requestOpenAiResultStub(..._args: unknown[]): Promise<OpenAiReque
   return { ok: false, failureKind: "request" };
 }
 const requestOpenAiResult = mock(requestOpenAiResultStub);
-mock.module("../../../packages/aiChat/openai/client", () => ({ requestOpenAiResult }));
+mock.module("../../../packages/workers/aiChat/openai/client", () => ({ requestOpenAiResult }));
 
-const { searchOpenAiWeb } = await import("../../../packages/aiChat/openai/search");
+const { searchOpenAiWeb } = await import("../../../packages/workers/aiChat/openai/search");
 const {
   OPENAI_STORE_RESPONSES,
   OPENAI_WEB_SEARCH_MAX_TOKENS,

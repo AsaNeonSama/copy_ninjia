@@ -189,7 +189,8 @@ export interface HandleVerificationUpsertParams {
 }
 
 /**
- * 处理待验证 upsert：按 generation/revision 去重后更新镜像，关键变更或满批立即落盘，否则定时落盘。
+ * 处理待验证 upsert：按 generation/revision 去重后更新镜像，关键变更或满批立即落盘，否则定时落盘；
+ * 若已存在同代同版或更新的待写普通变更而本次为关键写，则立即触发关键落盘；若已落盘覆盖且无待写变更，立即补回 `verificationPersisted`。
  * @param params upsert 消息、回执出口及可选目录与日期键。
  */
 export async function handleVerificationUpsert({
@@ -201,12 +202,28 @@ export async function handleVerificationUpsert({
   const key: string = verificationKey(msg.record.chatId, msg.record.userId);
   const pending: VerificationFileChange | undefined =
     verificationPendingChanges.get(key);
-  if (sameOrNewer(pending, msg.record.generation, msg.record.revision)) return;
+  if (sameOrNewer(pending, msg.record.generation, msg.record.revision)) {
+    if (msg.critical) {
+      await flushCriticalVerificationChanges(reply, dir, day);
+    }
+    return;
+  }
   const current: VerificationSnapshot | undefined = verificationWorkerCache.get(key);
   if (
     current?.generation === msg.record.generation &&
     current.revision >= msg.record.revision
-  ) return;
+  ) {
+    if (pending === undefined) {
+      reply({
+        type: "verificationPersisted",
+        key,
+        generation: current.generation,
+        revision: current.revision,
+        deleted: false,
+      });
+    }
+    return;
+  }
   if (
     current === undefined &&
     verificationWorkerCache.size >= VERIFICATION_RECORD_CAPACITY

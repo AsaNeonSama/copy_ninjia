@@ -1,4 +1,5 @@
 import { protectedIdentityMutationQueue } from "../../cache/main/blocklist";
+import { runSerialChain } from "../../libs/serialChain";
 
 /**
  * 串行执行会改变「白名单成员 / 动态黑名单成员」互斥关系的主线程操作。
@@ -11,10 +12,5 @@ import { protectedIdentityMutationQueue } from "../../cache/main/blocklist";
 export function runProtectedIdentityMutation<T>(
   mutation: () => T | Promise<T>
 ): Promise<T> {
-  const result: Promise<T> = protectedIdentityMutationQueue.current.then(mutation);
-  protectedIdentityMutationQueue.current = result.then(
-    (): void => undefined,
-    (): void => undefined
-  );
-  return result;
+  return runSerialChain(protectedIdentityMutationQueue, mutation);
 }

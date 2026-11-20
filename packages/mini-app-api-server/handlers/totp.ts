@@ -1,5 +1,9 @@
 import { SUPER_ADMIN_USER_ID } from "../../config/bot";
-import type { MiniAppTotpMutationResponse } from "../../types/miniAppTotp";
+import { logger } from "../../infra/logger";
+import type {
+  MiniAppTotpMutationResponse,
+  MiniAppTotpSetupResponse,
+} from "../../types/miniAppTotp";
 import { revokeOtherMiniAppAuthSessions } from "../auth/session";
 import {
   createPendingMiniAppTotpSetup,
@@ -7,7 +11,7 @@ import {
   enableMiniAppTotpFromPending,
   getMiniAppTotpStatus,
 } from "../auth/totpStorage";
-import { extractSessionToken, readJsonObjectBody } from "../libs/request";
+import { readJsonObjectBody } from "../libs/request";
 import { jsonResponse } from "../libs/response";
 
 /**
@@ -23,16 +27,21 @@ export async function handleGetTotpRoute(): Promise<Response> {
  * @returns JSON 响应。
  */
 export function handlePostTotpSetupRoute(): Response {
-  return jsonResponse(createPendingMiniAppTotpSetup(SUPER_ADMIN_USER_ID));
+  const setup: Readonly<MiniAppTotpSetupResponse> =
+    createPendingMiniAppTotpSetup(SUPER_ADMIN_USER_ID);
+  logger.operation("[MiniApp] totp.setup", { pendingSecretGenerated: true });
+  return jsonResponse(setup);
 }
 
 /**
- * 处理 `POST /api/totp/enable`：校验前端提交的 6 位动态码，通过后激活或替换 `memory/mini-app-totp/totp.json` 中的唯一验证器记录，并吊销除当前请求会话以外的其余已登录会话。
+ * 处理 `POST /api/totp/enable`：校验前端提交的 6 位动态码，通过后激活或替换 `memory/mini-app-totp/totp.json` 中的唯一验证器记录，并按已提交会话的内部谱系标识保留调用者会话、吊销其余已登录会话。
  * @param request HTTP 请求对象。
+ * @param sessionLineageId 鉴权提交阶段确认的调用者会话内部谱系标识。
  * @returns JSON 响应。
  */
 export async function handlePostTotpEnableRoute(
-  request: Request
+  request: Request,
+  sessionLineageId?: string
 ): Promise<Response> {
   const body: Record<string, unknown> | null = await readJsonObjectBody(
     request
@@ -41,21 +50,28 @@ export async function handlePostTotpEnableRoute(
   const result: Readonly<MiniAppTotpMutationResponse> =
     await enableMiniAppTotpFromPending(code);
   if (result.ok) {
-    revokeOtherMiniAppAuthSessions(extractSessionToken(request));
+    revokeOtherMiniAppAuthSessions(sessionLineageId ?? "");
   }
+  logger.operation("[MiniApp] totp.enable", { ok: result.ok });
   return jsonResponse(result, result.ok ? 200 : 400);
 }
 
 /**
- * 处理 `DELETE /api/totp` 或 `POST /api/totp/delete`：删除当前唯一的 Google Authenticator 验证器以恢复密码登录，并吊销除当前请求会话以外的其余已登录会话。
- * @param request 可选的 HTTP 请求对象（携带发起本次删除操作的当前会话令牌）。
+ * 处理 `DELETE /api/totp` 或 `POST /api/totp/delete`：删除当前唯一的 Google Authenticator 验证器以恢复密码登录，并按已提交会话的内部谱系标识保留调用者会话、吊销其余已登录会话。
+ * @param sessionLineageId 鉴权提交阶段确认的调用者会话内部谱系标识。
  * @returns JSON 响应。
  */
-export async function handleDeleteTotpRoute(request?: Request): Promise<Response> {
+export async function handleDeleteTotpRoute(
+  sessionLineageId?: string
+): Promise<Response> {
   const result: Readonly<MiniAppTotpMutationResponse> =
     await deleteMiniAppTotpRecord();
-  if (request !== undefined) {
-    revokeOtherMiniAppAuthSessions(extractSessionToken(request));
+  if (sessionLineageId !== undefined) {
+    revokeOtherMiniAppAuthSessions(sessionLineageId);
   }
+  logger.operation("[MiniApp] totp.delete", {
+    ok: result.ok,
+    deleted: result.ok && !result.status.enabled,
+  });
   return jsonResponse(result);
 }

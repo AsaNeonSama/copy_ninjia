@@ -3,7 +3,11 @@
  * 事件归并、重放数据构建及外部观察者注册分别位于同目录的叶子模块。
  */
 import { emergencyLockdownRecoveryRuntime } from "../../cache/main/antiRaid/lockdownMirror";
-import { antiRaidBarrier, antiRaidRuntimeState } from "../../cache/main/antiRaid/proxy";
+import {
+  adCandidatePostRejected,
+  antiRaidBarrier,
+  antiRaidRuntimeState,
+} from "../../cache/main/antiRaid/proxy";
 import {
   activeVerificationSnapshots,
   persistedVerificationRevisions,
@@ -210,6 +214,7 @@ export function initAntiRaid(): void {
   antiRaidRuntimeState.initialized = true;
   antiRaidRuntimeState.verificationVersion = 0;
   antiRaidRuntimeState.lockdownVersion = 0;
+  adCandidatePostRejected.current = false;
   emergencyLockdownRecoveryRuntime.stopped = false;
   seedPersistedLockdownFingerprints();
   const generation: number = nextAntiRaidGeneration();
@@ -232,11 +237,12 @@ export function initAntiRaid(): void {
     const adopt: AdoptLockdownsMessage = buildAdoptLockdownsMessage();
     if (adopt.lockdowns.length > 0) {
       postAntiRaidOrThrow(adopt);
-      logger.log(
-        "Adopted lockdowns still active from previous process exit: " +
-        adopt.lockdowns
-          .map((lockdown: AdoptableLockdown): number => lockdown.chatId)
-          .join(", ")
+      logger.info(
+        "Adopted lockdowns still active from previous process exit.",
+        {
+          chatIds: adopt.lockdowns
+            .map((lockdown: AdoptableLockdown): number => lockdown.chatId),
+        }
       );
     }
     // 先 adopt 再拆残留，使 Worker 发出持久化 tombstone。

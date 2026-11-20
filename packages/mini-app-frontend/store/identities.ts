@@ -1,21 +1,12 @@
 import { createStore } from "zustand";
 import type { StoreApi } from "zustand";
 import { fetchMiniAppBlocklist } from "../api/blocklist";
-import { setMiniAppBlocklistMembership } from "../api/blocklistMembership";
 import { requestMiniAppPreparedPicker } from "../api/pickerPrepare";
-import { waitForMiniAppPickerResult } from "../api/pickerResult";
 import { fetchMiniAppWhitelist } from "../api/whitelist";
-import { setMiniAppWhitelistMembership } from "../api/whitelistMembership";
-import {
-  MINI_APP_IDENTITY_DEFAULT_PAGE_SIZE,
-  MINI_APP_SIGNED_INTEGER_PATTERN,
-} from "../consts/miniApp";
+import { MINI_APP_IDENTITY_DEFAULT_PAGE_SIZE } from "../consts/miniApp/ui";
 import { getMiniAppTranslations } from "../i18n";
-import type { MiniAppTranslations } from "../i18n";
 import { errorMessage } from "../libs/errorMessage";
-import { truncateDisplayText } from "../libs/formatters";
 import { waitMinimumLoadingDuration } from "../libs/loading";
-import { getTelegramWebApp } from "../libs/telegram";
 import type {
   MiniAppBlocklistEntryView,
   MiniAppBlocklistPage,
@@ -27,10 +18,17 @@ import type {
   MiniAppWhitelistEntryView,
   MiniAppWhitelistPage,
   PrepareMiniAppPickerResult,
-  TelegramWebApp,
-} from "../types/miniApp";
-import { useMiniAppStore } from "./app";
-import type { MiniAppUiStoreState } from "./app";
+} from "../types/miniApp/identities";
+import { notifyMiniAppIfAuthError, useMiniAppStore } from "./app";
+import { createIdentitiesMutations } from "./identitiesMutations";
+import {
+  createMiniAppNativePickerController,
+  resolveNativePickerWebApp,
+} from "./nativePicker";
+import type {
+  MiniAppNativePickerController,
+  NativePickerCapableWebApp,
+} from "./nativePicker";
 
 /** `IdentitiesPage` 黑白名单管理的状态与动作接口。 */
 export interface MiniAppIdentitiesStoreState {
@@ -50,6 +48,8 @@ export interface MiniAppIdentitiesStoreState {
   readonly duplicateAlertText: string | null;
   /** 是否有名单写操作或选择器准备在进行。 */
   readonly busyAction: boolean;
+  /** 正在预备 Telegram 原生选择器的模式键（`"users"` 或 `"channel"`；未预备时为 `null`）。 */
+  readonly preparingPickerMode: MiniAppPickerSubjectKind | null;
   /** 是否正在加载当前子标签的列表。 */
   readonly loadingList: boolean;
   /** 白名单当前请求页码。 */
@@ -115,6 +115,8 @@ export interface MiniAppIdentitiesStoreState {
   readonly setBlocklistPageNumber: (page: number) => void;
   /** 切换黑名单每页条数并回到第 1 页。 */
   readonly setBlocklistPageSize: (pageSize: number) => void;
+  /** 中止未完成的 Telegram 原生选择器结果轮询并作废未触发的选择器回调（供页面卸载清理使用）。 */
+  readonly cancelPendingPicker: () => void;
 }
 
 /** 一个 `IdentitiesPage` 实例独占的状态仓库。 */
@@ -133,6 +135,8 @@ export function createIdentitiesStore(): MiniAppIdentitiesStore {
     ): MiniAppIdentitiesStoreState => {
       let requestSeq: number = 0;
       let clampedFollowUpKey: string | null = null;
+      const pickerController: MiniAppNativePickerController =
+        createMiniAppNativePickerController();
 
       const notify = (
         message: string,
@@ -142,34 +146,25 @@ export function createIdentitiesStore(): MiniAppIdentitiesStore {
         useMiniAppStore.getState().notify(message, tone, metaSource);
       };
 
+      /**
+       * 展示重复添加的常驻提示；提供服务端结果时 Toast 改为翻译该结果（黑名单重复添加会附带重新跨群封禁计数与落盘确认状态）。
+       */
       const triggerDuplicateNotice = (
-        t: Readonly<MiniAppTranslations>,
-        idText: string,
-        list: MiniAppIdentitySubTabKey
+        alertText: string,
+        serverResult?: Readonly<MiniAppIdentityMutationResult>
       ): void => {
-        const text: string = t.identities.duplicateToast(idText, list);
-        set({ duplicateAlertText: text });
-        notify(text, "warning");
+        set({ duplicateAlertText: alertText });
+        if (serverResult !== undefined) {
+          notify(serverResult.message, "warning", serverResult);
+          return;
+        }
+        notify(alertText, "warning");
       };
 
-      const pollPickerSession = async (
-        requestId: number,
+      const handlePickerResult = async (
+        outcome: Readonly<MiniAppPickerResultEvent>,
         list: MiniAppIdentitySubTabKey
       ): Promise<void> => {
-        let outcome: Readonly<MiniAppPickerResultEvent> | "timeout";
-        try {
-          outcome = await waitForMiniAppPickerResult(requestId);
-        } catch (error: unknown) {
-          notify(errorMessage(error), "warning", error);
-          return;
-        }
-        if (outcome === "timeout") {
-          notify(
-            getMiniAppTranslations(useMiniAppStore.getState().language).identities
-              .pickerTimeoutToast
-          );
-          return;
-        }
         set(
           list === "whitelist"
             ? { whitelistPage: null, loadingList: true }
@@ -185,9 +180,10 @@ export function createIdentitiesStore(): MiniAppIdentitiesStore {
             outcome.summary === "dup")
         ) {
           triggerDuplicateNotice(
-            getMiniAppTranslations(useMiniAppStore.getState().language),
-            outcome.duplicateIds.map((dupId: number): string => `ID ${dupId}`).join(", "),
-            list
+            getMiniAppTranslations(useMiniAppStore.getState().language).identities.duplicateToast(
+              outcome.duplicateIds.map((dupId: number): string => `ID ${dupId}`).join(", "),
+              list
+            )
           );
         } else {
           notify(
@@ -199,33 +195,29 @@ export function createIdentitiesStore(): MiniAppIdentitiesStore {
       };
 
       const openPicker = async (subjectKind: MiniAppPickerSubjectKind): Promise<void> => {
-        const t: Readonly<MiniAppTranslations> =
-          getMiniAppTranslations(useMiniAppStore.getState().language);
-        const webApp: Readonly<TelegramWebApp> | undefined = getTelegramWebApp();
-        if (typeof webApp?.requestChat !== "function") {
-          notify(t.identities.pickerUnsupportedHint, "warning");
+        const webApp: NativePickerCapableWebApp | null = resolveNativePickerWebApp();
+        if (webApp === null) {
           return;
         }
         const list: MiniAppIdentitySubTabKey = get().subTab;
-        set({ busyAction: true });
+        const prepareEpoch: number = pickerController.captureEpoch();
+        set({ busyAction: true, preparingPickerMode: subjectKind });
         try {
           const prepared: Extract<PrepareMiniAppPickerResult, { readonly ok: true }> =
             await requestMiniAppPreparedPicker(list, subjectKind);
           set({ addMenuOpen: false, idFormOpen: false });
-          webApp.requestChat(prepared.preparedButtonId, (accepted: boolean): void => {
-            const nextT: Readonly<MiniAppTranslations> =
-              getMiniAppTranslations(useMiniAppStore.getState().language);
-            if (!accepted) {
-              notify(nextT.identities.pickerCancelledToast);
-              return;
-            }
-            notify(nextT.identities.pickerWaitingToast);
-            void pollPickerSession(prepared.requestId, list);
+          pickerController.launch({
+            webApp,
+            preparedButtonId: prepared.preparedButtonId,
+            requestId: prepared.requestId,
+            expectedEpoch: prepareEpoch,
+            onResult: (outcome: Readonly<MiniAppPickerResultEvent>): Promise<void> =>
+              handlePickerResult(outcome, list),
           });
         } catch (error: unknown) {
           notify(errorMessage(error), undefined, error);
         } finally {
-          set({ busyAction: false });
+          set({ busyAction: false, preparingPickerMode: null });
         }
       };
 
@@ -238,6 +230,7 @@ export function createIdentitiesStore(): MiniAppIdentitiesStore {
         idInput: "",
         duplicateAlertText: null,
         busyAction: false,
+        preparingPickerMode: null,
         loadingList: true,
         whitelistPageNumber: 1,
         whitelistPageSize: MINI_APP_IDENTITY_DEFAULT_PAGE_SIZE,
@@ -336,6 +329,7 @@ export function createIdentitiesStore(): MiniAppIdentitiesStore {
               await waitMinimumLoadingDuration(startedAt);
             }
             if (reqId !== requestSeq) {
+              notifyMiniAppIfAuthError(error);
               return;
             }
             notify(errorMessage(error), undefined, error);
@@ -393,147 +387,12 @@ export function createIdentitiesStore(): MiniAppIdentitiesStore {
           set({ duplicateAlertText: null });
         },
 
-        addById: async (): Promise<void> => {
-          const { idInput, subTab, whitelistPage, blocklistPage }: MiniAppIdentitiesStoreState = get();
-          const t: Readonly<MiniAppTranslations> =
-            getMiniAppTranslations(useMiniAppStore.getState().language);
-          const trimmed: string = idInput.trim();
-          const id: number = Number(trimmed);
-          if (
-            !MINI_APP_SIGNED_INTEGER_PATTERN.test(trimmed) ||
-            !Number.isSafeInteger(id) ||
-            id === 0
-          ) {
-            notify(t.identities.invalidIdToast, "warning");
-            return;
-          }
-
-          const alreadyInCurrentPage: boolean =
-            subTab === "whitelist"
-              ? (whitelistPage?.items.some(
-                (item: Readonly<MiniAppWhitelistEntryView>): boolean => item.id === id
-              ) ?? false)
-              : (blocklistPage?.items.some(
-                (item: Readonly<MiniAppBlocklistEntryView>): boolean => item.id === id
-              ) ?? false);
-          if (alreadyInCurrentPage) {
-            triggerDuplicateNotice(t, `ID ${id}`, subTab);
-            return;
-          }
-
-          set({ busyAction: true });
-          try {
-            const result: MiniAppIdentityMutationResult =
-              subTab === "whitelist"
-                ? await setMiniAppWhitelistMembership(id, true)
-                : await setMiniAppBlocklistMembership(id, true);
-
-            if (result.duplicate === true || (result.ok && !result.changed)) {
-              triggerDuplicateNotice(t, `ID ${id}`, subTab);
-              return;
-            }
-
-            if (!result.ok) {
-              notify(result.message, "danger", result);
-              return;
-            }
-
-            const latestState: MiniAppIdentitiesStoreState = get();
-            const silentRefresh: boolean =
-              latestState.subTab === "whitelist"
-                ? latestState.whitelistPage !== null
-                : latestState.blocklistPage !== null;
-            if (subTab === "whitelist" && latestState.subTab === "whitelist") {
-              set({
-                duplicateAlertText: null,
-                selectedEntryId: id,
-                idInput: "",
-                idFormOpen: false,
-                addMenuOpen: false,
-                ...(silentRefresh ? {} : { loadingList: true }),
-              });
-            } else {
-              set({
-                duplicateAlertText: null,
-                idInput: "",
-                idFormOpen: false,
-                addMenuOpen: false,
-                ...(silentRefresh ? {} : { loadingList: true }),
-              });
-            }
-            await get().loadCurrentList(silentRefresh);
-            notify(result.message, undefined, result);
-          } catch (error: unknown) {
-            notify(errorMessage(error), "danger", error);
-          } finally {
-            set({ busyAction: false });
-          }
-        },
-
-        removeWhitelist: async (entry: Readonly<MiniAppWhitelistEntryView>): Promise<void> => {
-          const app: MiniAppUiStoreState = useMiniAppStore.getState();
-          const t: Readonly<MiniAppTranslations> = getMiniAppTranslations(app.language);
-          if (
-            !(await app.requestConfirm(
-              t.identities.confirmRemoveWhitelist(
-                truncateDisplayText(entry.displayName, 20),
-                entry.id
-              ),
-              "danger"
-            ))
-          ) {
-            return;
-          }
-          set({ busyAction: true });
-          try {
-            const result: MiniAppIdentityMutationResult =
-              await setMiniAppWhitelistMembership(entry.id, false);
-            const silentRefresh: boolean = get().whitelistPage !== null;
-            if (get().selectedEntryId === entry.id) {
-              set({ selectedEntryId: null });
-            }
-            if (!silentRefresh) {
-              set({ loadingList: true });
-            }
-            await get().loadCurrentList(silentRefresh);
-            notify(result.message, result.changed ? undefined : "warning", result);
-          } catch (error: unknown) {
-            notify(errorMessage(error), "danger", error);
-          } finally {
-            set({ busyAction: false });
-          }
-        },
-
-        removeBlocklist: async (entry: Readonly<MiniAppBlocklistEntryView>): Promise<void> => {
-          const app: MiniAppUiStoreState = useMiniAppStore.getState();
-          const t: Readonly<MiniAppTranslations> = getMiniAppTranslations(app.language);
-          if (
-            !(await app.requestConfirm(
-              t.identities.confirmRemoveBlocklist(
-                truncateDisplayText(entry.displayName, 20),
-                entry.id
-              ),
-              "danger"
-            ))
-          ) {
-            return;
-          }
-          set({ busyAction: true });
-          try {
-            const result: MiniAppIdentityMutationResult =
-              await setMiniAppBlocklistMembership(entry.id, false);
-            const silentRefresh: boolean = get().blocklistPage !== null;
-            if (!silentRefresh) {
-              set({ loadingList: true });
-            }
-            await get().loadCurrentList(silentRefresh);
-            notify(result.message, result.changed ? undefined : "warning", result);
-          } catch (error: unknown) {
-            notify(errorMessage(error), "danger", error);
-          } finally {
-            set({ busyAction: false });
-          }
-        },
+        ...createIdentitiesMutations({
+          set,
+          get,
+          notify,
+          triggerDuplicateNotice,
+        }),
 
         togglePermissionDrawer: (entryId: number): void => {
           set({ selectedEntryId: get().selectedEntryId === entryId ? null : entryId });
@@ -557,6 +416,10 @@ export function createIdentitiesStore(): MiniAppIdentitiesStore {
 
         setBlocklistPageSize: (pageSize: number): void => {
           set({ blocklistPageNumber: 1, blocklistPageSize: pageSize });
+        },
+
+        cancelPendingPicker: (): void => {
+          pickerController.cancel();
         },
       };
     }

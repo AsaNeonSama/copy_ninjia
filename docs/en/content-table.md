@@ -76,7 +76,7 @@ Comprehensive multi-page developer documentation covering environment setup, sys
   </tr>
   <tr>
     <td><nobr>🖥️ <b>Mini App Console</b></nobr></td>
-    <td><code>mini_app</code> setup, recommended Cloudflare Tunnel configuration, two-tier auth, and TOTP binding</td>
+    <td><code>mini_app</code> setup, Cloudflare Tunnel exposure, two-tier auth &amp; AES-256-GCM encryption, TOTP binding, and online JSON config editor</td>
     <td align="center"><nobr><a href="10-mini-app.md">📖 10 Mini App Setup</a></nobr></td>
   </tr>
   <tr>
@@ -149,7 +149,7 @@ Comprehensive multi-page developer documentation covering environment setup, sys
 10. **[10 Mini App Setup and Recommended Configuration](10-mini-app.md)**
     - Configuring the `mini_app` section in `config/static/bot.json` and activation rules.
     - Exposing the local HTTP server via Cloudflare Tunnel (`cloudflared`), DNS routing, and systemd service setup.
-    - Private-chat `App` button entry, two-tier authentication, and binding Google Authenticator (TOTP) 2FA.
+    - Private-chat `App` button entry, two-tier authentication with 256-bit key AES-256-GCM transport encryption, Google Authenticator (TOTP) 2FA, and the online highlighted JSON config editor.
 
 11. **[11 Performance Benchmark](11-performance.md)**
     - Measurement scope of `bun run perf:full`: cold-start recovery, production hot paths, SQLite transaction chains, and data structures.

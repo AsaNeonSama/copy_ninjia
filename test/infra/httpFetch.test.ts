@@ -87,7 +87,12 @@ describe("fetchJsonWithTimeout", () => {
 
     expect(await fetchJsonWithTimeout({ input: allowedUrl("/large"), init: {}, timeoutMs: 1000, errorLabel: "Large API" })).toBeNull();
     expect(loggerError).toHaveBeenCalledWith(
-      `Large API response exceeded ${JSON_API_MAX_RESPONSE_BYTES} bytes (observed ${JSON_API_MAX_RESPONSE_BYTES + 1}).`
+      "JSON API response exceeded size limit.",
+      {
+        api: "Large API",
+        maxBytes: JSON_API_MAX_RESPONSE_BYTES,
+        observedBytes: JSON_API_MAX_RESPONSE_BYTES + 1,
+      }
     );
   });
 
@@ -99,7 +104,12 @@ describe("fetchJsonWithTimeout", () => {
 
     expect(await fetchJsonWithTimeout({ input: allowedUrl("/stream"), init: {}, timeoutMs: 1000, errorLabel: "Stream API" })).toBeNull();
     expect(loggerError).toHaveBeenCalledWith(
-      `Stream API response exceeded ${JSON_API_MAX_RESPONSE_BYTES} bytes (observed ${JSON_API_MAX_RESPONSE_BYTES + 1}).`
+      "JSON API response exceeded size limit.",
+      {
+        api: "Stream API",
+        maxBytes: JSON_API_MAX_RESPONSE_BYTES,
+        observedBytes: JSON_API_MAX_RESPONSE_BYTES + 1,
+      }
     );
   });
 
@@ -108,7 +118,14 @@ describe("fetchJsonWithTimeout", () => {
     installFetch(async (): Promise<Response> => new Response(body, { status: 502 }));
 
     expect(await fetchJsonWithTimeout({ input: allowedUrl("/error"), init: {}, timeoutMs: 1000, errorLabel: "Error API" })).toBeNull();
-    expect(loggerError).toHaveBeenCalledWith(`Error API error: 502 ${"x".repeat(JSON_API_ERROR_LOG_MAX_CHARS)}…`);
+    expect(loggerError).toHaveBeenCalledWith(
+      "JSON API returned error response.",
+      {
+        api: "Error API",
+        status: 502,
+        preview: `${"x".repeat(JSON_API_ERROR_LOG_MAX_CHARS)}…`,
+      }
+    );
   });
 
   test("非法 JSON 和读取中断统一返回 null 并记录异常", async () => {

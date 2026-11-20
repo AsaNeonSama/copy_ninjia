@@ -20,18 +20,31 @@ import {
   MINI_APP_TOAST_DURATION_MS,
   TRANSLATE_CHAT_USER_LIMIT,
 } from "../../packages/mini-app-frontend/consts/miniApp";
-import { getMiniAppTranslations } from "../../packages/mini-app-frontend/i18n";
+import {
+  extractServerNoticeParams,
+  getMiniAppTranslations,
+} from "../../packages/mini-app-frontend/i18n";
 import {
   clearMiniAppSessionToken,
   readMiniAppSessionExpiresAt,
   readMiniAppSessionToken,
-  setMiniAppSessionToken,
 } from "../../packages/mini-app-frontend/libs/credentials";
 import { resetMiniAppStoreForTest, useMiniAppStore } from "../../packages/mini-app-frontend/store/app";
 import { createChatsStore } from "../../packages/mini-app-frontend/store/chats";
 import { createIdentitiesStore } from "../../packages/mini-app-frontend/store/identities";
 import { createTotpStore } from "../../packages/mini-app-frontend/store/totp";
 import type { MiniAppTranslations } from "../../packages/mini-app-frontend/types/miniAppI18n";
+import {
+  seedTestMiniAppSession,
+  TEST_SESSION_KEY,
+  wrapEncryptedTestFetch,
+} from "./helpers/encryptedFetchMock";
+import {
+  drainImmediate,
+  flushFakeTimersUntil,
+  flushUntil,
+  resolveWithFakeTimers,
+} from "./helpers/fakeTimerFlush";
 
 /** 一条路由夹具：按请求返回响应。 */
 type RouteHandler = (url: URL, init: RequestInit | undefined) => Response | Promise<Response>;
@@ -51,22 +64,17 @@ function json(payload: unknown, status: number = 200): Response {
   return Response.json(payload, { status });
 }
 
-/** 等待超过加载骨架最短展示时长，让带最短时长的加载动作结算。 */
-async function settleLoading(): Promise<void> {
-  await Bun.sleep(MINI_APP_MIN_LOADING_MS + 120);
-}
-
 beforeEach((): void => {
   routes.clear();
   fetchCalls.length = 0;
-  globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: RequestInit): Promise<Response> => {
-    const url: URL = new URL(String(input), "http://mini.test/");
+  seedTestMiniAppSession("0".repeat(64), Date.now() + 600_000);
+  globalThis.fetch = wrapEncryptedTestFetch((url: URL, init?: RequestInit): Response | Promise<Response> => {
     const key: string = `${(init?.method ?? "GET").toUpperCase()} ${url.pathname}`;
     fetchCalls.push(`${key}${url.search}`);
     const handler: RouteHandler | undefined = routes.get(key);
     if (handler === undefined) return json({ error: `no route ${key}` }, 404);
     return handler(url, init);
-  }) as typeof fetch;
+  });
   resetMiniAppStoreForTest();
   useMiniAppStore.getState().setLanguage("zh");
 });
@@ -91,8 +99,20 @@ describe("根 store 会话", () => {
 
     // 服务端绝对到期时刻在本机时钟看来已过去（本机时钟快 2 小时）：本机到期时刻按 ttlMs 计算，不受影响。
     const skewedServerExpiresAt: number = Date.now() - 2 * 3_600_000;
+    let locked: boolean = false;
+    route("GET /api/auth/precheck", (): Response =>
+      locked
+        ? json({ ok: false, code: "PASSWORD_LOCKED", error: "locked" }, 403)
+        : json({ ok: true })
+    );
     route("POST /api/auth/login", (): Response =>
-      json({ ok: true, sessionToken: "c".repeat(64), expiresAt: skewedServerExpiresAt, ttlMs: 60_000, assetToken: "d".repeat(64) }));
+      json({
+        ok: true,
+        sessionToken: "c".repeat(64),
+        sessionKey: TEST_SESSION_KEY,
+        expiresAt: skewedServerExpiresAt,
+        ttlMs: 60_000,
+      }));
     useMiniAppStore.setState({ passwordInput: " 123456 " });
     const loginStartedAt: number = Date.now();
     await useMiniAppStore.getState().submitCredential();
@@ -107,16 +127,16 @@ describe("根 store 会话", () => {
     expect(readMiniAppSessionToken()).toBe("c".repeat(64));
 
     route("POST /api/auth/login", (): Response =>
-      json({ code: "INVALID_PASSWORD", error: "wrong" }, 403));
+      json({ error: "wrong" }, 403));
     useMiniAppStore.setState({ authMode: "password", gateState: "password", passwordInput: "pw" });
     await useMiniAppStore.getState().submitCredential();
     expect(useMiniAppStore.getState().gateState).toBe("password");
     expect(useMiniAppStore.getState().passwordError).toBe("wrong");
 
-    route("POST /api/auth/login", (): Response =>
-      json({ code: "PASSWORD_LOCKED", error: "locked" }, 403));
-    route("GET /api/auth/precheck", (): Response =>
-      json({ ok: false, code: "PASSWORD_LOCKED", error: "locked" }, 403));
+    route("POST /api/auth/login", (): Response => {
+      locked = true;
+      return json({ code: "PASSWORD_LOCKED", error: "locked" }, 403);
+    });
     await useMiniAppStore.getState().submitCredential();
     expect(useMiniAppStore.getState().gateState).toBe("denied");
     expect(useMiniAppStore.getState().deniedDiag?.code).toBe("PASSWORD_LOCKED");
@@ -124,8 +144,9 @@ describe("根 store 会话", () => {
   });
 
   test("手动锁定先以当前令牌通知服务端吊销会话，再清除本地凭据回到密码门禁；无令牌时不发请求", async () => {
+    jest.useFakeTimers();
     const token: string = "9".repeat(64);
-    setMiniAppSessionToken(token, Date.now() + 60_000);
+    seedTestMiniAppSession(token, Date.now() + 60_000);
     let logoutSessionHeader: string | undefined;
     route("POST /api/auth/logout", (_url: URL, init?: RequestInit): Response => {
       logoutSessionHeader = (init?.headers as Record<string, string> | undefined)?.[MINI_APP_SESSION_HEADER];
@@ -136,12 +157,12 @@ describe("根 store 会话", () => {
     expect(useMiniAppStore.getState().gateState).toBe("password");
     expect(useMiniAppStore.getState().passwordError).toBe("locked by hand");
     expect(readMiniAppSessionToken()).toBe("");
-    await Bun.sleep(10);
+    await flushUntil((): boolean => fetchCalls.length === 1);
     expect(fetchCalls).toEqual(["POST /api/auth/logout"]);
     expect(logoutSessionHeader).toBe(token);
 
     useMiniAppStore.getState().logout("again");
-    await Bun.sleep(10);
+    await drainImmediate();
     expect(fetchCalls).toEqual(["POST /api/auth/logout"]);
   });
 
@@ -195,44 +216,50 @@ describe("根 store 会话", () => {
 
 describe("页面 store 竞态与收起", () => {
   test("受管群：开关或批量清理的响应返回前已切到其他群时只回报结果、不改写当前群详情；变更结果作废更早发出的详情读取", async () => {
+    jest.useFakeTimers();
     const store = createChatsStore();
     route("GET /api/chats", (): Response => json({ items: [] }));
-    route("GET /api/chats/-100", (): Response => json({ detail: { chatId: -100, title: "A" } }));
-    route("GET /api/chats/-200", (): Response => json({ detail: { chatId: -200, title: "B" } }));
+    route("GET /api/chats/detail", (url: URL): Response =>
+      url.searchParams.get("chatId") === "-200"
+        ? json({ detail: { chatId: -200, title: "B" } })
+        : json({ detail: { chatId: -100, title: "A" } })
+    );
     const toggleGate: PromiseWithResolvers<void> = Promise.withResolvers<void>();
-    route("POST /api/chats/-100/feature", async (): Promise<Response> => {
+    route("POST /api/chats/feature", async (): Promise<Response> => {
       await toggleGate.promise;
       return json({ ok: true, message: "toggled-A", removedFromList: false, detail: { chatId: -100, title: "A2" } });
     });
     store.getState().selectChat(-100);
-    await settleLoading();
+    await flushFakeTimersUntil((): boolean => !store.getState().loadingDetail && store.getState().chatDetail?.chatId === -100);
     const toggling: Promise<void> = store.getState().toggleFeature("aiChat", true);
     store.getState().closeDetail();
     store.getState().selectChat(-200);
-    await settleLoading();
+    await flushFakeTimersUntil((): boolean => !store.getState().loadingDetail && store.getState().chatDetail?.title === "B");
     expect(store.getState().chatDetail?.title).toBe("B");
     toggleGate.resolve();
-    await toggling;
+    await resolveWithFakeTimers(toggling);
     expect(store.getState().selectedChatId).toBe(-200);
     expect(store.getState().chatDetail?.title).toBe("B");
     expect(store.getState().togglingFeature).toBeNull();
     expect(useMiniAppStore.getState().toastText).toBe("toggled-A");
 
+    const kickEntered: PromiseWithResolvers<void> = Promise.withResolvers<void>();
     const kickGate: PromiseWithResolvers<void> = Promise.withResolvers<void>();
-    route("POST /api/chats/-200/batch-kick", async (): Promise<Response> => {
+    route("POST /api/chats/batch-kick", async (): Promise<Response> => {
+      kickEntered.resolve();
       await kickGate.promise;
       return json({ ok: false, outcome: "notInitialized", hours: 1, recordCount: 0, message: "kick-B", detail: null });
     });
     const kicking: Promise<void> = store.getState().runBatchKick();
     useMiniAppStore.getState().resolveConfirm(true);
-    await Bun.sleep(10);
+    await kickEntered.promise;
     store.getState().closeDetail();
-    await settleLoading();
+    await flushFakeTimersUntil((): boolean => !store.getState().loadingList);
     const listLoadsBefore: number = fetchCalls.filter((call: string): boolean => call === "GET /api/chats").length;
     store.getState().selectChat(-100);
-    await settleLoading();
+    await flushFakeTimersUntil((): boolean => !store.getState().loadingDetail && store.getState().chatDetail?.title === "A");
     kickGate.resolve();
-    await kicking;
+    await resolveWithFakeTimers(kicking);
     expect(store.getState().selectedChatId).toBe(-100);
     expect(store.getState().chatDetail?.title).toBe("A");
     expect(store.getState().batchKickSubmitting).toBeFalse();
@@ -240,27 +267,30 @@ describe("页面 store 竞态与收起", () => {
     expect(fetchCalls.filter((call: string): boolean => call === "GET /api/chats").length).toBe(listLoadsBefore);
 
     const detailGate: PromiseWithResolvers<void> = Promise.withResolvers<void>();
-    route("GET /api/chats/-100", async (): Promise<Response> => {
+    route("GET /api/chats/detail", async (): Promise<Response> => {
       await detailGate.promise;
       return json({ detail: { chatId: -100, title: "A-stale" } });
     });
-    route("POST /api/chats/-100/feature", (): Response =>
+    route("POST /api/chats/feature", (): Response =>
       json({ ok: true, message: "toggled-A", removedFromList: false, detail: { chatId: -100, title: "A-fresh" } }));
     store.getState().closeMessages();
     expect(store.getState().loadingDetail).toBeTrue();
-    await store.getState().toggleFeature("aiChat", false);
+    await resolveWithFakeTimers(store.getState().toggleFeature("aiChat", false));
     expect(store.getState().chatDetail?.title).toBe("A-fresh");
     expect(store.getState().loadingDetail).toBeFalse();
     detailGate.resolve();
-    await settleLoading();
+    await drainImmediate();
+    jest.advanceTimersByTime(MINI_APP_MIN_LOADING_MS);
+    await drainImmediate();
     expect(store.getState().chatDetail?.title).toBe("A-fresh");
     expect(store.getState().loadingDetail).toBeFalse();
   });
 
   test("受管群：轮询在途期间 toggleFeature 回执先到时，旧轮询响应不覆盖开关状态", async () => {
+    jest.useFakeTimers();
     const store = createChatsStore();
     const joinedCountsByHour: readonly number[] = Array.from({ length: MINI_APP_BATCH_KICK_MAX_HOURS }, (): number => 2);
-    route("GET /api/chats/-100", (): Response =>
+    route("GET /api/chats/detail", (): Response =>
       json({
         detail: {
           chatId: -100,
@@ -272,11 +302,11 @@ describe("页面 store 竞态与收起", () => {
         },
       }));
     store.getState().selectChat(-100);
-    await settleLoading();
+    await flushFakeTimersUntil((): boolean => !store.getState().loadingDetail && store.getState().chatDetail !== null);
     expect(store.getState().chatDetail?.batchKickRunning).toBeTrue();
 
     const pollGate: PromiseWithResolvers<void> = Promise.withResolvers<void>();
-    route("GET /api/chats/-100", async (): Promise<Response> => {
+    route("GET /api/chats/detail", async (): Promise<Response> => {
       await pollGate.promise;
       return json({
         detail: {
@@ -289,7 +319,7 @@ describe("页面 store 竞态与收起", () => {
         },
       });
     });
-    route("POST /api/chats/-100/feature", (): Response =>
+    route("POST /api/chats/feature", (): Response =>
       json({
         ok: true,
         message: "FEATURE_ENABLED",
@@ -305,7 +335,7 @@ describe("页面 store 竞态与收起", () => {
       }));
 
     const polling: Promise<void> = store.getState().pollRunningBatchKick();
-    await store.getState().toggleFeature("aiChat", true);
+    await resolveWithFakeTimers(store.getState().toggleFeature("aiChat", true));
     expect(store.getState().chatDetail?.features.aiChat).toBeTrue();
 
     pollGate.resolve();
@@ -315,9 +345,10 @@ describe("页面 store 竞态与收起", () => {
   });
 
   test("受管群：防抖刷新在途期间 toggleFeature 回执先到时，旧响应不覆盖且 loadingWindowJoined 为 false", async () => {
+    jest.useFakeTimers();
     const store = createChatsStore();
     const joinedCountsByHour: readonly number[] = Array.from({ length: MINI_APP_BATCH_KICK_MAX_HOURS }, (): number => 3);
-    route("GET /api/chats/-100", (): Response =>
+    route("GET /api/chats/detail", (): Response =>
       json({
         detail: {
           chatId: -100,
@@ -329,10 +360,10 @@ describe("页面 store 竞态与收起", () => {
         },
       }));
     store.getState().selectChat(-100);
-    await settleLoading();
+    await flushFakeTimersUntil((): boolean => !store.getState().loadingDetail && store.getState().chatDetail !== null);
 
     const toggleGate: PromiseWithResolvers<void> = Promise.withResolvers<void>();
-    route("POST /api/chats/-100/feature", async (): Promise<Response> => {
+    route("POST /api/chats/feature", async (): Promise<Response> => {
       await toggleGate.promise;
       return json({
         ok: true,
@@ -351,7 +382,7 @@ describe("页面 store 竞态与收起", () => {
 
     const refreshEntered: PromiseWithResolvers<void> = Promise.withResolvers<void>();
     const refreshGate: PromiseWithResolvers<void> = Promise.withResolvers<void>();
-    route("GET /api/chats/-100", async (): Promise<Response> => {
+    route("GET /api/chats/detail", async (): Promise<Response> => {
       refreshEntered.resolve();
       await refreshGate.promise;
       return json({
@@ -370,21 +401,21 @@ describe("页面 store 竞态与收起", () => {
     const toggling: Promise<void> = store.getState().toggleFeature("aiChat", true);
     store.getState().setBatchKickHours(8);
     expect(store.getState().loadingWindowJoined).toBeTrue();
-    await refreshEntered.promise;
+    await resolveWithFakeTimers(refreshEntered.promise, MINI_APP_BATCH_KICK_WINDOW_DEBOUNCE_MS);
 
     toggleGate.resolve();
-    await toggling;
+    await resolveWithFakeTimers(toggling);
     expect(store.getState().chatDetail?.features.aiChat).toBeTrue();
 
     refreshGate.resolve();
-    await Bun.sleep(20);
+    await flushUntil((): boolean => !store.getState().loadingWindowJoined);
     expect(store.getState().chatDetail?.features.aiChat).toBeTrue();
     expect(store.getState().chatDetail?.title).toBe("A-toggled");
     expect(store.getState().loadingWindowJoined).toBeFalse();
 
     // 失败分支同样在仅 detailReqSeq 变化时收起 loadingWindowJoined。
     const toggleGate2: PromiseWithResolvers<void> = Promise.withResolvers<void>();
-    route("POST /api/chats/-100/feature", async (): Promise<Response> => {
+    route("POST /api/chats/feature", async (): Promise<Response> => {
       await toggleGate2.promise;
       return json({
         ok: true,
@@ -402,26 +433,27 @@ describe("页面 store 竞态与收起", () => {
     });
     const failEntered: PromiseWithResolvers<void> = Promise.withResolvers<void>();
     const failGate: PromiseWithResolvers<void> = Promise.withResolvers<void>();
-    route("GET /api/chats/-100", async (): Promise<Response> => {
+    route("GET /api/chats/detail", async (): Promise<Response> => {
       failEntered.resolve();
       await failGate.promise;
       return json({ error: "stale refresh error" }, 500);
     });
     const toggling2: Promise<void> = store.getState().toggleFeature("aiChat", false);
     store.getState().setBatchKickHours(10);
-    await failEntered.promise;
+    await resolveWithFakeTimers(failEntered.promise, MINI_APP_BATCH_KICK_WINDOW_DEBOUNCE_MS);
     toggleGate2.resolve();
-    await toggling2;
+    await resolveWithFakeTimers(toggling2);
     failGate.resolve();
-    await Bun.sleep(20);
+    await flushUntil((): boolean => !store.getState().loadingWindowJoined);
     expect(store.getState().chatDetail?.title).toBe("A-toggled-2");
     expect(store.getState().loadingWindowJoined).toBeFalse();
   });
 
   test("受管群：滑块防抖期间发起 toggleFeature 后立即取消防抖且 loadingWindowJoined 为 false", async () => {
+    jest.useFakeTimers();
     const store = createChatsStore();
     const joinedCountsByHour: readonly number[] = Array.from({ length: MINI_APP_BATCH_KICK_MAX_HOURS }, (): number => 4);
-    route("GET /api/chats/-100", (): Response =>
+    route("GET /api/chats/detail", (): Response =>
       json({
         detail: {
           chatId: -100,
@@ -433,14 +465,14 @@ describe("页面 store 竞态与收起", () => {
         },
       }));
     store.getState().selectChat(-100);
-    await settleLoading();
+    await flushFakeTimersUntil((): boolean => !store.getState().loadingDetail && store.getState().chatDetail !== null);
 
-    const getCallsBefore: number = fetchCalls.filter((call: string): boolean => call === "GET /api/chats/-100").length;
+    const getCallsBefore: number = fetchCalls.filter((call: string): boolean => call === "GET /api/chats/detail?chatId=-100").length;
     store.getState().setBatchKickHours(9);
     expect(store.getState().loadingWindowJoined).toBeTrue();
 
     const toggleGate: PromiseWithResolvers<void> = Promise.withResolvers<void>();
-    route("POST /api/chats/-100/feature", async (): Promise<Response> => {
+    route("POST /api/chats/feature", async (): Promise<Response> => {
       await toggleGate.promise;
       return json({
         ok: true,
@@ -459,20 +491,33 @@ describe("页面 store 竞态与收起", () => {
 
     const toggling: Promise<void> = store.getState().toggleFeature("aiChat", true);
     expect(store.getState().loadingWindowJoined).toBeFalse();
-    await Bun.sleep(MINI_APP_BATCH_KICK_WINDOW_DEBOUNCE_MS + 60);
-    expect(fetchCalls.filter((call: string): boolean => call === "GET /api/chats/-100").length).toBe(getCallsBefore);
+    jest.advanceTimersByTime(MINI_APP_BATCH_KICK_WINDOW_DEBOUNCE_MS + 60);
+    await drainImmediate();
+    expect(fetchCalls.filter((call: string): boolean => call === "GET /api/chats/detail?chatId=-100").length).toBe(getCallsBefore);
 
     toggleGate.resolve();
-    await toggling;
+    await resolveWithFakeTimers(toggling);
     expect(store.getState().loadingWindowJoined).toBeFalse();
   });
 
   test("受管群：A → B → A 切群期间旧轮询响应被丢弃，不覆盖重新加载的群详情", async () => {
+    jest.useFakeTimers();
     const store = createChatsStore();
     const joinedCountsByHour: readonly number[] = Array.from({ length: MINI_APP_BATCH_KICK_MAX_HOURS }, (): number => 1);
     route("GET /api/chats", (): Response => json({ items: [] }));
-    route("GET /api/chats/-100", (): Response =>
-      json({
+    route("GET /api/chats/detail", (url: URL): Response => {
+      if (url.searchParams.get("chatId") === "-200") {
+        return json({
+          detail: {
+            chatId: -200,
+            title: "B",
+            joinedCountsByHour,
+            batchKickRunning: false,
+            lastBatchKickCompletion: null,
+          },
+        });
+      }
+      return json({
         detail: {
           chatId: -100,
           title: "A-initial",
@@ -480,23 +525,25 @@ describe("页面 store 竞态与收起", () => {
           batchKickRunning: true,
           lastBatchKickCompletion: null,
         },
-      }));
-    route("GET /api/chats/-200", (): Response =>
-      json({
-        detail: {
-          chatId: -200,
-          title: "B",
-          joinedCountsByHour,
-          batchKickRunning: false,
-          lastBatchKickCompletion: null,
-        },
-      }));
+      });
+    });
     store.getState().selectChat(-100);
-    await settleLoading();
+    await flushFakeTimersUntil((): boolean => !store.getState().loadingDetail && store.getState().chatDetail?.title === "A-initial");
 
     const stalePollGate: PromiseWithResolvers<void> = Promise.withResolvers<void>();
     let aFetchCount: number = 0;
-    route("GET /api/chats/-100", async (): Promise<Response> => {
+    route("GET /api/chats/detail", async (url: URL): Promise<Response> => {
+      if (url.searchParams.get("chatId") === "-200") {
+        return json({
+          detail: {
+            chatId: -200,
+            title: "B",
+            joinedCountsByHour,
+            batchKickRunning: false,
+            lastBatchKickCompletion: null,
+          },
+        });
+      }
       aFetchCount += 1;
       if (aFetchCount === 1) {
         await stalePollGate.promise;
@@ -523,11 +570,11 @@ describe("页面 store 竞态与收起", () => {
 
     const stalePolling: Promise<void> = store.getState().pollRunningBatchKick();
     store.getState().selectChat(-200);
-    await settleLoading();
+    await flushFakeTimersUntil((): boolean => !store.getState().loadingDetail && store.getState().chatDetail?.title === "B");
     expect(store.getState().chatDetail?.title).toBe("B");
 
     store.getState().selectChat(-100);
-    await settleLoading();
+    await flushFakeTimersUntil((): boolean => !store.getState().loadingDetail && store.getState().chatDetail?.title === "A-reloaded");
     expect(store.getState().chatDetail?.title).toBe("A-reloaded");
 
     stalePollGate.resolve();
@@ -537,10 +584,11 @@ describe("页面 store 竞态与收起", () => {
   });
 
   test("受管群：目标与问答变更回执作废更早发出的轮询与防抖刷新，且 closeDetail 作废在途 loadDetail", async () => {
+    jest.useFakeTimers();
     const store = createChatsStore();
     const joinedCountsByHour: readonly number[] = Array.from({ length: MINI_APP_BATCH_KICK_MAX_HOURS }, (): number => 2);
     route("GET /api/chats", (): Response => json({ items: [] }));
-    route("GET /api/chats/-100", (): Response =>
+    route("GET /api/chats/detail", (): Response =>
       json({
         detail: {
           chatId: -100,
@@ -552,13 +600,13 @@ describe("页面 store 竞态与收起", () => {
         },
       }));
     store.getState().selectChat(-100);
-    await settleLoading();
+    await flushFakeTimersUntil((): boolean => !store.getState().loadingDetail && store.getState().chatDetail !== null);
 
     const pollGate: PromiseWithResolvers<void> = Promise.withResolvers<void>();
     const windowEntered: PromiseWithResolvers<void> = Promise.withResolvers<void>();
     const windowGate: PromiseWithResolvers<void> = Promise.withResolvers<void>();
     let getCount: number = 0;
-    route("GET /api/chats/-100", async (): Promise<Response> => {
+    route("GET /api/chats/detail", async (): Promise<Response> => {
       getCount += 1;
       if (getCount === 1) {
         await pollGate.promise;
@@ -586,7 +634,7 @@ describe("页面 store 竞态与收起", () => {
         },
       });
     });
-    route("POST /api/chats/-100/targets", (): Response =>
+    route("POST /api/chats/targets", (): Response =>
       json({
         ok: true,
         message: "QA_ADDED",
@@ -614,24 +662,24 @@ describe("页面 store 竞态与收起", () => {
 
     const polling: Promise<void> = store.getState().pollRunningBatchKick();
     store.getState().setBatchKickHours(6);
-    await windowEntered.promise;
+    await resolveWithFakeTimers(windowEntered.promise, MINI_APP_BATCH_KICK_WINDOW_DEBOUNCE_MS);
 
     store.getState().setQaQuestionInput("hi");
     store.getState().setQaAnswerInput("hello");
-    await store.getState().submitQaPair();
+    await resolveWithFakeTimers(store.getState().submitQaPair());
     expect(store.getState().chatDetail?.qaPairCount).toBe(1);
 
     pollGate.resolve();
     windowGate.resolve();
     await polling;
-    await Bun.sleep(20);
+    await flushUntil((): boolean => !store.getState().loadingWindowJoined);
     expect(store.getState().chatDetail?.qaPairCount).toBe(1);
     expect(store.getState().chatDetail?.title).toBe("A-qa-updated");
     expect(store.getState().loadingWindowJoined).toBeFalse();
 
     // 打开详情后立即 closeDetail：loadingDetail 即刻归 false，随后晚到的详情响应不写回列表态。
     const lateDetailGate: PromiseWithResolvers<void> = Promise.withResolvers<void>();
-    route("GET /api/chats/-100", async (): Promise<Response> => {
+    route("GET /api/chats/detail", async (): Promise<Response> => {
       await lateDetailGate.promise;
       return json({
         detail: {
@@ -651,7 +699,9 @@ describe("页面 store 竞态与收起", () => {
     expect(store.getState().loadingDetail).toBeFalse();
 
     lateDetailGate.resolve();
-    await settleLoading();
+    await drainImmediate();
+    jest.advanceTimersByTime(MINI_APP_MIN_LOADING_MS);
+    await drainImmediate();
     expect(store.getState().selectedChatId).toBeNull();
     expect(store.getState().chatDetail).toBeNull();
     expect(store.getState().loadingDetail).toBeFalse();
@@ -681,6 +731,7 @@ describe("页面 store 竞态与收起", () => {
   });
 
   test("受管群目标弹窗：同群已持有缓存清单时重开静默刷新不置骨架态，离开详情各路径同步关闭弹窗与下拉菜单", async () => {
+    jest.useFakeTimers();
     const store = createChatsStore();
     const emptyTargets = {
       chatId: -100,
@@ -695,13 +746,17 @@ describe("页面 store 竞态与收起", () => {
       isTranslationEnabled: true,
     };
     route("GET /api/chats", (): Response => json({ items: [{ chatId: -100 }] }));
-    route("GET /api/chats/-100", (): Response => json({ detail: { chatId: -100 } }));
-    route("GET /api/chats/-100/targets", (): Response => json({ targets: emptyTargets }));
+    route("GET /api/chats/detail", (url: URL): Response =>
+      json({ detail: { chatId: Number(url.searchParams.get("chatId")) } })
+    );
+    route("GET /api/chats/targets", (url: URL): Response =>
+      json({ targets: { ...emptyTargets, chatId: Number(url.searchParams.get("chatId")) } })
+    );
 
     store.getState().selectChat(-100);
     store.getState().openTargetsModal("qa");
     expect(store.getState().loadingTargets).toBeTrue();
-    await settleLoading();
+    await flushFakeTimersUntil((): boolean => !store.getState().loadingTargets && store.getState().chatTargets !== null);
     expect(store.getState().loadingTargets).toBeFalse();
     expect(store.getState().chatTargets?.qaItems).toEqual([]);
     store.getState().openQaEditor();
@@ -720,18 +775,18 @@ describe("页面 store 竞态与收起", () => {
     expect(closingPanelState.translateLangMenuOpen).toBeFalse();
     expect(resolveChatTargetsModalPanelState(store.getState(), openSnapshot, false).qaEditorOpen).toBeFalse();
 
-    route("GET /api/chats/-100/targets", (): Response =>
+    route("GET /api/chats/targets", (): Response =>
       json({ targets: { ...emptyTargets, qaItems: [{ q: "q-silent", a: "a-silent" }] } }));
     store.getState().openTargetsModal("qa");
     expect(store.getState().activeTargetsModal).toBe("qa");
     expect(store.getState().loadingTargets).toBeFalse();
     expect(store.getState().chatTargets?.qaItems).toEqual([]);
-    await Bun.sleep(20);
+    await flushUntil((): boolean => store.getState().chatTargets?.qaItems.length === 1);
     expect(store.getState().chatTargets?.qaItems).toEqual([{ q: "q-silent", a: "a-silent" }]);
 
     const manualTargetsRefresh: Promise<void> = store.getState().loadChatTargets(false);
     expect(store.getState().loadingTargets).toBeTrue();
-    await manualTargetsRefresh;
+    await resolveWithFakeTimers(manualTargetsRefresh);
     expect(store.getState().loadingTargets).toBeFalse();
 
     store.getState().toggleTargetsMenu();
@@ -742,8 +797,8 @@ describe("页面 store 竞态与收起", () => {
     expect(store.getState().targetsMenuOpen).toBeFalse();
     store.getState().closeMessages();
 
-    route("GET /api/chats/-200", (): Response => json({ detail: { chatId: -200 } }));
-    route("GET /api/chats/-200/targets", (): Response => json({ targets: { ...emptyTargets, chatId: -200 } }));
+    route("GET /api/chats/detail", (): Response => json({ detail: { chatId: -200 } }));
+    route("GET /api/chats/targets", (): Response => json({ targets: { ...emptyTargets, chatId: -200 } }));
     store.getState().openTargetsModal("deleteMessage");
     store.getState().toggleTargetsMenu();
     store.getState().selectChat(-200);
@@ -754,11 +809,11 @@ describe("页面 store 竞态与收起", () => {
 
     store.getState().openTargetsModal("qa");
     store.getState().toggleTargetsMenu();
-    route("POST /api/chats/-200/feature", (): Response =>
+    route("POST /api/chats/feature", (): Response =>
       json({ ok: true, message: "init-off", removedFromList: true, detail: null }));
     const disableInitWhileModalOpen: Promise<void> = store.getState().toggleFeature("init", false);
     useMiniAppStore.getState().resolveConfirm(true);
-    await disableInitWhileModalOpen;
+    await resolveWithFakeTimers(disableInitWhileModalOpen);
     expect(store.getState().selectedChatId).toBeNull();
     expect(store.getState().activeTargetsModal).toBeNull();
     expect(store.getState().targetsMenuOpen).toBeFalse();
@@ -772,10 +827,11 @@ describe("页面 store 竞态与收起", () => {
     expect(store.getState().activeTargetsModal).toBeNull();
     expect(store.getState().targetsMenuOpen).toBeFalse();
     expect(store.getState().chatTargets).toBeNull();
-    await settleLoading();
+    await flushFakeTimersUntil((): boolean => !store.getState().loadingList);
   });
 
   test("名单竞态与静默刷新：白名单添加在途切到黑名单不写入 selectedEntryId，已缓存黑名单移出静默刷新不闪骨架", async () => {
+    jest.useFakeTimers();
     const store = createIdentitiesStore();
     const postGate: PromiseWithResolvers<void> = Promise.withResolvers<void>();
     route("POST /api/identities/whitelist", async (): Promise<Response> => {
@@ -788,30 +844,69 @@ describe("页面 store 竞态与收起", () => {
     store.getState().setIdInput("42");
     const adding: Promise<void> = store.getState().addById();
     store.getState().selectSubTab("blocklist");
-    await store.getState().loadCurrentList();
+    await resolveWithFakeTimers(store.getState().loadCurrentList());
     expect(store.getState().blocklistPage?.items).toHaveLength(1);
     expect(store.getState().loadingList).toBeFalse();
 
     postGate.resolve();
-    await adding;
+    await resolveWithFakeTimers(adding);
     expect(store.getState().subTab).toBe("blocklist");
     expect(store.getState().selectedEntryId).toBeNull();
 
+    const refreshEntered: PromiseWithResolvers<void> = Promise.withResolvers<void>();
     const refreshGate: PromiseWithResolvers<void> = Promise.withResolvers<void>();
     route("POST /api/identities/blocklist", (): Response => json({ ok: true, changed: true, message: "removed-88" }));
     route("GET /api/identities/blocklist", async (): Promise<Response> => {
+      refreshEntered.resolve();
       await refreshGate.promise;
       return json({ page: 1, items: [], whitelistTotal: 1, blocklistTotal: 0 });
     });
 
     const removing: Promise<void> = store.getState().removeBlocklist({ id: 88, displayName: "Spam" } as never);
     useMiniAppStore.getState().resolveConfirm(true);
-    await Bun.sleep(10);
+    await refreshEntered.promise;
     expect(store.getState().loadingList).toBeFalse();
     refreshGate.resolve();
-    await removing;
+    await resolveWithFakeTimers(removing);
     expect(store.getState().loadingList).toBeFalse();
     expect(store.getState().blocklistPage?.items).toEqual([]);
     expect(store.getState().blocklistTotal).toBe(0);
+  });
+
+  test("当前页已存在黑名单 ID 时 addById 仍向后端发起 POST，展示重复提示并在 Toast 中附带重新跨群封禁结果", async () => {
+    const store = createIdentitiesStore();
+    const zh: MiniAppTranslations = getMiniAppTranslations("zh");
+    const postCalls: string[] = [];
+    route("GET /api/identities/blocklist", (): Response =>
+      json({ page: 1, items: [{ id: 99, displayName: "Blocked99" }], whitelistTotal: 0, blocklistTotal: 1 }));
+    const duplicateResult = {
+      ok: true,
+      changed: false,
+      duplicate: true,
+      id: 99,
+      persisted: false,
+      affectedChats: 1,
+      totalChats: 2,
+      message: "BLOCKLIST_DUPLICATE",
+    };
+    route("POST /api/identities/blocklist", (): Response => {
+      postCalls.push("POST /api/identities/blocklist");
+      return json(duplicateResult);
+    });
+
+    store.getState().selectSubTab("blocklist");
+    await store.getState().loadCurrentList();
+    store.getState().setIdInput("99");
+    await store.getState().addById();
+
+    expect(postCalls).toEqual(["POST /api/identities/blocklist"]);
+    expect(store.getState().duplicateAlertText).toBe(zh.identities.duplicateToast("ID 99", "blocklist"));
+    const expectedToast: string = zh.serverNotice(
+      "BLOCKLIST_DUPLICATE",
+      extractServerNoticeParams(duplicateResult)
+    );
+    expect(expectedToast).toContain("1/2");
+    expect(useMiniAppStore.getState().toastText).toBe(expectedToast);
+    expect(useMiniAppStore.getState().toastTone).toBe("warning");
   });
 });

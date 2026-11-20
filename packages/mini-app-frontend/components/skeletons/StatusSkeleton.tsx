@@ -1,18 +1,37 @@
+import { useState } from "react";
 import type React from "react";
 import {
   MINI_APP_STATUS_SKELETON_CAPABILITY_INDICES,
   MINI_APP_STATUS_SKELETON_MEMORY_INDICES,
 } from "../../consts/miniApp";
+import { DEFAULT_STATUS_QUAD_MOSAIC, generateStatusQuadMosaic } from "../../libs/statusQuadMosaic";
+import type { StatusQuadMosaicLayout } from "../../types/statusMosaic";
+
+/** `StatusSkeleton` 实时状态骨架屏组件的属性参数。 */
+export interface StatusSkeletonProps {
+  /** 顶部四象限拼块的随机多边形裁剪布局（缺省时组件挂载自行生成一份稳定布局）。 */
+  readonly quadMosaic?: Readonly<StatusQuadMosaicLayout>;
+}
 
 /**
- * 渲染实时状态页加载骨架屏（对应顶部 5 项指标卡、CPU 仪表环、三栏内存进度卡与 6 项子系统能力折叠行）。
+ * 渲染实时状态页加载骨架屏（包含 `.status-overview-card` 顶部外矩形内分离不规则四象限拼块骨架、CPU 仪表环、出站门控与三栏内存进度卡，以及原样 6 项子系统能力折叠行卡片）。
  *
+ * @param props 可选的四象限随机折线拼块布局参数
  * @returns React 节点
  */
-export function StatusSkeleton(): React.JSX.Element {
+export function StatusSkeleton({
+  quadMosaic,
+}: StatusSkeletonProps): React.JSX.Element {
+  const fallbackMosaic: Readonly<StatusQuadMosaicLayout> | null = useState<
+    Readonly<StatusQuadMosaicLayout> | null
+  >((): Readonly<StatusQuadMosaicLayout> | null =>
+    quadMosaic === undefined ? generateStatusQuadMosaic() : null
+  )[0];
+  const resolvedMosaic: Readonly<StatusQuadMosaicLayout> =
+    quadMosaic ?? fallbackMosaic ?? DEFAULT_STATUS_QUAD_MOSAIC;
   return (
     <div className="skeleton-detail-wrap" aria-busy="true" aria-hidden="true">
-      <div className="card">
+      <div className="card status-overview-card">
         <div className="skeleton-row-between">
           <div
             className="skeleton-line skeleton-title-bar"
@@ -24,89 +43,100 @@ export function StatusSkeleton(): React.JSX.Element {
           />
         </div>
         <div className="grid-2">
-          <div className="stat-box">
+          <div className="stat-quad-mosaic stat-quad-mosaic-skeleton">
             <div
-              className="skeleton-line"
-              style={{ width: "52%", height: "11px" }}
-            />
-            <div
-              className="skeleton-line skeleton-stat-value"
-              style={{ width: "68%" }}
-            />
-            <div
-              className="skeleton-line"
-              style={{ width: "60%", height: "10px" }}
-            />
-          </div>
-          <div className="stat-box stat-box-cpu">
-            <div className="stat-cpu-row">
-              <div className="stat-cpu-main">
-                <div
-                  className="skeleton-line"
-                  style={{ width: "58%", height: "11px" }}
-                />
-                <div
-                  className="skeleton-line skeleton-stat-value"
-                  style={{ width: "64%" }}
-                />
-                <div
-                  className="skeleton-line"
-                  style={{ width: "74%", height: "10px" }}
-                />
-              </div>
-              <div className="skeleton-line skeleton-cpu-ring" />
+              className="stat-box stat-quad-tile stat-quad-q1"
+              style={{ "--stat-quad-clip": resolvedMosaic.q1Clip } as React.CSSProperties}
+            >
+              <div
+                className="skeleton-line"
+                style={{ width: "52%", height: "13px" }}
+              />
+              <div
+                className="skeleton-line skeleton-stat-value"
+                style={{ width: "68%" }}
+              />
+              <div
+                className="skeleton-line"
+                style={{ width: "60%", height: "16px" }}
+              />
             </div>
-          </div>
-          <div className="stat-box">
             <div
-              className="skeleton-line"
-              style={{ width: "56%", height: "11px" }}
-            />
+              className="stat-box stat-box-cpu stat-quad-tile stat-quad-q2"
+              style={{ "--stat-quad-clip": resolvedMosaic.q2Clip } as React.CSSProperties}
+            >
+              <div className="stat-cpu-row">
+                <div className="stat-cpu-main">
+                  <div
+                    className="skeleton-line"
+                    style={{ width: "58%", height: "13px" }}
+                  />
+                  <div
+                    className="skeleton-line skeleton-stat-value"
+                    style={{ width: "64%" }}
+                  />
+                  <div
+                    className="skeleton-line"
+                    style={{ width: "74%", height: "16px" }}
+                  />
+                </div>
+                <div className="skeleton-line skeleton-cpu-ring" />
+              </div>
+            </div>
             <div
-              className="skeleton-line skeleton-stat-value"
-              style={{ width: "42%" }}
-            />
+              className="stat-box stat-quad-tile stat-quad-q3"
+              style={{ "--stat-quad-clip": resolvedMosaic.q3Clip } as React.CSSProperties}
+            >
+              <div
+                className="skeleton-line"
+                style={{ width: "56%", height: "13px" }}
+              />
+              <div
+                className="skeleton-line skeleton-stat-value"
+                style={{ width: "42%" }}
+              />
+              <div
+                className="skeleton-line"
+                style={{ width: "72%", height: "16px" }}
+              />
+            </div>
             <div
-              className="skeleton-line"
-              style={{ width: "72%", height: "10px" }}
-            />
-          </div>
-          <div className="stat-box">
-            <div
-              className="skeleton-line"
-              style={{ width: "54%", height: "11px" }}
-            />
-            <div
-              className="skeleton-line skeleton-stat-value"
-              style={{ width: "38%" }}
-            />
-            <div
-              className="skeleton-line"
-              style={{ width: "82%", height: "10px" }}
-            />
+              className="stat-box stat-quad-tile stat-quad-q4"
+              style={{ "--stat-quad-clip": resolvedMosaic.q4Clip } as React.CSSProperties}
+            >
+              <div
+                className="skeleton-line"
+                style={{ width: "54%", height: "13px" }}
+              />
+              <div
+                className="skeleton-line skeleton-stat-value"
+                style={{ width: "38%" }}
+              />
+              <div
+                className="skeleton-line"
+                style={{ width: "82%", height: "16px" }}
+              />
+            </div>
           </div>
           <div className="stat-box stat-box-outbound">
             <div className="stat-outbound-head">
               <div
                 className="skeleton-line"
-                style={{ width: "58%", height: "11px" }}
+                style={{ width: "58%", height: "13px" }}
               />
               <div
                 className="skeleton-line skeleton-cmd-pill"
-                style={{ width: "36px" }}
+                style={{ width: "42px", height: "20px" }}
               />
             </div>
             <div
               className="skeleton-line skeleton-stat-value"
               style={{ width: "48%" }}
             />
+            <div className="skeleton-line stat-skeleton-bar" />
             <div
               className="skeleton-line"
-              style={{ height: "6px" }}
-            />
-            <div
-              className="skeleton-line"
-              style={{ width: "76%", height: "10px" }}
+              style={{ width: "76%", height: "14px" }}
             />
           </div>
           <div className="stat-box stat-box-memory">
@@ -116,7 +146,7 @@ export function StatusSkeleton(): React.JSX.Element {
                   <div key={idx} className="memory-metric-card">
                     <div
                       className="skeleton-line"
-                      style={{ width: "56%", height: "10px" }}
+                      style={{ width: "56%", height: "11px" }}
                     />
                     <div className="skeleton-line skeleton-memory-value" />
                   </div>
@@ -124,7 +154,7 @@ export function StatusSkeleton(): React.JSX.Element {
               )}
             </div>
             <div className="memory-bar-section">
-              <div className="skeleton-line" />
+              <div className="skeleton-line stat-skeleton-bar" />
               <div className="memory-legend-grid">
                 {MINI_APP_STATUS_SKELETON_MEMORY_INDICES.map(
                   (idx: number): React.JSX.Element => (
@@ -132,13 +162,13 @@ export function StatusSkeleton(): React.JSX.Element {
                       <div className="skeleton-line skeleton-legend-dot" />
                       <div
                         className="skeleton-line"
-                        style={{ width: "44%", height: "10px" }}
+                        style={{ width: "44%", height: "13px" }}
                       />
                       <div
                         className="skeleton-line"
                         style={{
                           width: "36%",
-                          height: "10px",
+                          height: "13px",
                           marginLeft: "auto",
                           marginRight: "3px",
                         }}

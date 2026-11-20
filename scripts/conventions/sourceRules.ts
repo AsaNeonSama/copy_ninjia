@@ -1,4 +1,4 @@
-import { relative } from "node:path";
+import { dirname, relative, resolve } from "node:path";
 import ts from "typescript";
 import { MINI_APP_FRONTEND_CONSTS_ROOT, MINI_APP_FRONTEND_ROOT } from "./miniAppFrontend";
 import {
@@ -286,14 +286,51 @@ export function collectModuleCacheProblems({
 }
 
 /**
- * 生产代码不得导入的类型聚合入口：仅供测试的 `types/antiRaid` 与
- * `types/diskIO`，以及不存在、也不得重建的 `types` 目录入口（`types/index`）。生产代码必须
- * 直接导入所属领域模块。
+ * 生产代码与脚本均不得导入的类型聚合入口：仅供测试的 `types/antiRaid`、`types/diskIO` 与
+ * `types/miniApp`（含服务端 `packages/types/miniApp.ts` 与前端 `packages/mini-app-frontend/types/miniApp.ts`），
+ * 以及不存在、也不得重建的 `types` 目录入口（`types/index`）。必须直接导入所属领域模块。
  */
-const TEST_ONLY_TYPE_BARREL_PATTERN: RegExp = /(^|\/)types(\/index|\/antiRaid|\/diskIO)?$/;
+const TEST_ONLY_TYPE_BARREL_PATTERN: RegExp = /(^|\/)types(\/index|\/antiRaid|\/diskIO|\/miniApp)?(?:\.ts)?$/;
 
 /**
- * `packages/` 通用的 AST 判定：领域类型入口、`console.error` 边界、导出函数
+ * 核对生产源码或脚本是否导入了仅供测试的 `packages/` 类型聚合入口。
+ * 脚本自身的局部 `types.ts`（例如 `scripts/perf/.../types.ts`）不在拦截范围内，
+ * 仅对解析落入 `packages/` 的相对导入应用聚合入口判定。
+ * @param params 被检查文件及 AST。
+ * @returns 测试专用类型聚合入口违规列表。
+ */
+export function collectTestOnlyTypeBarrelProblems({
+  projectRoot,
+  path,
+  source,
+}: SourceFileRuleParams): readonly string[] {
+  const problems: string[] = [];
+  const relativePath: string = relative(projectRoot, path);
+  const isScript: boolean = relativePath.startsWith("scripts/");
+  const fileDir: string = dirname(path);
+  for (const statement of source.statements) {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
+    const modulePath: string = statement.moduleSpecifier.text;
+    if (!modulePath.startsWith(".")) continue;
+    const isForbiddenBarrel: boolean = isScript
+      ? ((): boolean => {
+        const resolvedTarget: string = relative(projectRoot, resolve(fileDir, modulePath));
+        return resolvedTarget.startsWith("packages/") && TEST_ONLY_TYPE_BARREL_PATTERN.test(resolvedTarget);
+      })()
+      : TEST_ONLY_TYPE_BARREL_PATTERN.test(modulePath);
+    if (!isForbiddenBarrel) continue;
+    const subject: string = isScript ? "scripts" : "production code";
+    problems.push(
+      `${relativePath}:` +
+      `${lineOf(source, statement)} ` +
+      `${subject} must import from a domain type module instead of the test-only barrel ${modulePath}`
+    );
+  }
+  return problems;
+}
+
+/**
+ * `packages/` 通用的 AST 判定：领域类型入口、静态 `console.*` 边界、导出函数
  * 返回类型、内联对象参数类型与 catch 绑定标注。
  * @param params 被检查文件及 AST。
  * @returns 声明约定违规列表。
@@ -303,34 +340,31 @@ export function collectDeclarationProblems({
   path,
   source,
 }: SourceFileRuleParams): readonly string[] {
-  const problems: string[] = [];
+  const problems: string[] = [...collectTestOnlyTypeBarrelProblems({ projectRoot, path, source })];
   const relativePath: string = relative(projectRoot, path);
   function visit(node: ts.Node): void {
-    if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
-      const modulePath: string = node.moduleSpecifier.text;
-      if (modulePath.startsWith(".") && TEST_ONLY_TYPE_BARREL_PATTERN.test(modulePath)) {
-        problems.push(
-          `${relativePath}:` +
-          `${lineOf(source, node)} ` +
-          `production code must import from a domain type module instead of the test-only barrel ${modulePath}`
-        );
-      }
-    }
     if (
-      ts.isCallExpression(node) &&
-      ts.isPropertyAccessExpression(node.expression) &&
-      ts.isIdentifier(node.expression.expression) &&
-      node.expression.expression.text === "console" &&
-      node.expression.name.text === "error"
+      ts.isPropertyAccessExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === "console"
     ) {
-      const isDiskIOBoundary: boolean =
-        relativePath === "packages/workers/diskIOWorker.ts" ||
-        relativePath.startsWith("packages/workers/diskIO/");
-      if (!isDiskIOBoundary) {
+      const memberName: string = node.name.text;
+      if (memberName === "error") {
+        const isDiskIOBoundary: boolean =
+          relativePath === "packages/workers/diskIOWorker.ts" ||
+          relativePath.startsWith("packages/workers/diskIO/");
+        if (!isDiskIOBoundary) {
+          problems.push(
+            `${relativePath}:` +
+            `${lineOf(source, node)} ` +
+            "direct console.error is restricted to the disk I/O Worker boundary"
+          );
+        }
+      } else {
         problems.push(
           `${relativePath}:` +
           `${lineOf(source, node)} ` +
-          "direct console.error is restricted to the disk I/O Worker boundary"
+          `direct console.${memberName} is forbidden in packages/; use logger instead`
         );
       }
     }

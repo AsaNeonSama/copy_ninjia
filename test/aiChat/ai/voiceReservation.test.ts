@@ -38,15 +38,16 @@ mock.module("../../../packages/infra/logger", () => ({ logger: loggerStub({ erro
 // 投递前按音频时长补「正在录音」的停顿不真的等。
 mock.module("../../../packages/libs/sleep", () => ({ sleep: async (): Promise<void> => {} }));
 
-const { createSendVoiceExecutor } = await import("../../../packages/aiChat/ai/tools/replyToolset/voiceMessage");
+const { createSendVoiceExecutor } = await import("../../../packages/workers/aiChat/ai/tools/replyToolset/voiceMessage");
+const { createReplyActionChains } = await import("../../../packages/workers/aiChat/ai/tools/replyToolset/actionChains");
 const { VOICE_LANGUAGE_PROMPTS } = await import("../../../packages/consts/aiChat/prompts/tools");
 const { TTS_DEFAULT_BOT_LANGUAGE } = await import("../../../packages/consts/aiChat/voiceMessage");
-const { createSimulatedPause } = await import("../../../packages/aiChat/ai/tools/replyToolset/pacing");
-const { aiTtsRemaining } = await import("../../../packages/aiChat/ai/ttsUsage");
-const { ttsQuotaLimit } = await import("../../../packages/aiChat/ai/utils/ttsUsageWindow");
-const { ttsAiProvider } = await import("../../../packages/aiChat/provider");
-const { geminiProvider } = await import("../../../packages/aiChat/gemini");
-const { openAiProvider } = await import("../../../packages/aiChat/openai");
+const { createSimulatedPause } = await import("../../../packages/workers/aiChat/ai/tools/replyToolset/pacing");
+const { aiTtsRemaining } = await import("../../../packages/workers/aiChat/ai/ttsUsage");
+const { ttsQuotaLimit } = await import("../../../packages/workers/aiChat/ai/utils/ttsUsageWindow");
+const { ttsAiProvider } = await import("../../../packages/workers/aiChat/provider");
+const { geminiProvider } = await import("../../../packages/workers/aiChat/gemini");
+const { openAiProvider } = await import("../../../packages/workers/aiChat/openai");
 const { agentTtsConfig } = await import("../../../packages/config/agent");
 const { aiProviderQuotaLanes, resetAiProviderSchedulerCache } =
   await import("../../../packages/cache/workers/aiChat/providerScheduler");
@@ -100,6 +101,7 @@ function idleChains(): ReplyActionChains {
     defer: (): void => {
       throw new Error("send_voice must not defer within the foreground window");
     },
+    track: (): void => {},
     settle: async (): Promise<void> => {},
     completed: (): number => 0,
   };
@@ -217,7 +219,10 @@ describe("send_voice 预留经 tts 门面结清", () => {
     expect(ttsDailyUsage.current).toBeNull();
     expect(postMessage).not.toHaveBeenCalled();
     expect(aiTtsRemaining()).toBe(AI_LIMIT);
-    expect(loggerError).toHaveBeenCalledWith(`AI reply voice was not sent (chat ${CHAT_ID}): synthesis failed.`);
+    expect(loggerError).toHaveBeenCalledWith("AI reply voice was not sent.", {
+      chatId: CHAT_ID,
+      reason: "synthesis failed",
+    });
     expect(sendVoiceWithResult).not.toHaveBeenCalled();
   });
 
@@ -235,7 +240,10 @@ describe("send_voice 预留经 tts 门面结清", () => {
       expect(pendingAiTtsReservations.current).toBe(0);
       expect(ttsDailyUsage.current).toBeNull();
       expect(postMessage).not.toHaveBeenCalled();
-      expect(loggerError).toHaveBeenCalledWith(`AI reply voice was not sent (chat ${CHAT_ID}): synthesis failed.`);
+      expect(loggerError).toHaveBeenCalledWith("AI reply voice was not sent.", {
+        chatId: CHAT_ID,
+        reason: "synthesis failed",
+      });
     } finally {
       await occupation.release();
     }
@@ -269,7 +277,7 @@ describe("send_voice 预留经 tts 门面结清", () => {
   });
 
   test("TTS 请求在途时本轮作废：供应商按取消交回空结果，只释放预留、不计数、不记失败日志", async () => {
-    // 两家实现在调用方取消时都返回 null、不记错误（见 aiChat/ai/utils/speechPayload.ts 的 speechRequestFailed）。
+    // 两家实现在调用方取消时都返回 null、不记错误（见 workers/aiChat/ai/utils/speechPayload.ts 的 speechRequestFailed）。
     synthesizeSpeech.mockImplementation((request: AiSpeechRequest): Promise<SynthesizedSpeech | null> =>
       new Promise<SynthesizedSpeech | null>((resolve: (speech: SynthesizedSpeech | null) => void): void => {
         request.signal?.addEventListener("abort", (): void => resolve(null), { once: true });
@@ -308,5 +316,36 @@ describe("send_voice 预留经 tts 门面结清", () => {
     expect(ttsDailyUsage.current).toMatchObject({ agentCount: 1, reserveCount: 0 });
     expect(postMessage).toHaveBeenCalledTimes(1);
     expect(aiTtsRemaining()).toBe(AI_LIMIT - 1);
+  });
+
+  test("send_voice 投递步骤从未启动（作废跳过）时，chains.settle 仍等合成预留结清后才返回", async () => {
+    const finishSynthesis: PromiseWithResolvers<SynthesizedSpeech | null> =
+      Promise.withResolvers<SynthesizedSpeech | null>();
+    synthesizeSpeech.mockImplementation((): Promise<SynthesizedSpeech | null> => finishSynthesis.promise);
+    const { ctx, controller }: VoidableRound = buildRound();
+    const chains: ReplyActionChains = createReplyActionChains(ctx);
+
+    const execution: ReplyToolExecution = createSendVoiceExecutor(
+      ctx,
+      chains,
+      VOICE_LANGUAGE_PROMPTS[TTS_DEFAULT_BOT_LANGUAGE].speechLanguageStyle
+    )(JSON.stringify({ text: "バカ" }));
+    if (typeof execution === "string") throw new Error(`expected an accepted voice, got ${execution}`);
+    await waitUntil((): boolean => synthesizeSpeech.mock.calls.length === 1);
+    expect(pendingAiTtsReservations.current).toBe(1);
+
+    // 不调用 execution.run，直接作废并等待链 settle：必须等合成完成释放预留后 settle 才兑现。
+    controller.abort();
+    let settled: boolean = false;
+    const settling: Promise<void> = chains.settle().then((): void => { settled = true; });
+    await Bun.sleep(0);
+    expect(settled).toBe(false);
+    expect(pendingAiTtsReservations.current).toBe(1);
+
+    finishSynthesis.resolve(null);
+    await settling;
+    expect(settled).toBe(true);
+    expect(pendingAiTtsReservations.current).toBe(0);
+    expect(ttsDailyUsage.current).toBeNull();
   });
 });

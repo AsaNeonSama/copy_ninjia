@@ -8,7 +8,12 @@ import {
   truncateInline,
   truncateWithEllipsis,
 } from "../../packages/libs/text";
-import { TRUNCATION_ELLIPSIS } from "../../packages/consts/text";
+import {
+  BIDI_CONTROL_PATTERN,
+  BIDI_CONTROL_TEST_PATTERN,
+  TRUNCATION_ELLIPSIS,
+} from "../../packages/consts/text";
+import { neutralizeRenderableCommands } from "../../packages/libs/renderableCommand";
 
 describe("libs/text truncateAtClauseBoundary", () => {
   test("不超限时原样返回", () => {
@@ -88,6 +93,34 @@ describe("libs/text sanitizeDisplayName", () => {
 
   test("空白折叠沿用 sanitizeInline 的规则", () => {
     expect(sanitizeDisplayName("  A\n\nB  ")).toBe("A B");
+  });
+
+  test("前置非全局双向控制符检测在全 BMP 与重复交错调用下与直接全局替换等价，且不推进 lastIndex", () => {
+    expect(BIDI_CONTROL_TEST_PATTERN.source).toBe(BIDI_CONTROL_PATTERN.source);
+    expect(BIDI_CONTROL_TEST_PATTERN.flags).toBe("");
+
+    const reference = (raw: string): string =>
+      sanitizeInline(neutralizeRenderableCommands(raw.replace(BIDI_CONTROL_PATTERN, "")));
+
+    let mismatches: number = 0;
+    let firstMismatch: string = "";
+    for (let code: number = 0; code <= 0xffff; code += 1) {
+      const sample: string = `a${String.fromCharCode(code)}b`;
+      if (sanitizeDisplayName(sample) !== reference(sample)) {
+        mismatches += 1;
+        if (mismatches === 1) firstMismatch = `U+${code.toString(16)}`;
+      }
+    }
+    expect(firstMismatch).toBe("");
+    expect(mismatches).toBe(0);
+
+    for (let index: number = 0; index < 4; index += 1) {
+      expect(sanitizeDisplayName("clean display name")).toBe("clean display name");
+      expect(sanitizeDisplayName("\u202EAlice\u200F /start \u2066!\u2069")).toBe(
+        reference("\u202EAlice\u200F /start \u2066!\u2069")
+      );
+    }
+    expect(BIDI_CONTROL_TEST_PATTERN.lastIndex).toBe(0);
   });
 });
 

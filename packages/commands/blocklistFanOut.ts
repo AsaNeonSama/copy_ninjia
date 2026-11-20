@@ -3,6 +3,7 @@
  * - **按身份串行排序**：handler 完成权限与目标校验后，按命令到达顺序在目标身份的串行槽
  *   （`cache/main/blocklist.ts` 的 `blocklistIdentityMutationRunner`）占位；名单写入与落盘确认（`prepare`）、
  *   跨群封禁/解封与回执（`fanOut`）均在该槽位内依次执行，与同身份后续命令及广告处置严格保序。
+ *   等槽位期间目标身份可能被身份 LRU 挤出，`prepare` 须在名单变更前自行复核并按需重预热（预热失败时交给 `fanOut` 回执不可用）。
  * - **空闲同步写入 vs 繁忙延后**：串行槽空闲时，`prepare` 在发起 update 内直接跑完，update 结束前名单结论已落定；
  *   若已有更早的同身份处置在途，`prepare` 随 `fanOut` 一并延后，不阻塞当前 update。
  * - **后台扇出与停机取消**：`fanOut` 提交至延迟命令执行器（`./deferredCommands.ts`）的 `background` 档运行，
@@ -21,7 +22,7 @@ export interface RunBlocklistFanOutParams<T extends object> {
   readonly identityId: number;
   /** 写进错误日志的英文命令名，如 `/block enable`。 */
   readonly command: string;
-  /** 名单写入与落盘确认；结果交给 fanOut。 */
+  /** 名单变更前复核身份缓存、名单写入与落盘确认；结果交给 fanOut。 */
   readonly prepare: () => Promise<T>;
   /** 逐群封禁或解封，并在发起群发回执。 */
   readonly fanOut: (prepared: T) => Promise<void>;
@@ -59,9 +60,13 @@ export async function runBlocklistFanOut<T extends object>({
   }
   const reportCancelled = (): void => {
     logger.error(
-      `Cancelled the deferred ${command} for identity ${identityId} before it ran; ` +
-      `${prepared === undefined ? "the blocklist was not changed" : "the cross-chat fan-out did not run"} ` +
-      "and no receipt was sent."
+      "Cancelled deferred blocklist command before it ran; no receipt was sent.",
+      {
+        command,
+        identityId,
+        blocklistChanged: prepared !== undefined,
+        skippedStep: prepared === undefined ? "prepare" : "fanOut",
+      }
     );
   };
   const task = async (): Promise<void> => {
@@ -80,7 +85,8 @@ export async function runBlocklistFanOut<T extends object>({
   if (submitDeferredCommand({
     priority: "background",
     task,
-    errorLabel: `Unexpected error while running ${command} for identity ${identityId}:`,
+    errorLabel: "Unexpected error while running deferred blocklist command:",
+    errorContext: { command, identityId },
     onSkipped: (): void => {
       release.resolve();
       reportCancelled();

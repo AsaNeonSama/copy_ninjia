@@ -19,8 +19,6 @@ import { throwIfUpdateAborted } from "../updateContext";
 import { StateStore, loadCurrentGlobalState } from "./statePersistence";
 import { toError } from "../../libs/errorMessage";
 
-export { StateStore } from "./statePersistence";
-
 /**
  * 获取或懒初始化进程级共享 `StateStore` 单例。
  *
@@ -209,7 +207,7 @@ export function setStatePersistenceFatalHandler(handler: ((error: Error) => void
 function saveGlobalStateInBackground(context: string): void {
   throwIfUpdateAborted();
   void sharedStateStore().save(currentGlobalState(), { waitForPersistence: false }).catch((error: unknown): void => {
-    logger.error(`Failed to persist background global state update (${context}):`, error);
+    logger.error("Failed to persist background global state update:", { context }, error);
   });
 }
 

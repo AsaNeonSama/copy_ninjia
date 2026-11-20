@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildCharacterTypo } from "../../../../packages/aiChat/ai/utils/typo";
+import { buildCharacterTypo } from "../../../../packages/workers/aiChat/ai/utils/typo";
 
 /** 分解写法的 が = か(U+304B) + 浊点(U+3099)，两个码点、一个字素簇。 */
 const DECOMPOSED_GA: string = "が";

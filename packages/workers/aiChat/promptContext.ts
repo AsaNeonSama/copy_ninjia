@@ -7,7 +7,7 @@ import {
   buildColdMemoryBlock,
   buildTieredVerbatimTranscript,
   formatSpeakerIdentity,
-} from "../../aiChat/ai/utils/chatTranscript";
+} from "./ai/utils/chatTranscript";
 import {
   MAX_SUMMARY_ROUNDS,
   VERBATIM_CONTEXT_MAX,
@@ -34,7 +34,7 @@ import { TYPO_REQUIRED_INSTRUCTION } from "../../consts/aiChat/prompts/tools";
 import { chatBuffers, chatSummaries } from "../../cache/workers/aiChat/memory";
 import { lookupBufferedMessage } from "./bufferedMessageIndex";
 import { resolvedTagFor } from "./mediaText";
-import type { RenderedTranscript } from "../../aiChat/ai/utils/chatTranscript";
+import type { RenderedTranscript } from "./ai/utils/chatTranscript";
 import type { BufferedMessage } from "../../types/aiChat/memory";
 import type { AiSpeakerSnapshot } from "../../types/aiChat/speaker";
 import type { AiBotInfo } from "../../types/aiChat/protocol";
@@ -71,7 +71,7 @@ function forwardPathFor(origin: string | undefined, senderId: number, senderName
  * 格式化排队补跑触发消息的快照描述。
  *
  * @param queuedTrigger 排队补跑的直接触发快照
- * @param rendered 当前群逐字转录的渲染结果与发言人代号表
+ * @param rendered 当前群逐字转录的渲染结果与发言人代号查询接口
  * @returns 供排队补跑指令嵌入的触发消息描述文本
  */
 function describeQueuedTrigger(queuedTrigger: QueuedReplyTrigger, rendered: RenderedTranscript): string {
@@ -209,7 +209,7 @@ export function buildReplyPromptSections(
     ? ""
     : directInvokerSentence(
       invokerSnapshot ? formatSpeakerIdentity(invokerSnapshot, selfInfo.id) : `[id:${directInvokerId}]`,
-      rendered.codeOf.get(directInvokerId) ?? ""
+      rendered.codeOf(directInvokerId) ?? ""
     ) + "\n";
   const replyTask: string =
     `[BEGIN ${REPLY_CONTEXT_SECTION_NAMES.replyTask}]\n` +

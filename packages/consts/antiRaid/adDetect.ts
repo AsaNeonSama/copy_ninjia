@@ -100,20 +100,6 @@ export const AD_DETECT_GOOGLE_REQUEST_TIMEOUT_MS: number = 60_000;
 /** Google SDK 的总尝试次数（含首次）；所属模块：workers/antiRaid/adDetect/ai/google.ts。 */
 export const AD_DETECT_GOOGLE_REQUEST_ATTEMPTS: number = 3;
 
-/**
- * ad_detect 显式缓存（Gemini）的 displayName 前缀，后接「分槽指纹:内容指纹」两段指纹；
- * 与 text scope 的前缀互不相同，启动扫描互不接管。所属模块：workers/antiRaid/adDetect/ai/google.ts。
- */
-export const AD_DETECT_GEMINI_CACHE_DISPLAY_NAME_PREFIX: string = "copy-ninjia:ad_detect:";
-
-/**
- * ad_detect 显式缓存同时登记的槽数上限；超出时按最久未用删除。所属模块：workers/antiRaid/adDetect/ai/google.ts。
- */
-export const AD_DETECT_GEMINI_CACHE_MAX_SLOTS: number = 2;
-
-/** ad_detect 显式缓存的创建、续期、删除与扫描在日志里的调用名。所属模块：workers/antiRaid/adDetect/ai/google.ts。 */
-export const AD_DETECT_GEMINI_CACHE_ERROR_LABEL: string = "Gemini ad detection cache API";
-
 /** 模型成功响应但正文不可用时的总尝试次数（含首次），三种 provider 共用；Anthropic 拒答不重采样。 */
 export const AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS: number = 2;
 
@@ -179,7 +165,7 @@ export const AD_DETECT_CUSTOM_EMOJI_SET_CACHE_MAX: number = 4_096;
 
 /**
  * 一轮表情黑名单核对里 getCustomEmojiStickers 失败后还能立即再试的总次数，各批共用；4xx 拒绝不重试，
- * 预算用尽、被拒或进入停机即放弃本轮表情核对。所属模块：workers/antiRaid/adDetect/verdict.ts。
+ * 预算用尽、被拒或进入停机即放弃本轮表情核对。所属模块：workers/antiRaid/adDetect/blacklistFastPath.ts。
  */
 export const AD_DETECT_CUSTOM_EMOJI_QUERY_MAX_RETRIES: number = 3;
 
@@ -191,7 +177,7 @@ export const AD_DETECT_REASON_MAX_CHARS: number = 80;
 
 /**
  * 贴纸包黑名单命中时的判定理由；包名来自已校验的 sticker_black_list（不超过 64 字符），
- * 全文不超过 AD_DETECT_REASON_MAX_CHARS。所属模块：workers/antiRaid/adDetect/verdict.ts。
+ * 全文不超过 AD_DETECT_REASON_MAX_CHARS。所属模块：workers/antiRaid/adDetect/blacklistFastPath.ts。
  * @param pack 命中的贴纸包 short name。
  * @returns 写进日志、播报与命中样本的判定理由。
  */
@@ -201,7 +187,7 @@ export function adStickerBlacklistReason(pack: string): string {
 
 /**
  * 自定义表情包黑名单命中时的判定理由；包名来自已校验的 emoji_black_list（不超过 64 字符），
- * 全文不超过 AD_DETECT_REASON_MAX_CHARS。所属模块：workers/antiRaid/adDetect/verdict.ts。
+ * 全文不超过 AD_DETECT_REASON_MAX_CHARS。所属模块：workers/antiRaid/adDetect/blacklistFastPath.ts。
  * @param pack 命中的自定义表情包 short name。
  * @returns 写进日志、播报与命中样本的判定理由。
  */

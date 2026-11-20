@@ -24,11 +24,20 @@ import type { AtmosphereTexts } from "../types/atmosphere";
 import type { CachedUser, ChatState } from "../types/chatState";
 import type { ParsedDeleteMessageCommand } from "../types/deleteMessage";
 import { formatTargetLabel } from "../users/userLabel";
+import { visibleSenderId } from "../users/visibleSender";
 import { rejectUnlessSuperAdmin } from "./commandActor";
 import {
   dropQueuedTargetMessageDeletions,
   enqueueTargetMessageDeletion,
 } from "./deleteMessage/queue";
+import {
+  addDeleteMessageTargetId,
+  removeDeleteMessageTargetId,
+} from "./deleteMessage/targets";
+import type {
+  AddDeleteMessageTargetOutcome,
+  RemoveDeleteMessageTargetOutcome,
+} from "./deleteMessage/targets";
 import { resolveCommandTarget } from "./targetResolution";
 
 /**
@@ -83,16 +92,20 @@ async function startDeletingTargetMessages(
   const chatState: ChatState | undefined = getChatStateCache().get(chatId);
   if (chatState?.isInitEnabled !== true) return;
   const targetLabel: string = formatTargetLabel(target, atmosphere);
-  const current: readonly number[] | undefined = chatState.deleteMessageTargets;
-  if (current?.includes(target.id) === true) {
-    await replyCommandNotice(ctx, atmosphere.NOTICE_TEXTS.deleteMessageExists(targetLabel));
+  const addition: AddDeleteMessageTargetOutcome = addDeleteMessageTargetId(
+    chatState.deleteMessageTargets,
+    target.id
+  );
+  if (!addition.ok) {
+    await replyCommandNotice(
+      ctx,
+      addition.reason === "exists"
+        ? atmosphere.NOTICE_TEXTS.deleteMessageExists(targetLabel)
+        : atmosphere.NOTICE_TEXTS.deleteMessageCapacity(DELETE_MESSAGE_CHAT_TARGET_MAX)
+    );
     return;
   }
-  if (current !== undefined && current.length >= DELETE_MESSAGE_CHAT_TARGET_MAX) {
-    await replyCommandNotice(ctx, atmosphere.NOTICE_TEXTS.deleteMessageCapacity(DELETE_MESSAGE_CHAT_TARGET_MAX));
-    return;
-  }
-  chatState.deleteMessageTargets = current === undefined ? [target.id] : [...current, target.id];
+  chatState.deleteMessageTargets = addition.next;
   await persistChatState(chatId, "delete message target added");
   await replyCommandNotice(ctx, atmosphere.NOTICE_TEXTS.deleteMessageStarted(targetLabel));
 }
@@ -119,13 +132,15 @@ async function stopDeletingTargetMessages(
   if (target === undefined) return;
   const targetLabel: string = formatTargetLabel(target, atmosphere);
   const chatState: ChatState | undefined = getChatStateCache().get(ctx.chat.id);
-  const current: readonly number[] | undefined = chatState?.deleteMessageTargets;
-  if (chatState === undefined || current?.includes(target.id) !== true) {
+  const removal: RemoveDeleteMessageTargetOutcome = removeDeleteMessageTargetId(
+    chatState?.deleteMessageTargets,
+    target.id
+  );
+  if (chatState === undefined || !removal.ok) {
     await replyCommandNotice(ctx, atmosphere.NOTICE_TEXTS.deleteMessageAbsent(targetLabel));
     return;
   }
-  const remaining: readonly number[] = current.filter((id: number): boolean => id !== target.id);
-  chatState.deleteMessageTargets = remaining.length === 0 ? undefined : remaining;
+  chatState.deleteMessageTargets = removal.next;
   await persistChatState(ctx.chat.id, "delete message target removed");
   await replyCommandNotice(ctx, atmosphere.NOTICE_TEXTS.deleteMessageStopped(targetLabel));
 }
@@ -147,8 +162,8 @@ export async function handleDeleteMessageCommand(ctx: CommandContext<Context>): 
 }
 
 /**
- * 命令前的消息 ingress：发送者（有 sender_chat 时取它，否则取 from）是本群删除目标时，把这条消息
- * 排进待删队列并认领，不再进入 gag、命令、AI 与复读；队列已满时同样认领。本群没有目标时只读一个
+ * 命令前的消息 ingress：可见发送者（见 users/visibleSender.ts 的 visibleSenderId）是本群删除目标时，
+ * 把这条消息排进待删队列并认领，不再进入 gag、命令、AI 与复读；队列已满时同样认领。本群没有目标时只读一个
  * 字段。同步返回，不分配 Promise（挂载位置见 app/updatePreamble.ts 的前置链）。
  * @param message 入站的 Telegram 消息。
  * @param chatState 前置链在同一同步段读到的本群状态快照。
@@ -157,7 +172,7 @@ export async function handleDeleteMessageCommand(ctx: CommandContext<Context>): 
 export function handleDeleteMessageIngress(message: Message, chatState: Readonly<ChatState>): boolean {
   const targets: readonly number[] | undefined = chatState.deleteMessageTargets;
   if (targets === undefined) return false;
-  const senderId: number | undefined = message.sender_chat?.id ?? message.from?.id;
+  const senderId: number | undefined = visibleSenderId(message);
   if (senderId === undefined || !targets.includes(senderId)) return false;
   enqueueTargetMessageDeletion(message.chat.id, message.message_id);
   return true;

@@ -13,19 +13,22 @@ export interface AdDetectEmptyBodyRetryOptions<Attempt> {
   readonly extractUsableBody: (attempt: Attempt) => string | null;
   /** 判断不可用响应是否允许继续重采样；缺省表示在尝试次数上限内始终重采样。 */
   readonly canRetry?: (attempt: Attempt) => boolean;
+  /** 准备发起下一轮重采样前确认是否仍可继续（如未进入停机阶段）；返回 `false` 时静默放弃，不记耗尽日志。 */
+  readonly shouldContinue?: () => boolean;
   /** 无法重采样或重试次数耗尽时记录包含最后一次尝试诊断信息的错误日志。 */
   readonly logExhausted: (attempt: Attempt, attempts: number) => void;
 }
 
 /**
  * 执行带 `AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS` 上限的广告检测请求与不可用正文重采样。
- * @param options 单次尝试、正文可用性判定、可重试判定与耗尽日志回调。
+ * @param options 单次尝试、正文可用性判定、可重试判定、继续判定与耗尽日志回调。
  * @returns 可用的模型 JSON 响应正文；请求失败、提前终止或重试耗尽时返回 null。
  */
 export async function requestAdDetectJsonWithRetry<Attempt>({
   attemptRequest,
   extractUsableBody,
   canRetry,
+  shouldContinue,
   logExhausted,
 }: AdDetectEmptyBodyRetryOptions<Attempt>): Promise<string | null> {
   for (let attempt: number = 1; ; attempt++) {
@@ -34,7 +37,10 @@ export async function requestAdDetectJsonWithRetry<Attempt>({
     const body: string | null = extractUsableBody(result);
     if (body !== null) return body;
     const retryAllowed: boolean = canRetry === undefined || canRetry(result);
-    if (retryAllowed && attempt < AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS) continue;
+    if (retryAllowed && attempt < AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS) {
+      if (shouldContinue !== undefined && !shouldContinue()) return null;
+      continue;
+    }
     logExhausted(result, attempt);
     return null;
   }

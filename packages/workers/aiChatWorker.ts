@@ -10,23 +10,21 @@ import {
   hydrateStickerCatalogs,
   pruneStickerCatalogs,
   retryIncompleteStickerCatalogs,
-} from "../aiChat/ai/stickers/catalog";
+} from "./aiChat/ai/stickers/catalog";
 import { installAiCacheUsageSink } from "../infra/aiCacheUsage";
 import type { AiCacheUsage } from "../types/aiCache";
 import { adoptStickerConfig, getStickerConfig } from "../config/stickers";
 import { adoptMoodConfig } from "../config/mood";
 import { adoptPersona } from "../config/persona";
 import { adoptAgentDeploymentConfig } from "../config/agent";
-import { TEXT_GEMINI_CONTEXT_CACHE_SCOPE } from "../aiChat/gemini/contextCache";
-import { reportUnimplementedAgentCapabilities } from "../aiChat/provider";
-import { startWeatherRefreshLoop, stopWeatherRefreshLoop } from "../aiChat/ai/weather";
+import { reportUnimplementedAgentCapabilities } from "./aiChat/provider";
+import { startWeatherRefreshLoop, stopWeatherRefreshLoop } from "./aiChat/ai/weather";
 import { AI_SNAPSHOT_INTERVAL_MS } from "../consts/aiChat/memory";
 import { botInfoState, superAdminUserIdState, atmosphereState } from "../cache/workers/aiChat/identity";
+import { adoptLogLevel } from "../config/logLevel";
 import { adoptTimeZone } from "../config/time";
 import { TOKYO_TIME_ZONE } from "../consts/time";
 import { sweepImageGenerationCache } from "../cache/workers/aiChat/imageGeneration";
-import { sweepGeminiReplyRequestTimes } from "../cache/workers/aiChat/geminiContextCache";
-import { probeGeminiContextCache } from "../infra/geminiContextCache";
 import { clearChatMemoryCache } from "../cache/workers/aiChat/memory";
 import { sweepAiChatReplyCache } from "../cache/workers/aiChat/replies";
 import { voiceToolPromptCache } from "../cache/perThread/config";
@@ -45,7 +43,8 @@ import {
 import { recordChatMedia } from "./aiChat/mediaIngest";
 import { handleCancelVoiceSynthesis, handleSynthesizeVoice } from "./aiChat/voiceSynthesis";
 import { handleCancelWebDigest, handleComposeWebDigest } from "./aiChat/webDigest";
-import { hydrateTtsUsage } from "../aiChat/ai/ttsUsage";
+import { drainAiWorkerJobs } from "./aiChat/workerJob";
+import { hydrateTtsUsage } from "./aiChat/ai/ttsUsage";
 import { recordBotImage, resolveRepliedBotImage } from "./aiChat/botImages";
 import type { BufferedMessage } from "../types/aiChat/memory";
 import { applyAiChatConfigReload } from "./aiChat/configReload";
@@ -54,7 +53,7 @@ import {
   generateAndSendReply,
 } from "./aiChat/replyPipeline";
 import { invalidateChatReplies, quiesceAiChatReplies } from "./aiChat/replyGeneration";
-import { currentMood, switchMood } from "../aiChat/ai/mood";
+import { currentMood, switchMood } from "./aiChat/ai/mood";
 import type {
   AiCacheUsageEvent,
   AiChatInvalidatedEvent,
@@ -93,8 +92,8 @@ function handleInvalidateChat(msg: AiInvalidateChatMessage): void {
 }
 
 /**
- * 封闭新任务入口、停止维护定时器与天气刷新，并并行排空在途回复代际与贴纸目录任务。
- * @returns 所有在途回复代际与贴纸目录任务排空完成后的 Promise（幂等复用同一排空句柄）。
+ * 封闭新任务入口、停止维护定时器与天气刷新，并并行排空在途回复代际、贴纸目录任务与 Worker 后台作业。
+ * @returns 所有在途回复代际、贴纸目录任务与 Worker 后台作业排空完成后的 Promise（幂等复用同一排空句柄）。
  */
 function beginAiChatWorkerQuiesce(): Promise<void> {
   aiChatWorkerQuiescing.current = true;
@@ -109,8 +108,9 @@ function beginAiChatWorkerQuiesce(): Promise<void> {
   aiChatWorkerDrain.current ??= Promise.allSettled([
     quiesceAiChatReplies(),
     drainStickerCatalogTasks(),
+    drainAiWorkerJobs(),
   ]).then((settlements: PromiseSettledResult<void>[]): void => {
-    const labels: readonly string[] = ["reply generation", "sticker catalog"];
+    const labels: readonly string[] = ["reply generation", "sticker catalog", "worker jobs"];
     const failures: Error[] = [];
     for (let index: number = 0; index < settlements.length; index++) {
       const settlement: PromiseSettledResult<void> = settlements[index]!;
@@ -148,9 +148,9 @@ export function handleAiChatWorkerMessage(msg: AiChatWorkerMessage): void {
   switch (msg.type) {
     case "init":
       adoptTimeZone(msg.timeZone);
+      adoptLogLevel(msg.logLevel);
       if (msg.timeZone === TOKYO_TIME_ZONE) startWeatherRefreshLoop();
       adoptAgentDeploymentConfig(msg.agent);
-      if (msg.agent.text.provider === "google") probeGeminiContextCache(TEXT_GEMINI_CONTEXT_CACHE_SCOPE);
       adoptMoodConfig(msg.mood);
       adoptStickerConfig(msg.stickers);
       adoptPersona(msg.persona);
@@ -194,7 +194,7 @@ export function handleAiChatWorkerMessage(msg: AiChatWorkerMessage): void {
       break;
     case "flushMemory":
       void flushAiChatWorker(msg.flushId).catch((error: unknown): void => {
-        logger.error(`AI Worker flush ${msg.flushId} rejected before acknowledgement:`, error);
+        logger.error("AI Worker flush rejected before acknowledgement:", { flushId: msg.flushId }, error);
       });
       break;
     case "invalidateChat":
@@ -244,7 +244,6 @@ export function runAiChatWorkerMaintenance(now: number = Date.now()): void {
   sweepAiChatReplyCache(now);
   drainPendingReplyQueues(now);
   sweepImageGenerationCache(now);
-  sweepGeminiReplyRequestTimes(performance.now());
   pruneStickerCatalogs(getStickerConfig().packs);
   retryIncompleteStickerCatalogs(getStickerConfig().packs, now);
   flushDirtyMemories();

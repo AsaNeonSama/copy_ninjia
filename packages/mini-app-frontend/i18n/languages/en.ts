@@ -1,16 +1,22 @@
 import type {
-  MiniAppActiveSessionCounts,
   MiniAppBatchKickCompletion,
-  MiniAppCapabilityDetailItem,
-  MiniAppCapabilityStatus,
   MiniAppChatDetail,
   MiniAppFeatureKey,
-  MiniAppIdentitySubTabKey,
-} from "../../types/miniApp";
+} from "../../types/miniApp/chats";
+import type { MiniAppIdentitySubTabKey } from "../../types/miniApp/identities";
+import type {
+  MiniAppActiveSessionCounts,
+  MiniAppCapabilityDetailItem,
+  MiniAppCapabilityStatus,
+} from "../../types/miniApp/status";
 import type {
   MiniAppServerNoticeParams,
   MiniAppTranslations,
 } from "../../types/miniAppI18n";
+import {
+  formatEnConfigServerNotice,
+  getEnConfigsTranslations,
+} from "../configs/en";
 
 /**
  * 返回英文（Zaako♡ 杂鱼语气）的 Mini App 界面文案字典。
@@ -168,8 +174,15 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
         return `Zaako♡, ID ${idText} wasn't in the whitelist in the first place.`;
       case "WHITELIST_PERSIST_FAILED":
         return "Tsk, failed to persist whitelist change to disk. Check database write status, Zaako♡";
-      case "BLOCKLIST_DUPLICATE":
-        return `Clueless Zaako♡, ID ${idText} is already in the blocklist! No duplicate additions!`;
+      case "BLOCKLIST_DUPLICATE": {
+        const fanOutNote: string =
+          params?.totalChats !== undefined && params.totalChats > 0
+            ? ` (Re-applied the ban in ${params.affectedChats ?? 0}/${params.totalChats} managed group(s).)`
+            : "";
+        const persistNote: string =
+          params?.persisted === false ? " (Note: disk persistence confirmation incomplete)" : "";
+        return `Clueless Zaako♡, ID ${idText} is already in the blocklist! No duplicate additions!${fanOutNote}${persistNote}`;
+      }
       case "BLOCKLIST_ADDED": {
         const fanOutNote: string =
           params?.totalChats !== undefined && params.totalChats > 0
@@ -266,11 +279,9 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
       case "QA_STORAGE_FAILED":
         return "Tsk, failed to persist Q&A changes to disk. Check database write status, Zaako♡";
       case "TARGET_REQUIRED":
-        return "Clueless Zaako♡, enter a target @username or numeric ID first!";
+        return "Clueless Zaako♡, enter a target numeric ID first!";
       case "TARGET_INVALID":
-        return "Clueless Zaako♡, invalid target format! Enter @username, a positive user ID, or a -100... channel ID!";
-      case "TARGET_USERNAME_NOT_FOUND":
-        return "Tsk, that @username hasn't been seen in cache yet! Use a numeric ID or wait for them to speak in the group, Zaako♡";
+        return "Clueless Zaako♡, invalid target format! Enter a positive user ID or a -100... channel ID!";
       case "TARGET_NOT_IN_CHAT":
         return "Zaako♡, that user isn't even in this group, so they can't be added to the target list!";
       case "TARGET_SELF_FORBIDDEN":
@@ -312,7 +323,7 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
       case "INVALID_CHAT_TARGETS_PARAMS":
         return "Clueless Zaako♡, invalid target management request parameters!";
       default:
-        return code;
+        return formatEnConfigServerNotice(code, params) ?? code;
     }
   };
   return {
@@ -334,6 +345,7 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
       status: "Live Status",
       chats: "Managed Chats",
       identities: "Access Control",
+      configs: "Config Editor",
       gallery: "H-Image Gallery",
       totp: "Authenticator",
     },
@@ -341,6 +353,7 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
       status: "CPU, RAM, outbound gate & readiness",
       chats: "/init switches & hot 256 messages",
       identities: "Whitelist 18 perms & blocklist",
+      configs: "Dynamic hot-reload & static JSON configs",
       gallery: "/h_image preview, upload & delete",
       totp: "Google Authenticator (TOTP) setup, replace & delete",
     },
@@ -437,8 +450,10 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
       memoryOtherUsedLabel: "Other Processes",
       memoryTotalUsedLabel: "Total Used",
       managedChatsLabel: "/init Managed Chats",
-      managedChatsSub: (whitelistCount: number, blocklistCount: number): string =>
-        `Whitelist ${whitelistCount} · Blocklist ${blocklistCount}`,
+      managedChatsSub: (whitelistCount: number, blocklistCount: number): readonly [string, string] => [
+        `Whitelist ${whitelistCount}`,
+        `Blocklist ${blocklistCount}`,
+      ],
       activeSessionsLabel: "Active Sessions",
       activeSessionsSub: (
         sessions: Readonly<MiniAppActiveSessionCounts>
@@ -449,8 +464,8 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
         `QA ${sessions.qaSet}`,
       ],
       outboundGateLabel: "Telegram Outbound Gate",
-      outboundGateSub: (waiting: number, retrySize: number, retryMax: number): string =>
-        `Waiting ${waiting} · Retry ${retrySize}/${retryMax}`,
+      outboundGateSub: (retryWaiting: number, retryQueueMax: number): string =>
+        `Retry queue ${retryWaiting}/${retryQueueMax}`,
       capabilitiesSectionTitle: "Subsystem Readiness & Configs",
       capabilityReadyBadge: "Ready",
       capabilityMissingBadge: "Unconfigured",
@@ -603,14 +618,14 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
       confirmDeleteQa: (q: string): string =>
         `Zaako♡, are you sure you want to delete the Q&A pair "${q}"?`,
       qaEmptyHint: "Click the button above to add Q&A♡",
-      deleteTargetInputPlaceholder: "@username, user ID, or channel ID",
+      deleteTargetInputPlaceholder: "Write fast, Zaako",
       deleteTargetAddButton: "Add Delete Target",
       deleteTargetAddingButton: "Adding…",
       deleteTargetRemoveButton: "Remove",
       confirmRemoveDeleteTarget: (displayName: string, id: number): string =>
         `Zaako, are you sure you want to remove ${displayName} (${id}) from the delete targets?`,
-      deleteTargetEmptyHint: "Add by @username or ID above♡",
-      translateTargetInputPlaceholder: "@username, user ID, or channel ID",
+      deleteTargetEmptyHint: "Click the button above to add delete targets♡",
+      translateTargetInputPlaceholder: "Write fast, Zaako",
       translateLanguageLabels: {
         ja: "Japanese (ja)",
         cn: "Chinese (cn)",
@@ -727,7 +742,7 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
     identities: {
       whitelistTab: "Permissions",
       blocklistTab: "Blocklist",
-      searchPlaceholder: "id/name",
+      searchPlaceholder: "Write clearly, Zaako",
       searchClearAria: "Clear search query",
       addFoldButton: "Add User",
       addModes: {
@@ -740,7 +755,7 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
         users: "Open Telegram's native contact picker to select friends",
         channel: "Open Telegram's native channel picker to select a channel",
       },
-      idInputPlaceholder: "Enter positive user ID or -100... channel ID",
+      idInputPlaceholder: "Write fast, Zaako",
       idConfirmButton: "Add Now",
       idCancelButton: "Cancel",
       invalidIdToast: "Clueless Zaako! Enter a valid non-zero integer ID (e.g. 123456789 or -1001234567890)!",
@@ -825,8 +840,6 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
       uploadButton: "Upload Image",
       directoryMissingText: (_directory: string): string =>
         "Gallery storage is not ready yet, won't auto-create it",
-      directoryReadyText: (_directory: string): string =>
-        "Gallery storage ready · JPEG / PNG / WebP (≤ 10 MiB)",
       previewTitle: (shortName: string): string => `Preview · ${shortName}`,
       downloadButton: "Download",
       downloadingButton: "Saving…",
@@ -844,5 +857,6 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
       emptyGalleryHint:
         "Not a single image in the gallery yet! Click 'Upload Image' to stuff some in, Zaako♡",
     },
+    configs: getEnConfigsTranslations(),
   };
 }

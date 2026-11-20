@@ -7,13 +7,15 @@
 import type { AtmosphereTexts } from "../types/atmosphere";
 import { chatAtmosphere } from "../infra/atmosphere";
 import { logger } from "../infra/logger";
-import { prefetchIdentityPolicies } from "../infra/identityStorage";
+import { isIdentityPolicyCached, prefetchIdentityPolicies } from "../infra/identityStorage";
 import {
   createMonotonicDeadline,
   remainingMonotonicTime,
 } from "../libs/monotonicDeadline";
-import { isWhitelisted } from "../infra/identityPolicy/whitelist";
-import { canBypassAdDetection } from "./memberFacts";
+import {
+  canBypassAdDetection,
+  isProtectedFromAdDisposal,
+} from "./memberFacts";
 import {
   blockUser,
   confirmBlocklistPersisted,
@@ -60,6 +62,8 @@ type AdDisposalRuling =
   | "protected"
   /** 部署方已在热重载中删除 ad_detect.json，没有可用的处罚设置。 */
   | "unconfigured"
+  /** 身份策略在临界区内未能读取，放弃本次处置。 */
+  | "unavailable"
   /** 全局封禁；newlyBlocked 为本次 blockUser 是否新加入永久黑名单。 */
   | Readonly<{ kind: "blockGlobal"; newlyBlocked: boolean }>
   | AdInChatPunishmentAction;
@@ -81,7 +85,10 @@ function recordAdSample(event: AdDetectedEvent): void {
     messages: event.messages,
   } satisfies AdSampleDiskMessage);
   if (!posted) {
-    logger.error(`Failed to queue the ad detection sample for sender ${event.senderId} in chat ${event.chatId}.`);
+    logger.error(
+      "Failed to queue the ad detection sample.",
+      { chatId: event.chatId, senderId: event.senderId }
+    );
   }
 }
 
@@ -93,7 +100,7 @@ function recordAdSample(event: AdDetectedEvent): void {
  */
 function ruleAdDisposal(event: AdDetectedEvent): AdDisposalRuling {
   if (getChatState(event.chatId).isAdDetectEnabled !== true) return "disabled";
-  if (canBypassAdDetection(event.senderId) || isWhitelisted(event.senderId)) return "protected";
+  if (isProtectedFromAdDisposal(event.senderId)) return "protected";
   const punishment: AdDetectPunishment | null = currentAdDetectPunishment();
   if (punishment === null) return "unconfigured";
   clearTemporaryAdBypassActivityOrThrow(event.senderId);
@@ -112,32 +119,47 @@ function ruleAdDisposal(event: AdDetectedEvent): AdDisposalRuling {
 async function disposeDetectedAdLocked(event: AdDetectedEvent): Promise<void> {
   if (!await prefetchIdentityPolicies([event.senderId])) {
     logger.error(
-      `Dropped the ad detection verdict for sender ${event.senderId} in chat ${event.chatId}: ` +
-      "identity policies could not be read, so no punishment was applied."
+      "Dropped the ad detection verdict; identity policies could not be read, so no punishment was applied.",
+      { chatId: event.chatId, senderId: event.senderId }
     );
     return;
   }
   const ruling: AdDisposalRuling = await runProtectedIdentityMutation(
-    (): AdDisposalRuling => ruleAdDisposal(event)
+    async (): Promise<AdDisposalRuling> => {
+      if (
+        !isIdentityPolicyCached(event.senderId) &&
+        !await prefetchIdentityPolicies([event.senderId])
+      ) {
+        return "unavailable";
+      }
+      return ruleAdDisposal(event);
+    }
   );
+  if (ruling === "unavailable") {
+    logger.error(
+      "Dropped the ad detection verdict; identity policies could not be read, so no punishment was applied.",
+      { chatId: event.chatId, senderId: event.senderId }
+    );
+    return;
+  }
   if (ruling === "disabled") {
-    logger.log(
-      `Ad detection was turned off in chat ${event.chatId} before the verdict for sender ` +
-      `${event.senderId} could be disposed; dropping it.`
+    logger.info(
+      "Ad detection was turned off in chat before the verdict could be disposed; dropping it.",
+      { chatId: event.chatId, senderId: event.senderId }
     );
     return;
   }
   if (ruling === "protected") {
     logger.error(
-      `Ad detection flagged protected sender ${event.senderId} in chat ${event.chatId}; ` +
-      "refusing to punish the identity."
+      "Ad detection flagged protected sender; refusing to punish the identity.",
+      { chatId: event.chatId, senderId: event.senderId }
     );
     return;
   }
   if (ruling === "unconfigured") {
     logger.error(
-      `Dropped the ad detection verdict for sender ${event.senderId} in chat ${event.chatId}: ` +
-      `${AD_DETECT_CONFIG_PATH} was removed, so no punishment is configured.`
+      "Dropped the ad detection verdict; ad detection config was removed, so no punishment is configured.",
+      { chatId: event.chatId, senderId: event.senderId, configPath: AD_DETECT_CONFIG_PATH }
     );
     return;
   }
@@ -158,8 +180,8 @@ async function disposeDetectedAdLocked(event: AdDetectedEvent): Promise<void> {
 async function enforceGlobalAdBlock(event: AdDetectedEvent, newlyBlocked: boolean): Promise<void> {
   if (newlyBlocked && !await confirmBlocklistPersisted(event.senderId, false)) {
     logger.error(
-      `Ad detection blocklist entry for sender ${event.senderId} is memory-only; ` +
-      "it will be lost on restart."
+      "Ad detection blocklist entry is memory-only; it will be lost on restart.",
+      { senderId: event.senderId }
     );
   }
 
@@ -182,7 +204,8 @@ async function enforceGlobalAdBlock(event: AdDetectedEvent, newlyBlocked: boolea
     } catch (error: unknown) {
       failedChats++;
       logger.error(
-        `Failed to queue the ad removal of sender ${event.senderId} in chat ${chatId}:`,
+        "Failed to queue the ad removal of sender:",
+        { chatId, senderId: event.senderId },
         error
       );
       requestBlocklistResweep(chatId);
@@ -190,22 +213,26 @@ async function enforceGlobalAdBlock(event: AdDetectedEvent, newlyBlocked: boolea
   }
   if (removals.length === 0) {
     logger.error(
-      `Ad detection has no chat to enforce the block of sender ${event.senderId} in ` +
-      `(${failedChats} chat(s) failed to queue); the blocklist entry still applies to future joins.`
+      "Ad detection has no chat to enforce the block in; the blocklist entry still applies to future joins.",
+      { senderId: event.senderId, failedChatCount: failedChats }
     );
     await announceAdDisposal(event, 0, failedChats);
     return;
   }
   if (failedChats > 0) {
     logger.error(
-      `Ad detection could not queue the removal of sender ${event.senderId} in ${failedChats} chat(s); ` +
-      "those chats now owe a resweep."
+      "Ad detection could not queue removal in some chats; those chats now owe a resweep.",
+      { senderId: event.senderId, failedChatCount: failedChats }
     );
   }
   await blockedMemberRemoverHolder.current(removals);
-  logger.log(
-    `Ad detection blocked sender ${event.senderId} (${event.reason || "no reason given"}) ` +
-    `and queued removals in ${removals.length} chat(s).`
+  logger.info(
+    "Ad detection blocked sender and queued removals.",
+    {
+      senderId: event.senderId,
+      reason: event.reason || null,
+      queuedChatCount: removals.length,
+    }
   );
   await announceAdDisposal(event, removals.length, failedChats);
 }
@@ -281,7 +308,10 @@ export function handleAdDetected(event: AdDetectedEvent): void {
   trackBackgroundTask(
     inFlightAdDisposals,
     disposeDetectedAd(event),
-    `Failed to dispose the ad verdict for sender ${event.senderId}:`
+    {
+      message: "Failed to dispose the ad verdict:",
+      context: { chatId: event.chatId, senderId: event.senderId },
+    }
   );
 }
 
@@ -292,7 +322,13 @@ export function handleAdDetected(event: AdDetectedEvent): void {
  */
 async function clearAdVerdictActivity(event: AdVerdictTrueEvent): Promise<void> {
   if (!await prefetchIdentityPolicies([event.senderId])) return;
-  await runProtectedIdentityMutation((): void => {
+  await runProtectedIdentityMutation(async (): Promise<void> => {
+    if (
+      !isIdentityPolicyCached(event.senderId) &&
+      !await prefetchIdentityPolicies([event.senderId])
+    ) {
+      return;
+    }
     if (canBypassAdDetection(event.senderId)) return;
     clearTemporaryAdBypassActivityOrThrow(event.senderId);
   });
@@ -307,7 +343,10 @@ export function handleAdVerdictTrue(event: AdVerdictTrueEvent): void {
   trackBackgroundTask(
     inFlightAdDisposals,
     clearAdVerdictActivity(event),
-    `Failed to clear temporary ad bypass activity for sender ${event.senderId}:`
+    {
+      message: "Failed to clear temporary ad bypass activity:",
+      context: { senderId: event.senderId },
+    }
   );
 }
 
@@ -323,9 +362,8 @@ export async function drainAdDisposals(timeoutMs: number): Promise<FlushResult> 
     const remaining: number = remainingMonotonicTime(deadline);
     if (remaining === 0 || !await settleWithinBudget([...inFlightAdDisposals], remaining)) {
       logger.error(
-        `Ad disposal drain timed out with ${inFlightAdDisposals.size} task(s) still in flight; ` +
-        "blocklist entries and removal batches stay in their durable outbox, " +
-        "while pending in-chat mutes, kicks and bans are abandoned."
+        "Ad disposal drain timed out with tasks still in flight; blocklist entries and removal batches stay in their durable outbox, while pending in-chat mutes, kicks and bans are abandoned.",
+        { inFlightTaskCount: inFlightAdDisposals.size }
       );
       return "timedOut";
     }

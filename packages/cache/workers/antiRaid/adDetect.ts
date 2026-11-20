@@ -38,7 +38,7 @@ export const recentlyDisposedAdKeys: FifoMap<string, number> = new FifoMap(AD_DE
 
 /**
  * 自定义表情 ID -> 所属表情包 short name（不属于任何表情包时为 null），供 emoji_black_list 核对时跳过已查过的 ID。
- * 填充：workers/antiRaid/adDetect/verdict.ts 的 getCustomEmojiStickers 查询成功后按返回的每个贴纸写入；未返回的 ID 不写入，下次照常查询。
+ * 填充：workers/antiRaid/adDetect/blacklistFastPath.ts 的 queryBlacklistedCustomEmojiSet 查询成功后按返回的每个贴纸写入；未返回的 ID 不写入，下次照常查询。
  * 清理：Worker 停止时清空；ID 与所属包的对应不随 emoji_black_list 热重载变化，不另行失效。
  * 重建：Worker 崩溃重启后从空表开始。
  * 容量：LruCache 限制为 AD_DETECT_CUSTOM_EMOJI_SET_CACHE_MAX，满载时淘汰最久未使用的 ID。

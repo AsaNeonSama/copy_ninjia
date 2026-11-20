@@ -119,7 +119,6 @@ const VERIFICATION_COLUMNS: Readonly<Record<VerificationEvent["type"], () => Ver
   confirmedThreadComment: (): VerificationEvent => ({
     type: "confirmedThreadComment",
     messageId: 21,
-    now: NOW,
     allowFloodTerminalExemption: true,
   }),
   callback: (): VerificationEvent => ({
@@ -375,5 +374,34 @@ describe("入群验证状态 × 事件矩阵", () => {
         transition.next !== state;
       expect(creates).toBe(createdNew);
     }
+  });
+
+  test("墙钟回拨时秒踢宽限窗口按已结束处理；同号入群公告仍去重", () => {
+    const baseJoinEvent = {
+      type: "join" as const,
+      memberId: 100,
+      label: LABEL,
+      isBot: false,
+      identityExempt: false,
+      actorSyncExempt: false,
+      adminCacheFresh: true,
+      lockdownActive: false,
+      recentComment: undefined,
+      now: 9_000,
+    };
+
+    const kickPending = kickPendingOf({
+      label: LABEL,
+      isBot: false,
+      requestedAt: 10_000,
+      countedJoinAt: 10_000,
+      announcementMessageId: 10,
+    });
+    expect(joinCreatesNewRecord(kickPending, { ...baseJoinEvent, announcementMessageId: 99 })).toBeTrue();
+    expect(joinCreatesNewRecord(kickPending, { ...baseJoinEvent, announcementMessageId: undefined })).toBeTrue();
+    expect(joinCreatesNewRecord(kickPending, { ...baseJoinEvent, announcementMessageId: 10 })).toBeFalse();
+
+    const kicked: VerificationState = kickedOf(LABEL, false, 10_000);
+    expect(joinCreatesNewRecord(kicked, { ...baseJoinEvent, announcementMessageId: 99 })).toBeTrue();
   });
 });

@@ -1,12 +1,15 @@
 import { expect, spyOn, test } from "bun:test";
 import { logger } from "../../packages/infra/logger";
+import { adoptLogLevel, getLogLevel } from "../../packages/config/logLevel";
 import { restoreDefaultProfilePhoto } from "../../packages/infra/telegram/avatar/restore";
 import { agentDeploymentConfigCache } from "../../packages/cache/perThread/config";
 import { loggerSecretsMemo } from "../../packages/cache/perThread/logger";
 import { parseAgentDeploymentConfig } from "../../packages/config/agent";
 import { AVATAR_FETCH_MAX_ATTEMPTS } from "../../packages/consts/telegram";
+import { CONSOLE_PREFIX_BY_LOG_LEVEL } from "../../packages/consts/logger";
 import { REDACTED_SECRET } from "../../packages/consts/redaction";
 import type { AgentDeploymentConfig } from "../../packages/types/config";
+import type { LogLevel } from "../../packages/types/diskIO/messages";
 import type { LoggerSecretsSnapshot } from "../../packages/types/logger";
 
 /** 严格解析以 secret 为 api_key 的测试配置；只替换线程内 holder，不写部署文件。 */
@@ -32,7 +35,8 @@ test("头像下载异常的 path、message、stack、cause 与重定向 URL 均�
     for (const secret of ["test-signature", "test-fragment", "test-redirect-signature", "test-user", "test-password"]) {
       expect(serialized).not.toContain(secret);
     }
-    expect(consoleError.mock.calls[0]![1]).toMatchObject({
+    expect(consoleError.mock.calls[0]![0]).toBe(CONSOLE_PREFIX_BY_LOG_LEVEL.error);
+    expect(consoleError.mock.calls[0]!.at(-1)).toMatchObject({
       name: "TypeError", code: error.code, path: "https://bucket.example/avatar.png",
       cause: { path: "https://cdn.example/avatar.png" },
     });
@@ -49,11 +53,12 @@ test("JSON 转义凭据覆盖真实 logger 的文本、Error、嵌套 cause、�
     logger.error(`echo ${secret}`);
     logger.error(new Error(`echo ${secret}`, { cause: new Error(`cause ${secret}`) }));
     logger.error({ [secret]: secret, nested: { diagnostic: secret } });
-    expect(consoleError.mock.calls[0]![0]).toBe(`echo ${REDACTED_SECRET}`);
-    expect(consoleError.mock.calls[1]![0]).toMatchObject({
+    expect(consoleError.mock.calls[0]![0]).toBe(CONSOLE_PREFIX_BY_LOG_LEVEL.error);
+    expect(consoleError.mock.calls[0]![1]).toBe(`echo ${REDACTED_SECRET}`);
+    expect(consoleError.mock.calls[1]![1]).toMatchObject({
       message: `echo ${REDACTED_SECRET}`, cause: { message: `cause ${REDACTED_SECRET}` },
     });
-    expect(consoleError.mock.calls[2]![0]).toEqual({
+    expect(consoleError.mock.calls[2]![1]).toEqual({
       [REDACTED_SECRET]: REDACTED_SECRET, nested: { diagnostic: REDACTED_SECRET },
     });
     const snapshot: LoggerSecretsSnapshot = loggerSecretsMemo.current!;
@@ -84,8 +89,8 @@ test("已登记凭据在 URL 规范化前脱敏，原文与百分号编码均不
     const serialized: string = JSON.stringify(consoleError.mock.calls);
     expect(serialized).not.toContain(secret);
     expect(serialized).not.toContain(encodeURIComponent(secret));
-    expect(consoleError.mock.calls[1]![0]).toEqual({ diagnostic: `https://bucket.example/${REDACTED_SECRET}` });
-    expect(consoleError.mock.calls[2]![0]).toMatchObject({ path: `https://bucket.example/${REDACTED_SECRET}` });
+    expect(consoleError.mock.calls[1]![1]).toEqual({ diagnostic: `https://bucket.example/${REDACTED_SECRET}` });
+    expect(consoleError.mock.calls[2]![1]).toMatchObject({ path: `https://bucket.example/${REDACTED_SECRET}` });
   } finally { agentDeploymentConfigCache.current = original; consoleError.mockRestore(); }
 });
 
@@ -95,17 +100,20 @@ test("合法 URL 路径含单引号时也完整移除预签名查询串", (): vo
   try {
     logger.error(Object.assign(new Error(`fetch ${url}`), { path: url }));
     expect(JSON.stringify(consoleError.mock.calls)).not.toContain("test-quoted-path-signature");
-    expect(consoleError.mock.calls[0]![0]).toMatchObject({ path: "https://bucket.example/that's/avatar.png" });
+    expect(consoleError.mock.calls[0]![0]).toBe(CONSOLE_PREFIX_BY_LOG_LEVEL.error);
+    expect(consoleError.mock.calls[0]![1]).toMatchObject({ path: "https://bucket.example/that's/avatar.png" });
   } finally { consoleError.mockRestore(); }
 });
 
 test("配置替换后的旧转义凭据继续脱敏，序列化重入使用各自的只读快照", (): void => {
   const original: AgentDeploymentConfig | null = agentDeploymentConfigCache.current;
+  const previousLogLevel: LogLevel = getLogLevel();
   const oldSecret: string = 'test-old-"quoted"\\secret';
   const newSecret: string = 'test-new-"quoted"\\secret';
   const consoleError = spyOn(console, "error").mockImplementation((): void => {});
   const consoleInfo = spyOn(console, "info").mockImplementation((): void => {});
   agentDeploymentConfigCache.current = credentialConfig(oldSecret);
+  adoptLogLevel("info");
   try {
     logger.error("capture config");
     const value: { readonly diagnostic: string } = {
@@ -116,11 +124,17 @@ test("配置替换后的旧转义凭据继续脱敏，序列化重入使用各�
       },
     };
     logger.error(value);
-    expect(consoleInfo.mock.calls[0]![0]).toBe(`nested ${REDACTED_SECRET}`);
-    expect(consoleError.mock.calls.at(-1)![0]).toEqual({ diagnostic: REDACTED_SECRET });
+    expect(consoleInfo.mock.calls[0]![0]).toBe(CONSOLE_PREFIX_BY_LOG_LEVEL.info);
+    expect(consoleInfo.mock.calls[0]![1]).toBe(`nested ${REDACTED_SECRET}`);
+    expect(consoleError.mock.calls.at(-1)![1]).toEqual({ diagnostic: REDACTED_SECRET });
     logger.error(new Error(`retired ${oldSecret}; current ${newSecret}`));
-    expect(consoleError.mock.calls.at(-1)![0]).toMatchObject({
+    expect(consoleError.mock.calls.at(-1)![1]).toMatchObject({
       message: `retired ${REDACTED_SECRET}; current ${REDACTED_SECRET}`,
     });
-  } finally { agentDeploymentConfigCache.current = original; consoleInfo.mockRestore(); consoleError.mockRestore(); }
+  } finally {
+    adoptLogLevel(previousLogLevel);
+    agentDeploymentConfigCache.current = original;
+    consoleInfo.mockRestore();
+    consoleError.mockRestore();
+  }
 });

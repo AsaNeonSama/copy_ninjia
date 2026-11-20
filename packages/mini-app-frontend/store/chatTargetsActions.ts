@@ -1,32 +1,29 @@
-import {
-  fetchMiniAppChatTargets,
-  mutateMiniAppChatTargets,
-} from "../api/chatTargets";
+import { fetchMiniAppChatTargets } from "../api/chatTargets";
 import { requestMiniAppPreparedPicker } from "../api/pickerPrepare";
-import { waitForMiniAppPickerResult } from "../api/pickerResult";
-import { getMiniAppTranslations } from "../i18n";
-import type { MiniAppTranslations } from "../i18n";
 import { errorMessage } from "../libs/errorMessage";
 import { waitMinimumLoadingDuration } from "../libs/loading";
-import { getTelegramWebApp } from "../libs/telegram";
 import type {
   MiniAppChatDetail,
-  MiniAppChatDeleteTargetItem,
   MiniAppChatTargetKind,
-  MiniAppChatTargetsMutationRequest,
-  MiniAppChatTargetsMutationResult,
   MiniAppChatTargetsView,
-  MiniAppChatTranslateTargetItem,
+  MiniAppTranslateLanguage,
+} from "../types/miniApp/chats";
+import type {
   MiniAppIdentityAddMode,
   MiniAppPickerResultEvent,
   MiniAppPickerSubjectKind,
-  MiniAppTranslateLanguage,
   PrepareMiniAppPickerResult,
-  TelegramWebApp,
-} from "../types/miniApp";
-import { useMiniAppStore } from "./app";
-import type { MiniAppUiStoreState } from "./app";
+} from "../types/miniApp/identities";
+import { notifyMiniAppIfAuthError, useMiniAppStore } from "./app";
 import type { MiniAppChatsStoreState } from "./chats";
+import { createChatTargetsMutations } from "./chatTargetsMutations";
+import { resolveNativePickerWebApp } from "./nativePicker";
+import type {
+  MiniAppNativePickerController,
+  NativePickerCapableWebApp,
+} from "./nativePicker";
+
+export { isValidChatTargetNumericInput } from "./chatTargetsMutations";
 
 /** 构造受管群「目标与问答」子动作所需的仓库读写句柄。 */
 export interface CreateChatTargetsActionsOptions {
@@ -40,6 +37,8 @@ export interface CreateChatTargetsActionsOptions {
   readonly nextTargetsReqSeq: () => number;
   /** 读取当前最新的目标请求序号。 */
   readonly currentTargetsReqSeq: () => number;
+  /** 受管群页面共用的 Telegram 原生选择器轮询生命周期控制器。 */
+  readonly pickerController: MiniAppNativePickerController;
 }
 
 /** 受管群「目标与问答」弹窗相关的动作集合。 */
@@ -84,78 +83,12 @@ export function createChatTargetsActions({
   applyMutationDetail,
   nextTargetsReqSeq,
   currentTargetsReqSeq,
+  pickerController,
 }: CreateChatTargetsActionsOptions): MiniAppChatTargetsActions {
-  const executeTargetsMutation = async (
-    payload: Readonly<MiniAppChatTargetsMutationRequest>,
-    onSuccess?: () => void
-  ): Promise<void> => {
-    const { selectedChatId, mutatingTargets }: MiniAppChatsStoreState = get();
-    if (selectedChatId === null || mutatingTargets) return;
-    const reqId: number = nextTargetsReqSeq();
-    const startedAt: number = Date.now();
-    set({ mutatingTargets: true });
-    try {
-      const result: MiniAppChatTargetsMutationResult =
-        await mutateMiniAppChatTargets(selectedChatId, payload);
-      await waitMinimumLoadingDuration(startedAt);
-      const isNoOpWarning: boolean =
-        result.message === "DELETE_TARGET_ALREADY_EXISTS" ||
-        result.message === "TRANSLATE_TARGET_ALREADY_EXISTS" ||
-        result.message === "QA_NOT_FOUND" ||
-        result.message === "DELETE_TARGET_NOT_FOUND" ||
-        result.message === "TRANSLATE_TARGET_NOT_FOUND";
-      if (get().selectedChatId === selectedChatId) {
-        if (result.ok && !isNoOpWarning && onSuccess !== undefined) {
-          onSuccess();
-        }
-        if (result.detail !== null) {
-          applyMutationDetail(result.detail);
-        }
-        set({
-          ...(result.targets !== null ? { chatTargets: result.targets } : {}),
-          mutatingTargets: false,
-          ...(reqId === currentTargetsReqSeq() ? { loadingTargets: false } : {}),
-        });
-      } else if (reqId === currentTargetsReqSeq()) {
-        set({ mutatingTargets: false, loadingTargets: false });
-      } else {
-        set({ mutatingTargets: false });
-      }
-      useMiniAppStore.getState().notify(
-        result.message,
-        result.ok && !isNoOpWarning ? "info" : "warning",
-        result
-      );
-    } catch (error: unknown) {
-      await waitMinimumLoadingDuration(startedAt);
-      if (reqId === currentTargetsReqSeq()) {
-        set({ mutatingTargets: false, loadingTargets: false });
-      } else {
-        set({ mutatingTargets: false });
-      }
-      const message: string = errorMessage(error);
-      useMiniAppStore.getState().notify(message, "warning", error);
-    }
-  };
-
-  const pollTargetPickerSession = async (
-    requestId: number,
+  const handleTargetPickerResult = async (
+    outcome: Readonly<MiniAppPickerResultEvent>,
     chatId: number
   ): Promise<void> => {
-    let outcome: Readonly<MiniAppPickerResultEvent> | "timeout";
-    try {
-      outcome = await waitForMiniAppPickerResult(requestId);
-    } catch (error: unknown) {
-      useMiniAppStore.getState().notify(errorMessage(error), "warning", error);
-      return;
-    }
-    if (outcome === "timeout") {
-      const t: Readonly<MiniAppTranslations> = getMiniAppTranslations(
-        useMiniAppStore.getState().language
-      );
-      useMiniAppStore.getState().notify(t.identities.pickerTimeoutToast, "warning");
-      return;
-    }
     if (get().selectedChatId === chatId) {
       await get().loadChatTargets(get().chatTargets?.chatId === chatId);
       void get().loadDetail(chatId);
@@ -213,18 +146,12 @@ export function createChatTargetsActions({
       useMiniAppStore.getState().notify(prereqCode, "warning");
       return;
     }
-    const t: Readonly<MiniAppTranslations> = getMiniAppTranslations(
-      useMiniAppStore.getState().language
-    );
-    const webApp: Readonly<TelegramWebApp> | undefined = getTelegramWebApp();
-    if (typeof webApp?.requestChat !== "function") {
-      useMiniAppStore.getState().notify(
-        t.identities.pickerUnsupportedHint,
-        "warning"
-      );
+    const webApp: NativePickerCapableWebApp | null = resolveNativePickerWebApp();
+    if (webApp === null) {
       return;
     }
-    set({ mutatingTargets: true });
+    const prepareEpoch: number = pickerController.captureEpoch();
+    set({ mutatingTargets: true, preparingPickerMode: subjectKind });
     try {
       const prepared: Extract<
         PrepareMiniAppPickerResult,
@@ -240,24 +167,15 @@ export function createChatTargetsActions({
         }
       );
       set({ targetAddMenuOpen: false, targetIdFormOpen: false });
-      webApp.requestChat(
-        prepared.preparedButtonId,
-        (accepted: boolean): void => {
-          const nextT: Readonly<MiniAppTranslations> = getMiniAppTranslations(
-            useMiniAppStore.getState().language
-          );
-          if (!accepted) {
-            useMiniAppStore.getState().notify(
-              nextT.identities.pickerCancelledToast
-            );
-            return;
-          }
-          useMiniAppStore.getState().notify(
-            nextT.identities.pickerWaitingToast
-          );
-          void pollTargetPickerSession(prepared.requestId, selectedChatId);
-        }
-      );
+      pickerController.launch({
+        webApp,
+        preparedButtonId: prepared.preparedButtonId,
+        requestId: prepared.requestId,
+        expectedEpoch: prepareEpoch,
+        timeoutTone: "warning",
+        onResult: (outcome: Readonly<MiniAppPickerResultEvent>): Promise<void> =>
+          handleTargetPickerResult(outcome, selectedChatId),
+      });
     } catch (error: unknown) {
       useMiniAppStore.getState().notify(
         errorMessage(error),
@@ -265,42 +183,8 @@ export function createChatTargetsActions({
         error
       );
     } finally {
-      set({ mutatingTargets: false });
+      set({ mutatingTargets: false, preparingPickerMode: null });
     }
-  };
-
-  const removeChatTarget = async (
-    kind: "delete" | "translate",
-    targetId: number
-  ): Promise<void> => {
-    if (get().selectedChatId === null || get().mutatingTargets) return;
-    const targets: Readonly<MiniAppChatTargetsView> | null = get().chatTargets;
-    const targetItem:
-      | Readonly<MiniAppChatDeleteTargetItem | MiniAppChatTranslateTargetItem>
-      | undefined = (
-        kind === "delete"
-          ? targets?.deleteMessageTargets
-          : targets?.translateTargets
-      )?.find(
-        (
-          item: Readonly<MiniAppChatDeleteTargetItem | MiniAppChatTranslateTargetItem>
-        ): boolean => item.id === targetId
-      );
-    const displayName: string = targetItem?.displayName ?? `ID ${targetId}`;
-    const app: MiniAppUiStoreState = useMiniAppStore.getState();
-    const chatsText: Readonly<MiniAppTranslations>["chats"] =
-      getMiniAppTranslations(app.language).chats;
-    const confirmText: string =
-      kind === "delete"
-        ? chatsText.confirmRemoveDeleteTarget(displayName, targetId)
-        : chatsText.confirmRemoveTranslateTarget(displayName, targetId);
-    if (!(await app.requestConfirm(confirmText, "danger"))) {
-      return;
-    }
-    await executeTargetsMutation({
-      action: kind === "delete" ? "removeDeleteTarget" : "removeTranslateTarget",
-      id: targetId,
-    });
   };
 
   return {
@@ -323,6 +207,7 @@ export function createChatTargetsActions({
       set({
         targetsMenuOpen: false,
         activeTargetsModal: kind,
+        preparingPickerMode: null,
         qaEditorOpen: false,
         targetAddMenuOpen: false,
         targetIdFormOpen: false,
@@ -334,6 +219,7 @@ export function createChatTargetsActions({
     switchTargetsModalTab: (kind: MiniAppChatTargetKind): void => {
       set({
         activeTargetsModal: kind,
+        preparingPickerMode: null,
         qaEditorOpen: false,
         targetAddMenuOpen: false,
         targetIdFormOpen: false,
@@ -344,6 +230,7 @@ export function createChatTargetsActions({
     closeTargetsModal: (): void => {
       set({
         activeTargetsModal: null,
+        preparingPickerMode: null,
         qaEditorOpen: false,
         targetAddMenuOpen: false,
         targetIdFormOpen: false,
@@ -374,6 +261,7 @@ export function createChatTargetsActions({
           await waitMinimumLoadingDuration(startedAt);
         }
         if (reqId !== currentTargetsReqSeq() || get().selectedChatId !== chatId) {
+          notifyMiniAppIfAuthError(error);
           return;
         }
         const message: string = errorMessage(error);
@@ -408,6 +296,7 @@ export function createChatTargetsActions({
 
     closeTargetAddMenu: (): void => {
       set({
+        preparingPickerMode: null,
         targetAddMenuOpen: false,
         targetIdFormOpen: false,
         translateLangMenuOpen: false,
@@ -462,84 +351,12 @@ export function createChatTargetsActions({
       }
     },
 
-    submitQaPair: async (): Promise<void> => {
-      const { qaQuestionInput, qaAnswerInput }: MiniAppChatsStoreState = get();
-      await executeTargetsMutation(
-        {
-          action: "setQa",
-          q: qaQuestionInput,
-          a: qaAnswerInput,
-        },
-        (): void => {
-          set({
-            qaEditorOpen: false,
-            qaQuestionInput: "",
-            qaAnswerInput: "",
-            qaEditSourceQuestion: null,
-          });
-        }
-      );
-    },
-
-    removeQaPair: async (q: string): Promise<void> => {
-      if (get().selectedChatId === null || get().mutatingTargets) return;
-      const app: MiniAppUiStoreState = useMiniAppStore.getState();
-      if (
-        !(await app.requestConfirm(
-          getMiniAppTranslations(app.language).chats.confirmDeleteQa(q),
-          "danger"
-        ))
-      ) {
-        return;
-      }
-      await executeTargetsMutation({
-        action: "removeQa",
-        q,
-      });
-    },
-
-    submitDeleteTarget: async (): Promise<void> => {
-      const { deleteTargetInput }: MiniAppChatsStoreState = get();
-      await executeTargetsMutation(
-        {
-          action: "addDeleteTarget",
-          target: deleteTargetInput,
-        },
-        (): void => {
-          set({
-            deleteTargetInput: "",
-            targetAddMenuOpen: false,
-            targetIdFormOpen: false,
-          });
-        }
-      );
-    },
-
-    removeDeleteTarget: (targetId: number): Promise<void> =>
-      removeChatTarget("delete", targetId),
-
-    submitTranslateTarget: async (): Promise<void> => {
-      const {
-        translateTargetInput,
-        translateLanguageInput,
-      }: MiniAppChatsStoreState = get();
-      await executeTargetsMutation(
-        {
-          action: "addTranslateTarget",
-          target: translateTargetInput,
-          language: translateLanguageInput,
-        },
-        (): void => {
-          set({
-            translateTargetInput: "",
-            targetAddMenuOpen: false,
-            targetIdFormOpen: false,
-          });
-        }
-      );
-    },
-
-    removeTranslateTarget: (targetId: number): Promise<void> =>
-      removeChatTarget("translate", targetId),
+    ...createChatTargetsMutations({
+      set,
+      get,
+      applyMutationDetail,
+      nextTargetsReqSeq,
+      currentTargetsReqSeq,
+    }),
   };
 }

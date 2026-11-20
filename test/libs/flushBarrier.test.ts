@@ -43,4 +43,27 @@ describe("flush barrier", () => {
     ]);
     expect(barrier.pendingCount()).toBe(0);
   });
+
+  test("onDetail 回调抛错时仍结算等待 Promise，且 settleAll 不遗漏后续等待项", async () => {
+    const barrier = createFlushBarrier<string>({ timeoutMs: 60_000 });
+    let singleId: number = 0;
+    const single = barrier.begin(
+      (nextId: number): void => { singleId = nextId; },
+      undefined,
+      (): void => { throw new Error("detail failed"); }
+    );
+    expect((): boolean => barrier.settle(singleId, "flushed", "x")).toThrow("detail failed");
+    await expect(single).resolves.toBe("flushed");
+
+    const first = barrier.begin(
+      (): void => {},
+      undefined,
+      (): void => { throw new Error("first detail failed"); }
+    );
+    const second = barrier.begin((): void => {});
+    expect((): void => barrier.settleAll("failed")).toThrow("first detail failed");
+    await expect(first).resolves.toBe("failed");
+    await expect(second).resolves.toBe("failed");
+    expect(barrier.pendingCount()).toBe(0);
+  });
 });

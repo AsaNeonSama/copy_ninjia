@@ -1,11 +1,11 @@
 import { adoptStickerConfig } from "../../../../packages/config/stickers";
 import { describe, expect, mock, test } from "bun:test";
 
-const { getStickerSet } = await import("../../../../packages/aiChat/ai/stickers/sets");
+const { getStickerSet } = await import("../../../../packages/workers/aiChat/ai/stickers/sets");
 const { failedPacks, inflightStickerSets, stickerSetCache } = await import("../../../../packages/cache/workers/aiChat/stickers/sets");
 const { aiChatWorkerAbortController } = await import("../../../../packages/cache/workers/aiChat/worker");
 
-describe("aiChat/ai/stickers/sets getStickerSet 失败恢复", () => {
+describe("workers/aiChat/ai/stickers/sets getStickerSet 失败恢复", () => {
   test("瞬时失败只在负缓存窗口内拦截，过期后同一进程会重新请求并恢复", async () => {
     const pack = "retryable_pack";
     adoptStickerConfig({ packs: [pack] });

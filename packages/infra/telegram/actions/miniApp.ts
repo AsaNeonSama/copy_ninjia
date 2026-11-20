@@ -8,6 +8,23 @@ import { telegramApi } from "../client";
 import { bot } from "../mainClient";
 import { runBooleanTelegramAction, runTelegramAction } from "./core";
 
+/**
+ * 静默探测动作的错误过滤函数：一律不记录 API 错误日志。
+ * @returns 恒返回 false。
+ */
+function suppressErrorLog(): boolean {
+  return false;
+}
+
+/**
+ * 透传 `ChatFullInfo` 的模块级映射函数，避免每次探测分配临时闭包。
+ * @param result Telegram API 返回的会话完整信息。
+ * @returns 原样透传的 `ChatFullInfo` 对象。
+ */
+function identityChatFullInfo(result: ChatFullInfo): ChatFullInfo {
+  return result;
+}
+
 /** Mini App 专属 Telegram Bot API 调用接口（支持测试注入替身）。 */
 export interface MiniAppTelegramApi {
   /** 设置私聊左下角菜单按钮。 */
@@ -42,9 +59,10 @@ export function configureSuperAdminMenuButton({
   api = bot.api,
   signal,
 }: ConfigureSuperAdminMenuButtonOptions): Promise<boolean> {
-  return runBooleanTelegramAction(
-    `set Mini App menu button for super admin ${superAdminUserId}`,
-    (requestSignal?: AbortSignal): Promise<true> =>
+  return runBooleanTelegramAction({
+    action: "set Mini App menu button for super admin",
+    errorContext: { superAdminUserId },
+    execute: (requestSignal?: AbortSignal): Promise<true> =>
       api.setChatMenuButton(
         {
           chat_id: superAdminUserId,
@@ -56,8 +74,8 @@ export function configureSuperAdminMenuButton({
         },
         telegramSignal(requestSignal)
       ),
-    signal
-  );
+    signal,
+  });
 }
 
 /** `saveMiniAppPreparedKeyboardButton` 的入参。 */
@@ -85,7 +103,8 @@ export function saveMiniAppPreparedKeyboardButton({
   signal,
 }: SaveMiniAppPreparedKeyboardButtonOptions): Promise<string | undefined> {
   return runTelegramAction<PreparedKeyboardButton, string | undefined>({
-    action: `save prepared keyboard button for user ${userId}`,
+    action: "save prepared keyboard button",
+    errorContext: { userId },
     execute: (requestSignal?: AbortSignal): Promise<PreparedKeyboardButton> =>
       api.savePreparedKeyboardButton(userId, button, telegramSignal(requestSignal)),
     map: (result: PreparedKeyboardButton): string => result.id,
@@ -106,12 +125,12 @@ export function probeTelegramChatInfoSilent(
   signal?: AbortSignal
 ): Promise<ChatFullInfo | undefined> {
   return runTelegramAction<ChatFullInfo, ChatFullInfo | undefined>({
-    action: `probe chat info for identity ${targetId}`,
+    action: "probe chat info",
     execute: (requestSignal?: AbortSignal): Promise<ChatFullInfo> =>
       telegramApi.getChat(targetId, telegramSignal(requestSignal)),
-    map: (result: ChatFullInfo): ChatFullInfo => result,
+    map: identityChatFullInfo,
     fallback: undefined,
     signal,
-    shouldLogError: (): boolean => false,
+    shouldLogError: suppressErrorLog,
   });
 }

@@ -24,12 +24,14 @@ import type { MiniAppTranslations } from "../i18n";
 import { useComponentStore } from "../libs/componentStore";
 import { blurElement, extractSelectedFilesAndReset } from "../libs/formatters";
 import type { BlurCapableElement, DomCurrentTargetEventParams } from "../libs/formatters";
+import { useGalleryImageUrls } from "../libs/useGalleryImageUrls";
 import { GallerySvgIcon, RefreshSvgIcon, UploadSvgIcon } from "../resource";
 import { useMiniAppStore } from "../store/app";
 import type { MiniAppUiStoreState } from "../store/app";
 import { createGalleryStore } from "../store/gallery";
 import type { MiniAppGalleryStore, MiniAppGalleryStoreState } from "../store/gallery";
-import type { MiniAppGalleryItem, MiniAppLanguage } from "../types/miniApp";
+import type { MiniAppGalleryItem } from "../types/miniApp/gallery";
+import type { MiniAppLanguage } from "../types/miniApp/ui";
 
 /** 携带视口客户端像素坐标的鼠标或指针事件最小参数接口。 */
 export interface GalleryUploadPointerEvent {
@@ -202,7 +204,7 @@ export interface GalleryPageProps {
 }
 
 /**
- * 图库管理页面：提供分页缩略图浏览、SHA-256 去重上传（含上传按钮 85ms 按压反馈定时复位与悬停抑制清理）、单张图片下载与删除，关闭大图预览时执行延迟卸载收起过渡。
+ * 图库管理页面：加载与就绪态共享同一常驻 `.gallery-content-card` 容器与 `PaginationBar`；元数据拉取期间按 `skeletonSlotCount` 渲染槽位骨架（仅文字区渲染独立骨架，缩略图区 `<GalleryImageSkeleton>` 连续播放不重挂载），就绪后提供分页缩略图浏览、SHA-256 去重上传（含上传按钮 85ms 按压反馈定时复位与悬停抑制清理）、单张图片下载与删除，关闭大图预览时执行延迟卸载收起过渡。
  *
  * @param props 组件属性
  * @returns React 节点
@@ -216,6 +218,7 @@ export function GalleryPage({
   const t: Readonly<MiniAppTranslations> = getMiniAppTranslations(language);
   const {
     galleryPage,
+    page,
     pageSize,
     loading,
     uploading,
@@ -377,9 +380,27 @@ export function GalleryPage({
   }: Readonly<DelayedUnmountState<Readonly<MiniAppGalleryItem>>> =
     useDelayedUnmount(previewItem, MINI_APP_FLIP_COLLAPSE_CONTENT_RETAIN_MS);
 
+  const imageObjectUrls: Readonly<Record<string, string>> = useGalleryImageUrls({
+    items: galleryPage?.exists === true ? galleryPage.items : null,
+    displayPreviewItem,
+    batchEpoch,
+    deletingFileName,
+    onMarkThumbLoaded: markThumbLoaded,
+    onMarkPreviewLoaded: markPreviewLoaded,
+  });
+
+  const skeletonSlotCount: number =
+    galleryPage !== null &&
+    galleryPage.exists &&
+    galleryPage.items.length > 0 &&
+    galleryPage.page === page &&
+    galleryPage.pageSize === pageSize
+      ? galleryPage.items.length
+      : pageSize;
+
   return (
     <div className="animate-fade-in">
-      <div className="card">
+      <div className="card gallery-toolbar-card">
         <div className="card-title">
           <span className="toolbar-hint">
             <span className="toolbar-icon-badge">
@@ -425,12 +446,10 @@ export function GalleryPage({
           </div>
         </div>
 
-        {galleryPage !== null
+        {galleryPage !== null && !galleryPage.exists
           ? (
             <div className="row-sub">
-              {galleryPage.exists
-                ? t.gallery.directoryReadyText(galleryPage.directory)
-                : t.gallery.directoryMissingText(galleryPage.directory)}
+              {t.gallery.directoryMissingText(galleryPage.directory)}
             </div>
           )
           : null}
@@ -456,6 +475,7 @@ export function GalleryPage({
         {displayPreviewItem !== null ? (
           <GalleryPreviewCard
             previewItem={displayPreviewItem}
+            imageObjectUrl={imageObjectUrls[displayPreviewItem.fileName]}
             previewLoaded={previewLoaded}
             isClosing={previewClosing}
             downloadingFileName={downloadingFileName}
@@ -468,16 +488,19 @@ export function GalleryPage({
         ) : null}
       </CollapseGrid>
 
-      {galleryPage !== null
+      {loading || galleryPage !== null
         ? (
-          <div className="card animate-fade-in">
-            {!galleryPage.exists
+          <div className="card gallery-content-card" aria-busy={loading}>
+            {!loading && galleryPage !== null && !galleryPage.exists
               ? <div className="empty">{t.gallery.emptyMissingDirHint}</div>
-              : galleryPage.items.length === 0
+              : !loading && galleryPage !== null && galleryPage.items.length === 0
                 ? <div className="empty">{t.gallery.emptyGalleryHint}</div>
                 : (
                   <GalleryGridList
-                    items={galleryPage.items}
+                    items={galleryPage?.items ?? null}
+                    loading={loading}
+                    skeletonCount={skeletonSlotCount}
+                    imageObjectUrls={imageObjectUrls}
                     previewItem={previewItem}
                     deletingFileName={deletingFileName}
                     downloadingFileName={downloadingFileName}
@@ -492,9 +515,9 @@ export function GalleryPage({
                 )}
 
             <PaginationBar
-              page={galleryPage.page}
-              totalPages={galleryPage.totalPages}
-              total={galleryPage.total}
+              page={galleryPage?.page ?? page}
+              totalPages={galleryPage?.totalPages ?? 1}
+              total={galleryPage?.total ?? 0}
               pageSize={pageSize}
               pageSizeOptions={MINI_APP_GALLERY_PAGE_SIZE_OPTIONS}
               disabled={loading || uploading || deletingFileName !== null}

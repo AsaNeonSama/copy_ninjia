@@ -40,12 +40,14 @@ export function handleRestoreTimerFired(
 }
 
 /**
- * 恢复重试计时器到点：状态不变，只再发一次恢复。
+ * 恢复重试计时器到点：仍在等待本次意图落盘回执时无操作（落盘回执会发起恢复），其余情况再发一次恢复。
  * @param state 当前群聊的私密模式状态，未激活时为 undefined。
- * @returns restoring 阶段下附带 beginRestore 副作用的转移结果。
+ * @returns restoring 且未在等落盘时附带 beginRestore 副作用的转移结果。
  */
 export function handleRestoreRetryFired(state: LockdownState | undefined): LockdownTransition {
-  if (state?.kind !== "restoring") return { next: state, effects: NO_LOCKDOWN_EFFECTS };
+  if (state?.kind !== "restoring" || state.restoreAfterPersist) {
+    return { next: state, effects: NO_LOCKDOWN_EFFECTS };
+  }
   return {
     next: state,
     effects: [{ kind: "beginRestore", originalPermissions: state.originalPermissions }],
@@ -53,12 +55,14 @@ export function handleRestoreRetryFired(state: LockdownState | undefined): Lockd
 }
 
 /**
- * 纠偏重试计时器到点：状态不变，只再发一次重新收紧。
+ * 纠偏重试计时器到点：仍在等待本次意图落盘回执时无操作（落盘回执会发起纠偏），其余情况再发一次重新收紧。
  * @param state 当前群聊的私密模式状态，未激活时为 undefined。
- * @returns reconciling 阶段下附带 beginReapply 副作用的转移结果。
+ * @returns reconciling 且未在等落盘时附带 beginReapply 副作用的转移结果。
  */
 export function handleReapplyRetryFired(state: LockdownState | undefined): LockdownTransition {
-  if (state?.kind !== "reconciling") return { next: state, effects: NO_LOCKDOWN_EFFECTS };
+  if (state?.kind !== "reconciling" || state.reapplyAfterPersist) {
+    return { next: state, effects: NO_LOCKDOWN_EFFECTS };
+  }
   return { next: state, effects: [{ kind: "beginReapply" }] };
 }
 

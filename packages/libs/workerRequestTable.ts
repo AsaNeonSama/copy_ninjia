@@ -13,8 +13,11 @@ import type { WorkerRequestTable, WorkerRequestWaiter } from "../types/workerReq
  * @param requestId 请求序号。
  * @returns 被摘除的等待者；未命中时返回 `undefined`。
  */
-function takeWorkerRequest<T>(table: WorkerRequestTable<T>, requestId: number): WorkerRequestWaiter<T> | undefined {
-  const waiter: WorkerRequestWaiter<T> | undefined = table.waiters.get(requestId);
+function takeWorkerRequest<T, Tag extends string = never>(
+  table: WorkerRequestTable<T, Tag>,
+  requestId: number
+): WorkerRequestWaiter<T, Tag> | undefined {
+  const waiter: WorkerRequestWaiter<T, Tag> | undefined = table.waiters.get(requestId);
   if (waiter === undefined) return undefined;
   table.waiters.delete(requestId);
   clearTimeout(waiter.timer);
@@ -31,9 +34,9 @@ export interface WorkerRequestAbort<T> {
 }
 
 /** beginWorkerRequest 的入参。 */
-export interface BeginWorkerRequestOptions<T> {
+export interface BeginWorkerRequestOptions<T, Tag extends string = never> {
   /** 持有单调递增序号与在途等待者映射的请求表。 */
-  readonly table: WorkerRequestTable<T>;
+  readonly table: WorkerRequestTable<T, Tag>;
   /** 单次请求的超时毫秒数。 */
   readonly timeoutMs: number;
   /** 投递带 requestId 的请求；返回 false 或同步抛错表示投递被拒，按 rejected 结算。 */
@@ -44,6 +47,8 @@ export interface BeginWorkerRequestOptions<T> {
   readonly cancel?: (requestId: number) => void;
   /** 调用方取消；请求不可取消时省略。 */
   readonly abort?: WorkerRequestAbort<T>;
+  /** 预期匹配的回执事件类型标签；共用同一等待表且需校对事件类型时传入。 */
+  readonly expectedTag?: Tag;
   /** 超时到期时交回的结果。 */
   readonly timedOut: T;
   /** 投递被拒或同步抛错时交回的结果。 */
@@ -55,23 +60,27 @@ export interface BeginWorkerRequestOptions<T> {
  * @param options 请求登记、投递、超时与取消配置。
  * @returns 在回执、超时、取消、拒投或全表失败时兑现的结果。
  */
-export function beginWorkerRequest<T>({
+export function beginWorkerRequest<T, Tag extends string = never>({
   table,
   timeoutMs,
   post,
   onPostError,
   cancel,
   abort,
+  expectedTag,
   timedOut,
   rejected,
-}: BeginWorkerRequestOptions<T>): Promise<T> {
+}: BeginWorkerRequestOptions<T, Tag>): Promise<T> {
   return new Promise((resolve: (result: T) => void): void => {
     const requestId: number = ++table.counter.current;
     const withdraw = (result: T): void => {
-      const waiter: WorkerRequestWaiter<T> | undefined = takeWorkerRequest(table, requestId);
+      const waiter: WorkerRequestWaiter<T, Tag> | undefined = takeWorkerRequest(table, requestId);
       if (waiter === undefined) return;
-      cancel?.(requestId);
-      waiter.resolve(result);
+      try {
+        cancel?.(requestId);
+      } finally {
+        waiter.resolve(result);
+      }
     };
     const signal: AbortSignal | undefined = abort?.signal;
     const onAbort: (() => void) | undefined = abort === undefined || signal === undefined
@@ -82,17 +91,56 @@ export function beginWorkerRequest<T>({
       timer: setTimeout((): void => withdraw(timedOut), timeoutMs),
       signal,
       onAbort,
+      expectedTag,
     });
     if (onAbort !== undefined) signal?.addEventListener("abort", onAbort, { once: true });
     let posted: boolean;
     try {
       posted = post(requestId);
     } catch (error: unknown) {
-      onPostError(error);
-      posted = false;
+      try {
+        onPostError(error);
+      } finally {
+        takeWorkerRequest(table, requestId)?.resolve(rejected);
+      }
+      return;
     }
     if (!posted) takeWorkerRequest(table, requestId)?.resolve(rejected);
   });
+}
+
+/** settleTaggedWorkerRequest 的入参。 */
+export interface SettleTaggedWorkerRequestOptions<T, Tag extends string> {
+  /** 持有在途等待者的请求等待表。 */
+  readonly table: WorkerRequestTable<T, Tag>;
+  /** 回执对应的请求序号。 */
+  readonly requestId: number;
+  /** 实际收到的回执事件类型标签。 */
+  readonly tag: Tag;
+  /** 标签校验通过时交回给等待者的结算结果。 */
+  readonly result: T;
+  /** 实际标签与预期标签不一致时构造拒绝结局的回调。 */
+  readonly onMismatch: (expected: Tag, actual: Tag) => T;
+}
+
+/**
+ * 回执：按 `requestId` 结算并核对预期事件类型标签；不符时改用 `onMismatch` 构造协议错误结果。
+ * @param options 请求表、请求序号、事件类型标签与正常/失配结局配置。
+ */
+export function settleTaggedWorkerRequest<T, Tag extends string>({
+  table,
+  requestId,
+  tag,
+  result,
+  onMismatch,
+}: SettleTaggedWorkerRequestOptions<T, Tag>): void {
+  const waiter: WorkerRequestWaiter<T, Tag> | undefined = takeWorkerRequest(table, requestId);
+  if (waiter === undefined) return;
+  if (waiter.expectedTag !== undefined && waiter.expectedTag !== tag) {
+    waiter.resolve(onMismatch(waiter.expectedTag, tag));
+    return;
+  }
+  waiter.resolve(result);
 }
 
 /**
@@ -101,7 +149,11 @@ export function beginWorkerRequest<T>({
  * @param requestId 回执对应的请求序号。
  * @param result Worker 交回的结算结果。
  */
-export function settleWorkerRequest<T>(table: WorkerRequestTable<T>, requestId: number, result: T): void {
+export function settleWorkerRequest<T, Tag extends string = never>(
+  table: WorkerRequestTable<T, Tag>,
+  requestId: number,
+  result: T
+): void {
   takeWorkerRequest(table, requestId)?.resolve(result);
 }
 
@@ -110,7 +162,10 @@ export function settleWorkerRequest<T>(table: WorkerRequestTable<T>, requestId: 
  * @param table 请求等待表。
  * @param result 统一交回给所有在途等待者的兜底结果。
  */
-export function failAllWorkerRequests<T>(table: WorkerRequestTable<T>, result: T): void {
+export function failAllWorkerRequests<T, Tag extends string = never>(
+  table: WorkerRequestTable<T, Tag>,
+  result: T
+): void {
   for (const requestId of table.waiters.keys()) {
     takeWorkerRequest(table, requestId)?.resolve(result);
   }

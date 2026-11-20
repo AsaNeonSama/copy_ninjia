@@ -1,4 +1,5 @@
 import { getTimeZone } from "../../../packages/config/time";
+import { getLogLevel } from "../../../packages/config/logLevel";
 import type { TtsDailyUsage } from "../../../packages/types/aiChat/voiceMessage";
 import { pendingStickerCatalogRevisions, stickerCatalogRevisionCounter } from "../../../packages/cache/main/stickers";
 import { diskIOReplyStub, diskIOStub } from "../../helpers/diskIOMock";
@@ -374,6 +375,7 @@ describe("AI main-thread persistence mirror", () => {
     expect(aiRespawnPosts).toEqual([
       { atmosphere: "teasing",
         type: "init", timeZone: getTimeZone(),
+        logLevel: getLogLevel(),
         botInfo: { id: 99, username: "ninja_bot", first_name: "Ninja" },
         superAdminUserId: SUPER_ADMIN_USER_ID,
         // 重放的 init 带着主线程当前生效的配置快照，新 isolate 不自己读盘。
@@ -626,6 +628,24 @@ describe("AI main-thread persistence mirror", () => {
     expect(moodRequests.waiters.size).toBe(0);
   });
 
+  test("心情回执事件类型与请求不匹配时按协议错误拒绝并摘除等待者", async () => {
+    aiChat.initAiChat({ id: 99, username: "ninja_bot", first_name: "Ninja" });
+
+    const queried = aiChat.requestAiMood("queryMood");
+    const queryRequest = workerPosts.at(-1);
+    if (queryRequest?.type !== "queryMood") throw new Error("Expected a queryMood request");
+    supervisorOptions!.onEvent({ type: "moodSwitched", requestId: queryRequest.requestId, moodName: "开心" });
+    await expect(queried).rejects.toThrow("protocol error");
+    expect(moodRequests.waiters.size).toBe(0);
+
+    const switched = aiChat.requestAiMood("switchMood");
+    const switchRequest = workerPosts.at(-1);
+    if (switchRequest?.type !== "switchMood") throw new Error("Expected a switchMood request");
+    supervisorOptions!.onEvent({ type: "moodQueried", requestId: switchRequest.requestId, moodName: "平静" });
+    await expect(switched).rejects.toThrow("protocol error");
+    expect(moodRequests.waiters.size).toBe(0);
+  });
+
   test("心情请求与运行态失效的投递同步抛错时先记诊断，再按 Worker 不可用结算", async () => {
     const errorLog = spyOn(logger, "error").mockImplementation((): void => {});
     try {
@@ -634,13 +654,13 @@ describe("AI main-thread persistence mirror", () => {
       workerPostError = thrown;
 
       await expect(aiChat.requestAiMood("queryMood")).rejects.toThrow("AI Worker is unavailable.");
-      expect(errorLog).toHaveBeenCalledWith("Failed to post the AI queryMood request:", thrown);
+      expect(errorLog).toHaveBeenCalledWith("Failed to post an AI mood request:", { requestType: "queryMood" }, thrown);
       expect(moodRequests.waiters.size).toBe(0);
 
       const invalidated = aiChat.invalidateAiChat(-1001).catch((error: unknown): unknown => error);
       diskDeletePersisted!({ type: "aiMemoryDeletedPersisted", chatId: -1001, revision: 1 });
       expect(((await invalidated) as Error).message).toBe("AI Worker is unavailable while invalidating chat runtime.");
-      expect(errorLog).toHaveBeenCalledWith("Failed to post the AI chat invalidation request for chat -1001:", thrown);
+      expect(errorLog).toHaveBeenCalledWith("Failed to post the AI chat invalidation request:", { chatId: -1001 }, thrown);
       expect(aiChatInvalidateRequests.waiters.size).toBe(0);
     } finally {
       errorLog.mockRestore();
@@ -660,7 +680,11 @@ describe("AI main-thread persistence mirror", () => {
       expect((error as Error).message).toBe("AI Worker is unavailable while invalidating chat runtime.");
       expect(aiChatInvalidateRequests.waiters.size).toBe(0);
       expect(errorLog).toHaveBeenCalledTimes(1);
-      expect(String(errorLog.mock.calls[0]?.[0])).toContain("Worker runtime invalidation rejected for chat -1001");
+      expect(errorLog).toHaveBeenCalledWith(
+        "AI chat invalidation phase rejected:",
+        { chatId: -1001, phase: "Worker runtime invalidation" },
+        expect.any(Error)
+      );
     } finally {
       errorLog.mockRestore();
     }
@@ -930,8 +954,12 @@ test("init 与重建一并重放自定义人设、send_voice 说明和已确定�
     aiChat.initAiChat({ id: 99, username: "ninja_bot", first_name: "Ninja" });
     expect(workerPosts.map((message: AiChatWorkerMessage): string => message.type)).toEqual(["init", "hydrateTtsUsage"]);
     expect(workerPosts[0]).toMatchObject({
-      type: "init", timeZone: getTimeZone(), atmosphere: "plain",
-      persona: "部署方自定义人设", voiceToolPrompt: "部署方自定义语音说明",
+      type: "init",
+      timeZone: getTimeZone(),
+      logLevel: getLogLevel(),
+      atmosphere: "plain",
+      persona: "部署方自定义人设",
+      voiceToolPrompt: "部署方自定义语音说明",
     });
     const replay: AiChatWorkerMessage[] = [];
     supervisorOptions!.onRespawn((message: AiChatWorkerMessage): boolean => { replay.push(message); return true; });

@@ -1,6 +1,5 @@
 import { useEffect, useRef } from "react";
 import type React from "react";
-import { buildMiniAppGalleryImageUrl } from "../api/galleryFile";
 import { getMiniAppTranslations } from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
 import {
@@ -16,10 +15,8 @@ import {
 } from "../resource";
 import { useMiniAppStore } from "../store/app";
 import type { MiniAppUiStoreState } from "../store/app";
-import type {
-  MiniAppGalleryItem,
-  MiniAppLanguage,
-} from "../types/miniApp";
+import type { MiniAppGalleryItem } from "../types/miniApp/gallery";
+import type { MiniAppLanguage } from "../types/miniApp/ui";
 import { GalleryImageSkeleton } from "./skeletons/GalleryImageSkeleton";
 
 /** 支持缓存完成态探测的 `<img>` DOM 节点最小类型接口。 */
@@ -34,6 +31,8 @@ export interface ProbeableImageElement {
 export interface GalleryPreviewCardProps {
   /** 当前正在预览的图片条目。 */
   readonly previewItem: Readonly<MiniAppGalleryItem>;
+  /** 当前预览图片已就绪的 `blob:` 对象 URL（未就绪或缺省时保持待加载态）。 */
+  readonly imageObjectUrl?: string;
   /** 预览大图是否已加载完成。 */
   readonly previewLoaded: boolean;
   /** 是否正处于收起退场动画阶段。 */
@@ -60,6 +59,7 @@ export interface GalleryPreviewCardProps {
  */
 export function GalleryPreviewCard({
   previewItem,
+  imageObjectUrl,
   previewLoaded,
   isClosing = false,
   downloadingFileName,
@@ -89,7 +89,7 @@ export function GalleryPreviewCard({
     ) {
       onMarkPreviewLoaded();
     }
-  }, [isClosing, onMarkPreviewLoaded, previewItem]);
+  }, [imageObjectUrl, isClosing, onMarkPreviewLoaded, previewItem]);
 
   return (
     <div className="card gallery-preview-card">
@@ -132,7 +132,11 @@ export function GalleryPreviewCard({
           onError={(): void => {
             onMarkPreviewLoaded();
           }}
-          src={buildMiniAppGalleryImageUrl(previewItem.fileName)}
+          src={
+            imageObjectUrl !== undefined && imageObjectUrl.length > 0
+              ? imageObjectUrl
+              : undefined
+          }
         />
       </div>
       <div className="cap-items" style={{ marginTop: "8px" }}>

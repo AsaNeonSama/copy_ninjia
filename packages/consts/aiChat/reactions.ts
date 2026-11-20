@@ -1,7 +1,7 @@
 import type { ReactionEmoji } from "../../types/telegram";
 
 /**
- * AI 闲聊 add_reaction 工具允许的表情反应，属 aiChat/ai/tools/replyToolset/。
+ * AI 闲聊 add_reaction 工具允许的表情反应，属 workers/aiChat/ai/tools/replyToolset/。
  *
  * 元素限定为 Bot API 的标准反应 emoji（ReactionTypeEmoji）：bot 账号只能设置这份
  * 固定集合内的反应，任意 emoji 或自定义表情一律报 REACTION_INVALID，集合外的

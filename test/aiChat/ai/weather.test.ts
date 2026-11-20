@@ -14,7 +14,7 @@ mock.module("../../../packages/infra/logger", () => ({
 const {
   startWeatherRefreshLoop,
   stopWeatherRefreshLoop,
-} = await import("../../../packages/aiChat/ai/weather");
+} = await import("../../../packages/workers/aiChat/ai/weather");
 const { weatherCache } = await import("../../../packages/cache/workers/aiChat/weather");
 const { WEATHER_API_URL, WEATHER_CODE_DESCRIPTIONS, WEATHER_REFRESH_INTERVAL_MS } = await import("../../../packages/consts/weather");
 

@@ -71,7 +71,8 @@ function readReusableUserAvatar(
   signal?: AbortSignal
 ): Promise<string | undefined> {
   return runTelegramAction({
-    action: `read reusable avatar (identity ${request.targetId})`,
+    action: "read reusable avatar",
+    errorContext: { targetId: request.targetId },
     execute: (): Promise<UserProfilePhotos> => request.response,
     map: (photos: UserProfilePhotos): string | undefined => {
       for (const sizes of photos.photos) {
@@ -104,7 +105,8 @@ export async function readCurrentAvatar(target: User | number, signal: AbortSign
   const targetId: number = typeof target === "number" ? target : target.id;
   let identity: AvatarIdentity | undefined = typeof target === "number" ? undefined : target;
   const probe: CurrentAvatarProbe = await runTelegramAction({
-    action: `read current avatar (identity ${targetId})`,
+    action: "read current avatar",
+    errorContext: { targetId },
     execute: async (requestSignal?: AbortSignal): Promise<CurrentAvatarProbe> => {
       const chatRequest: Promise<ChatFullInfo> = bot.api.getChat(targetId, telegramSignal(requestSignal));
       // 正数 ID 只能是用户：只有用户发头像列表查询，与 getChat 同时发出。

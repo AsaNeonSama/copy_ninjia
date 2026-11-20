@@ -1,4 +1,4 @@
-/** owner: workers/aiChat。AI 模型请求配额队列与能力门面缓存（packages/aiChat/provider.ts）。 */
+/** owner: workers/aiChat。AI 模型请求配额队列与能力门面缓存（packages/workers/aiChat/provider.ts）。 */
 
 import type { AiProviderFacadeCache, AiProviderQuotaLane } from "../../../types/aiChat/providerScheduler";
 

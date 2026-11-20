@@ -102,11 +102,12 @@ export function needsBotOwnMessageWait(message: Message): boolean {
 }
 
 /**
- * 登记一条刚发出的消息；TTL 到期自动清理。
+ * 登记一条刚发出的消息；TTL 到期自动清理。仅主线程需要写入，工作线程零分配短路。
  * @param chatId 消息发往的会话或频道 ID。
  * @param messageId 发送成功返回的消息 ID。
  */
 export function markSelfSent(chatId: number, messageId: number): void {
+  if (!Bun.isMainThread) return;
   let byMessage: Map<number, ReturnType<typeof setTimeout>> | undefined =
     sentMessages.get(chatId);
   if (byMessage === undefined) {
@@ -126,19 +127,21 @@ export function markSelfSent(chatId: number, messageId: number): void {
 }
 
 /**
- * 一次会登记自发消息的出站请求即将发往 chatId；必须与 endSelfSentSend 成对。
+ * 一次会登记自发消息的出站请求即将发往 chatId；必须与 endSelfSentSend 成对。仅主线程生效，工作线程短路。
  * @param chatId 出站请求发往的会话或频道 ID。
  */
 export function beginSelfSentSend(chatId: number): void {
+  if (!Bun.isMainThread) return;
   inFlightSelfSends.set(chatId, (inFlightSelfSends.get(chatId) ?? 0) + 1);
 }
 
 /**
  * 结算一次 beginSelfSentSend。成功时必须在 `markSelfSent` 之后的同一同步段调用；
- * 该 chat 最后一次在途发送结算时，仍在等待的频道回投以 false 放行。
+ * 该 chat 最后一次在途发送结算时，仍在等待的频道回投以 false 放行。仅主线程生效，工作线程短路。
  * @param chatId 出站请求发往的会话或频道 ID。
  */
 export function endSelfSentSend(chatId: number): void {
+  if (!Bun.isMainThread) return;
   const count: number | undefined = inFlightSelfSends.get(chatId);
   if (count === undefined) return;
   if (count > 1) {

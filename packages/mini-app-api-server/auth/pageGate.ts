@@ -25,7 +25,7 @@ import {
   hasMiniAppInitDataHeader,
   verifyMiniAppHeaderInitDataError,
 } from "../middleware/initData";
-import { getSuperAdminPasswordLockoutRemainingMinutes } from "./session";
+import { getSuperAdminPasswordLockoutRemainingMinutes } from "./lockout";
 
 /** 模块加载时由 `BOT_TOKEN` 派生一次的单页门禁令牌 HMAC-SHA256 密钥（进程生命周期内恒定）。 */
 const MINI_APP_PAGE_GATE_SECRET_KEY: Uint8Array =
@@ -108,26 +108,6 @@ export function readMiniAppPageGateCookie(request: Request): string | null {
  */
 export function hasMiniAppPageGateCookie(request: Request): boolean {
   return readMiniAppPageGateCookie(request) !== null;
-}
-
-/**
- * 核验请求 `Cookie` 头中的单页门禁令牌是否签名有效且未过期。
- * @param request HTTP 请求对象。
- * @param nowMs 当前毫秒时间戳（缺省取 `Date.now()`）。
- * @returns 门禁 Cookie 有效时返回 `true`。
- */
-export function hasValidMiniAppPageGateCookie(
-  request: Request,
-  nowMs: number = Date.now()
-): boolean {
-  const token: string | null = readMiniAppPageGateCookie(request);
-  if (token === null || token.length === 0) return false;
-  return verifyMiniAppPageGateToken({
-    token,
-    secretKey: MINI_APP_PAGE_GATE_SECRET_KEY,
-    superAdminUserId: SUPER_ADMIN_USER_ID,
-    nowMs,
-  });
 }
 
 /**

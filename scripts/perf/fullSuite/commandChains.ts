@@ -37,7 +37,7 @@ import type { generateAndSendReply } from
 import type {
   resolveSpeechSynthesizer,
   synthesizeVoiceMessage,
-} from "../../../packages/aiChat/ai/voiceSynthesis";
+} from "../../../packages/workers/aiChat/ai/voiceSynthesis";
 import type { deliverCronAction } from "../../../packages/cron/delivery";
 import type { CronAction, CronDeliveryOutcome, CronRoundVoices } from "../../../packages/types/cron";
 import type { SpeechSynthesizerLookup, VoiceSynthesisResult } from "../../../packages/types/aiChat/voiceMessage";
@@ -255,9 +255,6 @@ function aiReplyCommandChain(
       };
       dependencies.geminiClientCache.current = new Map([["text", {
         models: {
-          get: (): Promise<unknown> => Promise.resolve({
-            supportedActions: ["generateContent"],
-          }),
           generateContent: (): Promise<unknown> => Promise.resolve({
             candidates: [{
               finishReason: "STOP",
@@ -366,7 +363,7 @@ function cronSendVoiceChain(
       const result: VoiceSynthesisResult = await dependencies.synthesizeVoiceMessage(
         lookup.synthesize,
         { text: action.content, tone: action.tone, quota: "operator", signal: undefined },
-        `benchmark ${sequence}`
+        { sequence }
       );
       if (!result.ok) throw new Error(`Cron voice ${sequence} produced no voice: ${result.reason}.`);
       const voices: CronRoundVoices = new Map([[action, { voice: result.voice, fileId: undefined }]]);

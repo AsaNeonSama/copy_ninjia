@@ -11,6 +11,11 @@ import {
   VERIFICATION_REMINDER_UNDELIVERED_MAX_MS,
   VERIFICATION_TIMEOUT_MS,
 } from "../../packages/consts/antiRaid/verification";
+import { verificationSnapshot } from "../../packages/workers/antiRaid/verificationSnapshot";
+import {
+  decodeVerificationDay,
+  storedVerificationSnapshot,
+} from "../../packages/workers/diskIO/verificationCodec";
 import {
   effectKinds,
   joinEvent,
@@ -123,7 +128,6 @@ describe("私密模式踢人结算", () => {
     const comment = {
       type: "confirmedThreadComment",
       messageId: 46,
-      now: 10_000,
       allowFloodTerminalExemption: true,
     } as const;
     expect(transitionVerification(flood, comment).next).toBe(flood);
@@ -366,15 +370,19 @@ describe("超时与拉人者终核", () => {
 
   test("提醒一直发不出去时续期有尽头，超过总时长按普通超时结算", () => {
     const state = pendingState({ joinedAt: 1_000 });
-    const late: number = 1_000 + VERIFICATION_REMINDER_UNDELIVERED_MAX_MS;
+    const boundary: number = 1_000 + VERIFICATION_REMINDER_UNDELIVERED_MAX_MS;
+    const late: number = boundary + 1;
 
     const { next, effects } = transitionVerification(state, { type: "verifyTimeout", now: late });
     expect(next).toMatchObject({ kind: "expelling", reason: "timeout" });
     expect(effects).toEqual([]);
 
-    // 上限之内照常续期。
+    // 恰好落在总时长边界及以内时照常续期。
+    const atBoundary = pendingState({ joinedAt: 1_000 });
+    expect(transitionVerification(atBoundary, { type: "verifyTimeout", now: boundary }).next).toBe(atBoundary);
+
     const fresh = pendingState({ joinedAt: 1_000 });
-    expect(transitionVerification(fresh, { type: "verifyTimeout", now: late - 1 }).next).toBe(fresh);
+    expect(transitionVerification(fresh, { type: "verifyTimeout", now: boundary - 1 }).next).toBe(fresh);
   });
 
   test("超时且非被拉入群 → 先持久化 expelling，再收尾踢人；成功播报落盘后收到 terminalPersisted 直接清除", () => {
@@ -589,5 +597,72 @@ describe("异步核查通过 / 离群 / 提醒回填 / 去重到期", () => {
     expect(transitionVerification({ kind: "exempt", label: "杂鱼A", isBot: false }, { type: "dedupeExpired" }).next).toBeUndefined();
     const state = pendingState();
     expect(transitionVerification(state, { type: "dedupeExpired" }).next).toBe(state);
+  });
+
+  test("墙钟回拨超过验证时长时按窗口已结束处理，且 expiresAt 不低于 joinedAt 并通过落盘解码校验", () => {
+    const joinedAt: number = 1_000_000;
+    const rolledBackNow: number = joinedAt - VERIFICATION_TIMEOUT_MS - 5_000;
+
+    // 1. 提醒未送达的 verifyTimeout：回拨按窗口已结束处理，直接离开 pending 而非写出 expiresAt < joinedAt。
+    const undelivered = pendingState({
+      joinedAt,
+      expiresAt: joinedAt + VERIFICATION_TIMEOUT_MS,
+      reminderMessageId: undefined,
+      replyReminderMessageId: undefined,
+    });
+    const timedOut = transitionVerification(undelivered, {
+      type: "verifyTimeout",
+      now: rolledBackNow,
+    });
+    expect(timedOut.next?.kind).toBe("expelling");
+    if (timedOut.next?.kind === "expelling") {
+      expect(timedOut.next.snapshot.expiresAt).toBeGreaterThanOrEqual(joinedAt);
+      const encoded = {
+        ...verificationSnapshot({
+          chatId: -1001,
+          userId: 42,
+          state: timedOut.next,
+          revision: 1,
+        }),
+        generation: 1,
+      };
+      const decoded = decodeVerificationDay(
+        "rollback-verify-timeout",
+        JSON.stringify({ "-1001:42": storedVerificationSnapshot(encoded) })
+      );
+      expect(decoded.get("-1001:42")).toEqual(encoded);
+    }
+
+    // 2. reminderLanded：回拨时 expiresAt 仍钳位到 >= joinedAt，解码不抛错。
+    const waitingLanded = pendingState({
+      joinedAt,
+      expiresAt: joinedAt + VERIFICATION_TIMEOUT_MS,
+      reminderMessageId: undefined,
+      replyReminderMessageId: undefined,
+    });
+    const landed = transitionVerification(waitingLanded, {
+      type: "reminderLanded",
+      reminderKind: "original",
+      messageId: 77,
+      now: rolledBackNow,
+    });
+    expect(landed.next?.kind).toBe("pending");
+    if (landed.next?.kind === "pending") {
+      expect(landed.next.expiresAt).toBeGreaterThanOrEqual(joinedAt);
+      const encoded = {
+        ...verificationSnapshot({
+          chatId: -1001,
+          userId: 42,
+          state: landed.next,
+          revision: 2,
+        }),
+        generation: 1,
+      };
+      const decoded = decodeVerificationDay(
+        "rollback-reminder-landed",
+        JSON.stringify({ "-1001:42": storedVerificationSnapshot(encoded) })
+      );
+      expect(decoded.get("-1001:42")).toEqual(encoded);
+    }
   });
 });

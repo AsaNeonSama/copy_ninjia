@@ -25,8 +25,11 @@ import { botPermissions } from "../helpers/botPermissions";
 import { identityFieldView } from "../helpers/identityCacheView";
 import type { IdentityFieldView } from "../helpers/identityCacheView";
 
+import { loggerStub } from "../helpers/loggerMock";
+
 const whitelistField: IdentityFieldView<"whitelist"> = identityFieldView("whitelist");
 const blocklistField: IdentityFieldView<"blocklist"> = identityFieldView("blocklist");
+const loggerErrorCalls: unknown[][] = [];
 
 /**
  * 黑名单销号计数的次序边界：回执到达顺序、逐身份队列里的解除核对、预热等待期间的
@@ -38,11 +41,23 @@ mock.module("../../packages/infra/chatStateStorage", () => ({
   getChatStateCache: (): ReadonlyMap<number, { isInitEnabled: boolean; botPermissions: BotChatPermissions }> =>
     new Map([[-1001, { isInitEnabled: true, botPermissions: botPermissions() }]]),
 }));
-mock.module("../../packages/infra/logger", participantInvalidLogger);
+mock.module("../../packages/infra/logger", () => {
+  const base = participantInvalidLogger().logger;
+  return {
+    logger: loggerStub({
+      info: (...args: unknown[]): void => base.info(args[0]),
+      error: (...args: unknown[]): void => {
+        loggerErrorCalls.push(args);
+        base.error(args[0]);
+      },
+    }),
+  };
+});
 
 const {
   blocklistParticipantInvalidQueue,
   pendingBlockedRemovals,
+  pendingParticipantInvalidUnblocks,
 } = await import("../../packages/cache/main/blocklist");
 const {
   resetIdentityStorageCache,
@@ -70,7 +85,9 @@ function startGatedSweepPageRead(): { release: () => void; page: Promise<Identit
 beforeEach(async () => {
   await blocklistParticipantInvalidQueue.current;
   resetParticipantInvalidHarness();
+  loggerErrorCalls.length = 0;
   pendingBlockedRemovals.clear();
+  pendingParticipantInvalidUnblocks.clear();
   resetIdentityStorageCache();
 });
 
@@ -91,7 +108,7 @@ describe("黑名单销号计数的次序", () => {
     expect(writtenCounts()).toEqual([[7, 3], [7, undefined]]);
   });
 
-  test("排队期间清零后又涨回上限减 1，也按条目对象判定为已变化", async () => {
+  test("排队期间清零后又涨回上限减 1，旧解除任务被作废不提前解除", async () => {
     storeBlocked(7, BLOCKLIST_PARTICIPANT_INVALID_LIMIT - 1);
     const busy: { promise: Promise<void>; resolve: () => void } = Promise.withResolvers<void>();
     const held: Promise<void> = blocklistIdentityMutationRunner.run(7, (): Promise<void> => busy.promise);
@@ -115,7 +132,7 @@ describe("黑名单销号计数的次序", () => {
     });
   });
 
-  test("排队解除期间条目被淘汰后重读，放弃这次解除", async () => {
+  test("排队解除期间条目被 LRU 淘汰后重读，字段值未变时仍完成解除", async () => {
     storeBlocked(7, BLOCKLIST_PARTICIPANT_INVALID_LIMIT - 1);
     const busy: { promise: Promise<void>; resolve: () => void } = Promise.withResolvers<void>();
     const held: Promise<void> = blocklistIdentityMutationRunner.run(7, (): Promise<void> => busy.promise);
@@ -127,8 +144,8 @@ describe("黑名单销号计数的次序", () => {
     await held;
     await drainParticipantInvalidWork();
 
-    expect(identityWrites("blocklist")).toEqual([]);
-    expect(isUserBlocked(7)).toBeTrue();
+    expect(lastWrittenData(7)).toBeNull();
+    expect(isUserBlocked(7)).toBeFalse();
   });
 
   test("预热等待期间身份被淘汰时整条回执重新预热后一起写出", async () => {
@@ -174,9 +191,10 @@ describe("黑名单销号计数的次序", () => {
 
     expect(identityWrites("blocklist")).toEqual([]);
     expect(readIdentityPolicies).toHaveBeenCalledTimes(BLOCKLIST_PARTICIPANT_INVALID_WRITE_ATTEMPTS);
-    expect(participantInvalidHarness.loggedErrors.some((message: string): boolean =>
-      message.includes("Skipped blocklist PARTICIPANT_ID_INVALID counts for removal 1 in chat -1001")
-    )).toBeTrue();
+    expect(loggerErrorCalls).toContainEqual([
+      "Skipped blocklist PARTICIPANT_ID_INVALID counts; identities left policy cache before write attempts completed.",
+      { removalId: 1, chatId: -1001, maxAttempts: BLOCKLIST_PARTICIPANT_INVALID_WRITE_ATTEMPTS },
+    ]);
   });
 
   test("补扫分页读 flush 期间落下的计数写入立即投递，也不让这次核对失败", async () => {

@@ -111,8 +111,8 @@ export function updatePendingRemovalFailure(
   unwrittenRemovalDiagnostics.add(removalId);
   if (pending.attempts === BLOCKLIST_REMOVAL_REPLAY_ALERT_ATTEMPTS) {
     logger.error(
-      `Blocklist removal ${removalId} for chat ${chatId} failed ${pending.attempts} time(s); ` +
-      "retaining its durable outbox entry until completion or authoritative cancellation."
+      "Blocklist removal failed repeatedly; retaining durable outbox entry until completion or authoritative cancellation.",
+      { removalId, chatId, attempts: pending.attempts }
     );
   }
   return true;
@@ -144,6 +144,6 @@ export function recordPendingRemovalFailure(
     return;
   }
   if (!queueBlocklistRemovalWrite(removalId)) {
-    logger.error(`Failed to queue blocklist removal retry state ${removalId}.`);
+    logger.error("Failed to queue blocklist removal retry state.", { removalId, chatId });
   }
 }

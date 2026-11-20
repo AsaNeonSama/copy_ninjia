@@ -32,6 +32,6 @@ export function recordBotImage({ chatId, messageId, caption, edited }: RecordBot
       persistImmediately: false,
     });
   } catch (error: unknown) {
-    logger.error(`Failed to record bot image ${messageId} in AI memory (chat ${chatId}):`, error);
+    logger.error("Failed to record bot image in AI memory:", { chatId, messageId }, error);
   }
 }

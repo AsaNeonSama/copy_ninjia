@@ -9,7 +9,7 @@ import type { superviseWorker } from "../../packages/infra/supervisedWorker";
 import type { registerHandlers } from "../../packages/app/registerHandlers";
 import type { runAcknowledgedUpdateBatches } from "../../packages/app/updateRunner";
 import type { createOwnerSettler } from "../../packages/app/lifecycle/shutdown";
-import type { startChatActionHeartbeat } from "../../packages/aiChat/ai/chatActionHeartbeat";
+import type { startChatActionHeartbeat } from "../../packages/workers/aiChat/ai/chatActionHeartbeat";
 import type { FlushResult } from "../../packages/types/lifecycle";
 
 /** 类型断言只放在不调用的闭包内；typecheck 检查赋值错误，测试不创建或改写运行时句柄。 */

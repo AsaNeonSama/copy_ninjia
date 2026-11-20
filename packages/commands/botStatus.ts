@@ -10,6 +10,7 @@ import { BOT_CHAT_PERMISSION_KEYS, BOT_CHAT_PERMISSION_LABELS } from "../consts/
 import { BOT_STATUS_BYTES_PER_GIB, BOT_STATUS_BYTES_PER_KIB, BOT_STATUS_BYTES_PER_MIB, BOT_STATUS_COLD_MEMORY_WEIGHT, BOT_STATUS_DECIMAL_PLACES, BOT_STATUS_FEATURE_KEYS, BOT_STATUS_FEATURE_LABELS, BOT_STATUS_HOT_MEMORY_WEIGHT, BOT_STATUS_JSON_INDENT, BOT_STATUS_JSON_LANGUAGE, BOT_STATUS_PERCENT_SCALE, BOT_STATUS_SECONDS_PER_DAY, BOT_STATUS_SECONDS_PER_HOUR, BOT_STATUS_SECONDS_PER_MINUTE } from "../consts/botStatus";
 
 import { BOT_STATUS_CAPABILITY_LABEL_MAX_CHARS } from "../consts/commands";
+import { TELEGRAM_429_RETRY_QUEUE_MAX } from "../consts/telegram";
 import { MARKDOWN_V2_PARSE_MODE } from "../consts/telegramMarkdown";
 import { escapeMarkdownV2, markdownV2InlineCode, markdownV2Pre } from "../libs/telegramMarkdown";
 import { sanitizeInline, truncateWithEllipsis } from "../libs/text";
@@ -299,7 +300,7 @@ export async function handleBotStatusCommand(
     chatState: getChatState(ctx.chat.id),
     telegramActive: stats.active,
     telegramPending: stats.pending,
-    telegramCapacity: stats.capacity,
+    telegramCapacity: TELEGRAM_429_RETRY_QUEUE_MAX,
     activeGagSessions: activeGagSessionCount(),
     activeTranslateSessions: getChatState(ctx.chat.id).translate?.length ?? 0,
     aiContextUsage: aiMemoryUsages.get(ctx.chat.id),

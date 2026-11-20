@@ -47,14 +47,23 @@ async function resolvePublicUsernameFromChat(
     return { username: extractPublicUsername(chat), failed: false };
   } catch (error: unknown) {
     if (signal?.aborted) return { failed: true };
+    const targetKind: "channel" | "user" = isChannel ? "channel" : "user";
     if (error instanceof GrammyError) {
       if (error.error_code === 403) {
-        logger.warn(`Could not check ${isChannel ? "channel" : "user"} ${targetId} public username via getChat: 403 Forbidden (chat is not accessible to the bot)`);
+        logger.warn(
+          "Could not check public username via getChat: 403 Forbidden (chat is not accessible to the bot).",
+          { targetKind, targetId }
+        );
       } else {
-        logger.error(`Could not check ${isChannel ? "channel" : "user"} ${targetId} public username via getChat: ${error.error_code} ${error.description}`);
+        logger.error("Could not check public username via getChat.", {
+          targetKind,
+          targetId,
+          errorCode: error.error_code,
+          description: error.description,
+        });
       }
     } else {
-      logger.error(`Could not check ${isChannel ? "channel" : "user"} ${targetId} public username via getChat:`, error);
+      logger.error("Could not check public username via getChat:", { targetKind, targetId }, error);
     }
     return { failed: true };
   }
@@ -72,12 +81,13 @@ async function attemptCopyUserProfilePhoto(
   isChannel: boolean,
   signal?: AbortSignal
 ): Promise<AttemptCopyUserProfilePhotoResult> {
+  const targetKind: "channel" | "user" = isChannel ? "channel" : "user";
   let chat: ChatFullInfo | undefined;
   try {
     if (signal?.aborted) return { result: "permanent-failure", chat: undefined };
     chat = await bot.api.getChat(targetId, telegramSignal(signal));
     if (!chat.photo) {
-      logger.log(`${isChannel ? "Channel" : "User"} ${targetId} has no chat photo visible to the bot`);
+      logger.info("Target has no chat photo visible to the bot.", { targetKind, targetId });
       return { result: "permanent-failure", chat };
     }
 
@@ -88,7 +98,7 @@ async function attemptCopyUserProfilePhoto(
     return { result: "ok", chat };
   } catch (error: unknown) {
     if (signal?.aborted) return { result: "permanent-failure", chat };
-    logApiError("copy user profile photo", error);
+    logApiError("copy user profile photo", error, { targetKind, targetId });
     return { result: avatarFailureFor(error), chat };
   }
 }
@@ -117,13 +127,19 @@ export async function copyUserProfilePhoto(
   options: CopyUserProfilePhotoOptions = {}
 ): Promise<boolean> {
   const { username, signal }: CopyUserProfilePhotoOptions = options;
+  const targetKind: "channel" | "user" = isChannel ? "channel" : "user";
   let lastChat: ChatFullInfo | undefined;
   const outcome: AvatarFetchAttemptsOutcome = await runAvatarFetchAttempts(
     async (attempt: number): Promise<AvatarOperationAttemptResult> => {
       const { result, chat }: AttemptCopyUserProfilePhotoResult = await attemptCopyUserProfilePhoto(targetId, isChannel, signal);
       if (chat !== undefined) lastChat = chat;
       if (result !== "ok") {
-        logger.log(`copyUserProfilePhoto attempt ${attempt}/${AVATAR_FETCH_MAX_ATTEMPTS} failed for ${isChannel ? "channel" : "user"} ${targetId}`);
+        logger.info("copyUserProfilePhoto attempt failed.", {
+          targetKind,
+          targetId,
+          attempt,
+          maxAttempts: AVATAR_FETCH_MAX_ATTEMPTS,
+        });
       }
       return result;
     },
@@ -139,7 +155,7 @@ export async function copyUserProfilePhoto(
     : await resolvePublicUsernameFromChat(targetId, isChannel, signal);
   const fallbackUsername: string | undefined = lookup.username;
   if (fallbackUsername) {
-    logger.log(`Falling back to t.me web profile scrape for @${fallbackUsername}`);
+    logger.info("Falling back to t.me web profile scrape.", { username: fallbackUsername });
     const imgBuffer: Uint8Array | null = await fetchAvatarFromWebProfile(fallbackUsername, signal);
     if (imgBuffer) {
       try {
@@ -147,19 +163,25 @@ export async function copyUserProfilePhoto(
         return true;
       } catch (error: unknown) {
         if (signal?.aborted) return false;
-        logApiError("set profile photo from web fallback", error);
+        logApiError("set profile photo from web fallback", error, {
+          targetKind,
+          targetId,
+          username: fallbackUsername,
+        });
       }
     }
   } else {
     // 命令上下文里的 username 只进日志，不用于抓取。
     const providedUsername: string | undefined = normalizePublicUsername(username);
-    const hint: string = providedUsername === undefined
-      ? ""
-      : ` (command context suggested @${providedUsername}, not used because it cannot be proven to still belong to this id)`;
     logger.warn(
       lookup.failed
-        ? `Skipping t.me web profile scrape fallback: getChat lookup for ${isChannel ? "channel" : "user"} ${targetId} failed${hint}`
-        : `Skipping t.me web profile scrape fallback: ${isChannel ? "channel" : "user"} ${targetId} has no public username${hint}`
+        ? "Skipping t.me web profile scrape fallback: getChat lookup failed."
+        : "Skipping t.me web profile scrape fallback: target has no public username.",
+      {
+        targetKind,
+        targetId,
+        ...(providedUsername === undefined ? {} : { unverifiedSuggestedUsername: providedUsername }),
+      }
     );
   }
   return false;

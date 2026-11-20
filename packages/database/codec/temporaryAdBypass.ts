@@ -36,7 +36,7 @@ export function assertTemporaryAdBypassActivity(
     value.qualifiedDays < 0 ||
     value.qualifiedDays > TEMPORARY_AD_BYPASS_REQUIRED_DAYS
   ) {
-    return invalidInput(source, "$.qualified_days", "an integer from 0 through 7");
+    return invalidInput(source, "$.qualified_days", `an integer from 0 through ${TEMPORARY_AD_BYPASS_REQUIRED_DAYS}`);
   }
   if (!Number.isSafeInteger(value.sendCount) || value.sendCount < 1) {
     return invalidInput(source, "$.send_count", "a positive safe integer");

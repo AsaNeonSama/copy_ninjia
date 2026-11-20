@@ -251,7 +251,7 @@ export function decodeStoredChatStates(
 }
 
 /**
- * 严格解码全部问答行，并核对每群条数不超过 CHAT_QA_MAX_PER_CHAT。
+ * 严格解码全部问答行，并核对总群数不超过 `STATE_MANAGED_CHAT_LIMIT` 及每群条数不超过 `CHAT_QA_MAX_PER_CHAT`（不强拒缺少 `chat_states` 的孤儿群）。
  * @param rows `chat_qa` 表的原始行列表。
  * @param source 数据库来源路径标识，用于构造错误消息。
  * @returns 群 -> 问题 -> 答案；调用方据此重建热缓存。
@@ -267,7 +267,15 @@ export function decodeStoredChatQa(
     assertChatQaQuestion(row.q, path);
     const existing: Map<string, string> | undefined = byChat.get(row.chatId);
     const questions: Map<string, string> = existing ?? new Map<string, string>();
-    if (existing === undefined) byChat.set(row.chatId, questions);
+    if (existing === undefined) {
+      if (byChat.size >= STATE_MANAGED_CHAT_LIMIT) {
+        throw new Error(
+          `${source}:chat_qa must contain at most ${STATE_MANAGED_CHAT_LIMIT} chats; ` +
+          "delete chats that are no longer managed before starting the bot."
+        );
+      }
+      byChat.set(row.chatId, questions);
+    }
     questions.set(row.q, decodeChatQaData(row.data, path).a);
     if (questions.size > CHAT_QA_MAX_PER_CHAT) {
       throw new Error(

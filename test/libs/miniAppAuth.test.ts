@@ -6,16 +6,14 @@ import {
 } from "../../packages/consts/miniApp";
 import { MINI_APP_TOTP_STEP_SECONDS } from "../../packages/consts/miniAppTotp";
 import {
-  deriveMiniAppAssetToken,
-  deriveMiniAppAssetTokenDigest,
   deriveMiniAppInitDataSecretKey,
-  verifyMiniAppAssetToken,
   verifyMiniAppInitData,
   verifyMiniAppPassword,
 } from "../../packages/libs/miniAppAuth";
 import {
   buildMiniAppTotpUri,
   computeMiniAppTotpCode,
+  computeMiniAppTotpCounter,
   decodeTotpBase32,
   encodeTotpBase32,
   generateMiniAppTotpCodeAt,
@@ -75,6 +73,91 @@ describe("verifyMiniAppInitData", () => {
         nowMs,
       })
     ).toEqual(result);
+  });
+
+  test("user 缺省可选字段时仍返回固定四字段形状，显式置为 undefined 且 JSON 序列化等价", () => {
+    const cases: readonly {
+      readonly rawUser: {
+        readonly id: number;
+        readonly first_name: string;
+        readonly last_name?: string;
+        readonly username?: string;
+      };
+      readonly expectedLastName: string | undefined;
+      readonly expectedUsername: string | undefined;
+      readonly expectedJson: Record<string, unknown>;
+    }[] = [
+      {
+        rawUser: { id: superAdminUserId, first_name: "Kakashi" },
+        expectedLastName: undefined,
+        expectedUsername: undefined,
+        expectedJson: { id: superAdminUserId, firstName: "Kakashi" },
+      },
+      {
+        rawUser: { id: superAdminUserId, first_name: "Kakashi", last_name: "Hatake" },
+        expectedLastName: "Hatake",
+        expectedUsername: undefined,
+        expectedJson: { id: superAdminUserId, firstName: "Kakashi", lastName: "Hatake" },
+      },
+      {
+        rawUser: { id: superAdminUserId, first_name: "Kakashi", username: "copy_ninja" },
+        expectedLastName: undefined,
+        expectedUsername: "copy_ninja",
+        expectedJson: { id: superAdminUserId, firstName: "Kakashi", username: "copy_ninja" },
+      },
+      {
+        rawUser: { id: superAdminUserId, first_name: "Kakashi", last_name: "Hatake", username: "copy_ninja" },
+        expectedLastName: "Hatake",
+        expectedUsername: "copy_ninja",
+        expectedJson: { id: superAdminUserId, firstName: "Kakashi", lastName: "Hatake", username: "copy_ninja" },
+      },
+    ];
+
+    for (const item of cases) {
+      const initData: string = buildSignedTestInitData({
+        botToken,
+        authDate: nowSec,
+        user: item.rawUser,
+      });
+      const result: MiniAppAuthResult = verifyMiniAppInitData({
+        initData,
+        secretKey,
+        superAdminUserId,
+        nowMs,
+      });
+      expect(result.ok).toBeTrue();
+      if (!result.ok) {
+        throw new Error("Expected valid initData user.");
+      }
+      expect(Object.keys(result.user)).toEqual(["id", "firstName", "lastName", "username"]);
+      expect(result.user.id).toBe(superAdminUserId);
+      expect(result.user.firstName).toBe("Kakashi");
+      expect(result.user.lastName).toBe(item.expectedLastName);
+      expect(result.user.username).toBe(item.expectedUsername);
+      expect(JSON.parse(JSON.stringify(result.user))).toEqual(item.expectedJson);
+    }
+
+    for (const invalidUser of [
+      { id: superAdminUserId, first_name: "Kakashi", last_name: 123 },
+      { id: superAdminUserId, first_name: "Kakashi", username: null },
+    ]) {
+      const initData: string = buildSignedTestInitData({
+        botToken,
+        authDate: nowSec,
+        user: invalidUser as unknown as { readonly id: number; readonly first_name: string },
+      });
+      expect(
+        verifyMiniAppInitData({
+          initData,
+          secretKey,
+          superAdminUserId,
+          nowMs,
+        })
+      ).toEqual({
+        ok: false,
+        reason: "malformed_init_data",
+      });
+    }
   });
 
   test("非 SuperAdmin 用户的合法签名同样被拒绝 (forbidden_user)", () => {
@@ -193,27 +276,12 @@ describe("verifyMiniAppInitData", () => {
     expect(verifyMiniAppPassword("s3cr3t-pass", "")).toBeFalse();
   });
 
-  test("deriveMiniAppAssetToken 与 verifyMiniAppAssetToken 派生并恒定时间核验受保护资源稳定令牌", () => {
-    const token: string = deriveMiniAppAssetToken(botToken, superAdminUserId);
-    const expectedDigest: Uint8Array = deriveMiniAppAssetTokenDigest(
-      botToken,
-      superAdminUserId
-    );
-    const otherBotDigest: Uint8Array = deriveMiniAppAssetTokenDigest(
-      `${botToken}-other`,
-      superAdminUserId
-    );
-    const otherUserDigest: Uint8Array = deriveMiniAppAssetTokenDigest(
-      botToken,
-      superAdminUserId + 1
-    );
-    expect(token).toMatch(/^[0-9a-f]{64}$/);
-    expect(verifyMiniAppAssetToken(token, expectedDigest)).toBeTrue();
-    expect(verifyMiniAppAssetToken(token.toUpperCase(), expectedDigest)).toBeTrue();
-    expect(verifyMiniAppAssetToken(token, otherBotDigest)).toBeFalse();
-    expect(verifyMiniAppAssetToken(token, otherUserDigest)).toBeFalse();
-    expect(verifyMiniAppAssetToken("", expectedDigest)).toBeFalse();
-    expect(verifyMiniAppAssetToken(null, expectedDigest)).toBeFalse();
+  test("computeMiniAppTotpCounter 按 30 秒步长计算整计数器", () => {
+    expect(computeMiniAppTotpCounter(0)).toBe(0);
+    expect(computeMiniAppTotpCounter(29_999)).toBe(0);
+    expect(computeMiniAppTotpCounter(30_000)).toBe(1);
+    expect(computeMiniAppTotpCounter(1_111_111_109_000)).toBe(37_037_036);
+    expect(computeMiniAppTotpCounter(1_111_111_111_000)).toBe(37_037_037);
   });
 
   test("RFC 6238 TOTP 生成、仅当前时间步验证与内联 QR Code SVG 渲染", () => {

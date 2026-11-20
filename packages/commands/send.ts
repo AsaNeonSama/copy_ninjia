@@ -66,7 +66,7 @@ export async function handleSendCommand(ctx: CommandContext<Context>): Promise<v
     }
   } catch (error: unknown) {
     throwIfUpdateAborted();
-    logApiError(`resolve /send target chat ${targetChatId}`, error);
+    logApiError("resolve /send target chat", error, { targetChatId });
     await replyCommandNotice(ctx, chatAtmosphere().NOTICE_TEXTS.proxyUnavailable(targetChatId));
     return;
   }

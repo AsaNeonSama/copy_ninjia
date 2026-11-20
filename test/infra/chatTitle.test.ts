@@ -108,7 +108,11 @@ describe("chat title maintenance", () => {
     expect(maxActive).toBe(CHAT_TITLE_REFRESH_CONCURRENCY);
     // 每条标题只编码本群并入 Worker 事务缓冲，不重复序列化全量群快照。
     expect(saveStateInBackground).toHaveBeenCalledTimes(total);
-    expect(loggerInfo).toHaveBeenCalledWith(expect.stringContaining(`${total}/${total}`));
+    expect(loggerInfo).toHaveBeenCalledWith("Chat title refresh completed.", {
+      completed: total,
+      total,
+      elapsedMs: expect.any(Number),
+    });
   });
 
   test("标题没变化的群不触发落盘", async () => {

@@ -79,9 +79,10 @@ async function claimParsedQaField(
   const answer: string | undefined = active && answerRejection === null ? parsed.a : undefined;
   if (question !== undefined) session.q = question;
   if (answer !== undefined) session.a = answer;
+  const rejection: QaFieldRejection | null = questionRejection ?? answerRejection;
   return {
     session,
     accepted: { q: question, a: answer },
-    rejection: questionRejection ?? answerRejection,
+    rejection,
   };
 }

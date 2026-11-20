@@ -28,6 +28,7 @@
 | `bun run test:fault-injection` | 決定論的障害注入スイート | `scripts/testFaultInjection.ts` で `FAULT_INJECTION_TESTS` を実行し、プロセスクラッシュ、異常停止、DB 瞬断、Worker 再生成時の復元整合性を検証 |
 | `bun run perf:hot-paths -- <シナリオ> [--profile]` | ホットパス独立プロセス測定 | `performance/` 配下の隔離データルートと設定コピー上で、単一ホットパスシナリオを `HOT_PATH_PROFILE_REPEATS` 回の独立プロセスで測定（`--profile` で CPU サンプリング出力）。`scripts/perf/hotPaths.ts` の直接実行はシナリオ読み込み前に拒否 |
 | `bun run perf:hot-path-gate` | **ホットパス性能ゲート** | 厳選ホットパスシナリオのメモリ / GC / JIT ハードゲート（`check` に統合済み） |
+| `bun run perf:disk-transport` | 業務チャネル伝送ストレス | モック Worker 環境でメインスレッド業務チャネルのキューオーバーヘッド・ACK スループット・遅延を測定し、ディスク I/O 待機と切り離す |
 | `bun run perf:join-log` | 入室ログ性能ベンチマーク | 入室ログの容量境界・スナップショット・追記記帳の独立プロセスベンチマーク |
 | `bun run perf:identity-database` | ID データベースベンチマーク | SQLite のコールド / ホット読み書き、メインスレッド LRU 読み取り、ライトスルー経路の独立プロセスベンチマーク |
 | `bun run perf:full` | 全量性能ベンチマークスイート | 全セクションを `FULL_SUITE_ROUNDS` ラウンドの独立子プロセスで実行（`--write-doc` で 3 言語の `11-performance.md` と `performance-result.json` を同時更新） |
@@ -38,6 +39,7 @@
 | `bun run release:verify -- --version <tag> --platforms <一覧>` | 配布パッケージ検証 | 全対象プラットフォームのアーカイブ、SHA-256、バージョン、Git tree の一致を検証 |
 | `bun run release:publish -- --version <tag> --platforms <一覧> --notes-file <ファイル>` | GitHub Release 公開 | リモート参照を検証し、下書き作成、資産アップロード・再検証を経て Latest として公開 |
 | `bun run audit:release` | 依存関係セキュリティ監査 | 依存パッケージの脆弱性をスキャン（`moderate` 以上を検出） |
+| `bun run migrate:wed-member-window` | `/wed` メンバー窓コールド移行 | 停止中オフラインで 17.2.1 の `memory/wed` ID 配列を `{ id, enteredAt }` スライディングウィンドウ形式へ変換（詳細は [07 運用マニュアル](07-operations.md)） |
 
 ---
 
@@ -52,8 +54,8 @@
   - バックエンドファイルは 512 行を超えた時点で分割を検討し、`MAX_SOURCE_LINES`（1024 行）を超える前に必ず分割します。`packages/mini-app-frontend/` 配下の `.tsx`・`.css` および `.html` ファイルの上限は `MAX_FRONTEND_SOURCE_LINES`（1536 行）です。
   - Git 追跡ファイルおよび未追跡の非除外ファイルが走査対象となり、`.gitignore` 対象のデプロイデータは除外されます。インストーラー構文検査は `install.sh` と `scripts/install/` 配下の全シェルモジュールを対象とします。
 - **全ソースコードを分母とするカバレッジ計測**：
-  - `test/productionModules.test.ts` が `index.ts` と `packages/types/` を除く `packages/` 配下の全ランタイムモジュールをロードするため、未実行のモジュールも 0% として分母に算入されます。
-  - 関数カバレッジ・行カバレッジともに `bunfig.toml` の `coverageThreshold` を満たす必要があり、単体テストのない新規モジュール追加はカバレッジ不足に直結します。
+  - `test/productionModules.test.ts` が `index.ts` および `packages/types/` とトップレベルマウント入口 `packages/mini-app-frontend/main.tsx` を除く `packages/` 配下の全 `.ts` / `.tsx` ランタイムモジュールをロードするため、未実行のモジュールも 0% として分母に算入されます。
+  - `bunfig.toml` は `coverageSkipTestFiles = true` と `coveragePathIgnorePatterns = ["test/**"]` を設定して `test/` 配下のテストおよび補助ファイルをカバレッジ集計から除外しており、関数カバレッジ・行カバレッジともに `coverageThreshold` を満たす必要があります。単体テストのない新規モジュール追加はカバレッジ不足に直結します。
 - **ESLint + 完全 strict な型検査**：
   - `tsconfig.json` で `strict`、`noUncheckedIndexedAccess`、`noUnusedLocals`、`noUnusedParameters` を全面有効化しています。
   - 本番コードでの `any` は厳禁です（テストコードのみ免除）。`Promise.all` は ESLint（`no-restricted-syntax`）で禁止されており、`Promise.allSettled` と有界並行制御を使用します。JSX/TSX フラグメントは `react` の `<Fragment>` を明示的に使用し、`<>...</>` 省略記法は禁止です。
@@ -80,10 +82,11 @@
   - **安全な API 呼び出し**：
     - `packages/workers/` 配下の全タイマーは `.unref()` の呼び出しが必須です。
     - `packages/` 内では `Object.freeze` を禁止し、`.keys().next()`・`.values().next()`・`.entries().next()` による最古要素の取得も禁止します。有界 FIFO / LRU の最古要素は必ず `libs/fifoMap.ts` の `FifoMap`（または継承元の `LruCache`）経由で取得します。
-    - Node 互換モジュールと `Buffer` はホワイトリスト登録箇所のみ許可され（未使用登録もエラー）、CLI 引数は `Bun.argv` で読み取り、実行時にベア import する外部パッケージはルート `package.json` への直接宣言が必須です。
+    - Node 互換モジュールと `Buffer` はホワイトリスト登録箇所のみ許可され（未使用登録もエラー）、CLI 引数は `Bun.argv` で読み取ります。`collectUndeclaredDependencyProblems` により、`index.ts` と `packages/` の実行時ベア import はルート `package.json` の `dependencies` に記載されたパッケージのみ許可します（`scripts/` と `test/` は `dependencies` と `devDependencies` の双方を許可）。
+    - `packages/` 内での直接的な `console.*` プロパティ参照を禁止します（`console.error` は `packages/workers/diskIOWorker.ts` と `packages/workers/diskIO/` 境界のみ例外許可）。
   - **整合性突合**：
     - `index.ts`、`packages/`、`scripts/` のトップレベル関数・クラスメソッド・`*Params`/`*Options` プロパティの JSDoc（`@param` と `void`/`never` 以外の `@returns` を含む。`scripts/conventions/sourceRules.ts` の `collectFunctionJsDocProblems`）を静的検査します。
-    - Telegram 通知の自動削除免除とトピック帰属、コールドマイグレーションスクリプトと `package.json` の `migrate:*` の 1 対 1 対応、障害注入スイート一覧、および 3 言語ドキュメントと `performance-result.json` のカバレッジ・性能数値を突合します。
+    - Telegram 通知の自動削除免除、トピック帰属、プロパティアクセス形式の `*.sendMessage(...)` 迂回、コマンドテキスト出力ファイルでの `sendMessageWithResult` import、および `collectTelegramMessageProblems` の `directBoundaries` 登録先ファイル・境界関数の実在性を検査し、コールドマイグレーションスクリプトと `package.json` の `migrate:*` の 1 対 1 対応、障害注入スイート一覧、3 言語ドキュメントと `performance-result.json` のカバレッジ・性能数値を突合します。
     - コメント内の「`<モジュール>.ts` の `<シンボル>`」形式の相互参照を検査し、`./`・`../` 始まりは記述元基準で解決（ファイルまたはシンボル欠落時はエラー）、それ以外は対象ファイルが一意に定まる場合に検証します。
   - **テストアサーション規約**：
     - テスト内で import した大文字定数をリテラルと直接比較すること、および `packages/consts` の文字列定数（`STRING_CONSTANT_MIN_LENGTH` 文字以上）や CJK 文言断片（`CONSTANT_TEXT_FRAGMENT_MIN_CJK` 文字以上）を matcher に直書きすることを禁止します（定数を直接参照するか `test/helpers/templateText.ts` を使用）。
@@ -121,7 +124,7 @@
 
 ### このドキュメント版の実測値
 
-`bun run test:coverage`：**7200 tests / 605 files / 463493 `expect()` calls**。全ソースコードの**関数カバレッジは 96.85%、行カバレッジは 97.58%**です。3 言語の各プロジェクト README の Coverage badge は行カバレッジを表示します。
+`bun run test:coverage`：**7448 tests / 649 files / 592390 `expect()` calls**。全ソースコードの**関数カバレッジは 98.02%、行カバレッジは 98.07%**です。3 言語の各プロジェクト README の Coverage badge は行カバレッジを表示します。
 
 ---
 
@@ -132,7 +135,7 @@
 1. **ファイルコンテキスト分離**：テストファイルごとに独立したグローバル環境が作られ、`mock.module` やモジュールスコープ変数が他ファイルへ漏洩しません。
 2. **専用一時データルートの注入**：
    - 本番モジュールのロード前に、`test/preloadEnv.ts` がプロセス専用の一時データルート（`mkdtempSync`）を `COPY_NINJIA_DATA_ROOT` に設定し、テスト専用の `TMPDIR` も別途作成します（`os.tmpdir()` 経由の一時ファイルもその中に隔離されます）。
-   - `/dev/shm` が `tmpfs` かつ空き容量が `TMPFS_MIN_AVAILABLE_BYTES` 以上ある場合は両方とも `/dev/shm` 配下に、それ以外は元の `os.tmpdir()` 配下に作成されます。
+   - `/dev/shm` が `tmpfs` かつ空き容量が `TMPFS_MIN_AVAILABLE_BYTES`（`test/preloadEnv.ts` で定義）以上ある場合は両方とも `/dev/shm` 配下に、それ以外は元の `os.tmpdir()` 配下に作成されます。
    - 本番パス（`memory/`、`logs/`、`database/`、`bot.lock`）には一切触れず、テスト終了時に両方の一時ツリーを削除して `TMPDIR` を復元します。
 3. **独立した設定ルート**：`config_example/static/` と `config_example/dynamic/` を一時ルート内の `config/static/`・`config/dynamic/` に複製して `COPY_NINJIA_CONFIG_ROOT` で参照させます。プレースホルダー鍵は安全なダミー認証情報に置換され、`g-auth.json` は除外、`cron.json` は空スケジュールで初期化されます。
 4. **設定スナップショット同期と空データベース**：`test/preload.ts` がテスト用コピーの `agent.json`、`ad_detect.json`、`mood.json`、`stickers.json`、`cron.json`、Bot の通知トーン、組み込みペルソナを各 isolate の holder に一括ロードし、タイムゾーンマーカー付きの空 SQLite データベースを作成して各機能の readiness を有効化します。
@@ -151,7 +154,7 @@
 
 `bun run test:fault-injection` は、プロセスクラッシュ、異常停止、境界障害下での一貫性を検証します（完全な一覧は [`scripts/conventions/faultInjectionSuite.ts`](../../scripts/conventions/faultInjectionSuite.ts) の `FAULT_INJECTION_TESTS` に辞書順で 1 行 1 パス定義）：
 - **ライフサイクルと復元境界**：アプリ・Worker のライフサイクル（段階別停止予算と全体デッドラインを含む）、グループロック復元、AI 返信容量上限とキャンセル、認証情報スナップショット、Telegram 送信・自動削除の停止時ドレイン、グループ teardown を網羅します。
-- **データ永続化と整合性**：入室ログ未確認ミラーと処罰レシート、Anti-Raid タスクドレインと認証復旧、双方向 Worker 再生成時のキャンセル、SQLite 起動検証と停止時クローズ（残余書き込みコミットと WAL checkpoint）、コールドマイグレーション、Disk I/O Worker のアトミック書き込み障害復旧を検証します。
+- **データ永続化と整合性**：入室ログ未確認ミラーと処罰レシート、Anti-Raid タスクドレインと認証復旧、双方向 Worker 再生成時のキャンセル、SQLite 起動検証と停止時クローズ（残余書き込みコミットと WAL checkpoint）、コールドマイグレーション、Mini App の TOTP・設定ファイルのアトミック永続化およびサービス再起動境界（`test/mini-app-api-server/persistenceAndRestartFaults.test.ts`、`test/mini-app-api-server/totpStorageConcurrency.test.ts`）、Disk I/O Worker のアトミック書き込み障害復旧を検証します。
 - **インタラクティブステートマシン**：`test/workers/antiRaid/verificationWelcome.test.ts`（双方向プロトコルと一時通知の自動削除）および `/wed` ステートマシン（管理上限 `STATE_MANAGED_CHAT_LIMIT`、待機キャンセル、アバター取得、停止時ドレイン）を検証します。
 
 ---

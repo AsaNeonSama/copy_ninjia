@@ -14,11 +14,8 @@ import { RefreshSvgIcon, TrashSvgIcon, UserSvgIcon } from "../resource";
 import { useMiniAppStore } from "../store/app";
 import type { MiniAppUiStoreState } from "../store/app";
 import type { MiniAppChatsStore, MiniAppChatsStoreState } from "../store/chats";
-import type {
-  MiniAppBatchKickCompletion,
-  MiniAppChatDetail,
-  MiniAppLanguage,
-} from "../types/miniApp";
+import type { MiniAppBatchKickCompletion, MiniAppChatDetail } from "../types/miniApp/chats";
+import type { MiniAppLanguage } from "../types/miniApp/ui";
 import { InlineNoticeCollapse } from "./animations/CollapseGrid";
 import { LoadingDotsWave } from "./animations/LoadingDotsWave";
 import { useAnimatedRangeProgress } from "./animations/useAnimatedRangeProgress";

@@ -229,9 +229,17 @@ describe("application handler registration", () => {
     const consoleError: Mock<typeof console.error> = spyOn(console, "error").mockImplementation((): void => {});
     try {
       expect(() => catchHandlers[0]!({ ctx: { update: { update_id: 14 } } as Context, error: apiError })).toThrow(apiError);
-      const logged: string = consoleError.mock.calls.map((call: unknown[]): string => call.map(String).join(" ")).join("\n");
-      expect(logged).toBe("Unhandled error while handling update 14: 403 Forbidden: bot was blocked by the user");
-      expect(logged).not.toContain(secret);
+      expect(consoleError).toHaveBeenCalledTimes(1);
+      expect(consoleError.mock.calls[0]).toEqual([
+        "[ERROR]",
+        "Unhandled error while handling update.",
+        {
+          updateId: 14,
+          errorCode: 403,
+          description: "Forbidden: bot was blocked by the user",
+        },
+      ]);
+      expect(Bun.inspect(consoleError.mock.calls)).not.toContain(secret);
     } finally {
       consoleError.mockRestore();
     }

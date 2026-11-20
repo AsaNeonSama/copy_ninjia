@@ -1,4 +1,4 @@
-import type { MiniAppStatusView } from "../types/miniApp";
+import type { MiniAppStatusView } from "../types/miniApp/status";
 import { miniAppFetchJson } from "./request";
 
 /**

@@ -67,17 +67,32 @@ export const PRODUCTION_NODE_IMPORTS: Readonly<
       purpose: "cold database creation precondition: any existing entry, including a dangling symbolic link, blocks creation",
     },
   },
-  "packages/infra/imageGallery.ts": {
-    "node:fs": { symbols: ["constants"], purpose: "directory read, write and search access flags" },
+  "packages/infra/imageGallery/cache.ts": {
     "node:fs/promises": {
-      symbols: ["access", "lstat", "mkdir", "readdir", "rename"],
-      purpose: "random image directory creation at startup, per-request directory traversal, and the atomic rename that publishes a collected picture",
+      symbols: ["lstat", "readdir"],
+      purpose: "lazy directory traversal and per-entry metadata lookup without following symlinks when maintaining gallery caches",
+    },
+  },
+  "packages/infra/imageGallery/inspection.ts": {
+    "node:fs": {
+      symbols: ["constants", "mkdirSync"],
+      purpose: "directory read, write and search access flags and synchronous missing directory creation during adoption",
+    },
+    "node:fs/promises": {
+      symbols: ["access", "lstat", "readdir"],
+      purpose: "read-only gallery directory inspection and entry metadata verification",
+    },
+  },
+  "packages/infra/imageGallery/operations.ts": {
+    "node:fs/promises": {
+      symbols: ["lstat", "rename"],
+      purpose: "non-symlink regular-file stat checks and atomic rename publishing a collected picture",
     },
   },
   "packages/infra/processStatus.ts": {
     "node:os": {
-      symbols: ["availableParallelism", "freemem", "totalmem"],
-      purpose: "runtime capacity limits and host memory telemetry derived from host resources",
+      symbols: ["freemem", "totalmem"],
+      purpose: "host memory telemetry derived from host resources",
     },
   },
   "packages/infra/storage/cleanup.ts": {
@@ -213,6 +228,10 @@ export const PRODUCTION_BUFFER_GLOBALS: Readonly<Record<string, BufferGlobalAllo
     methods: ["byteLength"],
     purpose: "allocation-free UTF-8 byte length on the hot serialization boundary",
   },
+  "packages/mini-app-api-server/view/configs/validate.ts": {
+    methods: ["byteLength"],
+    purpose: "allocation-free UTF-8 byte length validation for uploaded deployment configs",
+  },
   "packages/workers/diskIO/appendOnlyDayFile.ts": {
     methods: ["byteLength"],
     purpose: "append-only physical byte accounting",
@@ -271,8 +290,8 @@ export const SCRIPT_NODE_IMPORTS: Readonly<Record<string, NodeImportAllowance>> 
     purpose: "asynchronous metadata, directory creation, symbolic-link target reads, and canonical filesystem path resolution",
   },
   "node:os": {
-    symbols: ["arch", "availableParallelism", "cpus", "platform", "release", "tmpdir", "totalmem"],
-    purpose: "benchmark machine identity, host capacity limits, and temporary-root placement",
+    symbols: ["arch", "cpus", "platform", "release", "tmpdir", "totalmem"],
+    purpose: "benchmark machine identity and temporary-root placement",
   },
 };
 

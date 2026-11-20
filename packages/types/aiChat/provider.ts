@@ -42,7 +42,7 @@ export interface AiFunctionCall {
 /** 一次函数调用的执行结果，回喂给模型。 */
 export interface AiToolOutput {
   readonly call: AiFunctionCall;
-  /** 工具实现返回的 JSON 字符串（见 packages/aiChat/ai/tools）。 */
+  /** 工具实现返回的 JSON 字符串（见 packages/workers/aiChat/ai/tools）。 */
   readonly responseJson: string;
 }
 
@@ -122,7 +122,7 @@ export interface AiReplyTurn {
   readonly webSearchCalls: number;
   readonly finishReason?: string;
   /**
-   * 供应商随收尾原因给出的详情对象的有界 JSON 串（见 aiChat/ai/utils/finishDetails.ts）：Anthropic 是
+   * 供应商随收尾原因给出的详情对象的有界 JSON 串（见 aiProviders/finishDetails.ts）：Anthropic 是
    * `stop_details`，Gemini 是 `finishMessage` 与 `safetyRatings`（无 candidate 时是 `promptFeedback`），
    * OpenAI 是 `error` 与 `refusal` 内容块。只用于诊断日志；供应商没给详情时为 undefined。
    */
@@ -215,7 +215,7 @@ export interface AiImageRequest {
 /**
  * 语音合成请求：一句要念出来的台词，以及可选的朗读语言要求与本句说话语气。音色与基础朗读风格
  * 来自部署配置 `agent.tts`，languageStyle 与 tone 依次追加在基础风格之后只作用于这一句（见
- * aiChat/ai/utils/speechStyle.ts）；没有风格指令字段的线协议（xai）两者都不发送。
+ * workers/aiChat/ai/utils/speechStyle.ts）；没有风格指令字段的线协议（xai）两者都不发送。
  */
 export interface AiSpeechRequest {
   /** 待合成朗读的台词文本。 */
@@ -268,7 +268,7 @@ export type AiWebSearchResult =
 /**
  * 经 tts 门面发起的语音合成请求：在供应商请求之外带上本调用方的额度口径。
  * AI 语音工具传 `ai`：每日计数由调用方在工具调用时预留（超限当场回给模型）、TTS 调用成功时
- * 登记（见 aiChat/ai/ttsUsage.ts），门面不再登记。主线程转交的 `/send` 与 cron 传 `operator`：
+ * 登记（见 workers/aiChat/ai/ttsUsage.ts），门面不再登记。主线程转交的 `/send` 与 cron 传 `operator`：
  * 由门面在发起供应商请求前登记。
  */
 export interface AiMeteredSpeechRequest extends AiSpeechRequest {
@@ -285,11 +285,6 @@ export interface AiMeteredSpeechRequest extends AiSpeechRequest {
  * conversationSettledOffsets 把当前会话切开。
  */
 export interface AiReplySessionParams {
-  /**
-   * 本轮回复所在的群。只有 Gemini 实现读取：按群记录上一次成功回复请求的发出时刻，决定首轮
-   * 请求是否引用显式缓存（见 aiChat/gemini/replySession.ts）；其余实现不读。
-   */
-  readonly chatId: number;
   /**
    * 跨轮回复逐字不变的区块（当前是只读参考记忆），内容只在冷记忆压缩轮换或机器人
    * 账号身份变化时改变；排在易变组之前。
@@ -311,7 +306,7 @@ export interface AiReplySessionParams {
 
 /**
  * 各项能力的最小契约，按编译期边界拆开：config/dynamic/agent.json 按能力独立选
- * provider，调用方只拿到自己能力对应的那一份契约（见 aiChat/provider.ts 模块头注）。
+ * provider，调用方只拿到自己能力对应的那一份契约（见 workers/aiChat/provider.ts 模块头注）。
  *
  * `name` 每项都有，用于日志诊断。
  */
@@ -357,7 +352,7 @@ export interface AiWebSearchProvider {
 }
 
 /**
- * 联网检索门面（aiChat/provider.ts 的 webSearchAiProvider / textWebSearchAiProvider）：能力已经
+ * 联网检索门面（workers/aiChat/provider.ts 的 webSearchAiProvider / textWebSearchAiProvider）：能力已经
  * 绑定，请求经配额闸门排队。web_search 缺配置时 webSearchAiProvider 返回 null。
  */
 export interface AiWebSearchFacade {
@@ -369,7 +364,7 @@ export interface AiWebSearchFacade {
  * 结构化 JSON 生成请求（text 能力，不挂工具，cron 摘要组稿用）。实现包按自己的协议要求端点
  * 只输出 JSON：OpenAI 兼容端点用 `json_object`（提示词里须出现 JSON 一词，Schema 由调用方
  * 写进提示词），Gemini 把 jsonSchema 交给 `responseJsonSchema`，Anthropic 交给
- * `output_config.format`。不使用 Gemini 显式缓存。
+ * `output_config.format`。
  */
 export interface AiJsonRequest {
   readonly systemPrompt: string;
@@ -388,7 +383,7 @@ export interface AiStructuredTextProvider {
 }
 
 /**
- * 生图门面（aiChat/provider.ts 的 imageAiProvider）；能力缺配置或所选实现缺席生图时由路由返回 null，
+ * 生图门面（workers/aiChat/provider.ts 的 imageAiProvider）；能力缺配置或所选实现缺席生图时由路由返回 null，
  * 不挂 generate_image。
  */
 export interface AiImageProvider {
@@ -411,13 +406,13 @@ export interface AiSpeechProvider {
   readonly name: AgentProvider;
   /**
    * 语音合成。缺席表示这一家没有这项能力，回复工具集直接不挂 send_voice
-   * （见 aiChat/ai/tools/replyToolset/orchestrator.ts）。
+   * （见 workers/aiChat/ai/tools/replyToolset/orchestrator.ts）。
    */
   synthesizeSpeech?(this: void, request: AiSpeechRequest): Promise<SynthesizedSpeech | null>;
 }
 
 /**
- * tts 门面（aiChat/provider.ts 的 ttsAiProvider）：请求经交互优先的配额闸门排队，
+ * tts 门面（workers/aiChat/provider.ts 的 ttsAiProvider）：请求经交互优先的配额闸门排队，
  * 轮到执行时先按 `quota` 口径登记每日计数，超出上限时不发起供应商请求。
  */
 export interface AiSpeechFacade {
@@ -429,7 +424,7 @@ export interface AiSpeechFacade {
 /**
  * 一家供应商对 AI 闲聊全部模型能力的实现；实现包导出的就是这一个对象。
  *
- * 选取按 text、summary、media、image、tts、web_search 能力拆分，见 aiChat/provider.ts：
+ * 选取按 text、summary、media、image、tts、web_search 能力拆分，见 workers/aiChat/provider.ts：
  * 路由持有完整实现，交给调用方的只有上面对应的那一份最小契约。每项只读取
  * config/dynamic/agent.json 中自己的 provider，各家客户端可以在同一条 Worker 线程上
  * 同时存在，并按能力持有各自实例（见 cache/workers/aiChat/{gemini,openai,anthropic}.ts）。

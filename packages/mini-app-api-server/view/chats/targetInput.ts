@@ -4,7 +4,6 @@
 
 import type { ChatFullInfo } from "grammy/types";
 import { telegramApiState } from "../../../cache/perThread/telegramApi";
-import { USERNAME_ARG_PATTERN } from "../../../consts/commands";
 import { readPresentChatUser } from "../../../infra/telegram/actions/membership";
 import { probeTelegramChatInfoSilent } from "../../../infra/telegram/actions/miniApp";
 import { bot } from "../../../infra/telegram/mainClient";
@@ -13,7 +12,6 @@ import type { CachedUser } from "../../../types/chatState";
 import type { ChatMemberPresence } from "../../../types/telegram";
 import {
   resolveIdTarget,
-  resolveUsernameTarget,
   updateCachedIdentity,
 } from "../../../users/senderIdentity";
 import { channelIdentity, userIdentity } from "../../../users/visibleSender";
@@ -25,7 +23,7 @@ export type ResolvedTargetInput =
   | { readonly ok: false; readonly message: string };
 
 /**
- * 将前端传入的目标参数（`@username`、`username`、正整数用户 ID 或负数频道 ID）解析为 `CachedUser`，并执行自指与当前群自身身份拦截。
+ * 将前端传入的目标参数（正整数用户 ID 或 `-100...` 频道负整数 ID）解析为 `CachedUser`，并执行自指与当前群自身身份拦截。
  * @param chatId 当前操作的群 ID。
  * @param rawTarget 前端提交的原始目标字符串。
  * @returns 解析成功的目标身份或失败提示键。
@@ -37,22 +35,14 @@ export function resolveTargetInput(chatId: number, rawTarget: string | undefined
   }
 
   const numericId: number | undefined =
-    parseUserIdArgument(trimmed) ?? parseChatIdArgument(trimmed);
-  let targetUser: CachedUser;
-  if (numericId !== undefined) {
-    targetUser = resolveIdTarget(numericId);
-  } else {
-    const candidate: string = trimmed.startsWith("@") ? trimmed : `@${trimmed}`;
-    const match: RegExpExecArray | null = USERNAME_ARG_PATTERN.exec(candidate);
-    if (match === null) {
-      return { ok: false, message: "TARGET_INVALID" };
-    }
-    const found: CachedUser | undefined = resolveUsernameTarget(match[1]!);
-    if (found === undefined) {
-      return { ok: false, message: "TARGET_USERNAME_NOT_FOUND" };
-    }
-    targetUser = found;
+    parseUserIdArgument(trimmed) ??
+    (trimmed.startsWith("-100") && parseUserIdArgument(trimmed.slice(4)) !== undefined
+      ? parseChatIdArgument(trimmed)
+      : undefined);
+  if (numericId === undefined) {
+    return { ok: false, message: "TARGET_INVALID" };
   }
+  const targetUser: CachedUser = resolveIdTarget(numericId);
 
   const botUserId: number | undefined = currentBotUserId();
   if (botUserId !== undefined && targetUser.id === botUserId) {

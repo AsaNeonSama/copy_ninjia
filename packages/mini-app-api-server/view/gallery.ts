@@ -105,7 +105,7 @@ export async function listMiniAppGalleryPage(
 
 /**
  * 解码并校验图库文件名，拒绝路径穿越、空串、隐藏文件或非法字符。
- * @param rawFileName URL 路径参数或请求体中的原始文件名。
+ * @param rawFileName URL 查询参数或请求体中的原始文件名。
  * @returns 校验通过的文件名；解码失败或文件名不合法时返回 `null`。
  */
 function normalizeSafeGalleryFileName(rawFileName: string): string | null {
@@ -127,7 +127,7 @@ function normalizeSafeGalleryFileName(rawFileName: string): string | null {
 
 /**
  * 校验并解析图库目录内的单张图片文件路径，阻断路径穿越、隐藏文件读取与符号链接越权。
- * @param rawFileName URL 路径参数中的原始文件名。
+ * @param rawFileName URL 查询参数中的原始文件名。
  * @returns 通过安全校验的文件路径、MIME、字节大小与包含 `mtimeMs` 的 `ETag`；文件不存在或文件名不合法时返回 `null`。
  */
 export async function readMiniAppGalleryFile(
@@ -153,7 +153,7 @@ export async function readMiniAppGalleryFile(
 
 /**
  * 校验并从图库目录删除指定文件名的单张图片。
- * @param rawFileName URL 路径参数或请求体中的原始文件名。
+ * @param rawFileName 请求体中的原始文件名。
  * @returns 结构化的删除结果。
  */
 export async function deleteMiniAppGalleryImage(

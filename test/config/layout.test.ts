@@ -6,6 +6,7 @@ import { basename, join, relative } from "node:path";
 import { TEST_DATA_ROOT } from "../preloadEnv";
 import {
   assertDeploymentConfigLayout,
+  assertNoLegacyOrMisplacedBotConfig,
   assertNoMisplacedConfigFiles,
   readDynamicConfigLayoutRejections,
 } from "../../packages/config/layout";
@@ -222,5 +223,39 @@ test("启动布局检查要求 dynamic/ 是已存在的目录", async () => {
     rmSync(DYNAMIC_CONFIG_DIR, { force: true });
     await rename(moved, DYNAMIC_CONFIG_DIR);
     rmSync(movedParent, { recursive: true, force: true });
+  }
+});
+
+test("窄前置检查仅拒绝顶层旧 telegram.json 与放错位置的 bot.json，放行 static/bot.json 符号链接与子目录暂存文件", async () => {
+  const externalDir: string = join(root, "..", `bot-symlink-target-${Date.now()}`);
+  mkdirSync(externalDir, { recursive: true });
+  try {
+    const externalBotConfig: string = join(externalDir, basename(BOT_CONFIG_PATH));
+    await Bun.write(externalBotConfig, "{}");
+    const staticDir: string = join(root, STATIC_CONFIG_DIR_NAME);
+    const dynamicDir: string = join(root, DYNAMIC_CONFIG_DIR_NAME);
+    mkdirSync(staticDir, { recursive: true });
+    mkdirSync(dynamicDir, { recursive: true });
+    symlinkSync(externalBotConfig, join(staticDir, basename(BOT_CONFIG_PATH)));
+    await Bun.write(join(staticDir, ".bot.json.tmp.999999"), "orphan");
+    await Bun.write(join(dynamicDir, ".agent.json.tmp.999999"), "orphan");
+    await Bun.write(join(root, "unrelated-extra"), "ignored-by-narrow-precheck");
+
+    await expect(assertNoLegacyOrMisplacedBotConfig(root)).resolves.toBeUndefined();
+
+    const legacyPath: string = join(root, LEGACY_BOT_CONFIG_NAME);
+    await Bun.write(legacyPath, "secret not read");
+    await expect(assertNoLegacyOrMisplacedBotConfig(root)).rejects.toThrow(
+      `${legacyPath}: $ must be absent after explicit cold migration to ${basename(BOT_CONFIG_PATH)}.`
+    );
+    rmSync(legacyPath, { force: true });
+
+    const misplacedPath: string = join(root, basename(BOT_CONFIG_PATH));
+    await Bun.write(misplacedPath, "secret not read");
+    await expect(assertNoLegacyOrMisplacedBotConfig(root)).rejects.toThrow(
+      `${misplacedPath}: $ must be absent; ${basename(BOT_CONFIG_PATH)} belongs in ${STATIC_CONFIG_DIR_NAME}/.`
+    );
+  } finally {
+    rmSync(externalDir, { recursive: true, force: true });
   }
 });

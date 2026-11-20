@@ -1,6 +1,7 @@
 import { join, relative } from "node:path";
 import ts from "typescript";
 import { parseSourceFile, sourceFilesUnder } from "./sourceAnalysis";
+import { unwrapExpression } from "./staticAccess";
 
 /**
  * 核对命令提示清理、状态消息豁免与长期留存话题归属。
@@ -28,6 +29,7 @@ export async function collectTelegramMessageProblems(
 
   // 状态机按钮、超管私聊告警及功能性正文只有下列命名边界能够直接发送；普通提示统一交给主线程清理。
   const directBoundaries: Readonly<Record<string, string>> = {
+    "workers/aiChat/ai/tools/replyToolset/messageState.ts": "sendDirectMessage",
     "workers/antiRaid/lockdownApi.ts": "beginLockdownAnnouncement",
     "workers/antiRaid/verificationReminders.ts": "attemptReminderDelivery",
     "auto/message/qaDirectAnswer.ts": "sendQaDirectAnswer",
@@ -37,18 +39,42 @@ export async function collectTelegramMessageProblems(
     "mini-app-api-server/handlers/auth.ts": "handlePostAuthLoginRoute",
   };
   const directSendNames: ReadonlySet<string> = new Set(["sendMessage", "sendMessageWithResult"]);
+  const directBoundaryStatus: Map<string, "missing-file" | "missing-function" | "ok"> = new Map(
+    Object.keys(directBoundaries).map((key: string): [string, "missing-file" | "missing-function" | "ok"] => [
+      key,
+      "missing-file",
+    ])
+  );
   for (const directory of ["workers", "antiRaid", "auto", "mini-app-api-server"]) {
     for (const path of sourceFilesUnder(join(sourceRoot, directory))) {
       const source: ts.SourceFile = await parseSourceFile(path);
       const sendNames: Set<string> = new Set(directSendNames);
+      const relativeToSource: string = relative(sourceRoot, path);
+      const expectedBoundary: string | undefined = directBoundaries[relativeToSource];
+      if (expectedBoundary !== undefined && directBoundaryStatus.get(relativeToSource) === "missing-file") {
+        directBoundaryStatus.set(relativeToSource, "missing-function");
+      }
       function visit(node: ts.Node): void {
+        if (expectedBoundary !== undefined) {
+          if (ts.isFunctionDeclaration(node) && node.name?.text === expectedBoundary) {
+            directBoundaryStatus.set(relativeToSource, "ok");
+          } else if (
+            ts.isVariableDeclaration(node) &&
+            ts.isIdentifier(node.name) &&
+            node.name.text === expectedBoundary &&
+            node.initializer !== undefined &&
+            (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer))
+          ) {
+            directBoundaryStatus.set(relativeToSource, "ok");
+          }
+        }
         if (ts.isImportSpecifier(node) && directSendNames.has(node.propertyName?.text ?? node.name.text)) {
           sendNames.add(node.name.text);
         }
         if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && sendNames.has(node.expression.text)) {
           let owner: ts.Node | undefined = node.parent;
           while (owner !== undefined && !ts.isFunctionDeclaration(owner)) owner = owner.parent;
-          if (owner?.name?.text !== directBoundaries[relative(sourceRoot, path)]) {
+          if (owner?.name?.text !== expectedBoundary) {
             problems.push(`${relative(projectRoot, path)}: ordinary Worker/group notices must use the main-thread temporary-message boundary`);
           }
         }
@@ -56,6 +82,14 @@ export async function collectTelegramMessageProblems(
       }
       visit(source);
     }
+  }
+  for (const [relativeToSource, status] of directBoundaryStatus) {
+    if (status === "ok") continue;
+    const expectedBoundary: string = directBoundaries[relativeToSource]!;
+    const detail: string = status === "missing-file"
+      ? "does not exist"
+      : `no longer declares boundary function ${expectedBoundary}`;
+    problems.push(`packages/${relativeToSource}: directBoundaries registers ${expectedBoundary}, which ${detail}`);
   }
 
   for (const path of commandTextOutputFiles) {
@@ -83,9 +117,19 @@ export async function collectTelegramMessageProblems(
         (node.propertyName?.text ?? node.name.text) === "sendCommandMessage") {
         problems.push(`${relative(projectRoot, path)}: /wed state-owned photos must not use fixed-delay command cleanup`);
       }
+      if (ts.isCallExpression(node)) {
+        const callee: ts.Expression = unwrapExpression(node.expression);
+        if (ts.isPropertyAccessExpression(callee) && callee.name.text === "sendMessage") {
+          problems.push(
+            `${relative(projectRoot, path)}:` +
+            `${source.getLineAndCharacterOfPosition(node.getStart()).line + 1} ` +
+            "command text must use sendCommandMessage so group prompts are deleted"
+          );
+        }
+      }
       if (
         ts.isImportSpecifier(node) &&
-        ["sendEphemeralMessage", "sendMessage"].includes(
+        ["sendEphemeralMessage", "sendMessage", "sendMessageWithResult"].includes(
           node.propertyName?.text ?? node.name.text
         )
       ) {

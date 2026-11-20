@@ -217,4 +217,48 @@ describe("自发消息登记的分层容量", () => {
     expect(isBotOwnMessage(forwarded)).toBeTrue();
     expect(isSelfSent(-2002, 20)).toBeFalse();
   });
+
+  test("工作线程调用写入口全部零副作用短路，不建定时器和等待状态", async () => {
+    const trackerUrl: string = import.meta.resolve("../../packages/infra/selfSentTracker.ts");
+    const cacheUrl: string = import.meta.resolve("../../packages/cache/perThread/selfSentTracker.ts");
+    const script: string = `
+      import { beginSelfSentSend, endSelfSentSend, markSelfSent } from ${JSON.stringify(trackerUrl)};
+      import { inFlightSelfSends, sentMessages } from ${JSON.stringify(cacheUrl)};
+      self.onmessage = () => {
+        beginSelfSentSend(-1001);
+        markSelfSent(-1001, 42);
+        const inFlightDuring: number = inFlightSelfSends.size;
+        endSelfSentSend(-1001);
+        self.postMessage({
+          isMainThread: Bun.isMainThread,
+          sentSize: sentMessages.size,
+          inFlightDuring,
+          inFlightAfter: inFlightSelfSends.size,
+        });
+      };
+    `;
+    const workerUrl: string = URL.createObjectURL(new Blob([script], { type: "application/typescript" }));
+    const worker: Worker = new Worker(workerUrl);
+    try {
+      const outcome: {
+        isMainThread: boolean;
+        sentSize: number;
+        inFlightDuring: number;
+        inFlightAfter: number;
+      } = await new Promise((resolve, reject): void => {
+        worker.onmessage = (event: MessageEvent): void => resolve(event.data);
+        worker.onerror = (event: ErrorEvent): void => reject(event.error ?? new Error(event.message));
+        worker.postMessage("run");
+      });
+      expect(outcome).toEqual({
+        isMainThread: false,
+        sentSize: 0,
+        inFlightDuring: 0,
+        inFlightAfter: 0,
+      });
+    } finally {
+      await worker.terminate();
+      URL.revokeObjectURL(workerUrl);
+    }
+  });
 });

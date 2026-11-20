@@ -207,12 +207,13 @@ AI 触发包含两种途径：
 
 程序入口 [`index.ts`](../../index.ts) 仅负责装配 [`ApplicationLifecycle`](../../packages/app/lifecycle.ts)。模块在 import 时保证无副作用（不启动 Worker、不建定时器、不发起网络连接、不写磁盘）。真正的启动流程由 `ApplicationLifecycle.init()` 串行推进：
 
-0. **配置目录布局检查**：由 `layout.ts` 按三级目录白名单检查 `config/`、`config/static/` 与 `config/dynamic/`（拦截错放文件、旧文件与任何非白名单条目），确认 `config/dynamic/` 为已存在目录，随后严格解析 `bot.json`。
+0. **核心配置加载与窄前置检查**：导入 `packages/config/bot.ts` 时，先由 `packages/config/layout.ts` 的 `assertNoLegacyOrMisplacedBotConfig` 按名称检查 `config/` 顶层是否存在旧版 `config/telegram.json` 或错位 `config/bot.json`，随后严格解析 `config/static/bot.json` 并采纳时区与日志级别。
 1. **数据根预检与排他锁**：检查运行时数据根目录的写权限、文件 fsync、hard link 与原子 rename 能力，随后获取 `bot.lock` 单实例文件锁（基于系统 `/proc/<pid>/stat` 与内核 boot ID）；任一步失败立即安全退出。接着注册 Worker 致命异常回调，并初始化头像队列、群标题回填、翻译、口球、老婆抽取（`wed`）及延迟命令的运行时环境。
-2. **全局状态与配置校验**：
-   - 清理中断残留的临时文件。
+2. **孤儿清扫、目录布局与全局状态/配置校验**：
+   - 调用 `cleanupOrphanedTempFiles` 清理中断残留的运行时与配置原子写临时文件。
+   - 由 `packages/config/layout.ts` 的 `assertDeploymentConfigLayout` 按三级目录白名单检查 `config/`、`config/static/` 与 `config/dynamic/`（拦截错放文件、旧文件与任何非白名单条目），并确认 `config/dynamic/` 为已存在目录。
    - 严格加载恢复 `memory/mini-app-totp/totp.json`（存在时）与 `memory/global/state.json`；若数据根根目录下遗留有未迁移的旧格式文件则报错退出。
-   - 对所有已存在的部署配置文件进行严格校验；缺少可选配置由对应功能降级处理，存在但格式非法则直接报错退出。
+   - 经 `validateExistingDeploymentInputs` 对所有已存在的部署配置文件执行严格校验；缺少可选配置由对应功能降级处理，存在但格式非法则直接报错退出。
    - 检查并确保专用图库目录就绪（核对权限与文件格式）。
 3. **启动 Disk I/O Worker 并恢复持久化数据**：
    - Worker 启动时对所有持久化数据（SQLite 数据库、日志、AI 用量、贴纸、运势、入群验证、入群日志、老婆抽取候选池等）进行只读检查与格式校验；校验全部通过后才接管状态、运行启动维护并注册每日零点维护任务（`DISK_IO_MAINTENANCE_CRON`）。

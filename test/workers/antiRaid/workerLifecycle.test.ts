@@ -1,23 +1,26 @@
 import { adoptTimeZone, getTimeZone } from "../../../packages/config/time";
+import { adoptLogLevel, getLogLevel } from "../../../packages/config/logLevel";
 import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { AntiRaidWorkerEvent } from "../../../packages/types/antiRaid/events";
 import type { AntiRaidWorkerMessage } from "../../../packages/types/antiRaid/protocol";
 import type { AdDetectAgentConfig } from "../../../packages/types/config";
+import type { LogLevel } from "../../../packages/types/diskIO/messages";
 import { workerDuplexRequestSignal } from "../../../packages/cache/perThread/workerDuplex";
 import { workerAtmosphere } from "../../../packages/workers/antiRaid/atmosphere";
 import { atmosphereState } from "../../../packages/cache/workers/antiRaid/atmosphere";
 import { ATMOSPHERE_TEXTS } from "../../../packages/consts/atmosphere";
 
 const INITIAL_TIME_ZONE: string = getTimeZone();
-afterEach((): void => { adoptTimeZone(INITIAL_TIME_ZONE); });
+const INITIAL_LOG_LEVEL: LogLevel = getLogLevel();
+afterEach((): void => {
+  adoptTimeZone(INITIAL_TIME_ZONE);
+  adoptLogLevel(INITIAL_LOG_LEVEL);
+});
 
 const calls: string[] = [];
 const workerEvents: AntiRaidWorkerEvent[] = [];
 let removeBlockedMembersTask: Promise<void> = Promise.resolve();
 let deleteDeferredVerificationResult: boolean = false;
-let deletionFlushRequestSignal: AbortSignal | null | undefined;
-/** drain 时统一延迟删除 flush 交回的删除任务；缺省为空。 */
-let pendingDeletionTasks: readonly Promise<void>[] = [];
 const workerSelf: {
   onmessage: ((event: MessageEvent<AntiRaidWorkerMessage>) => void) | null;
   postMessage: (event: AntiRaidWorkerEvent) => void;
@@ -105,14 +108,6 @@ mock.module("../../../packages/workers/antiRaid/recentComments", () => ({
   sweepRecentComments,
   resetRecentComments(): void { calls.push("resetRecentComments"); },
 }));
-mock.module("../../../packages/infra/telegram/actions/messageLifecycle", () => ({
-  flushPendingMessageDeletions(): readonly Promise<void>[] {
-    calls.push("flushGenericMessageDeletions");
-    deletionFlushRequestSignal = workerDuplexRequestSignal.current;
-    return pendingDeletionTasks;
-  },
-  resetPendingMessageDeletions(): void { calls.push("resetGenericMessageDeletions"); },
-}));
 const worker = await import("../../../packages/workers/antiRaidWorker");
 const { workerTelegramApi } = await import("../../../packages/infra/telegram/workerClient");
 const { telegramApiState } = await import("../../../packages/cache/perThread/telegramApi");
@@ -155,7 +150,6 @@ beforeEach(() => {
   workerEvents.length = 0;
   removeBlockedMembersTask = Promise.resolve();
   deleteDeferredVerificationResult = false;
-  deletionFlushRequestSignal = undefined;
   sweepRecentComments.mockClear();
   adminFetches.clear();
   chatAdmins.clear();
@@ -165,11 +159,19 @@ beforeEach(() => {
 });
 
 describe("Anti-Raid Worker lifecycle", () => {
-  test("时区与通知风格随 agentConfig 注入，失权不改风格，Worker 停止时清空风格", () => {
+  test("时区、日志级别与通知风格随 agentConfig 注入，失权不改风格，Worker 停止时清空风格", () => {
     worker.startAntiRaidWorker();
-    worker.handleAntiRaidWorkerMessage({ type: "agentConfig", timeZone: "UTC", atmosphere: "plain", adDetect: null, adDetectConfig: null });
+    worker.handleAntiRaidWorkerMessage({
+      type: "agentConfig",
+      timeZone: "UTC",
+      logLevel: "warn",
+      atmosphere: "plain",
+      adDetect: null,
+      adDetectConfig: null,
+    });
     expect(workerAtmosphere()).toBe(ATMOSPHERE_TEXTS.plain);
     expect(getTimeZone()).toBe("UTC");
+    expect(getLogLevel()).toBe("warn");
     worker.handleAntiRaidWorkerMessage({ type: "deactivateChat", chatId: -1001, cleanupVerificationMessages: false, abandonLockdown: false });
     expect(workerAtmosphere()).toBe(ATMOSPHERE_TEXTS.plain);
     worker.stopAntiRaidWorker();
@@ -276,6 +278,7 @@ describe("Anti-Raid Worker lifecycle", () => {
         atmosphere: "teasing",
         type: "agentConfig",
         timeZone: getTimeZone(),
+        logLevel: getLogLevel(),
         adDetect: injectedAdDetectConfig,
         adDetectConfig: { punishment: { kind: "kick", blockScope: "global" }, samples: [], stickerBlackList: new Set(), emojiBlackList: new Set() },
       },
@@ -350,32 +353,14 @@ describe("Anti-Raid Worker lifecycle", () => {
 
     worker.stopAntiRaidWorker();
     expect(workerSelf.onmessage).toBeNull();
-    expect(calls.slice(-8)).toEqual([
+    expect(calls.slice(-7)).toEqual([
       "stopVerification", "stopLockdown", "stopAdDetect", "resetRecentComments",
-      "resetFloodWindows", "resetGenericMessageDeletions", "resetBotPermissions",
+      "resetFloodWindows", "resetBotPermissions",
       "resetChatKind",
     ]);
     worker.startAntiRaidWorker();
     expect(telegramApiState.current).toBe(workerTelegramApi);
     worker.stopAntiRaidWorker();
-  });
-
-  test("drain 等统一延迟删除 flush 交回的删除任务结算后才回 drainComplete", async () => {
-    let releaseDeletion!: () => void;
-    pendingDeletionTasks = [new Promise<void>((resolve: () => void): void => { releaseDeletion = resolve; })];
-    worker.startAntiRaidWorker();
-    try {
-      workerSelf.onmessage!({ data: { type: "drain", drainId: 21 } } as MessageEvent<AntiRaidWorkerMessage>);
-      await Bun.sleep(0);
-      expect(workerEvents).toEqual([]);
-
-      releaseDeletion();
-      await Bun.sleep(0);
-      expect(workerEvents).toEqual([{ type: "drainComplete", drainId: 21 }]);
-    } finally {
-      pendingDeletionTasks = [];
-      worker.stopAntiRaidWorker();
-    }
   });
 
   test("启动时装上缓存用量出口，把用量作为事件发回主线程；停止时卸下", () => {
@@ -421,10 +406,6 @@ describe("Anti-Raid Worker lifecycle", () => {
 
     await Bun.sleep(0);
     expect(workerEvents).toEqual([{ type: "barrierComplete", barrierId: 10 }]);
-    // 统一延迟删除 flush 在 quiesce 后、任务 drain 前认领全部 timer；返回的删除 Promise 接入同一个在途集合。
-    expect(calls.indexOf("flushGenericMessageDeletions"))
-      .toBeGreaterThan(calls.indexOf("quiesceAdDetect"));
-    expect(deletionFlushRequestSignal).toBeNull();
     expect(workerDuplexRequestSignal.current?.aborted).toBeTrue();
     expect(blocklistRemovalTaskCounts.get(-1001)).toBe(1);
     expect(blocklistRemovalEpochs.get(-1001)).toBe(1);

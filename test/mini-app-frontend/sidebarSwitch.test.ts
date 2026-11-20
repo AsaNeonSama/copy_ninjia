@@ -1,13 +1,15 @@
 /**
- * Mini App 侧边栏切页帧调度、首屏合并加载与图库上传按钮交互测试：
- * - `AppShell` 抽屉收起与切页渲染的双帧解耦、图库最短骨架时长与同批缩略图合并回执；
- * - 状态看板骨架期间的情绪暂存与乱序响应保护、受管群列表与验证器状态的单次合并落定；
+ * Mini App 侧边栏收起后置切页、顶层同级隔离、指针穿透屏蔽、首屏合并加载与图库上传按钮交互测试：
+ * - `AppShell` 顶层 `<Fragment>` 同级隔离（`.sidebar-backdrop` / `.sidebar-drawer` / `Toast` 位于 `.app-shell` 之外）、`.sidebar-drawer` `transform` `transitionend` 即时结算与 `MINI_APP_SIDEBAR_CLOSE_ANIMATION_MS` 兜底定时器挂载目标页及 `data-sidebar-motion="active"` 零空窗指针穿透屏蔽；
+ * - 图库最短骨架时长与同批缩略图合并回执、状态看板骨架期间的情绪暂存与乱序响应保护、受管群列表与验证器状态的单次合并落定；
  * - 图库上传按钮的延时按压复位、悬停抑制释放与焦点样式规则（`fetch` 按「方法 + 路径」路由到测试夹具）。
  */
 
 import { afterEach, beforeEach, describe, expect, jest, test } from "bun:test";
-import { createElement } from "react";
+import { act, createElement } from "react";
 import type React from "react";
+import { createRoot } from "react-dom/client";
+import type { Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   AppShell,
@@ -17,6 +19,7 @@ import {
   MINI_APP_HOVER_SUPPRESS_RELEASE_DELTA_PX,
   MINI_APP_MIN_LOADING_MS,
   MINI_APP_PAGINATION_HOVER_DURATION_MS,
+  MINI_APP_SIDEBAR_CLOSE_ANIMATION_MS,
   MINI_APP_TAB_KEYS,
 } from "../../packages/mini-app-frontend/consts/miniApp";
 import { getMiniAppTranslations } from "../../packages/mini-app-frontend/i18n";
@@ -36,6 +39,18 @@ import { createStatusStore } from "../../packages/mini-app-frontend/store/status
 import { createTotpStore } from "../../packages/mini-app-frontend/store/totp";
 import type { MiniAppTabKey } from "../../packages/mini-app-frontend/types/miniApp";
 import type { MiniAppTranslations } from "../../packages/mini-app-frontend/types/miniAppI18n";
+import {
+  collectNodeText,
+  findButtonByText,
+  findElements,
+  hasClass,
+  installMiniDom,
+} from "../helpers/miniAppDom";
+import type { MiniDomEnvironment, MiniDomNode } from "../helpers/miniAppDom";
+import {
+  seedTestMiniAppSession,
+  wrapEncryptedTestFetch,
+} from "./helpers/encryptedFetchMock";
 
 /** 一条路由夹具：按请求返回响应。 */
 type RouteHandler = (url: URL, init: RequestInit | undefined) => Response | Promise<Response>;
@@ -54,28 +69,34 @@ function json(payload: unknown, status: number = 200): Response {
   return Response.json(payload, { status });
 }
 
-/** 排空当前微任务队列。 */
+/** 排空当前微任务与 Web Crypto 异步加解密回调队列。 */
 async function drain(): Promise<void> {
-  for (let turn: number = 0; turn < 20; turn += 1) {
-    await Promise.resolve();
+  for (let turn: number = 0; turn < 6; turn += 1) {
+    Bun.sleepSync(2);
+    await new Promise<void>((resolve: () => void): void => {
+      setImmediate(resolve);
+    });
   }
 }
 
 /** 推进假定时器并排空派生微任务。 */
 async function advance(ms: number): Promise<void> {
+  await drain();
   jest.advanceTimersByTime(ms);
   await drain();
 }
 
 beforeEach((): void => {
   routes.clear();
-  globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: RequestInit): Promise<Response> => {
-    const url: URL = new URL(String(input), "http://mini.test/");
-    const key: string = `${(init?.method ?? "GET").toUpperCase()} ${url.pathname}`;
-    const handler: RouteHandler | undefined = routes.get(key);
-    if (handler === undefined) return json({ error: `no route ${key}` }, 404);
-    return handler(url, init);
-  }) as typeof fetch;
+  seedTestMiniAppSession("d".repeat(64), Date.now() + 600_000);
+  globalThis.fetch = wrapEncryptedTestFetch(
+    (url: URL, init?: RequestInit): Response | Promise<Response> => {
+      const key: string = `${(init?.method ?? "GET").toUpperCase()} ${url.pathname}`;
+      const handler: RouteHandler | undefined = routes.get(key);
+      if (handler === undefined) return json({ error: `no route ${key}` }, 404);
+      return handler(url, init);
+    }
+  );
   resetMiniAppStoreForTest();
   useMiniAppStore.getState().setLanguage("zh");
 });
@@ -88,8 +109,8 @@ afterEach((): void => {
   clearMiniAppSessionToken();
 });
 
-describe("侧边栏切页帧调度与首屏合并提交", () => {
-  test("AppShell 各标签页 SSR 同步渲染，且侧边栏收起切页经双帧解耦、连点切换取消前序排期、无帧接口时同步回退", () => {
+describe("侧边栏收起后置切页、顶层同级隔离、transitionend 即时结算与首屏合并提交", () => {
+  test("AppShell 各标签页 SSR 渲染与 syncSidebarTabRenderEffect 完整收起时长后挂载、连点/回切/重开取消及无定时器同步回退", () => {
     (globalThis as { Telegram?: unknown }).Telegram = {
       WebApp: { initDataUnsafe: { user: { id: 10086 } } },
     };
@@ -102,6 +123,7 @@ describe("侧边栏切页帧调度与首屏合并提交", () => {
       status: "skeleton-cpu-ring",
       chats: zh.chats.sectionTitle(0),
       identities: zh.identities.whitelistTab,
+      configs: "config-editor-skeleton",
       gallery: "gallery-upload-btn",
       totp: "skeleton-totp-btn",
     };
@@ -110,6 +132,13 @@ describe("侧边栏切页帧调度与首屏合并提交", () => {
       const html: string = renderToStaticMarkup(createElement(AppShell));
       expect(html).toContain(`<h1 class="topbar-title">${zh.tabs[tabKey]}</h1>`);
       expect(html).toContain(expectedPageMarkers[tabKey]);
+      expect(html).toContain('data-sidebar-motion="active"');
+      expect(html.indexOf("</main></div>")).toBeLessThan(html.indexOf('class="sidebar-backdrop'));
+      expect(html.indexOf('class="sidebar-backdrop')).toBeLessThan(html.indexOf('class="sidebar-drawer'));
+      if (tabKey === "configs") {
+        expect(html).toContain('<section class="configs-page">');
+        expect(html).not.toContain("configs-page animate-fade-in");
+      }
       expect(html).toContain("SuperAdmin #10086");
       expect(html).toContain(zh.lockButton);
     }
@@ -123,29 +152,15 @@ describe("侧边栏切页帧调度与首屏合并提交", () => {
     const guestHtml: string = renderToStaticMarkup(createElement(AppShell));
     expect(guestHtml).toContain(zh.superAdminBadge);
     expect(guestHtml).not.toContain(zh.lockButton);
+    expect(guestHtml).not.toContain("data-sidebar-motion");
 
-    const host = globalThis as {
-      requestAnimationFrame?: (cb: (now: number) => void) => number;
-      cancelAnimationFrame?: (handle: number) => void;
+    jest.useFakeTimers();
+    const timerHost = globalThis as {
+      setTimeout?: typeof globalThis.setTimeout;
+      clearTimeout?: typeof globalThis.clearTimeout;
     };
-    const prevRequest: typeof host.requestAnimationFrame = host.requestAnimationFrame;
-    const prevCancel: typeof host.cancelAnimationFrame = host.cancelAnimationFrame;
-    let frameQueue: Map<number, (now: number) => void> = new Map<number, (now: number) => void>();
-    let nextHandle: number = 1;
-    const flushOneFrame = (now: number): void => {
-      const current: Map<number, (now: number) => void> = frameQueue;
-      frameQueue = new Map<number, (now: number) => void>();
-      for (const cb of current.values()) cb(now);
-    };
-    host.requestAnimationFrame = (cb: (now: number) => void): number => {
-      const id: number = nextHandle;
-      nextHandle += 1;
-      frameQueue.set(id, cb);
-      return id;
-    };
-    host.cancelAnimationFrame = (id: number): void => {
-      frameQueue.delete(id);
-    };
+    const prevSetTimeout: typeof globalThis.setTimeout | undefined = timerHost.setTimeout;
+    const prevClearTimeout: typeof globalThis.clearTimeout | undefined = timerHost.clearTimeout;
 
     try {
       const wasSidebarOpenRef: { current: boolean } = { current: false };
@@ -176,43 +191,45 @@ describe("侧边栏切页帧调度与首屏合并提交", () => {
       expect(wasSidebarOpenRef.current).toBeTrue();
       expect(committedTabs).toEqual([]);
 
-      // 从展开侧边栏切到 chats：第 0 帧与第 1 帧均不挂载新页，第 2 帧才提交。
+      // 从展开侧边栏切到 chats：0ms..收起结束前 1ms 均不挂载新页，满收起时长才挂载目标页。
       const cleanupChats: (() => void) | undefined = runSync("chats", false);
       expect(typeof cleanupChats).toBe("function");
       expect(deferPendingRef.current).toBeTrue();
       expect(committedTabs).toEqual([]);
-      flushOneFrame(16);
+      jest.advanceTimersByTime(MINI_APP_SIDEBAR_CLOSE_ANIMATION_MS - 1);
       expect(committedTabs).toEqual([]);
-      flushOneFrame(32);
+      expect(deferPendingRef.current).toBeTrue();
+      jest.advanceTimersByTime(1);
       expect(committedTabs).toEqual(["chats"]);
       expect(renderedState.tab).toBe("chats");
       expect(deferPendingRef.current).toBeFalse();
       cleanupChats?.();
 
-      // 落地后再次对齐：无额外更新；侧边栏未展开时的切页（如宽屏常驻侧边栏）立即同步切换。
+      // 落地后再次对齐无额外更新；非侧边栏收起触发的切页立即同步切换。
       expect(runSync("chats", false)).toBeUndefined();
       expect(runSync("identities", false)).toBeUndefined();
       expect(committedTabs).toEqual(["chats", "identities"]);
 
-      // 快速连点切页：展开侧栏 -> 点 gallery -> 第 1 帧后改点 totp -> 前序 gallery 被取消且不挂载。
+      // 快速连点切页：展开侧栏 -> 点 gallery -> 半程改点 totp -> 前序 gallery 被取消且不挂载，新目标重新完整计时。
+      const halfCloseMs: number = Math.floor(MINI_APP_SIDEBAR_CLOSE_ANIMATION_MS / 2);
       runSync("identities", true);
       const cleanupGallery: (() => void) | undefined = runSync("gallery", false);
-      flushOneFrame(48);
+      jest.advanceTimersByTime(halfCloseMs);
       expect(committedTabs).toEqual(["chats", "identities"]);
       cleanupGallery?.();
-      expect(frameQueue.size).toBe(0);
 
       const cleanupTotp: (() => void) | undefined = runSync("totp", false);
       expect(deferPendingRef.current).toBeTrue();
-      flushOneFrame(64);
+      jest.advanceTimersByTime(MINI_APP_SIDEBAR_CLOSE_ANIMATION_MS - 1);
       expect(committedTabs).toEqual(["chats", "identities"]);
-      // 在落地前切回当前已挂载的 identities：取消排期且重置 deferPendingRef。
+      // 在落地前切回当前已挂载的 identities：取消排期并重置 deferPendingRef，后续推进定时器无残留挂载。
       cleanupTotp?.();
       expect(runSync("identities", false)).toBeUndefined();
       expect(deferPendingRef.current).toBeFalse();
+      jest.advanceTimersByTime(MINI_APP_SIDEBAR_CLOSE_ANIMATION_MS * 2);
       expect(committedTabs).toEqual(["chats", "identities"]);
 
-      // 排期尚未落地前重新展开侧边栏：撤销待执行帧并立即同步目标标签。
+      // 排期尚未落地前重新展开侧边栏：撤销待执行定时器并立即同步目标标签。
       runSync("identities", true);
       const cleanupBeforeReopen: (() => void) | undefined = runSync("gallery", false);
       expect(deferPendingRef.current).toBeTrue();
@@ -221,15 +238,156 @@ describe("侧边栏切页帧调度与首屏合并提交", () => {
       expect(deferPendingRef.current).toBeFalse();
       expect(committedTabs).toEqual(["chats", "identities", "gallery"]);
 
-      // 无 requestAnimationFrame 环境：从展开侧栏切页也立即回退同步更新。
-      host.requestAnimationFrame = undefined;
-      host.cancelAnimationFrame = undefined;
+      // 缺少定时器宿主接口时从展开侧栏切页立即同步回退。
+      timerHost.setTimeout = undefined;
+      timerHost.clearTimeout = undefined;
       wasSidebarOpenRef.current = true;
       expect(runSync("totp", false)).toBeUndefined();
       expect(committedTabs).toEqual(["chats", "identities", "gallery", "totp"]);
     } finally {
-      host.requestAnimationFrame = prevRequest;
-      host.cancelAnimationFrame = prevCancel;
+      timerHost.setTimeout = prevSetTimeout;
+      timerHost.clearTimeout = prevClearTimeout;
+    }
+  });
+
+  test("AppShell 客户端挂载验证：顶层 Fragment 同级隔离，且侧栏收起支持 transform transitionend 即时结算与 MINI_APP_SIDEBAR_CLOSE_ANIMATION_MS 兜底定时器", async () => {
+    jest.useFakeTimers();
+    const environment: MiniDomEnvironment = installMiniDom();
+    const dispatchTransitionEnd = (target: MiniDomNode, propertyName: string): void => {
+      const event = {
+        type: "transitionend",
+        bubbles: true,
+        target,
+        currentTarget: target as MiniDomNode | typeof environment.document,
+        propertyName,
+        elapsedTime: 0.19,
+        pseudoElement: "",
+        preventDefault: (): void => {},
+        stopPropagation: (): void => {},
+        stopImmediatePropagation: (): void => {},
+      };
+      for (let cursor: MiniDomNode | null = target; cursor !== null; cursor = cursor.parentNode) {
+        event.currentTarget = cursor;
+        for (const fn of cursor.listenersOf("transitionend") ?? []) {
+          if (typeof fn === "function") fn(event);
+        }
+      }
+      event.currentTarget = environment.document;
+      environment.document.dispatchListeners("transitionend", event);
+    };
+    try {
+      useMiniAppStore.setState({ activeTab: "status", sidebarOpen: false, sessionExpiresAt: Date.now() + 60_000 });
+      const container: MiniDomNode = environment.document.createElement("div");
+      const root: Root = createRoot(container as unknown as Element);
+
+      try {
+        await act(async (): Promise<void> => {
+          root.render(createElement(AppShell));
+        });
+
+        const byClass = (cls: string): MiniDomNode =>
+          findElements(container, (node: MiniDomNode): boolean => hasClass(node, cls))[0]!;
+
+        // 1. 顶层 <Fragment> 同级节点结构：.sidebar-backdrop、.sidebar-drawer 与 Toast 均为根容器直系子节点，绝不位于 .app-shell 内部。
+        act((): void => { useMiniAppStore.getState().showToast("ping"); });
+        const shellNode: MiniDomNode = byClass("app-shell");
+        const mainNode: MiniDomNode = byClass("app-main");
+        const backdropNode: MiniDomNode = byClass("sidebar-backdrop");
+        const drawerNode: MiniDomNode = byClass("sidebar-drawer");
+        const toastNode: MiniDomNode = byClass("toast");
+        for (const rootChild of [shellNode, backdropNode, drawerNode, toastNode]) {
+          expect(rootChild.parentNode).toBe(container);
+        }
+        expect(shellNode.contains(backdropNode)).toBeFalse();
+        expect(shellNode.contains(drawerNode)).toBeFalse();
+        expect(shellNode.contains(toastNode)).toBeFalse();
+        const shellElementChildren: MiniDomNode[] = shellNode.childNodes.filter(
+          (child: MiniDomNode): boolean => child.nodeType === 1
+        );
+        expect(shellElementChildren).toHaveLength(2);
+        expect(hasClass(shellElementChildren[0]!, "app-topbar")).toBeTrue();
+        expect(shellElementChildren[1]).toBe(mainNode);
+
+        // 2. 不切页开关侧边栏：验证兜底定时器与 transform transitionend 提前结算双路径。
+        expect(mainNode.getAttribute("data-sidebar-motion")).toBeNull();
+        const toggleBtn: MiniDomNode = byClass("sidebar-toggle-btn");
+        act((): void => {
+          toggleBtn.triggerClick();
+          dispatchTransitionEnd(drawerNode, "transform");
+        });
+        expect(hasClass(drawerNode, "open")).toBeTrue();
+        expect(mainNode.getAttribute("data-sidebar-motion")).toBe("active");
+
+        act((): void => { backdropNode.triggerClick(); });
+        expect(hasClass(drawerNode, "open")).toBeFalse();
+        expect(mainNode.getAttribute("data-sidebar-motion")).toBe("active");
+        act((): void => { jest.advanceTimersByTime(MINI_APP_SIDEBAR_CLOSE_ANIMATION_MS - 1); });
+        expect(mainNode.getAttribute("data-sidebar-motion")).toBe("active");
+        act((): void => { jest.advanceTimersByTime(1); });
+        expect(mainNode.getAttribute("data-sidebar-motion")).toBeNull();
+
+        act((): void => { toggleBtn.triggerClick(); });
+        act((): void => { backdropNode.triggerClick(); });
+        expect(mainNode.getAttribute("data-sidebar-motion")).toBe("active");
+        act((): void => { dispatchTransitionEnd(drawerNode, "transform"); });
+        expect(mainNode.getAttribute("data-sidebar-motion")).toBeNull();
+
+        // 3. 收起中途重新展开侧边栏：清理前序收起定时器，后续越过原收起时长仍保持 active。
+        act((): void => { toggleBtn.triggerClick(); });
+        act((): void => { backdropNode.triggerClick(); });
+        act((): void => { jest.advanceTimersByTime(Math.floor(MINI_APP_SIDEBAR_CLOSE_ANIMATION_MS / 2)); });
+        act((): void => { toggleBtn.triggerClick(); });
+        act((): void => { jest.advanceTimersByTime(MINI_APP_SIDEBAR_CLOSE_ANIMATION_MS); });
+        expect(hasClass(drawerNode, "open")).toBeTrue();
+        expect(mainNode.getAttribute("data-sidebar-motion")).toBe("active");
+
+        // 4. 真实合成器完成（onTransitionEnd）：忽略子节点冒泡与非 transform 属性，仅在 .sidebar-drawer 自身 transform 结束时提前挂载目标页并撤销兜底定时器。
+        const configsNavBtn: MiniDomNode | null = findButtonByText(drawerNode, zh.tabs.configs);
+        expect(configsNavBtn).not.toBeNull();
+        act((): void => { configsNavBtn!.triggerClick(); });
+        expect(hasClass(drawerNode, "open")).toBeFalse();
+        expect(collectNodeText(byClass("topbar-title"))).toBe(zh.tabs.configs);
+        expect(hasClass(configsNavBtn!, "active")).toBeTrue();
+        expect(hasClass(byClass("app-shell"), "app-shell-configs")).toBeFalse();
+        expect(byClass("app-main").getAttribute("data-sidebar-motion")).toBe("active");
+
+        act((): void => {
+          dispatchTransitionEnd(configsNavBtn!, "transform");
+          dispatchTransitionEnd(drawerNode, "border-color");
+        });
+        expect(hasClass(byClass("app-shell"), "app-shell-configs")).toBeFalse();
+        expect(byClass("app-main").getAttribute("data-sidebar-motion")).toBe("active");
+
+        act((): void => { dispatchTransitionEnd(drawerNode, "transform"); });
+        expect(hasClass(byClass("app-shell"), "app-shell-configs")).toBeTrue();
+        expect(hasClass(byClass("app-main"), "app-main-configs")).toBeTrue();
+        expect(byClass("app-main").getAttribute("data-sidebar-motion")).toBeNull();
+        expect(
+          findElements(container, (node: MiniDomNode): boolean => hasClass(node, "config-editor-skeleton"))
+        ).toHaveLength(1);
+        act((): void => { jest.advanceTimersByTime(MINI_APP_SIDEBAR_CLOSE_ANIMATION_MS * 2); });
+        expect(hasClass(byClass("app-shell"), "app-shell-configs")).toBeTrue();
+
+        // 5. transitionend 未触发时（如无头/减弱动态效果环境）：MINI_APP_SIDEBAR_CLOSE_ANIMATION_MS 兜底定时器精确完成切页与解绑。
+        act((): void => { toggleBtn.triggerClick(); });
+        act((): void => { findButtonByText(drawerNode, zh.tabs.totp)!.triggerClick(); });
+        expect(hasClass(byClass("app-shell"), "app-shell-configs")).toBeTrue();
+        expect(byClass("app-main").getAttribute("data-sidebar-motion")).toBe("active");
+        act((): void => { jest.advanceTimersByTime(MINI_APP_SIDEBAR_CLOSE_ANIMATION_MS - 1); });
+        expect(hasClass(byClass("app-shell"), "app-shell-configs")).toBeTrue();
+        expect(byClass("app-main").getAttribute("data-sidebar-motion")).toBe("active");
+        act((): void => { jest.advanceTimersByTime(1); });
+        expect(hasClass(byClass("app-shell"), "app-shell-configs")).toBeFalse();
+        expect(hasClass(byClass("app-main"), "app-main-configs")).toBeFalse();
+        expect(byClass("app-main").getAttribute("data-sidebar-motion")).toBeNull();
+        expect(
+          findElements(container, (node: MiniDomNode): boolean => hasClass(node, "skeleton-totp-btn"))
+        ).toHaveLength(1);
+      } finally {
+        await act(async (): Promise<void> => { root.unmount(); });
+      }
+    } finally {
+      environment.restore();
     }
   });
 
@@ -484,6 +642,8 @@ describe("侧边栏切页帧调度与首屏合并提交", () => {
     await statusStore.getState().loadMood();
     expect(useMiniAppStore.getState().gateState).toBe("password");
 
+    // 上一步 401 已清除本地会话；本地无会话密钥的请求会在发出前拦截，需重新持有会话才能收到服务端锁定响应。
+    seedTestMiniAppSession("c".repeat(64), Date.now() + 600_000);
     useMiniAppStore.setState({ gateState: "unlocked", toastText: "" });
     route("GET /api/status", (): Response => json({ code: "PASSWORD_LOCKED", error: "locked" }, 403));
     const pollLockPromise: Promise<void> = statusStore.getState().loadStatus(false);
@@ -492,16 +652,17 @@ describe("侧边栏切页帧调度与首屏合并提交", () => {
     await pollLockPromise;
     expect(useMiniAppStore.getState().gateState).toBe("checking");
 
+    seedTestMiniAppSession("d".repeat(64), Date.now() + 600_000);
     useMiniAppStore.setState({ gateState: "unlocked", toastText: "" });
     chatsStore.setState({
       selectedChatId: -1001,
       chatDetail: { chatId: -1001, batchKickRunning: true } as never,
     });
-    route("GET /api/chats/-1001", (): Response => json({ error: "transient" }, 500));
+    route("GET /api/chats/detail", (): Response => json({ error: "transient" }, 500));
     await chatsStore.getState().pollRunningBatchKick();
     expect(useMiniAppStore.getState().gateState).toBe("unlocked");
 
-    route("GET /api/chats/-1001", (): Response => json({ code: "PASSWORD_REQUIRED", error: "revoked" }, 401));
+    route("GET /api/chats/detail", (): Response => json({ code: "PASSWORD_REQUIRED", error: "revoked" }, 401));
     await chatsStore.getState().pollRunningBatchKick();
     expect(useMiniAppStore.getState().gateState).toBe("password");
   });

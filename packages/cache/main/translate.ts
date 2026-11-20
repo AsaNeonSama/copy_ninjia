@@ -14,17 +14,19 @@ interface TranslateRuntime {
   client: GoogleTranslate.TranslationServiceClient | null;
   accepting: boolean;
   generation: number;
+  controller: AbortController;
   tasks: Set<Promise<unknown>>;
 }
 
 /** GCP project 路径前缀缓存单例：首次翻译请求时解析填充，closeTranslate 时清空为 null；进程重启后从 null 开始。 */
 export const translateParentCache: { parent: string | null } = { parent: null };
 
-/** 翻译运行时状态：initTranslate 开启 accepting，翻译请求与后台译文任务登记于 tasks 并在结算时移除，closeTranslate 关闭 client 并递增 generation；容量受并发请求与每群 TRANSLATE_CHAT_BACKLOG_MAX 约束，进程重启后从初始值开始。 */
+/** 翻译运行时状态：initTranslate 重建控制器并开启 accepting，翻译请求与后台译文任务登记于 tasks 并在结算时移除，drainTranslate 超时或 closeTranslate 时中止控制器并递进 generation；容量受并发请求与每群 TRANSLATE_CHAT_BACKLOG_MAX 约束，进程重启后从初始值开始。 */
 export const translateRuntime: TranslateRuntime = {
   client: null,
   accepting: false,
   generation: 0,
+  controller: new AbortController(),
   tasks: new Set(),
 };
 

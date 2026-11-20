@@ -43,10 +43,16 @@ mock.module("../../../packages/infra/chatStateStorage", () => ({
   persistChatState: async (): Promise<void> => {},
   saveChatStateInBackground: (): void => {},
 }));
-mock.module("../../../packages/infra/telegram/actions", () => ({
+const realMessages = await import("../../../packages/infra/telegram/actions/messages");
+const realMessageLifecycle = await import("../../../packages/infra/telegram/actions/messageLifecycle");
+mock.module("../../../packages/infra/telegram/actions/messages", () => ({
+  ...realMessages,
   answerCallbackQuery: async (): Promise<boolean> => true,
   // 广告处置的群内播报用，本文件不触发；整份模块被替换时需要提供这些导出。
   sendMessage: async (): Promise<number | undefined> => undefined,
+}));
+mock.module("../../../packages/infra/telegram/actions/messageLifecycle", () => ({
+  ...realMessageLifecycle,
   deleteMessageAfter: (): void => {},
   deleteMessageWithOutcome: async (
     chatId: number,
@@ -69,6 +75,7 @@ mock.module("../../../packages/infra/botAdmin", () => ({
   botChatPermissionsIn: async (): Promise<undefined> => undefined,
   registerBotPermissionObserver: (): void => {},
   botCanDeleteMessagesIn: (): true => true,
+  botCanRestrictMembersIn: (): true => true,
 }));
 mock.module("../../../packages/infra/supervisedWorker", () => ({
   superviseWorker: () => ({

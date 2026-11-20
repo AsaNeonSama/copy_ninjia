@@ -13,3 +13,6 @@ export interface AiMemoryDeleteWaiter {
   reject: (error: Error) => void;
   timer: ReturnType<typeof setTimeout>;
 }
+
+/** 心情查询或重抽请求预期匹配的 Worker 回执事件类型。 */
+export type MoodResponseEventType = "moodQueried" | "moodSwitched";

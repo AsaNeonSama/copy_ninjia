@@ -60,8 +60,7 @@ export function trackAntiRaidTask<T>({
 /**
  * drain 到达：撤掉所有还在消息桶或分类型 429 车道里等待的尽力而为请求。
  *
- * 排在 drainAntiRaidTasks 之前、统一延迟删除 flush 之前；后者是 drain 期间新建的
- * 请求，不继承已取消的业务生命周期。
+ * 排在 `drainAntiRaidTasks` 之前；临时消息的延迟删除由主线程独占持有。
  */
 export function quiesceAntiRaidDispatch(): void {
   antiRaidDispatchAbort.current ??= new AbortController();

@@ -182,6 +182,8 @@ export interface AtmosphereNotices {
   readonly proxyTtsFailed: (targetChatId: number) => string;
   /** 语音合成预留额度已用尽，没有发起请求；参数为与 cron 共用的预留上限，代发会话保持开启。 */
   readonly proxyTtsDailyLimit: (dailyLimit: number) => string;
+  /** 后台语音合成期间代发会话或目标群接管已关闭，取消发送并告知超管。 */
+  readonly proxyTtsTargetInactive: (targetChatId: number) => string;
   readonly translateConfigInvalid: (file: string) => string;
   readonly translateNotRunning: (targetLabel: string) => string;
   readonly translateStopped: (targetLabel: string) => string;

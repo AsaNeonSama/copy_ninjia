@@ -23,7 +23,7 @@ import type {
   VerificationEntry,
 } from "../../types/antiRaid/internal";
 import type { VerificationChallenge } from "../../types/antiRaid/verification";
-import type { PendingState } from "../../types/states/verification";
+import type { PendingState, VerificationState } from "../../types/states/verification";
 import { trackAntiRaidTask } from "./taskTracker";
 import { createVerificationChallenge } from "./verificationChallenge";
 import type { InlineKeyboardButton, InlineKeyboardMarkup } from "grammy/types";
@@ -138,7 +138,11 @@ function attemptReminderDelivery(
         keyboard: verifyKeyboard,
       });
     } catch (error: unknown) {
-      logger.error(`Error sending ${delivery.kind} join verification reminder:`, error);
+      logger.error(
+        "Error sending join verification reminder:",
+        { kind: delivery.kind, chatId: delivery.chatId, userId: delivery.userId },
+        error
+      );
     }
     delivery.inFlight = false;
 
@@ -159,6 +163,12 @@ function attemptReminderDelivery(
     }
 
     reminderDeliveries.delete(delivery.key);
+    if (delivery.kind === "original") {
+      logger.info(
+        "Issued join verification challenge.",
+        { chatId: delivery.chatId, userId: delivery.userId }
+      );
+    }
     dispatchVerification(delivery.chatId, delivery.userId, {
       type: "reminderLanded",
       reminderKind: delivery.kind,
@@ -183,12 +193,15 @@ interface SendReminderMessageParams {
   isBot: boolean;
   /** 回复目标消息 ID；独立提醒时为 undefined。 */
   replyToMessageId: number | undefined;
+  /** 触发本次提醒投递时的状态对象引用；与当前条目不一致时放弃发送。 */
+  expectedState: VerificationState | undefined;
   /** 验证状态机派发函数。 */
   dispatchVerification: VerificationDispatcher;
 }
 
 /**
- * 登记或复用待验证提醒投递 owner 并立即发起发送尝试。真人成员的新 owner 取当前运行态条目的
+ * 登记或复用待验证提醒投递 owner 并立即发起发送尝试。仅当当前运行态仍指向同一 `expectedState`
+ * 且对应形态的提醒尚未落地、原始提醒尚未被发言取代时执行；真人成员的新 owner 取当前运行态条目的
  * 算术题，条目尚无题目时当场生成并挂上（见 VerificationEntry.challenge）。
  * @param params 提醒发送参数。
  */
@@ -199,12 +212,19 @@ function sendReminderMessage({
   label,
   isBot,
   replyToMessageId,
+  expectedState,
   dispatchVerification,
 }: SendReminderMessageParams): void {
   const key: string = verificationKey(chatId, userId);
   const entry: VerificationEntry | undefined = verificationEntries.get(key);
-  if (entry?.state.kind !== "pending") return;
+  if (entry?.state.kind !== "pending" || entry.state !== expectedState) return;
   const captured: PendingState = entry.state;
+  if (reminderKind === "original" && captured.reminderSuperseded) return;
+  if (
+    reminderKind === "original"
+      ? captured.reminderMessageId !== undefined
+      : captured.replyReminderMessageId !== undefined
+  ) return;
   const existing: ReminderDelivery | undefined = reminderDeliveries.get(key);
   if (existing?.expectedState === captured && existing.kind === reminderKind) {
     if (!existing.inFlight && existing.timer === undefined) {
@@ -242,6 +262,8 @@ interface SendVerificationReminderParams {
   label: string;
   /** 是否为机器人成员。 */
   isBot: boolean;
+  /** 触发本次提醒投递时的状态对象引用；与当前条目不一致时放弃发送。 */
+  expectedState: VerificationState | undefined;
   /** 验证状态机派发函数。 */
   dispatchVerification: VerificationDispatcher;
 }
@@ -255,6 +277,7 @@ export function sendVerificationReminder({
   userId,
   label,
   isBot,
+  expectedState,
   dispatchVerification,
 }: SendVerificationReminderParams): void {
   sendReminderMessage({
@@ -264,6 +287,7 @@ export function sendVerificationReminder({
     label,
     isBot,
     replyToMessageId: undefined,
+    expectedState,
     dispatchVerification,
   });
 }
@@ -280,6 +304,8 @@ interface SendReplyReminderParams {
   isBot: boolean;
   /** 待验证成员刚发出的目标群消息 ID。 */
   targetMessageId: number;
+  /** 触发本次提醒投递时的状态对象引用；与当前条目不一致时放弃发送。 */
+  expectedState: VerificationState | undefined;
   /** 验证状态机派发函数。 */
   dispatchVerification: VerificationDispatcher;
 }
@@ -294,6 +320,7 @@ export function sendReplyReminder({
   label,
   isBot,
   targetMessageId,
+  expectedState,
   dispatchVerification,
 }: SendReplyReminderParams): void {
   sendReminderMessage({
@@ -303,6 +330,7 @@ export function sendReplyReminder({
     label,
     isBot,
     replyToMessageId: targetMessageId,
+    expectedState,
     dispatchVerification,
   });
 }
@@ -340,6 +368,7 @@ export function ensurePendingReminder({
       label: state.label,
       isBot: state.isBot,
       targetMessageId: state.welcomeAnchorMessageId,
+      expectedState: state,
       dispatchVerification,
     });
   } else {
@@ -348,6 +377,7 @@ export function ensurePendingReminder({
       userId,
       label: state.label,
       isBot: state.isBot,
+      expectedState: state,
       dispatchVerification,
     });
   }

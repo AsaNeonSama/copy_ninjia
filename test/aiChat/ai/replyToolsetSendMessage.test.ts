@@ -25,9 +25,9 @@ const {
   TYPO_QUICK_CORRECTION_TYPING_MS,
 } = await import("../../../packages/consts/aiChat/tools");
 const { logger } = await import("../../../packages/infra/logger");
-const { createReplyToolset } = await import("../../../packages/aiChat/ai/tools/replyToolset/orchestrator");
-const { createSendMessageExecutor } = await import("../../../packages/aiChat/ai/tools/replyToolset/sendMessage");
-const { createRoundMessageState } = await import("../../../packages/aiChat/ai/tools/replyToolset/messageState");
+const { createReplyToolset } = await import("../../../packages/workers/aiChat/ai/tools/replyToolset/orchestrator");
+const { createSendMessageExecutor } = await import("../../../packages/workers/aiChat/ai/tools/replyToolset/sendMessage");
+const { createRoundMessageState } = await import("../../../packages/workers/aiChat/ai/tools/replyToolset/messageState");
 
 beforeEach(resetReplyToolsetMocks);
 

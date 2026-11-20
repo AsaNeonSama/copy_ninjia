@@ -7,7 +7,13 @@ import type { RemoveBlockedMembersParams } from "../../../packages/types/blockli
 import type { ChatState } from "../../../packages/types/chatState";
 import { STATE_MANAGED_CHAT_LIMIT } from "../../../packages/consts/storage";
 import { AD_SAMPLE_CONTEXT_MAX_CHARS } from "../../../packages/consts/antiRaid/adDetect";
+import {
+  DEFAULT_WHITELIST_PERMISSIONS,
+  SUPER_ADMIN_WHITELIST_PERMISSIONS,
+  TEMPORARY_AD_BYPASS_PERMISSIONS,
+} from "../../../packages/consts/whitelist";
 import type { BotConfig } from "../../../packages/types/config";
+import type { WhitelistPermissions } from "../../../packages/types/identityPolicy";
 import { botPermissions } from "../../helpers/botPermissions";
 import { chatStateOf } from "../../helpers/chatState";
 import { identityFieldView } from "../../helpers/identityCacheView";
@@ -19,7 +25,7 @@ const temporaryAdBypassField: IdentityFieldView<"temporaryAdBypass"> = identityF
 const chatStates = new Map<number, ChatState>();
 const getChatState = mock((chatId: number) => chatStates.get(chatId) ?? chatStateOf());
 const activeVerificationSnapshots = new Map<string, unknown>();
-const errorLogs: string[] = [];
+const errorLogs: unknown[][] = [];
 const blockedIds = new Set<number>();
 const temporaryAdBypassIds = new Set<number>();
 const blockUser = mock((userId: number): boolean => blockedIds.has(userId) ? false : (blockedIds.add(userId), true));
@@ -53,16 +59,29 @@ const sendMessage = mock(async (params: SendMessageMockParams): Promise<number |
 const deleteMessageAfter = mock((..._args: unknown[]): void => {});
 const clearTemporaryAdBypassActivity = mock((_id: number): boolean => true);
 mock.module("../../../packages/infra/logger", () => ({
-  logger: loggerStub({ error(message: unknown): void { errorLogs.push(String(message)); } }),
+  logger: loggerStub({ error(...args: unknown[]): void { errorLogs.push(args); } }),
 }));
 mock.module("../../../packages/config/bot", () => ({
   BOT_ATMOSPHERE: "teasing",
   SUPER_ADMIN_USER_ID: 1,
-  getBotConfig: (): BotConfig => ({ timeZone: getTimeZone(), atmosphere: "mesugaki", botToken: "telegram-token", superAdminUserId: 1 }),
+  getBotConfig: (): BotConfig => ({
+    timeZone: getTimeZone(),
+    atmosphere: "mesugaki",
+    logLevel: "operation",
+    botToken: "telegram-token",
+    superAdminUserId: 1,
+  }),
 }));
 // 1 是超级管理员：SQLite 没有其白名单记录，但由 packages/infra/identityPolicy/whitelist.ts
 // 的读取边界直接算进白名单边界并持有全部权限，这里的 mock 照实模拟那层结论。
 mock.module("../../../packages/infra/identityPolicy/whitelist", () => ({
+  getEffectiveWhitelistPermissions: (id: number): Readonly<WhitelistPermissions> | undefined => {
+    if (id === 1) return SUPER_ADMIN_WHITELIST_PERMISSIONS;
+    if (id === 100 || id === -200) return DEFAULT_WHITELIST_PERMISSIONS;
+    if (id === 101) return { ...DEFAULT_WHITELIST_PERMISSIONS, isCanBypassAdDetection: false };
+    if (temporaryAdBypassIds.has(id)) return TEMPORARY_AD_BYPASS_PERMISSIONS;
+    return undefined;
+  },
   hasPermanentWhitelistPermission: (id: number, key: string): boolean =>
     id === 1 ||
     ((id === 100 || id === -200) && key === "isCanBypassFloodControl"),
@@ -72,9 +91,25 @@ mock.module("../../../packages/infra/identityPolicy/whitelist", () => ({
       key === "isCanBypassAdDetection"),
   isWhitelisted: (id: number): boolean =>
     id === 1 || id === 100 || id === 101 || id === -200,
+  readWhitelistPermissionOrBlocked: (id: number, key: string): "allowed" | "blocked" | "none" => {
+    if (
+      id === 1 ||
+      ((id === 100 || id === -200 || temporaryAdBypassIds.has(id)) &&
+        key === "isCanBypassAdDetection")
+    ) {
+      return "allowed";
+    }
+    return isUserBlocked(id) ? "blocked" : "none";
+  },
 }));
-mock.module("../../../packages/infra/telegram/actions", () => ({
+const realMessages = await import("../../../packages/infra/telegram/actions/messages");
+const realMessageLifecycle = await import("../../../packages/infra/telegram/actions/messageLifecycle");
+mock.module("../../../packages/infra/telegram/actions/messages", () => ({
+  ...realMessages,
   sendMessage,
+}));
+mock.module("../../../packages/infra/telegram/actions/messageLifecycle", () => ({
+  ...realMessageLifecycle,
   deleteMessageAfter,
 }));
 mock.module("../../../packages/infra/blocklist/membership", () => ({

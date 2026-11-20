@@ -1,6 +1,21 @@
 import { describe, expect, test } from "bun:test";
-import { parseAllowedHttpsUrl } from "../../packages/libs/httpUrlPolicy";
+import { parseAllowedHttpsUrl, parseHttpsUrlWithoutCredentials } from "../../packages/libs/httpUrlPolicy";
 import type { AllowedHttpsUrlPolicy } from "../../packages/libs/httpUrlPolicy";
+
+describe("parseHttpsUrlWithoutCredentials", () => {
+  test("仅接受不含凭据的 HTTPS URL，拒绝非 https、带凭据与非法地址", () => {
+    expect(parseHttpsUrlWithoutCredentials("https://example.com/a?b=1")?.href)
+      .toBe("https://example.com/a?b=1");
+    const input: URL = new URL("https://example.com/x");
+    const parsed: URL | null = parseHttpsUrlWithoutCredentials(input);
+    expect(parsed?.href).toBe(input.href);
+    expect(parsed).not.toBe(input);
+    expect(parseHttpsUrlWithoutCredentials("http://example.com/a")).toBeNull();
+    expect(parseHttpsUrlWithoutCredentials("https://user@example.com/a")).toBeNull();
+    expect(parseHttpsUrlWithoutCredentials("https://:pass@example.com/a")).toBeNull();
+    expect(parseHttpsUrlWithoutCredentials("not-a-url")).toBeNull();
+  });
+});
 
 describe("HTTPS URL allowlist", () => {
   test("origin 精确匹配并拒绝协议、凭据和近似主机", () => {

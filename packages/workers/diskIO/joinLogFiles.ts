@@ -180,7 +180,9 @@ export function handleJoinLogDeleteMessage(msg: JoinLogDeleteDiskMessage): void 
 }
 
 /**
- * 接收一条入群事实：早于入群事实接收窗口（`JOIN_LOG_ACCEPTED_EVENT_DAYS`）且早于过去 24 小时滚动窗口的旧事件直接确认丢弃，其余写入缓冲并按阈值或定时器触发落盘。
+ * 接收一条入群事实：早于入群事实接收窗口（`JOIN_LOG_ACCEPTED_EVENT_DAYS`）且早于过去 24 小时滚动窗口的旧事件直接确认丢弃；
+ * 若该群尚留有未清净的待删标记（`joinLogDeletions`），先同步完成旧日志删除并摘除标记，仍失败则拒写本条并保留标记；
+ * 通过后写入缓冲并按阈值或定时器触发落盘。
  * @param msg 单条入群事实落盘消息。
  */
 export async function handleJoinLogMessage(
@@ -196,6 +198,17 @@ export async function handleJoinLogMessage(
     joinLogBuffer.receivedThrough = msg.sequence;
     if (joinLogBuffer.entries.length === 0) publishJoinLogPersisted();
     return;
+  }
+  if (joinLogDeletions.has(msg.chatId)) {
+    purgeChatJoinLogFiles(msg.chatId);
+    if (joinLogDeletions.has(msg.chatId)) {
+      console.error(
+        `[diskIOWorker] rejected join log entry for chat ${msg.chatId}; previous join log deletion failed.`
+      );
+      joinLogBuffer.receivedThrough = msg.sequence;
+      if (joinLogBuffer.entries.length === 0) publishJoinLogPersisted();
+      return;
+    }
   }
   try {
     await ensureCurrentDayPrepared(today);

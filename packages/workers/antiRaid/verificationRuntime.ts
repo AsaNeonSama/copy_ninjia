@@ -6,6 +6,7 @@ import { logger } from "../../infra/logger";
 import {
   LOCKDOWN_KICK_DEDUPE_MS,
   VERIFICATION_RUNTIME_CAPACITY,
+  VERIFICATION_TIMEOUT_MS,
 } from "../../consts/antiRaid/verification";
 import {
   canAdmitVerificationRevision,
@@ -66,8 +67,8 @@ import {
 declare const self: Worker;
 
 /**
- * 为 `pending` 阶段启动验证超时计时器，为 `exempt`/`kicked` 阶段启动去重窗口计时器；
- * 终态阶段（`kickPending`、`checkingInviter`、`expelling`）由落盘回执与重试计时器驱动，不在此处挂计时器。
+ * 为 `pending` 阶段启动验证超时计时器（延迟夹紧在 `[0, VERIFICATION_TIMEOUT_MS]`，防止墙钟回拨拉长超时），
+ * 为 `exempt`/`kicked` 阶段启动去重窗口计时器；终态阶段由落盘回执与重试计时器驱动，不在此处挂计时器。
  * @param chatId 群组 ID。
  * @param userId 成员 ID。
  * @param state 当前验证状态。
@@ -86,7 +87,7 @@ function startVerificationTimer(
           userId,
           { type: "verifyTimeout", now: Date.now() }
         ),
-        Math.max(0, state.expiresAt - Date.now())
+        Math.min(VERIFICATION_TIMEOUT_MS, Math.max(0, state.expiresAt - Date.now()))
       );
       expiryTimer.unref();
       return expiryTimer;
@@ -132,6 +133,12 @@ export function dispatchVerification(
     retainPersistedSnapshot = false,
   }: VerificationTransition = transitionVerification(entry?.state, event);
   if (next !== entry?.state) {
+    if (entry?.state.kind !== next?.kind && next?.kind === "expelling") {
+      logger.info(
+        "Join verification failed.",
+        { chatId, userId, reason: next.reason }
+      );
+    }
     cancelReminderDelivery(key);
     if (entry?.timer !== undefined) clearTimeout(entry.timer);
     if (next === undefined) {

@@ -20,15 +20,15 @@ mock.module("../../../packages/libs/sleep", () => ({
 }));
 
 const { SEND_MESSAGE_TOOL } = await import("../../../packages/consts/tools");
-const { createReplyToolset } = await import("../../../packages/aiChat/ai/tools/replyToolset/orchestrator");
-const { createSendMessageExecutor } = await import("../../../packages/aiChat/ai/tools/replyToolset/sendMessage");
+const { createReplyToolset } = await import("../../../packages/workers/aiChat/ai/tools/replyToolset/orchestrator");
+const { createSendMessageExecutor } = await import("../../../packages/workers/aiChat/ai/tools/replyToolset/sendMessage");
 const {
   acceptRoundText,
   createRoundMessageState,
   isDuplicateOfAcceptedText,
   reserveCorrectionText,
-} = await import("../../../packages/aiChat/ai/tools/replyToolset/messageState");
-const { modelAuthoredTextPolicyResult } = await import("../../../packages/aiChat/ai/tools/replyToolset/modelAuthoredText");
+} = await import("../../../packages/workers/aiChat/ai/tools/replyToolset/messageState");
+const { modelAuthoredTextPolicyResult } = await import("../../../packages/workers/aiChat/ai/tools/replyToolset/modelAuthoredText");
 
 beforeEach(() => {
   nextMessageId = 100;

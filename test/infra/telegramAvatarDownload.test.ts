@@ -40,21 +40,20 @@ describe("downloadAvatarFile", () => {
   });
 
   test.each([
-    [{ status: "missingPath" }, "permanent-failure", "returned no file_path"],
-    [{ status: "metadataTimeout" }, "transient-failure", "timed out (metadataTimeout)"],
-    [{ status: "httpError", httpStatus: 502 }, "transient-failure", "(502)"],
-    [{ status: "downloadTimeout" }, "transient-failure", "timed out (downloadTimeout)"],
-    [{ status: "tooLarge", observedBytes: 9 }, "permanent-failure", "(9 bytes)"],
-    [{ status: "empty" }, "permanent-failure", "downloaded empty"],
+    [{ status: "missingPath" }, "permanent-failure", ["getFile for avatar returned no file_path.", { targetId: 42 }]],
+    [{ status: "metadataTimeout" }, "transient-failure", ["Downloading the avatar file timed out.", { targetId: 42, stage: "metadataTimeout" }]],
+    [{ status: "httpError", httpStatus: 502 }, "transient-failure", ["Failed to download the avatar file.", { targetId: 42, httpStatus: 502 }]],
+    [{ status: "downloadTimeout" }, "transient-failure", ["Downloading the avatar file timed out.", { targetId: 42, stage: "downloadTimeout" }]],
+    [{ status: "tooLarge", observedBytes: 9 }, "permanent-failure", ["Avatar file exceeded the download limit.", { targetId: 42, observedBytes: 9 }]],
+    [{ status: "empty" }, "permanent-failure", ["Avatar file downloaded empty.", { targetId: 42 }]],
   ] as const)("%o 归为 %s 并记一条日志", async (
     result: TelegramFileDownloadResult,
     expected: Exclude<AvatarDownloadResult["status"], "ok">,
-    logFragment: string
+    expectedLogArgs: readonly [string, Readonly<Record<string, unknown>>]
   ) => {
     downloaded = result;
     await expect(downloadAvatarFile("file-1", 42)).resolves.toEqual({ status: expected });
     expect(logError).toHaveBeenCalledTimes(1);
-    expect(String(logError.mock.calls[0]![0])).toContain(logFragment);
-    expect(String(logError.mock.calls[0]![0])).toContain("42");
+    expect(logError).toHaveBeenCalledWith(...expectedLogArgs);
   });
 });

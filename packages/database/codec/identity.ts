@@ -1,5 +1,4 @@
 import { IDENTITY_META_KEYS, WHITELIST_DATA_KEYS, BLOCKLIST_DATA_KEYS } from "../../consts/storageSchema";
-import { LOCAL_TIMESTAMP_PATTERN } from "../../consts/time";
 import {
   BLOCKLIST_PARTICIPANT_INVALID_LIMIT,
   BLOCKLIST_REMOVAL_ENTRY_KEYS,
@@ -7,7 +6,7 @@ import {
   BLOCKLIST_REMOVAL_PARAM_KEYS,
 } from "../../consts/antiRaid/blocklist";
 import { WHITELIST_PERMISSION_KEYS } from "../../consts/whitelist";
-import { invalidInput, parseJsonInput } from "../../libs/inputValidation";
+import { assertLocalTimestamp, invalidInput, parseJsonInput } from "../../libs/inputValidation";
 import { hasExactKeys, hasOnlyKeys, isPlainRecord } from "../../libs/record";
 import { isTelegramGroupChatId } from "../../libs/telegramId";
 import type {
@@ -127,16 +126,12 @@ export function decodeBlocklistEntryData(
   ) {
     return invalidInput(source, "$", "an object with blockedAt, meta, and optional participantInvalidCount");
   }
-  if (
-    typeof value.blockedAt !== "string" ||
-    !LOCAL_TIMESTAMP_PATTERN.test(value.blockedAt)
-  ) {
-    return invalidInput(source, "$.blockedAt", "a YYYY/MM/DD HH:mm:ss string");
-  }
+  const blockedAt: unknown = value.blockedAt;
+  assertLocalTimestamp(blockedAt, source, "$.blockedAt");
   const meta: Readonly<TelegramIdentityMetadata> =
     parseIdentityMetadata(value.meta, source, "$.meta");
   if (!Object.hasOwn(value, "participantInvalidCount")) {
-    return { blockedAt: value.blockedAt, meta };
+    return { blockedAt, meta };
   }
   const participantInvalidCount: unknown = value.participantInvalidCount;
   if (
@@ -152,7 +147,7 @@ export function decodeBlocklistEntryData(
     );
   }
   return {
-    blockedAt: value.blockedAt,
+    blockedAt,
     meta,
     participantInvalidCount,
   };

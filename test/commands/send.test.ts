@@ -105,6 +105,11 @@ describe("handleSendCommand", () => {
     expect(saveStateInBackgroundMock).not.toHaveBeenCalled();
     expect(chatStates.get(-100123)).toEqual({ isInitEnabled: true });
     expect(logApiErrorMock).toHaveBeenCalledTimes(1);
+    expect(logApiErrorMock).toHaveBeenCalledWith(
+      "resolve /send target chat",
+      expect.any(Error),
+      { targetChatId: -100123 }
+    );
     expect(sendMessageMock).toHaveBeenCalledTimes(1);
   });
 
@@ -168,6 +173,37 @@ describe("handleSendCommand", () => {
     );
     expect(chatStates.get(-100123)).toEqual({ isInitEnabled: false });
     expect(saveStateInBackgroundMock).not.toHaveBeenCalled();
+  });
+
+  test("并发 /send 竞争：getChat 期间另一个群已激活中转时拒绝覆盖并回执当前活跃目标", async () => {
+    manage(-100123);
+    manage(-100456);
+    const gate: PromiseWithResolvers<void> = Promise.withResolvers<void>();
+    const firstEntered: PromiseWithResolvers<void> = Promise.withResolvers<void>();
+    getChatMock.mockImplementationOnce(async (chatId: number): Promise<any> => {
+      firstEntered.resolve();
+      await gate.promise;
+      return { id: chatId, type: "supergroup", title: "Slow Target" };
+    });
+
+    const firstRun: Promise<void> = handleSendCommand(makeCtx("private", SUPER_ADMIN_USER_ID, "-100123"));
+    await firstEntered.promise;
+
+    await handleSendCommand(makeCtx("private", SUPER_ADMIN_USER_ID, "-100456"));
+    expect(chatStates.get(-100456)).toEqual({ isInitEnabled: true, isProxySendEnabled: true });
+    expect(saveStateInBackgroundMock).toHaveBeenCalledTimes(1);
+
+    gate.resolve();
+    await firstRun;
+
+    expect(chatStates.get(-100123)).toEqual({ isInitEnabled: true });
+    expect(chatStates.get(-100456)).toEqual({ isInitEnabled: true, isProxySendEnabled: true });
+    expect(saveStateInBackgroundMock).toHaveBeenCalledTimes(1);
+    expect(sendMessageMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        text: chatAtmosphere().NOTICE_TEXTS.proxyAlreadyStarted(-100456),
+      })
+    );
   });
 
   test("非规范写法的 id 按用法错误挡在可达性探测之前，绝不开会话", async () => {

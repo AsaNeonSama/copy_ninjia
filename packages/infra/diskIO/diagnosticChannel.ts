@@ -1,4 +1,6 @@
 import { diskIORuntime } from "../../cache/main/diskIO";
+import { FLUSH_INTERVAL_MS } from "../../consts/diskIO/appendOnly";
+import { DISK_DIAGNOSTIC_BATCH_MAX_MESSAGES } from "../../consts/diskIO/diagnostics";
 import type {
   DiskDiagnosticBatchRequest,
   DiskDiagnosticMessage,
@@ -43,8 +45,11 @@ function enqueueDiskIODiagnosticDropSummary(): void {
     timestamp: Date.now(),
     level: "error",
     args: [
-      `[diskIO] dropped ${droppedMessages} diagnostic message(s) totaling ` +
-      `${droppedBytes} serialized byte(s) after the in-process queue reached its hard limits.`,
+      "[diskIO] Dropped diagnostic messages after the in-process queue reached its hard limits.",
+      {
+        droppedMessages,
+        droppedSerializedBytes: droppedBytes,
+      },
     ],
   };
   if (!diskIORuntime.diagnosticQueue.enqueue(
@@ -53,6 +58,14 @@ function enqueueDiskIODiagnosticDropSummary(): void {
   )) return;
   diskIORuntime.diagnosticDroppedMessages = 0;
   diskIORuntime.diagnosticDroppedSerializedBytes = 0;
+  markAllQueuedDiagnosticsFlushable();
+}
+
+/** 清理普通日志缓冲刷盘 timer；提前达到批上限、出现需立即落盘的消息或停机时复用。 */
+export function clearDiskDiagnosticFlushTimer(): void {
+  if (diskIORuntime.diagnosticFlushTimer === null) return;
+  clearTimeout(diskIORuntime.diagnosticFlushTimer);
+  diskIORuntime.diagnosticFlushTimer = null;
 }
 
 /** 清理诊断重投 timer；代际切换和 terminate 都复用。 */
@@ -60,6 +73,52 @@ function clearDiskDiagnosticRetryTimer(): void {
   if (diskIORuntime.diagnosticRetryTimer === null) return;
   clearTimeout(diskIORuntime.diagnosticRetryTimer);
   diskIORuntime.diagnosticRetryTimer = null;
+}
+
+/**
+ * 判断一条诊断消息是否必须绕过普通日志的定时/满批缓冲并立即刷盘。
+ * @param message 待入队的诊断消息。
+ * @returns 非日志诊断与 `error` 级别日志返回 `true`，其余级别日志返回 `false`。
+ */
+function isImmediateDiagnostic(message: DiskDiagnosticMessage): boolean {
+  return message.type !== "log" || message.level === "error";
+}
+
+/** 把当前队列中的全部诊断消息纳入待发送窗口，并撤销已不再需要的定时刷盘。 */
+function markAllQueuedDiagnosticsFlushable(): void {
+  clearDiskDiagnosticFlushTimer();
+  diskIORuntime.diagnosticFlushPendingCount = diskIORuntime.diagnosticQueue.size;
+}
+
+/** 为尚未进入待发送窗口的普通日志安排单次延迟刷盘，不重置既有截止时间。 */
+function armDiskDiagnosticFlushTimer(): void {
+  if (diskIORuntime.diagnosticFlushTimer !== null) return;
+  diskIORuntime.diagnosticFlushTimer = setTimeout((): void => {
+    diskIORuntime.diagnosticFlushTimer = null;
+    markAllQueuedDiagnosticsFlushable();
+    advanceDiskIODiagnostics();
+  }, FLUSH_INTERVAL_MS);
+  diskIORuntime.diagnosticFlushTimer.unref();
+}
+
+/** 依据待发送窗口与 `DISK_DIAGNOSTIC_BATCH_MAX_MESSAGES` 门槛维护缓冲定时器并按需向当前 Worker 投递下一批。 */
+function advanceDiskIODiagnostics(): void {
+  if (
+    diskIORuntime.diagnosticFlushPendingCount === 0 &&
+    diskIORuntime.diagnosticQueue.size >= DISK_DIAGNOSTIC_BATCH_MAX_MESSAGES
+  ) {
+    diskIORuntime.diagnosticFlushPendingCount = DISK_DIAGNOSTIC_BATCH_MAX_MESSAGES;
+  }
+  if (diskIORuntime.diagnosticQueue.size <= diskIORuntime.diagnosticFlushPendingCount) {
+    clearDiskDiagnosticFlushTimer();
+  } else {
+    armDiskDiagnosticFlushTimer();
+  }
+  if (diskIORuntime.diagnosticFlushPendingCount === 0) return;
+  const worker: Worker | null = diskIORuntime.worker;
+  if (worker !== null && diskIORuntime.writable) {
+    pumpDiskIODiagnostics(worker);
+  }
 }
 
 /**
@@ -81,7 +140,9 @@ function scheduleDiskDiagnosticRetry(worker: Worker, retryAfterMs: number): void
   clearDiskDiagnosticRetryTimer();
   diskIORuntime.diagnosticRetryTimer = setTimeout((): void => {
     diskIORuntime.diagnosticRetryTimer = null;
-    pumpDiskIODiagnostics(worker);
+    if (diskIORuntime.worker === worker) {
+      advanceDiskIODiagnostics();
+    }
   }, retryAfterMs);
   diskIORuntime.diagnosticRetryTimer.unref();
 }
@@ -111,8 +172,10 @@ function pumpDiskIODiagnostics(worker: Worker): void {
 }
 
 /**
- * 把诊断收入主线程有界 FIFO。DiskIO 尚未可写时仍保留；单批 ACK 窗口使 Worker
- * mailbox 中同一时刻只有一个批次。越界消息释放引用并合并为后续一条汇总日志。
+ * 把诊断收入主线程有界 FIFO。普通级别日志（`info`/`operation`/`warn`）在主线程缓冲，
+ * 攒满 `DISK_DIAGNOSTIC_BATCH_MAX_MESSAGES` 条或到达 `FLUSH_INTERVAL_MS` 时随批落盘；
+ * `error` 日志、汇总日志、非日志诊断及存在待排空等待者时立即刷盘。DiskIO 尚未可写时仍保留；
+ * 单批 ACK 窗口使 Worker mailbox 中同一时刻只有一个批次。越界消息释放引用并合并为后续一条汇总日志。
  *
  * @param message 待入队的诊断日志消息。
  * @returns 恒返回 `true`，表示消息已被此边界接管（入队或计入有界丢弃统计）。
@@ -123,8 +186,10 @@ export function enqueueDiskIODiagnostic(message: DiskDiagnosticMessage): boolean
   if (!diskIORuntime.diagnosticQueue.enqueue(message, serializedBytes)) {
     recordDroppedDiskIODiagnostic(serializedBytes);
   }
-  const worker: Worker | null = diskIORuntime.worker;
-  if (worker !== null && diskIORuntime.writable) pumpDiskIODiagnostics(worker);
+  if (isImmediateDiagnostic(message) || diskIORuntime.diagnosticDrainWaiters.size > 0) {
+    markAllQueuedDiagnosticsFlushable();
+  }
+  advanceDiskIODiagnostics();
   // true 表示消息已被此边界接管：或在 FIFO 中，或已计入有界丢弃统计。
   // Worker 日志转发据此确认原批。
   return true;
@@ -139,9 +204,15 @@ export function enqueueDiskIODiagnostic(message: DiskDiagnosticMessage): boolean
  */
 export function acceptDiskIODiagnosticBatch(worker: Worker, batchId: number): boolean {
   if (diskIORuntime.worker !== worker || !diskIORuntime.writable) return false;
+  const sizeBefore: number = diskIORuntime.diagnosticQueue.size;
   if (!diskIORuntime.diagnosticQueue.acknowledge(batchId)) return false;
+  const acknowledgedCount: number = sizeBefore - diskIORuntime.diagnosticQueue.size;
+  diskIORuntime.diagnosticFlushPendingCount = Math.max(
+    0,
+    diskIORuntime.diagnosticFlushPendingCount - acknowledgedCount
+  );
   enqueueDiskIODiagnosticDropSummary();
-  pumpDiskIODiagnostics(worker);
+  advanceDiskIODiagnostics();
   if (diskIORuntime.diagnosticQueue.size === 0) {
     settleDiskDiagnosticDrainWaiters("flushed");
   }
@@ -149,18 +220,18 @@ export function acceptDiskIODiagnosticBatch(worker: Worker, batchId: number): bo
 }
 
 /**
- * 等待当前全部诊断获得 durable ACK。只供进程级 flush 使用；调用方在真正
- * 发出 flush 请求前会再次检查新入队的诊断。
+ * 等待当前全部诊断（含尚在缓冲中的普通级别日志）获得 durable ACK。供进程级 flush 与 `"log"` 领域 flush 使用；
+ * 调用方在真正发出 flush 请求前会再次检查新入队的诊断。
  *
  * @param timeoutMs 最大等待超时毫秒数。
  * @returns 诊断队列排空结果（`"flushed"`、`"timedOut"` 或 `"failed"`）。
  */
 export function waitForDiskIODiagnostics(timeoutMs: number): Promise<FlushResult> {
   enqueueDiskIODiagnosticDropSummary();
-  const worker: Worker | null = diskIORuntime.worker;
-  if (worker !== null && diskIORuntime.writable) pumpDiskIODiagnostics(worker);
+  markAllQueuedDiagnosticsFlushable();
+  advanceDiskIODiagnostics();
   if (diskIORuntime.diagnosticQueue.size === 0) return Promise.resolve("flushed");
-  if (worker === null) return Promise.resolve("failed");
+  if (diskIORuntime.worker === null) return Promise.resolve("failed");
   return waitForFlush({ waiters: diskIORuntime.diagnosticDrainWaiters, timeoutMs });
 }
 
@@ -202,10 +273,10 @@ export function retryDiskIODiagnosticBatch({
  */
 export function resumeDiskIODiagnosticChannel(worker: Worker): void {
   if (diskIORuntime.worker !== worker || !diskIORuntime.writable) return;
-  pumpDiskIODiagnostics(worker);
+  advanceDiskIODiagnostics();
 }
 
-/** DiskIO 代际失效时把未确认批次标为待重发，不释放其中的诊断。 */
+/** DiskIO 代际失效时把未确认批次标为待重发，保留尚未到期或未达批上限的缓冲状态与定时器。 */
 export function pauseDiskIODiagnosticChannel(): void {
   clearDiskDiagnosticRetryTimer();
   diskIORuntime.diagnosticQueue.markDeliveryRejected();
@@ -214,8 +285,10 @@ export function pauseDiskIODiagnosticChannel(): void {
 /** 整个宿主 terminate 后不再存在可恢复代际，此时释放全部进程内诊断引用。 */
 export function resetDiskIODiagnosticChannel(): void {
   clearDiskDiagnosticRetryTimer();
+  clearDiskDiagnosticFlushTimer();
   settleDiskDiagnosticDrainWaiters("failed");
   diskIORuntime.diagnosticQueue.reset();
+  diskIORuntime.diagnosticFlushPendingCount = 0;
   diskIORuntime.diagnosticDroppedMessages = 0;
   diskIORuntime.diagnosticDroppedSerializedBytes = 0;
 }

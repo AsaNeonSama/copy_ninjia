@@ -12,9 +12,11 @@ import {
   remainingMonotonicTime,
 } from "../../../libs/monotonicDeadline";
 import { trackBackgroundTask } from "../../backgroundTasks";
+import { runOutsideUpdateScope } from "../../updateContext";
 import { settleWithinBudget } from "../../../libs/inflight";
 import {
   isPermissionDenied,
+  mapToTrue,
   runBooleanTelegramAction,
   runTelegramAction,
 } from "./core";
@@ -84,9 +86,9 @@ export async function setMessageReaction({
   api = telegramApi,
   signal,
 }: SetMessageReactionParams): Promise<boolean> {
-  return runBooleanTelegramAction(
-    "set message reaction",
-    (requestSignal?: AbortSignal): Promise<true> =>
+  return runBooleanTelegramAction({
+    action: "set message reaction",
+    execute: (requestSignal?: AbortSignal): Promise<true> =>
       api.setMessageReaction(
         chatId,
         messageId,
@@ -97,8 +99,8 @@ export async function setMessageReaction({
         {},
         telegramSignal(requestSignal)
       ),
-    signal
-  );
+    signal,
+  });
 }
 
 /**
@@ -113,9 +115,9 @@ export async function setMessageReactions({
   api = telegramApi,
   signal,
 }: SetMessageReactionsParams): Promise<boolean> {
-  return runBooleanTelegramAction(
-    "set message reaction",
-    (requestSignal?: AbortSignal): Promise<true> =>
+  return runBooleanTelegramAction({
+    action: "set message reaction",
+    execute: (requestSignal?: AbortSignal): Promise<true> =>
       api.setMessageReaction(
         chatId,
         messageId,
@@ -123,8 +125,8 @@ export async function setMessageReactions({
         {},
         telegramSignal(requestSignal)
       ),
-    signal
-  );
+    signal,
+  });
 }
 
 /**
@@ -160,7 +162,7 @@ async function runDeletion(
   const deleted: boolean = await runTelegramAction({
     action,
     execute,
-    map: (): boolean => true,
+    map: mapToTrue,
     fallback: false,
     shouldLogError: (error: unknown): boolean => {
       gone = isMessageGone(error);
@@ -242,15 +244,15 @@ export async function deleteMessages(
   api: Pick<TelegramApi, "deleteMessages"> = telegramApi
 ): Promise<boolean> {
   if (messageIds.length === 0) return true;
-  return runBooleanTelegramAction(
-    "delete messages",
-    (signal?: AbortSignal): Promise<true> =>
+  return runBooleanTelegramAction({
+    action: "delete messages",
+    execute: (signal?: AbortSignal): Promise<true> =>
       api.deleteMessages(
         chatId,
         [...messageIds],
         telegramSignal(signal)
-      )
-  );
+      ),
+  });
 }
 
 /** `deleteMessageAfter` 登记固定延迟删除的参数。 */
@@ -311,7 +313,8 @@ function startMessageDeletionBatch(
 }
 
 /**
- * 延迟删除登记在册，timer 不阻止退出；正常停机由 drain 提前兑现。
+ * 延迟删除登记在册，经 `runOutsideUpdateScope` 脱离触发 update 作用域注册 timer 且不阻止退出；
+ * 正常停机由 drain 提前兑现。
  * @param params 延迟删除登记参数。
  */
 export function deleteMessageAfter({
@@ -324,7 +327,9 @@ export function deleteMessageAfter({
     chatId,
     messageId,
     api,
-    timer: setTimeout((): void => startMessageDeletion(entry), delayMs),
+    timer: runOutsideUpdateScope((): ReturnType<typeof setTimeout> =>
+      setTimeout((): void => startMessageDeletion(entry), delayMs)
+    ),
   };
   entry.timer.unref();
   pendingMessageDeletions.add(entry);
@@ -332,8 +337,8 @@ export function deleteMessageAfter({
 
 /**
  * 立即认领全部未到期条目，按客户端与群合批（每批不超过 TELEGRAM_DELETE_MESSAGES_BATCH_MAX）
- * 发 deleteMessages，并返回本线程当前所有在途删除句柄。正常到期仍逐条删除。Worker 可把这些
- * Promise 接入自己的 task tracker；主线程 drain 也复用它。
+ * 发 deleteMessages，并返回本线程当前所有在途删除句柄。正常到期仍逐条删除；停机排空
+ * `drainPendingMessageDeletions` 循环调用它。
  * @returns 当前线程全部在途删除请求的 Promise 只读数组。
  */
 export function flushPendingMessageDeletions(): readonly Promise<void>[] {
@@ -388,8 +393,11 @@ export async function drainPendingMessageDeletions(timeoutMs: number): Promise<F
       !await settleWithinBudget([...inFlightMessageDeletions], remaining)
     ) {
       logger.error(
-        `Delayed Telegram message deletion drain timed out with ` +
-        `${pendingMessageDeletions.size} pending and ${inFlightMessageDeletions.size} in flight.`
+        "Delayed Telegram message deletion drain timed out.",
+        {
+          pendingCount: pendingMessageDeletions.size,
+          inFlightCount: inFlightMessageDeletions.size,
+        }
       );
       return "timedOut";
     }

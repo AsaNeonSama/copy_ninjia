@@ -7,8 +7,8 @@ import type {
   MiniAppChatDetail,
   MiniAppFeatureDisplayMeta,
   MiniAppFeatureKey,
-  MiniAppLanguage,
-} from "../types/miniApp";
+} from "../types/miniApp/chats";
+import type { MiniAppLanguage } from "../types/miniApp/ui";
 import type { MiniAppTranslations } from "../types/miniAppI18n";
 
 /** `ChatFeatureSwitchRow` 单项群功能开关行的属性参数。 */

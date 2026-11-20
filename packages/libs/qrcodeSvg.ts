@@ -405,6 +405,7 @@ function placeCodewordsAndFormatInfo(
 
 /**
  * 将给定文本（如 `otpauth://totp/...` URI）编码并渲染为标准 ISO/IEC 18004 内联 `<svg>` 矢量二维码字符串。
+ * UTF-8 编码后的字节长度超过支持上限（`QR_L_MAX_BYTES` 末项，192 字节）时抛出 `RangeError`。
  * @param text 待编码的 UTF-8 文本（不超过 192 字节）。
  * @returns 完整的 `<svg ...>...</svg>` 字符串。
  */
@@ -418,7 +419,10 @@ export function renderQrCodeSvg(text: string): string {
     }
   }
   if (versionIndex < 0) {
-    versionIndex = QR_L_VERSIONS.length - 1;
+    const maxBytes: number = QR_L_MAX_BYTES[QR_L_MAX_BYTES.length - 1] ?? 0;
+    throw new RangeError(
+      `QR code UTF-8 payload exceeds the maximum supported ${maxBytes} bytes (got ${payload.byteLength} bytes).`
+    );
   }
   const version: number = QR_L_VERSIONS[versionIndex] ?? 5;
   const size: number = version * 4 + 17;

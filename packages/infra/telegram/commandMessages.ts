@@ -1,8 +1,6 @@
-import {
-  deleteMessageAfter,
-  sendMessage,
-} from "./actions";
-import type { SendMessageBaseParams, SendMessageFormat } from "./actions";
+import { deleteMessageAfter } from "./actions/messageLifecycle";
+import { sendMessage } from "./actions/messages";
+import type { SendMessageBaseParams, SendMessageFormat } from "./actions/messages";
 import { COMMAND_MESSAGE_AUTO_DELETE_MS } from "../../consts/commands";
 import type { TelegramApi } from "../../types/telegramWorker";
 import { updateTopicThreadIdFor } from "../updateContext";

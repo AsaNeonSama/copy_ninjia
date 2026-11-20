@@ -53,7 +53,7 @@ export function resolveChatIsSupergroup(
         return workerChatIsSupergroup.get(chatId);
       }
       if (chat.type !== "group" && chat.type !== "supergroup") {
-        logger.error(`Chat kind lookup for chat ${chatId} returned a non-group chat.`);
+        logger.error("Chat kind lookup returned a non-group chat.", { chatId });
         return undefined;
       }
       const isSupergroup: boolean = chat.type === "supergroup";
@@ -61,7 +61,7 @@ export function resolveChatIsSupergroup(
       return isSupergroup;
     })
     .catch((error: unknown): undefined => {
-      logger.error(`Failed to resolve chat kind for chat ${chatId}:`, error);
+      logger.error("Failed to resolve chat kind:", { chatId }, error);
       return undefined;
     })
     .finally((): void => {

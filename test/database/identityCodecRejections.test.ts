@@ -190,6 +190,23 @@ describe("黑名单行的严格解码", () => {
       ),
       "$.blockedAt"
     );
+    // 形态匹配但公历不存在的日期时间同样拒绝，闰年 2 月 29 日放行。
+    for (const invalidCalendar of [
+      "2026/13/45 00:00:00",
+      "2026/02/30 12:00:00",
+      "2026/02/29 00:00:00",
+      "2026/01/01 24:00:00",
+    ]) {
+      expectRejected(
+        (): unknown => decodeBlocklistEntryData(
+          blocklistJson({ blockedAt: invalidCalendar }),
+          SOURCE
+        ),
+        "$.blockedAt"
+      );
+    }
+    expect(decodeBlocklistEntryData(blocklistJson({ blockedAt: "2024/02/29 23:59:59" }), SOURCE).blockedAt)
+      .toBe("2024/02/29 23:59:59");
   });
 
   test("metadata 判定与白名单共用同一实现", () => {

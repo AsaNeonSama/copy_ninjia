@@ -55,10 +55,10 @@ const {
   getOpenAiClient,
   requestOpenAiResult,
   requestOpenAiTextResult,
-} = await import("../../../packages/aiChat/openai/client");
+} = await import("../../../packages/workers/aiChat/openai/client");
 const { openAiClientCache } = await import("../../../packages/cache/workers/aiChat/openai");
 const { installAiCacheUsageSink } = await import("../../../packages/infra/aiCacheUsage");
-const { searchOpenAiWeb } = await import("../../../packages/aiChat/openai/search");
+const { searchOpenAiWeb } = await import("../../../packages/workers/aiChat/openai/search");
 import type { AiCacheUsage } from "../../../packages/types/aiCache";
 const {
   OPENAI_REQUEST_MAX_RETRIES,
@@ -169,7 +169,11 @@ describe("失败分类", () => {
 
     expect(result.ok).toBe(false);
     expect(result.ok === false && result.failureKind).toBe("request");
-    expect(loggerError).toHaveBeenCalledWith("AI test API error: 502 Upstream request failed");
+    expect(loggerError).toHaveBeenCalledWith("Provider API error.", {
+      errorLabel: "AI test API",
+      status: 502,
+      message: "502 Upstream request failed",
+    });
   });
 
   test("非 APIError 也归类成请求失败，并把原始错误交给日志", async () => {
@@ -178,7 +182,7 @@ describe("失败分类", () => {
     const result = await requestOpenAiResult({ capability: "summary", buildBody: () => BODY, errorLabel: "AI test API" });
 
     expect(result.ok === false && result.failureKind).toBe("request");
-    expect(loggerError).toHaveBeenCalledWith("Error calling AI test API:", error);
+    expect(loggerError).toHaveBeenCalledWith("Error calling OpenAI API:", { errorLabel: "AI test API" }, error);
   });
 
   test("调用方主动取消时不记错误日志", async () => {
@@ -225,7 +229,11 @@ describe("失败分类", () => {
     expect(result.ok === false && result.failureKind).toBe("response");
     expect(result.ok === false && result.finishReason).toBe("incomplete:content_filter");
     expect(result.ok === false && result.finishDetails).toBeUndefined();
-    expect(loggerError).toHaveBeenCalledWith("AI test API returned an unusable response: status=incomplete, reason=content_filter.");
+    expect(loggerError).toHaveBeenCalledWith("OpenAI API returned an unusable response.", {
+      errorLabel: "AI test API",
+      reason: "incomplete",
+      incompleteReason: "content_filter",
+    });
   });
 
   test("refusal 内容块拒答按响应失败交回，拒答说明记进日志与失败结果", async () => {
@@ -233,7 +241,11 @@ describe("失败分类", () => {
     const result = await requestOpenAiResult({ capability: "text", buildBody: () => BODY, errorLabel: "AI test API" });
 
     expect(result).toMatchObject({ ok: false, failureKind: "response", finishReason: "refusal", finishDetails: "{\"refusal\":\"no\"}" });
-    expect(loggerError).toHaveBeenCalledWith("AI test API returned an unusable response: refusal, details={\"refusal\":\"no\"}.");
+    expect(loggerError).toHaveBeenCalledWith("OpenAI API returned an unusable response.", {
+      errorLabel: "AI test API",
+      reason: "refusal",
+      finishDetails: "{\"refusal\":\"no\"}",
+    });
   });
 
   test("被 max_output_tokens 腰斩时点名记录 token 诊断", async () => {
@@ -249,9 +261,12 @@ describe("失败分类", () => {
       errorLabel: "AI test API",
     });
 
-    expect(loggerError).toHaveBeenCalledWith(
-      expect.stringContaining("truncated by max_output_tokens (hasPartialText=true, reasoning_tokens=1234, max_output_tokens=99)")
-    );
+    expect(loggerError).toHaveBeenCalledWith("OpenAI API response was truncated by max_output_tokens.", {
+      errorLabel: "AI test API",
+      hasPartialText: true,
+      reasoningTokens: 1234,
+      maxOutputTokens: 99,
+    });
   });
 
   test("拿到响应即上报缓存用量：官方字段优先，兼容端点回落到 prompt_cache_hit_tokens；写入只读官方字段", async () => {
@@ -318,7 +333,7 @@ describe("失败分类", () => {
     expect(result.ok).toBe(false);
     expect(result.ok === false && result.failureKind).toBe("request");
     expect(create).not.toHaveBeenCalled();
-    expect(loggerError).toHaveBeenCalledWith("Error calling AI test API:", configError);
+    expect(loggerError).toHaveBeenCalledWith("Error calling OpenAI API:", { errorLabel: "AI test API" }, configError);
   });
 });
 

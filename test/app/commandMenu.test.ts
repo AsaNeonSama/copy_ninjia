@@ -43,7 +43,12 @@ test("配置了 mini_app 时群菜单之后为超级管理员私聊设置 web_ap
   try {
     botConfigCache.current = {
       ...original!,
-      miniApp: { url: "https://miniapp.example.com/console", host: "127.0.0.1", port: 3000, password: "fixture" },
+      miniApp: {
+        url: "https://miniapp.example.com/console",
+        host: "127.0.0.1",
+        port: 3000,
+        password: "fixture",
+      },
     };
     await registerCommandMenu({ api: { setMyCommands, deleteMyCommands, setChatMenuButton } } as unknown as Bot);
     expect(setChatMenuButton.mock.calls).toEqual([[
@@ -145,9 +150,11 @@ describe("application command menu", () => {
     });
     const bot = { api: { setMyCommands } } as unknown as Bot;
     const error = spyOn(logger, "error").mockImplementation(() => undefined);
-
-    await expect(registerCommandMenu(bot)).resolves.toBeUndefined();
-    expect(error).toHaveBeenCalledWith("Failed to register bot commands menu:", failure);
-    error.mockRestore();
+    try {
+      await expect(registerCommandMenu(bot)).resolves.toBeUndefined();
+      expect(error).toHaveBeenCalledWith("Failed to register bot commands menu:", failure);
+    } finally {
+      error.mockRestore();
+    }
   });
 });

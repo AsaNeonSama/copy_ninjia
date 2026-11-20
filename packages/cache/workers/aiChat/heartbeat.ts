@@ -1,4 +1,4 @@
-/** owner: workers/aiChat。聊天状态心跳（typing 等动作）状态（packages/aiChat/ai/chatActionHeartbeat.ts）。 */
+/** owner: workers/aiChat。聊天状态心跳（typing 等动作）状态（packages/workers/aiChat/ai/chatActionHeartbeat.ts）。 */
 
 import type { ChatActionHeartbeatEntry } from "../../../types/aiChat/chatAction";
 

@@ -2,25 +2,35 @@ import {
   miniAppBundledAssetsHolder,
   miniAppBundledAssetsPromiseHolder,
   miniAppRejectHtmlHolder,
+  miniAppRuntimeSigningKeyHolder,
 } from "../../cache/main/miniApp";
 import { MINI_APP_REJECT_HTML_BODY_TAG } from "../../consts/miniApp";
+import {
+  MINI_APP_ED25519_PUBLIC_KEY_BYTES,
+  MINI_APP_SERVER_SIGNING_PUBLIC_KEY_PLACEHOLDER,
+} from "../../consts/miniAppCrypto";
 import {
   MINI_APP_FAVICON_PATH,
   MINI_APP_REJECT_HTML_PATH,
 } from "../../consts/paths";
 import { logger } from "../../infra/logger";
-import type { MiniAppAccessDiagnostics } from "../../types/miniApp/auth";
+import type {
+  MiniAppAccessDiagnostics,
+  MiniAppRuntimeSigningKeyPair,
+} from "../../types/miniApp/auth";
 import type {
   BundledMiniAppAsset,
   BundledMiniAppAssets,
   MiniAppRejectHtmlTemplate,
 } from "../../types/miniApp/server";
+import { ensureMiniAppRuntimeSigningKeyPair } from "../auth/handshake";
 import {
   attachClearMiniAppPageGateCookie,
   attachMiniAppPageGateCookie,
   evaluateMiniAppPageGateRequest,
 } from "../auth/pageGate";
 import type { MiniAppPageGateDecision } from "../auth/pageGate";
+import { decodeMiniAppBase64Bytes } from "../libs/crypto";
 import {
   buildMiniAppAccessDiagnostics,
   buildNoStoreHeaders,
@@ -59,14 +69,53 @@ function rewriteRootRelativeAttribute(
   }
 }
 
+const STRICT_UTF8_DECODER: TextDecoder = new TextDecoder("utf-8", {
+  fatal: true,
+});
+const UTF8_ENCODER: TextEncoder = new TextEncoder();
+
 /**
- * 启动短暂本地回环 `Bun.serve` 实例提取 `Bun.HTMLBundle` 的入口 HTML 与全部本地打包产物，提取完成后立即停止该临时实例。
+ * 判断物化出的前端打包资源路径或 MIME 类型是否为 JavaScript 模块产物。
+ * @param assetPath 打包资源路径。
+ * @param contentType 打包响应 `Content-Type` 头部文本。
+ * @returns 为 JS/MJS 资源时返回 `true`。
+ */
+function isJavaScriptBundleAsset(assetPath: string, contentType: string): boolean {
+  return (
+    contentType.toLowerCase().includes("javascript") ||
+    assetPath.endsWith(".js") ||
+    assetPath.endsWith(".mjs")
+  );
+}
+
+/**
+ * 启动短暂本地回环 `Bun.serve` 实例提取 `Bun.HTMLBundle` 的入口 HTML 与全部本地打包产物，
+ * 将本次启动内存生成的 32 字节 Ed25519 验签公钥注入打包 JS 产物并重算 ETag，提取完成后立即停止该临时实例。
  * @param indexHtml `server/register.ts` 以 HTML import 引入的前端入口。
- * @returns 物化成功时返回只读快照，失败时返回 `null`。
+ * @returns 物化成功时返回只读快照，失败或期间发生服务启停切换时返回 `null`。
  */
 async function runMaterializeBundledMiniAppAssets(
   indexHtml: Bun.HTMLBundle
 ): Promise<Readonly<BundledMiniAppAssets> | null> {
+  let expectedSigningKeyPromise: Promise<Readonly<MiniAppRuntimeSigningKeyPair>>;
+  let runtimePublicKeyBase64: string;
+  try {
+    expectedSigningKeyPromise = ensureMiniAppRuntimeSigningKeyPair();
+    const runtimeSigningKey: Readonly<MiniAppRuntimeSigningKeyPair> =
+      await expectedSigningKeyPromise;
+    runtimePublicKeyBase64 = runtimeSigningKey.publicKeyBase64.trim();
+  } catch (error: unknown) {
+    logger.error("Cannot generate Mini App Ed25519 signing public key for bundle:", error);
+    return null;
+  }
+  const decodedPublicKey: Uint8Array<ArrayBuffer> | null = decodeMiniAppBase64Bytes(
+    runtimePublicKeyBase64
+  );
+  if (decodedPublicKey?.byteLength !== MINI_APP_ED25519_PUBLIC_KEY_BYTES) {
+    logger.error("Cannot materialize Mini App bundle without a valid Ed25519 signing public key.");
+    return null;
+  }
+
   let tempServer: ReturnType<typeof Bun.serve> | null = null;
   try {
     tempServer = Bun.serve({
@@ -98,26 +147,56 @@ async function runMaterializeBundledMiniAppAssets(
       string,
       Readonly<BundledMiniAppAsset>
     >();
+    let totalPublicKeyReplacements: number = 0;
     for (const assetPath of assetPaths) {
       const assetRes: Response = await fetch(new URL(assetPath, tempServer.url));
       if (!assetRes.ok) return null;
-      const content: Uint8Array = await assetRes.bytes();
+      let content: Uint8Array = await assetRes.bytes();
       const rawContentType: string = assetRes.headers.get("content-type")?.trim() ?? "";
       const contentType: string =
         rawContentType.length > 0 ? rawContentType : "application/octet-stream";
-      const rawEtag: string = assetRes.headers.get("etag")?.trim() ?? "";
-      const etag: string =
-        rawEtag.length > 0 ? rawEtag : `"${Bun.SHA256.hash(content, "hex")}"`;
+      let etag: string = assetRes.headers.get("etag")?.trim() ?? "";
+      if (isJavaScriptBundleAsset(assetPath, contentType)) {
+        const sourceText: string = STRICT_UTF8_DECODER.decode(content);
+        if (sourceText.includes(MINI_APP_SERVER_SIGNING_PUBLIC_KEY_PLACEHOLDER)) {
+          const segments: readonly string[] = sourceText.split(
+            MINI_APP_SERVER_SIGNING_PUBLIC_KEY_PLACEHOLDER
+          );
+          totalPublicKeyReplacements += segments.length - 1;
+          const patchedText: string = segments.join(runtimePublicKeyBase64);
+          if (patchedText.includes(MINI_APP_SERVER_SIGNING_PUBLIC_KEY_PLACEHOLDER)) {
+            logger.error(
+              "Bundled Mini App JS asset retained Ed25519 public key placeholder.",
+              { assetPath }
+            );
+            return null;
+          }
+          content = UTF8_ENCODER.encode(patchedText);
+          etag = "";
+        }
+      }
+      if (etag.length === 0) {
+        etag = `"${Bun.SHA256.hash(content, "hex")}"`;
+      }
       assets.set(assetPath, {
         content,
         contentType,
         etag,
       });
     }
+    if (totalPublicKeyReplacements < 1) {
+      logger.error(
+        "Bundled Mini App JS assets did not contain the Ed25519 signing public key placeholder."
+      );
+      return null;
+    }
     const materialized: Readonly<BundledMiniAppAssets> = {
       html,
       assets,
     };
+    if (miniAppRuntimeSigningKeyHolder.current !== expectedSigningKeyPromise) {
+      return null;
+    }
     miniAppBundledAssetsHolder.current = materialized;
     return materialized;
   } catch (error: unknown) {

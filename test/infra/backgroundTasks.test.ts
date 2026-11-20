@@ -33,6 +33,21 @@ describe("trackBackgroundTask", () => {
     expect(loggerError.mock.calls).toEqual([["task failed:", failure]]);
   });
 
+  test("传入结构化失败配置时输出静态摘要、上下文对象与异常三参数", async () => {
+    const tasks: Set<Promise<void>> = new Set<Promise<void>>();
+    const failure: Error = new Error("boom");
+    trackBackgroundTask(tasks, Promise.reject(failure), {
+      message: "task failed:",
+      context: { chatId: -1001, senderId: 42 },
+    });
+    const [observed]: Promise<void>[] = [...tasks];
+    await expect(observed!).resolves.toBeUndefined();
+    expect(tasks.size).toBe(0);
+    expect(loggerError.mock.calls).toEqual([
+      ["task failed:", { chatId: -1001, senderId: 42 }, failure],
+    ]);
+  });
+
   test("只摘除自己登记的条目，同集合里的其它任务不受影响", async () => {
     const tasks: Set<Promise<void>> = new Set<Promise<void>>();
     const pending: Promise<void> = new Promise<void>((): void => {});

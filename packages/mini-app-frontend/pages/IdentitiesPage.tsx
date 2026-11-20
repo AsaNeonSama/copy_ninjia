@@ -32,7 +32,7 @@ import type {
   MiniAppIdentitiesStore,
   MiniAppIdentitiesStoreState,
 } from "../store/identities";
-import type { MiniAppLanguage } from "../types/miniApp";
+import type { MiniAppLanguage } from "../types/miniApp/ui";
 
 /** `IdentitiesPage` 列表与分页视图订阅的状态与动作切片（隔离搜索输入与折叠表单草稿重渲染）。 */
 type IdentitiesPageViewSlice = Pick<
@@ -143,6 +143,10 @@ export function IdentitiesPage(): React.JSX.Element {
     store,
     useShallow(selectIdentitiesPageViewState)
   );
+
+  useEffect((): (() => void) => (): void => {
+    store.getState().cancelPendingPicker();
+  }, [store]);
 
   useEffect((): void => {
     void loadCurrentList();

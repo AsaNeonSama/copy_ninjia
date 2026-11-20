@@ -206,12 +206,13 @@ AI の発火は 2 つの契機によって制御されます：
 
 エントリポイントの [`index.ts`](../../index.ts) は [`packages/app/lifecycle.ts`](../../packages/app/lifecycle.ts) の `ApplicationLifecycle` を組み立てて初期化を委譲します。各本番モジュールの import 自体は Worker の起動、タイマー登録、ネットワーク接続、ディスク書き込みなどの副作用を一切持ちません。`ApplicationLifecycle.init()` は以下のステップを順次実行します。各手順の厳密な制約は [04 実行時の正式な不変条件](04-invariants.md) を参照してください：
 
-0. **設定レイアウト検査**：`config/bot.ts` の読み込み時、`layout.ts` が 3 階層のディレクトリホワイトリスト（`config/`、`config/static/`、`config/dynamic/`）を検証し、`config/dynamic/` が既存ディレクトリであることを確認した上で、`bot.json` を厳格にパースします。
+0. **コア設定の読み込みと狭い事前レイアウト検査**：`packages/config/bot.ts` の読み込み時、まず `packages/config/layout.ts` の `assertNoLegacyOrMisplacedBotConfig` が `config/` 直下のエントリ名のみを照合して旧 `config/telegram.json` と誤配置の `config/bot.json` を検出し、続いて `config/static/bot.json` を厳格にパースしてタイムゾーンとログレベルを確定します。
 1. **データルート事前検査とインスタンスロック**：`acquireSingleInstanceLock` がデータルートの基本 I/O（ファイル作成・書き込み、fsync、同一ディレクトリ内ハードリンク、アトミック rename、ディレクトリ fsync）を事前検証し、`/proc/<pid>/stat` と boot ID に基づく `bot.lock` の単一インスタンスロックを取得します。いずれかの検証に失敗した場合は直ちに fail-closed で終了します。その後 Worker の致命的エラーコールバックを登録し、アバター、グループタイトル、翻訳、gag、wed、遅延コマンドの各ランタイムを初期化します。
-2. **グローバル状態と設定の事前検証**：
-   - ディレクトリ直下に残存する孤立した一時ファイルをクリーンアップ。
-   - `memory/mini-app-totp/totp.json`（存在時）と `memory/global/state.json` を厳格にデコードしてインメモリ状態を復元。データルート直下に旧 `state.json` または `state.json.bak` が残存している場合は起動を拒否。
-   - 存在するすべての設定入力を事前検証。未設定の任意ファイルは機能単位の準備フラグで処理されますが、ファイルが存在しながら内容が不正な場合は直ちに起動を中止。
+2. **孤立一時ファイル掃除・完全レイアウト検証・グローバル状態と設定の事前検証**：
+   - `cleanupOrphanedTempFiles` で中断残留した実行時および設定のアトミック書き込み一時ファイルをクリーンアップ。
+   - `packages/config/layout.ts` の `assertDeploymentConfigLayout` が 3 階層のディレクトリホワイトリスト（`config/`、`config/static/`、`config/dynamic/`）を完全検証し、`config/dynamic/` が既存ディレクトリであることを確認。
+   - `memory/mini-app-totp/totp.json`（存在時）と `memory/global/state.json` を厳格にデコードしてインメモリ状態を復元（データルート直下に旧 `state.json` または `state.json.bak` が残存している場合は起動を拒否）。
+   - `validateExistingDeploymentInputs` で存在するすべての設定入力を事前検証。未設定の任意ファイルは機能単位の準備フラグで処理されますが、ファイルが存在しながら内容が不正な場合は直ちに起動を中止。
    - 検証済みの `assets.json` に基づき、ランダム画像ライブラリディレクトリを検査・準備（パーミッション、ファイル名、エントリ形式を確認）。
 3. **Disk I/O Worker の初期化とデータ復元**：
    - Disk I/O Worker は全永続化領域（データベース、ログ、AI キャッシュ使用量、スタンプ目録、運勢、認証記録、参加ログ、wed メンバー等）をまず読み取り専用で検査・厳格デコードし、整合性を確認した後に所有権を確立（adopt）。レシート返却と起動時メンテナンスタスクを実行し、設定タイムゾーンに基づく定期メンテナンス cron（`DISK_IO_MAINTENANCE_CRON`）を登録。

@@ -3,11 +3,59 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createTypeCheckProgram } from "../../scripts/conventions/sourceAnalysis";
+import ts from "typescript";
+import { readTypeCheckCompilerOptions } from "../../scripts/conventions/sourceAnalysis";
 import { collectMockResetProblems } from "../../scripts/conventions/testMockReset";
 
 const PROJECT_ROOT: string = join(import.meta.dir, "..", "..");
 const FIXTURE_DIR: string = mkdtempSync(join(tmpdir(), "test-mock-reset-"));
+const FIXTURE_DIR_PREFIX: string = `${FIXTURE_DIR}/`;
+
+/**
+ * 复用仓库 tsconfig 与只读声明文件（`lib.*.d.ts`、`node_modules/**`）的 AST 及文件系统查询缓存，
+ * 避免每条夹具用例重复解析全部标准库与第三方 `.d.ts`。夹具目录内路径不缓存，确保各用例完全隔离。
+ */
+const COMPILER_OPTIONS: ts.CompilerOptions = readTypeCheckCompilerOptions(PROJECT_ROOT);
+const BASE_HOST: ts.CompilerHost = ts.createCompilerHost(COMPILER_OPTIONS);
+const LIB_SOURCE_CACHE: Map<string, ts.SourceFile | undefined> = new Map<string, ts.SourceFile | undefined>();
+const LIB_FILE_EXISTS_CACHE: Map<string, boolean> = new Map<string, boolean>();
+const LIB_DIR_EXISTS_CACHE: Map<string, boolean> = new Map<string, boolean>();
+const CACHED_COMPILER_HOST: ts.CompilerHost = {
+  ...BASE_HOST,
+  getSourceFile(
+    ...args: Parameters<ts.CompilerHost["getSourceFile"]>
+  ): ts.SourceFile | undefined {
+    const [fileName, , , shouldCreateNewSourceFile]: Parameters<ts.CompilerHost["getSourceFile"]> = args;
+    if (fileName.startsWith(FIXTURE_DIR_PREFIX) || shouldCreateNewSourceFile === true) {
+      return BASE_HOST.getSourceFile(...args);
+    }
+    if (LIB_SOURCE_CACHE.has(fileName)) return LIB_SOURCE_CACHE.get(fileName);
+    const loaded: ts.SourceFile | undefined = BASE_HOST.getSourceFile(...args);
+    LIB_SOURCE_CACHE.set(fileName, loaded);
+    return loaded;
+  },
+  fileExists(fileName: string): boolean {
+    if (fileName.startsWith(FIXTURE_DIR_PREFIX)) return BASE_HOST.fileExists(fileName);
+    const cached: boolean | undefined = LIB_FILE_EXISTS_CACHE.get(fileName);
+    if (cached !== undefined) return cached;
+    const exists: boolean = BASE_HOST.fileExists(fileName);
+    LIB_FILE_EXISTS_CACHE.set(fileName, exists);
+    return exists;
+  },
+  directoryExists: BASE_HOST.directoryExists === undefined
+    ? undefined
+    : (directoryName: string): boolean => {
+      if (directoryName.startsWith(FIXTURE_DIR_PREFIX) || directoryName === FIXTURE_DIR) {
+        return BASE_HOST.directoryExists!(directoryName);
+      }
+      const cached: boolean | undefined = LIB_DIR_EXISTS_CACHE.get(directoryName);
+      if (cached !== undefined) return cached;
+      const exists: boolean = BASE_HOST.directoryExists!(directoryName);
+      LIB_DIR_EXISTS_CACHE.set(directoryName, exists);
+      return exists;
+    },
+};
+let previousProgram: ts.Program | undefined;
 
 afterAll((): void => {
   rmSync(FIXTURE_DIR, { recursive: true, force: true });
@@ -22,9 +70,16 @@ async function problemsFor(files: Readonly<Record<string, string>>): Promise<rea
     await Bun.write(path, source);
     paths.push(path);
   }
+  const program: ts.Program = ts.createProgram({
+    rootNames: paths,
+    options: COMPILER_OPTIONS,
+    host: CACHED_COMPILER_HOST,
+    oldProgram: previousProgram,
+  });
+  previousProgram = program;
   return collectMockResetProblems({
     projectRoot: directory,
-    program: createTypeCheckProgram(PROJECT_ROOT, paths),
+    program,
     testFiles: paths,
   });
 }

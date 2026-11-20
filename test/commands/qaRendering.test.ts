@@ -5,6 +5,7 @@ import { CHAT_QA_ANSWER_MAX_CHARS, CHAT_QA_QUESTION_MAX_CHARS, QA_TRUNCATION_MAR
 import { QA_COMMAND_TEXTS } from "../../packages/consts/atmosphere/teasing/qa";
 import { TELEGRAM_MESSAGE_MAX_CHARS } from "../../packages/consts/telegram";
 import {
+  formatMissingQaQuestionEcho,
   parseQaFieldMessage,
   renderQaFormPrompt,
 } from "../../packages/commands/qa/rendering";
@@ -166,5 +167,17 @@ describe("表单提示", () => {
       const lastCode: number = body.charCodeAt(body.length - 1);
       expect(lastCode >= 0xd800 && lastCode <= 0xdbff).toBeFalse();
     }
+  });
+});
+
+describe("未命中问答回显清洗与截断", () => {
+  test("剥离 bidi 控制符、中和可点击命令、保留多行与空格，并按 maxChars 截断", () => {
+    expect(formatMissingQaQuestionEcho("第一行  \n第二行")).toBe("第一行  \n第二行");
+    expect(formatMissingQaQuestionEcho("\u202E/ban_all\n看 /help")).toBe("／ban_all\n看 ／help");
+    const longText: string = "问".repeat(CHAT_QA_QUESTION_MAX_CHARS + 20);
+    const truncated: string = formatMissingQaQuestionEcho(longText);
+    expect(truncated.length).toBe(CHAT_QA_QUESTION_MAX_CHARS);
+    expect(truncated.endsWith(QA_TRUNCATION_MARK)).toBeTrue();
+    expect(formatMissingQaQuestionEcho("abcdef", 4)).toBe(`abc${QA_TRUNCATION_MARK}`);
   });
 });

@@ -1,9 +1,9 @@
 import { logger } from "../../infra/logger";
-import { resampleAiText } from "../../aiChat/ai/utils/resample";
+import { resampleAiText } from "./ai/utils/resample";
 import { BoundedDeque } from "../../libs/boundedDeque";
 import { sanitizeInline, truncateAtClauseBoundary } from "../../libs/text";
-import { formatBufferedMessageLine } from "../../aiChat/ai/utils/chatTranscript";
-import { summaryAiProvider } from "../../aiChat/provider";
+import { formatBufferedMessageLine } from "./ai/utils/chatTranscript";
+import { summaryAiProvider } from "./provider";
 import {
   COMPACTION_MAX_PENDING_PER_CHAT,
   MAX_SUMMARY_ROUNDS,
@@ -21,7 +21,7 @@ import {
 } from "../../cache/workers/aiChat/replies";
 import type { BufferedMessage } from "../../types/aiChat/memory";
 import type { AiTextResult } from "../../types/aiChat/provider";
-import { currentTimeSentence } from "../../aiChat/ai/timeSentence";
+import { currentTimeSentence } from "./ai/timeSentence";
 import { replyGenerationSignal, trackReplyGenerationTask } from "./replyGeneration";
 
 /** 中期记忆轮换与压缩：镜像块攒满后按群串行执行旧摘要晋升与新镜像压缩。 */
@@ -38,10 +38,11 @@ export function scheduleRotation(chatId: number, mirrorBatch: BufferedMessage[],
   const generation: number = cachedReplyGeneration(chatId);
   const pendingCount: number = compactionPendingCounts.get(chatId) ?? 0;
   if (pendingCount >= COMPACTION_MAX_PENDING_PER_CHAT) {
-    logger.error(
-      `AI compaction backlog reached ${COMPACTION_MAX_PENDING_PER_CHAT} tasks for chat ${chatId}; ` +
-      `dropping one ${mirrorBatch.length}-message batch to keep memory bounded.`
-    );
+    logger.error("AI compaction backlog reached the per-chat limit; dropping batch to keep memory bounded.", {
+      chatId,
+      maxPending: COMPACTION_MAX_PENDING_PER_CHAT,
+      droppedMessages: mirrorBatch.length,
+    });
     return;
   }
 
@@ -104,7 +105,8 @@ async function rotateCompaction({
       promotePendingSummary(chatId);
     }
     const summary: string | null = await resampleAiText({
-      label: `AI compaction for chat ${chatId}`,
+      label: "AI compaction",
+      context: { chatId },
       call: (): Promise<AiTextResult> => summarizeBatch(mirrorBatch, signal),
       delaysMs: SUMMARY_RETRY_DELAYS_MS,
       signal,
@@ -113,8 +115,15 @@ async function rotateCompaction({
     if (summary) {
       pendingSummaries.set(chatId, summary);
       dirtyMemoryChats.add(chatId);
+      logger.info("Completed AI memory compaction.", {
+        chatId,
+        summarizedMessages: mirrorBatch.length,
+      });
     } else {
-      logger.error(`AI compaction failed: chat ${chatId}'s ${mirrorBatch.length} mirrored messages produced no summary after eligible retries; mid-term memory for this window will be missing once it slides out.`);
+      logger.error("AI compaction failed: mirrored messages produced no summary after eligible retries.", {
+        chatId,
+        mirroredMessages: mirrorBatch.length,
+      });
     }
   } catch (error: unknown) {
     if (signal.aborted) return;

@@ -16,10 +16,13 @@ mock.module("../../packages/infra/telegram/mainClient", () => ({
 }));
 mock.module("../../packages/infra/telegram/client", () => ({
   installTelegramApi: (): void => {},
+  logApiError: (): void => {},
   telegramApi: { kind: "guard-api" },
 }));
+const realModeration = await import("../../packages/infra/telegram/actions/moderation");
 // botAdmin -> blocklist 的新晋管理员清扫会取这两个；本文件不触发（名单为空）。
-mock.module("../../packages/infra/telegram/actions", () => ({
+mock.module("../../packages/infra/telegram/actions/moderation", () => ({
+  ...realModeration,
   banChatMember: async (): Promise<boolean> => true,
   banChatSenderChat: async (): Promise<boolean> => true,
 }));

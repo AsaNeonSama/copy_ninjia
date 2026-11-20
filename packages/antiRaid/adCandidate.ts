@@ -14,7 +14,6 @@ import {
   AD_SAMPLE_CONTEXT_MAX_CHARS,
 } from "../consts/antiRaid/adDetect";
 import { TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS } from "../consts/telegram";
-import { isUserBlocked } from "../infra/blocklist/membership";
 import { isIdentityPolicyCached } from "../infra/identityStorage";
 import { inlineResultSourceOf } from "../infra/inlineResultSources";
 import { isBotOwnMessage } from "../infra/selfSentTracker";
@@ -29,7 +28,9 @@ import { visibleSenderId } from "../users/visibleSender";
 import { identityFirstName, identityLastName, identityUsername } from "../users/identityMetadata";
 import { hasActiveTemporaryAdBypassAt } from "../infra/identityPolicy/temporaryAdBypass";
 import { isWhitelisted } from "../infra/identityPolicy/whitelist";
-import { canBypassAdDetection } from "./memberFacts";
+import type { WhitelistPermissionOrBlocklistStatus } from
+  "../infra/identityPolicy/whitelist";
+import { readAdCandidateSenderStatus } from "./memberFacts";
 
 /**
  * 摘出正文不可见的 text_link URL；与正文分开限额（AD_DETECT_MAX_LINK_URLS、
@@ -197,8 +198,10 @@ export function buildAdCandidate(
   }: AdDetectionMessageContext
 ): AdCandidateMessage | undefined {
   const chatId: number = message.chat.id;
-  if (canBypassAdDetection(senderId, now)) return undefined;
-  const blocked: boolean = isUserBlocked(senderId);
+  const senderStatus: WhitelistPermissionOrBlocklistStatus =
+    readAdCandidateSenderStatus(senderId, now);
+  if (senderStatus === "allowed") return undefined;
+  const blocked: boolean = senderStatus === "blocked";
   if (blocked && senderChat === undefined) return undefined;
 
   // 本机器人 inline 结果按应答时登记的查询源文本送检（见 infra/inlineResultSources.ts），未命中则跳过。

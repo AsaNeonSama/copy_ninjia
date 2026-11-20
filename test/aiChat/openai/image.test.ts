@@ -25,7 +25,7 @@ const loggerError = mock((..._args: unknown[]): void => {});
 const IMAGE_MODEL: string = "configured-image-model";
 let imageProtocol: OpenAiImageProtocol = "openai";
 
-mock.module("../../../packages/aiChat/openai/client", () => ({
+mock.module("../../../packages/workers/aiChat/openai/client", () => ({
   getOpenAiClient: (_capability: string) => ({ images: { generate, edit }, post }),
 }));
 mock.module("../../../packages/config/agent", () => ({
@@ -40,8 +40,9 @@ mock.module("../../../packages/infra/logger", () => ({
   logger: loggerStub({ error: loggerError }),
 }));
 
-const { generateOpenAiImage } = await import("../../../packages/aiChat/openai/image");
+const { generateOpenAiImage } = await import("../../../packages/workers/aiChat/openai/image");
 const {
+  OPENAI_IMAGE_ERROR_LABEL,
   OPENAI_IMAGE_MODERATION,
   OPENAI_IMAGE_OUTPUT_FORMAT,
   OPENAI_IMAGE_REQUEST_TIMEOUT_MS,
@@ -339,8 +340,14 @@ describe("api.x.ai 的 Grok Imagine 兼容请求", () => {
 
     expect((post.mock.calls[0]![1] as { body: { aspect_ratio?: string } }).body.aspect_ratio)
       .toBeUndefined();
-    expect(loggerError).toHaveBeenCalledWith(expect.stringContaining("canvas=follows-reference"));
-    expect(loggerError).not.toHaveBeenCalledWith(expect.stringContaining("canvas=16:9"));
+    expect(loggerError).toHaveBeenCalledWith(
+      "OpenAI image generation API returned no usable image payload.",
+      expect.objectContaining({ errorLabel: OPENAI_IMAGE_ERROR_LABEL, canvas: "follows-reference" })
+    );
+    expect(loggerError).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ canvas: "16:9" })
+    );
   });
 });
 
@@ -359,7 +366,11 @@ describe("载荷校验", () => {
     respondWith(new TextEncoder().encode("RIFF????WEBP").toBase64());
     await expect(generateOpenAiImage({ prompt: "p", aspectRatio: "1:1", referenceImages: [] })).resolves.toBeNull();
     expect(loggerError).toHaveBeenCalledWith(
-      expect.stringContaining("unusable image payload: byte signature matches neither PNG nor JPEG")
+      "OpenAI image generation API returned an unusable image payload.",
+      expect.objectContaining({
+        errorLabel: OPENAI_IMAGE_ERROR_LABEL,
+        reason: "byte signature matches neither PNG nor JPEG",
+      })
     );
   });
 
@@ -367,7 +378,11 @@ describe("载荷校验", () => {
     respondWith("not-base64!");
     await expect(generateOpenAiImage({ prompt: "p", aspectRatio: "1:1", referenceImages: [] })).resolves.toBeNull();
     expect(loggerError).toHaveBeenCalledWith(
-      expect.stringContaining("unusable image payload: payload is not canonical base64")
+      "OpenAI image generation API returned an unusable image payload.",
+      expect.objectContaining({
+        errorLabel: OPENAI_IMAGE_ERROR_LABEL,
+        reason: "payload is not canonical base64",
+      })
     );
   });
 
@@ -375,14 +390,21 @@ describe("载荷校验", () => {
     respondWith("A".repeat(Math.ceil(IMAGE_GENERATION_MAX_BYTES / 3) * 4 + 4));
     await expect(generateOpenAiImage({ prompt: "p", aspectRatio: "1:1", referenceImages: [] })).resolves.toBeNull();
     expect(loggerError).toHaveBeenCalledWith(
-      expect.stringContaining("unusable image payload: encoded payload exceeds the size limit")
+      "OpenAI image generation API returned an unusable image payload.",
+      expect.objectContaining({
+        errorLabel: OPENAI_IMAGE_ERROR_LABEL,
+        reason: "encoded payload exceeds the size limit",
+      })
     );
   });
 
   test("响应里没有图片载荷时点名记录，返回 null", async () => {
     generate.mockResolvedValueOnce({ data: [] });
     await expect(generateOpenAiImage({ prompt: "p", aspectRatio: "1:1", referenceImages: [] })).resolves.toBeNull();
-    expect(loggerError).toHaveBeenCalledWith(expect.stringContaining("no usable image payload: no entries"));
+    expect(loggerError).toHaveBeenCalledWith(
+      "OpenAI image generation API returned no usable image payload.",
+      expect.objectContaining({ errorLabel: OPENAI_IMAGE_ERROR_LABEL, kind: "no entries" })
+    );
   });
 
   test("只回 url 信封时与「模型没画出来」分开点名——那是配置问题不是模型问题", async () => {
@@ -391,7 +413,11 @@ describe("载荷校验", () => {
     generate.mockResolvedValueOnce({ data: [{ url: "https://cdn.invalid/generated.png" }] });
     await expect(generateOpenAiImage({ prompt: "p", aspectRatio: "1:1", referenceImages: [] })).resolves.toBeNull();
     expect(loggerError).toHaveBeenCalledWith(
-      expect.stringContaining("no usable image payload: url envelope instead of base64")
+      "OpenAI image generation API returned no usable image payload.",
+      expect.objectContaining({
+        errorLabel: OPENAI_IMAGE_ERROR_LABEL,
+        kind: "url envelope instead of base64",
+      })
     );
   });
 });
@@ -416,7 +442,11 @@ describe("失败处理", () => {
   test("请求抛错时记一行日志并返回 null", async () => {
     generate.mockRejectedValueOnce(new Error("boom"));
     await expect(generateOpenAiImage({ prompt: "p", aspectRatio: "1:1", referenceImages: [] })).resolves.toBeNull();
-    expect(loggerError).toHaveBeenCalledWith("Error calling OpenAI image generation API:", expect.any(Error));
+    expect(loggerError).toHaveBeenCalledWith(
+      "Error calling OpenAI image generation API:",
+      { errorLabel: OPENAI_IMAGE_ERROR_LABEL },
+      expect.any(Error)
+    );
   });
 
   test("四条请求分支共用覆盖整次调用的 deadline：SDK 仍在重试时到期也立即结算并记日志", async () => {
@@ -466,7 +496,11 @@ describe("失败处理", () => {
         expect(sdkSignal?.aborted).toBe(true);
         // deadline 到期不是调用方取消，按普通请求失败留下一行日志。
         expect(caller.signal.aborted).toBe(false);
-        expect(loggerError).toHaveBeenCalledWith("Error calling OpenAI image generation API:", expect.any(DOMException));
+        expect(loggerError).toHaveBeenCalledWith(
+          "Error calling OpenAI image generation API:",
+          { errorLabel: OPENAI_IMAGE_ERROR_LABEL },
+          expect.any(DOMException)
+        );
       }
     } finally {
       AbortSignal.timeout = originalTimeout;

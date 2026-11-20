@@ -10,8 +10,8 @@ const generateAndSendReply = mock((..._args: unknown[]): void => {});
 const trackReplyGenerationTask = mock((..._args: unknown[]): void => {});
 const replyGenerationSignal = mock((..._args: unknown[]): AbortSignal => new AbortController().signal);
 
-mock.module("../../../packages/aiChat/ai/imageDescription", () => ({ describeMedia }));
-mock.module("../../../packages/aiChat/ai/stickers/catalog", () => ({ getCatalogEntry }));
+mock.module("../../../packages/workers/aiChat/ai/imageDescription", () => ({ describeMedia }));
+mock.module("../../../packages/workers/aiChat/ai/stickers/catalog", () => ({ getCatalogEntry }));
 mock.module("../../../packages/workers/aiChat/rollingMemory", () => ({ pushBufferedMessage }));
 mock.module("../../../packages/workers/aiChat/replyPipeline", () => ({ generateAndSendReply }));
 mock.module("../../../packages/workers/aiChat/replyGeneration", () => ({
@@ -29,6 +29,8 @@ function photoMessage(): AiRecordMediaMessage {
     type: "recordMedia",
     messageThreadId: undefined,
     mediaGroupId: undefined,
+    chatQaJson: undefined,
+    chatQaCount: 0,
     kind: "photo",
     chatId: -1001,
     senderId: 7,
@@ -223,5 +225,31 @@ describe("AI 媒体触发的 Telegram 背压快照", () => {
     expect(pushBufferedMessage).toHaveBeenCalledTimes(1);
     expect(describeMedia).toHaveBeenCalledTimes(1);
     expect(generateAndSendReply).not.toHaveBeenCalled();
+  });
+
+  test("贴纸目录快路径与异步视觉识别路径都把随媒体投递的群问答传给 generateAndSendReply", async () => {
+    const qaJson: string = JSON.stringify([["群规是什么", "不准发广告"]]);
+    getCatalogEntry.mockReturnValueOnce({ emoji: "🐱", description: "一只猫向前挥爪" });
+    recordChatMedia({
+      ...stickerMessage(),
+      chatQaJson: qaJson,
+      chatQaCount: 1,
+    });
+    recordChatMedia({
+      ...photoMessage(),
+      chatQaJson: qaJson,
+      chatQaCount: 1,
+    });
+    await Promise.resolve();
+
+    expect(generateAndSendReply).toHaveBeenCalledTimes(2);
+    expect(generateAndSendReply.mock.calls[0]![0]).toMatchObject({
+      chatQaJson: qaJson,
+      chatQaCount: 1,
+    });
+    expect(generateAndSendReply.mock.calls[1]![0]).toMatchObject({
+      chatQaJson: qaJson,
+      chatQaCount: 1,
+    });
   });
 });

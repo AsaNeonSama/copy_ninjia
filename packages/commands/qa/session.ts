@@ -10,6 +10,7 @@
 
 import { qaFormSessions } from "../../cache/main/qa";
 import { QA_FORM_SESSION_MAX, QA_FORM_SESSION_TTL_MS } from "../../consts/qa";
+import { runOutsideUpdateScope } from "../../infra/updateContext";
 import type { QaFormSession } from "../../types/qa";
 
 /**
@@ -78,11 +79,14 @@ export function openQaFormSession({
   };
   qaFormSessions.set(chatId, session);
 
-  const timer: ReturnType<typeof setTimeout> = setTimeout((): void => {
-    session.timer = null;
-    closeQaFormSession(session);
-    onDiscard(session);
-  }, QA_FORM_SESSION_TTL_MS);
+  // 脱离触发 `/qa set` 的 update 作用域安装 TTL 定时器，避免回调继承已结束或已中止的 update 上下文（见 docs/cn/04-invariants.md）。
+  const timer: ReturnType<typeof setTimeout> = runOutsideUpdateScope((): ReturnType<typeof setTimeout> =>
+    setTimeout((): void => {
+      session.timer = null;
+      closeQaFormSession(session);
+      onDiscard(session);
+    }, QA_FORM_SESSION_TTL_MS)
+  );
   // timer 不阻止进程退出；会话状态不落盘。
   timer.unref();
   session.timer = timer;

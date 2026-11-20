@@ -71,6 +71,7 @@ const PRELOADED_ATMOSPHERE: Atmosphere | null = botAtmosphereState.current;
 beforeEach(() => {
   delete globalCopyState.lastCopyTime;
   Date.now = (): number => 1_000_000;
+  assetConfigCache.current = DEFAULT_ASSET_CONFIG;
   for (const mocked of [
     sendMessage,
     saveStateInBackground,
@@ -92,6 +93,7 @@ beforeEach(() => {
 afterEach(() => {
   Date.now = originalDateNow;
   botAtmosphereState.current = PRELOADED_ATMOSPHERE;
+  assetConfigCache.current = DEFAULT_ASSET_CONFIG;
 });
 
 describe("copy 命令共享冷却与头像串行器", () => {

@@ -79,14 +79,23 @@ mock.module("../../packages/infra/chatStateStorage", () => ({
   persistChatState: async (): Promise<void> => saveState(),
   saveChatStateInBackground: (_chatId: number, context: string): void => { saveStateInBackground(context); },
 }));
-mock.module("../../packages/infra/telegram/actions", () => ({
+const realMessages = await import("../../packages/infra/telegram/actions/messages");
+const realModeration = await import("../../packages/infra/telegram/actions/moderation");
+const realMessageLifecycle = await import("../../packages/infra/telegram/actions/messageLifecycle");
+mock.module("../../packages/infra/telegram/actions/messages", () => ({
+  ...realMessages,
   answerCallbackQuery: async (): Promise<boolean> => true,
+  sendMessage: async (): Promise<number | undefined> => undefined,
+}));
+mock.module("../../packages/infra/telegram/actions/moderation", () => ({
+  ...realModeration,
   // 黑名单秒踢与新晋管理员清扫用的，本文件不触发（名单为空）；整份模块被替换时需要提供这些导出。
   banChatMember: async (): Promise<boolean> => true,
   banChatSenderChat: async (): Promise<boolean> => true,
+}));
+mock.module("../../packages/infra/telegram/actions/messageLifecycle", () => ({
+  ...realMessageLifecycle,
   deleteMessageWithOutcome: async (): Promise<"deleted"> => "deleted",
-  // 广告处置的群内播报用的，同理。
-  sendMessage: async (): Promise<number | undefined> => undefined,
   deleteMessageAfter: (): void => {},
 }));
 mock.module("../../packages/infra/telegram/client", () => ({
@@ -110,6 +119,7 @@ mock.module("../../packages/infra/botAdmin", () => ({
   // 权限位镜像的注册与按需补齐；本文件不触发，整份模块被替换时需要提供这些导出。
   registerBotPermissionObserver: (): void => {},
   botCanDeleteMessagesIn: (): undefined => undefined,
+  botCanRestrictMembersIn: (): undefined => undefined,
 }));
 mock.module("../../packages/infra/supervisedWorker", () => ({
   superviseWorker: (options: typeof workerHooks.supervisorOptions) => {

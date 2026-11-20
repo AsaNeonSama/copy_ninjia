@@ -17,7 +17,7 @@ done
 ```
 
 > [!CAUTION]
-> Never use a copy command that overwrites existing files, and never treat `config_example/` as a deployment backup. Files under `config/` contain credentials and should be readable only by the service account.
+> Never use a copy command that overwrites existing files, and never treat `config_example/` as a deployment backup. Files under `config/` contain credentials and should be readable only by the service account by default; grant write and atomic-rename access on `config/dynamic/` and/or `config/static/` to the service account only when Mini App online config editing is enabled (newly created optional files default to `0600`).
 
 `config/` enforces a strict three-level directory whitelist (`config/` itself permits only `static/` and `dynamic/`):
 - `config/static/`: permits only `bot.json`, `g-auth.json`; changes **require a service restart**.
@@ -45,7 +45,7 @@ Every JSON file is parsed under a strict schema: unknown keys, typos, type misma
   <tr>
     <td><code>static/bot.json</code></td>
     <td><nobr>Static (Restart required)</nobr></td>
-    <td>Telegram Bot Token, sole super administrator, default atmosphere, time zone, and optional Mini App console</td>
+    <td>Telegram Bot Token, sole super administrator, log level, default atmosphere, time zone, and optional Mini App console</td>
     <td><b>Startup refused (Fatal error)</b></td>
   </tr>
   <tr>
@@ -130,6 +130,7 @@ Static configuration file located at `config/static/bot.json`. Requires a proces
   "super_admin_user_id": 987654321,
   "atmosphere": "mesugaki",
   "time_zone": "Asia/Tokyo",
+  "log_level": "operation",
   "mini_app": {
     "url": "https://miniapp.example.com",
     "port": 3000,
@@ -147,11 +148,12 @@ Static configuration file located at `config/static/bot.json`. Requires a proces
 | `super_admin_user_id` | `number` | **Required** | Positive safe integer (`> 0`) | Telegram numeric user ID of the sole super administrator (not @username). Inherent holder of all permissions |
 | `atmosphere` | `string` | Optional | `"mesugaki"` or `"normal"`; trimmed and strictly validated; omission selects by custom-persona presence | Global notification tone; explicit configuration takes priority (`mesugaki` teasing, `normal` plain). When omitted, use plain if `prompt/persona.md` exists, otherwise teasing; does not change the AI persona |
 | `time_zone` | `string` | Optional | IANA name, default `DEFAULT_BOT_TIME_ZONE`; trimmed and strictly validated | Default calendar zone for fortune, logs, ad activity, AI clocks, daily maintenance, and cron tasks without an explicit zone; the Tokyo weather tool is registered only for `TOKYO_TIME_ZONE`, including the omitted default; invalid values refuse startup. The data root is bound to this zone when it is created, and a later change refuses startup; see [07 Operations](../../docs/en/07-operations.md#calendar-time-zone) |
-| `mini_app` | `object` | Optional | Strict object allowing only `url`, `port`, `host`, and `password`; when omitted, no local HTTP server or routes are started and private `MenuButtonWebApp` is not registered; when copying from `config_example/` manually without using the Mini App, remove this section or replace `password` with a real password (the placeholder password refuses startup) | SuperAdmin-only Telegram Mini App management console (Dashboard) configuration; see [10 Mini App Setup and Recommended Configuration](../../docs/en/10-mini-app.md) for full setup and Cloudflare Tunnel configuration |
+| `log_level` | `string` | Optional | One of `LOG_LEVELS` (`"info"`, `"operation"`, `"warn"`, `"error"`), defaulting to `DEFAULT_LOG_LEVEL` (`"operation"`) when omitted; trimmed and strictly validated when present, refusing startup on invalid values | Minimum severity threshold for both console output and `logs/<YYYY-MM-DD>.json` disk persistence (`info` < `operation` < `warn` < `error`): `info` includes lower-priority runtime diagnostics plus all higher levels; `operation` records Telegram `/` commands, `/wed` callbacks, `/qa set` form submissions, Mini App login/logout and state mutations (plus `warn`/`error`); `warn` includes warnings and errors; `error` records errors only. `info`/`operation`/`warn` logs batch-buffer on the main thread (up to 32 entries or 30 seconds), while `error` logs flush immediately |
+| `mini_app` | `object` | Optional | Strict object allowing only `url`, `port`, `host`, and `password` (`url`, `port`, and `password` required; `host` optional, defaulting to `MINI_APP_DEFAULT_HOST`) with no unknown or legacy signing-key fields; when omitted, no local HTTP server or routes are started and private `MenuButtonWebApp` is not registered; when copying from `config_example/` manually without using the Mini App, remove this section or replace `password` with a real password (the placeholder password refuses startup) | SuperAdmin-only Telegram Mini App management console (Dashboard) configuration; see [10 Mini App Setup and Recommended Configuration](../../docs/en/10-mini-app.md) for full setup and Cloudflare Tunnel configuration |
 | `mini_app.url` | `string` | **Required** when `mini_app` is present | Valid `https://` URL; supports subpath prefixes (e.g. `https://example.com/sub`) and reverse proxies that either preserve or strip the path prefix | Public HTTPS URL loaded by the Telegram WebApp client |
 | `mini_app.port` | `number` | **Required** when `mini_app` is present | Safe integer in `MINI_APP_PORT_MIN`–`MINI_APP_PORT_MAX` (`1`–`65535`), set to `3000` in the example configuration | Local `Bun.serve` HTTP listening port |
 | `mini_app.host` | `string` | Optional | Non-empty string, default `MINI_APP_DEFAULT_HOST` (`"127.0.0.1"`) | Local `Bun.serve` HTTP listening address |
-| `mini_app.password` | `string` | **Required** when `mini_app` is present | Non-empty string containing at least 6 digits (`0-9`) and not equal to `MINI_APP_PASSWORD_PLACEHOLDER`; missing or invalid values refuse startup | First-screen access password for the Mini App (45-minute `initData` and session validity; 3 consecutive failures lock out the SuperAdmin ID for 30 minutes; binding Google Authenticator TOTP in the console switches login to 6-digit TOTP verification until unbound) |
+| `mini_app.password` | `string` | **Required** when `mini_app` is present | Non-empty string containing at least 6 digits (`0-9`) and not equal to `MINI_APP_PASSWORD_PLACEHOLDER`; missing or invalid values refuse startup | First-screen access password for the Mini App (45-minute `initData` and sliding session TTL renewing after a randomized 5s–5min per-epoch cooldown up to `MINI_APP_SESSION_MAX_LIFETIME_MS` = 2 hours, max `MINI_APP_SESSION_MAX` = 5 unexpired active sessions and 256-bit temporary keys; 3 consecutive failures lock out the SuperAdmin ID for 30 minutes; binding Google Authenticator TOTP in the console switches login to 6-digit TOTP verification until unbound) |
 
 ---
 
@@ -496,7 +498,7 @@ Dynamic configuration file located at `config/dynamic/ad_detect.json`. The root 
 | `kick`, `block_scope: "global"` | Added to the permanent blocklist (the same list as `/block`) and banned in every managed chat | Same |
 
 - Mutes, kicks without a ban, and in-chat bans only affect the triggering chat and are not written to the persistent outbox: requests still pending when the shutdown drain times out or the process restarts are abandoned; when a request fails, the notice asks admins to check the bot's permissions.
-- In-chat bans are not on the bot's permanent blocklist, so `/unblock` cannot lift them; lift them from Telegram's group management screen. Lift permanent mutes with `/unmute`.
+- In-chat bans are not on the bot's permanent blocklist, so `/block <target> disable` cannot lift them; lift them from Telegram's group management screen. Lift permanent mutes with `/unmute`.
 - Before a kick without a ban, the bot confirms the target is still in the chat; no removal is sent while the chat kind or the membership is unknown.
 - Punishment settings follow hot reload and are read on every disposal; if the file is deleted, hits still being processed only have their messages deleted.
 
@@ -511,7 +513,7 @@ Dynamic configuration file located at `config/dynamic/ad_detect.json`. The root 
 | `punishment.kick` | `object` | Exactly one of `mute` and `kick` | Only the `block` and `block_scope` keys | Kick settings |
 | `punishment.kick.block` | `boolean` | **Required** | — | `false` kicks without a ban; `true` bans according to `block_scope` |
 | `punishment.kick.block_scope` | `string` | Required when `block` is `true`; must be absent when `false` | `"chat"` or `"global"` after trimming (`AD_BLOCK_SCOPES`) | `"chat"` bans in the triggering chat only; `"global"` adds the sender to the permanent blocklist and bans in every managed chat |
-| `samples` | `string[]` | **Required** | Array with `0` to `MAX_CONFIGURED_AD_SAMPLES` unique entries | Positive ad message examples. Each entry, after runs of whitespace are collapsed into a single space and leading/trailing whitespace is trimmed, must be non-empty and `≤ AD_SAMPLE_MAX_CHARS` characters; uniqueness is judged on that normalized form. Under `provider: "google"`, these samples are automatically compiled into a Gemini explicit context cache, refreshed in the background when the remaining lifetime falls below `GEMINI_CONTEXT_CACHE_RENEW_BEFORE_MS` |
+| `samples` | `string[]` | **Required** | Array with `0` to `MAX_CONFIGURED_AD_SAMPLES` unique entries | Positive ad message examples. Each entry, after runs of whitespace are collapsed into a single space and leading/trailing whitespace is trimmed, must be non-empty and `≤ AD_SAMPLE_MAX_CHARS` characters; uniqueness is judged on that normalized form |
 | `sticker_black_list` | `string[]` | **Required** | Array with `0` to `MAX_CONFIGURED_AD_BLACKLIST_PACKS` entries; each entry, trimmed, must match `STICKER_PACK_NAME_PATTERN` and be unique | Blacklisted sticker pack short names (the final segment of `https://t.me/addstickers/<short_name>`). When a non-exempt sender posts a sticker belonging to a pack in this list, subsequent checks are skipped and `punishment` is applied |
 | `emoji_black_list` | `string[]` | **Required** | Array with `0` to `MAX_CONFIGURED_AD_BLACKLIST_PACKS` entries; each entry, trimmed, must match `STICKER_PACK_NAME_PATTERN` and be unique | Blacklisted custom emoji pack short names (the final segment of `https://t.me/addemoji/<short_name>`). When a non-exempt sender posts a message with `custom_emoji` entities, their pack names are queried via the main thread's unified Telegram outbound client; a match skips AI classification and applies `punishment` |
 
@@ -535,7 +537,7 @@ Place the service account JSON downloaded from Google Cloud at `config/static/g-
 | `project_id` | `string` | Optional | Non-empty string | GCP project ID |
 | `private_key_id` | `string` | Optional | Non-empty string | Private key identifier |
 | `quota_project_id`, `universe_domain` | `string` | Optional | Non-empty string | Quota project and universe domain |
-| Other fields | any | Optional | Not validated, preserved as-is | `client_id`, `auth_uri`, `token_uri` consumed by Google Cloud SDK |
+| Other fields | any | Optional | Startup and Mini App `/api/configs/save` share `parseGoogleServiceAccountKey`: optional `private_key_id`, `project_id`, `quota_project_id`, and `universe_domain` must be non-empty strings after trimming when present, and all other fields are preserved unchanged without extra validation | `client_id`, `auth_uri`, `token_uri` consumed by Google Cloud SDK |
 
 ---
 

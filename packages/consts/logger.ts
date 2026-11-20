@@ -1,3 +1,47 @@
+import { exhaustiveList } from "./exhaustiveList";
+import type { LogLevel } from "../types/diskIO/messages";
+
+/**
+ * 统一日志门面与 `log_level` 配置支持的全部日志级别（按严重度递增）；
+ * 通过 `exhaustiveList` 与 `LogLevel` 保持穷举一致。所属模块：config/botInput.ts、infra/logger.ts。
+ */
+export const LOG_LEVELS: readonly LogLevel[] = exhaustiveList<LogLevel>()([
+  "info",
+  "operation",
+  "warn",
+  "error",
+]);
+
+/**
+ * `config/static/bot.json` 省略 `log_level` 时以及进程/Worker 启动前默认生效的日志级别阈值；
+ * 所属模块：config/botInput.ts、cache/perThread/logger.ts。
+ */
+export const DEFAULT_LOG_LEVEL: LogLevel = "operation";
+
+/** 各日志级别对应的数值优先级，用于与当前 `log_level` 阈值做 `>=` 比较；所属模块：infra/logger.ts。 */
+export const LOG_LEVEL_PRIORITY: Readonly<Record<LogLevel, number>> = {
+  info: 0,
+  operation: 1,
+  warn: 2,
+  error: 3,
+};
+
+/** 各日志级别映射到原生 `console` 输出方法名的查表；所属模块：infra/logger.ts。 */
+export const CONSOLE_METHOD_BY_LOG_LEVEL: Readonly<Record<LogLevel, "info" | "warn" | "error">> = {
+  info: "info",
+  operation: "info",
+  warn: "warn",
+  error: "error",
+};
+
+/** 各日志级别输出到原生 `console` 时前置的级别标签前缀；所属模块：infra/logger.ts。 */
+export const CONSOLE_PREFIX_BY_LOG_LEVEL: Readonly<Record<LogLevel, string>> = {
+  info: "[INFO]",
+  operation: "[OPERATION]",
+  warn: "[WARN]",
+  error: "[ERROR]",
+};
+
 /** logger 无法安全读取或序列化某个值时使用的静态占位符；不得调用故障对象的方法生成兜底。 */
 export const LOGGER_UNSERIALIZABLE_VALUE: string = "[unserializable value]";
 
@@ -75,11 +119,11 @@ export const LOGGER_MAX_SERIALIZED_BYTES: number = 64 * 1_024;
 /** logger 超出展开或输出预算时的静态占位符，不包含被截断内容。 */
 export const LOGGER_SERIALIZATION_LIMIT_VALUE: string = "[log serialization limit exceeded]";
 
-/** 业务 Worker 单次转发给主线程的最大日志条数；所属模块：cache/perThread/logger.ts。 */
+/** 业务 Worker 单次转发给主线程的最大日志条数；所属模块：cache/perThread/logger.ts、infra/logger/forwarding.ts。 */
 export const LOGGER_FORWARD_BATCH_MAX_MESSAGES: number = 32;
 
-/** 每个业务 Worker 的 error 日志转发 FIFO 最大消息数；越界只累计标量摘要。 */
+/** 每个业务 Worker 的已启用级别日志（`>= log_level`）转发 FIFO 最大消息数；越界只累计标量摘要，所属模块：cache/perThread/logger.ts。 */
 export const LOGGER_FORWARD_MAX_PENDING_MESSAGES: number = 1_024;
 
-/** 每个业务 Worker 的 error 日志转发 FIFO 最大 JSON 序列化载荷字节数。 */
+/** 每个业务 Worker 的已启用级别日志（`>= log_level`）转发 FIFO 最大 JSON 序列化载荷字节数；所属模块：cache/perThread/logger.ts。 */
 export const LOGGER_FORWARD_MAX_SERIALIZED_BYTES: number = 2 * 1_024 * 1_024;

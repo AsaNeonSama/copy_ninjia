@@ -207,43 +207,48 @@ describe("广告命中样本旁路", () => {
     let listCalls: number = 0;
     const removed: string[] = [];
     const logError = spyOn(console, "error").mockImplementation((): void => {});
-    const listEntries = (): AdSampleArchiveEntry[] => {
-      listCalls += 1;
-      return entries;
-    };
-    const removeFile = async (path: string): Promise<void> => {
-      if (path.endsWith("sample.2000-01-01.json")) throw new Error("injected unlink failure");
-      removed.push(path);
-    };
+    try {
+      const listEntries = (): AdSampleArchiveEntry[] => {
+        listCalls += 1;
+        return entries;
+      };
+      const removeFile = async (path: string): Promise<void> => {
+        if (path.endsWith("sample.2000-01-01.json")) throw new Error("injected unlink failure");
+        removed.push(path);
+      };
 
-    await sweepExpiredAdSampleArchives({ today, listEntries, removeFile });
-    await sweepExpiredAdSampleArchives({ today, listEntries, removeFile });
+      await sweepExpiredAdSampleArchives({ today, listEntries, removeFile });
+      await sweepExpiredAdSampleArchives({ today, listEntries, removeFile });
 
-    expect(listCalls).toBe(1);
-    expect(removed).toHaveLength(1);
-    expect(removed[0]?.endsWith("sample.2000-01-01.2.json")).toBe(true);
-    expect(logError).toHaveBeenCalledTimes(1);
-    await appendSample(sample());
-    expect(Object.keys(await readSamples())).toEqual(["-1001:11"]);
-    expect(listCalls).toBe(1);
-    logError.mockRestore();
+      expect(listCalls).toBe(1);
+      expect(removed).toHaveLength(1);
+      expect(removed[0]?.endsWith("sample.2000-01-01.2.json")).toBe(true);
+      expect(logError).toHaveBeenCalledTimes(1);
+      await appendSample(sample());
+      expect(Object.keys(await readSamples())).toEqual(["-1001:11"]);
+      expect(listCalls).toBe(1);
+    } finally {
+      logError.mockRestore();
+    }
   });
 
   test("目录扫描失败也只记录一次，不阻塞同日样本追加", async () => {
     const today: string = getDateKey();
     const logError = spyOn(console, "error").mockImplementation((): void => {});
+    try {
+      await sweepExpiredAdSampleArchives({
+        today,
+        listEntries: (): AdSampleArchiveEntry[] => {
+          throw new Error("injected readdir failure");
+        },
+      });
+      await appendSample(sample());
 
-    await sweepExpiredAdSampleArchives({
-      today,
-      listEntries: (): AdSampleArchiveEntry[] => {
-        throw new Error("injected readdir failure");
-      },
-    });
-    await appendSample(sample());
-
-    expect(Object.keys(await readSamples())).toEqual(["-1001:11"]);
-    expect(logError).toHaveBeenCalledTimes(1);
-    logError.mockRestore();
+      expect(Object.keys(await readSamples())).toEqual(["-1001:11"]);
+      expect(logError).toHaveBeenCalledTimes(1);
+    } finally {
+      logError.mockRestore();
+    }
   });
 
   test("每日维护清掉孤儿临时文件与过期归档，但不创建尚未使用的目录", async () => {

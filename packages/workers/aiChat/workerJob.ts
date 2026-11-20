@@ -3,8 +3,14 @@
  * 否则登记 requestId 取消控制器并与 Worker 生命周期信号合并，结算后移除登记并发布回执。
  */
 
-import { aiChatWorkerAbortController, aiChatWorkerQuiescing } from "../../cache/workers/aiChat/worker";
+import {
+  aiChatWorkerAbortController,
+  aiChatWorkerQuiescing,
+  inFlightAiWorkerJobs,
+} from "../../cache/workers/aiChat/worker";
 import { AI_WORKER_JOB_UNAVAILABLE } from "../../consts/aiChat/workerJob";
+import { logger } from "../../infra/logger";
+import { trackInflight } from "../../libs/inflight";
 import type { AiWorkerJobFailure } from "../../types/aiChat/workerJob";
 
 /** runAiWorkerJob 的入参。 */
@@ -21,7 +27,7 @@ export interface RunAiWorkerJobOptions<T> {
 
 /**
  * 接纳一次可取消的后台任务：若 Worker 已进入停机排空阶段则立即回执 `AI_WORKER_JOB_UNAVAILABLE`，
- * 否则登记 `AbortController` 并启动任务，结算后摘除在途条目并回执结果。
+ * 否则登记 `AbortController`、纳入 `inFlightAiWorkerJobs` 排空追踪并启动任务，结算后摘除在途条目并回执结果。
  *
  * @param options 任务在途登记表、请求序号、执行回调与回执回调
  */
@@ -32,8 +38,26 @@ export function runAiWorkerJob<T>({ jobs, requestId, run, publish }: RunAiWorker
   }
   const controller: AbortController = new AbortController();
   jobs.set(requestId, controller);
-  void run(AbortSignal.any([controller.signal, aiChatWorkerAbortController.current.signal])).then((result: T): void => {
-    if (jobs.get(requestId) === controller) jobs.delete(requestId);
-    publish(result);
-  });
+  const task: Promise<void> = run(
+    AbortSignal.any([controller.signal, aiChatWorkerAbortController.current.signal])
+  ).then(
+    (result: T): void => {
+      if (jobs.get(requestId) === controller) jobs.delete(requestId);
+      publish(result);
+    },
+    (error: unknown): void => {
+      if (jobs.get(requestId) === controller) jobs.delete(requestId);
+      logger.error("Unexpected error while running an AI worker job:", { requestId }, error);
+    }
+  );
+  void trackInflight(inFlightAiWorkerJobs, task);
+}
+
+/**
+ * 等待所有已在途的 AI Worker 后台任务全部结算后再推进停机记忆与用量刷盘。
+ */
+export async function drainAiWorkerJobs(): Promise<void> {
+  while (inFlightAiWorkerJobs.size > 0) {
+    await Promise.allSettled(inFlightAiWorkerJobs);
+  }
 }

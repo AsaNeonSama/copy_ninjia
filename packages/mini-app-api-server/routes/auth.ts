@@ -20,8 +20,10 @@ const precheckWithInitDataChain: MiniAppBunRouteHandler = withMiniAppAuth(
 );
 
 /**
- * 首屏预检、登录与登出路由（`GET /api/auth/precheck`、`POST /api/auth/login`、`POST /api/auth/logout`）的 `Bun.serve` 原生路由表片段。
- * 统一挂载 `MINI_APP_INIT_DATA_AUTH_POLICY`（仅核验 `initData` 签名与登录锁定，不在前置层要求或续期 45 分钟会话，使登出可直接吊销原会话）；预检失败时一并清除客户端携带的门禁 Cookie。
+ * 首屏预检（兼发已签名临时 X25519 公钥）、ECDH 加密二次认证登录（兼发 45 分钟 AES PSK）与登出路由
+ * （`GET /api/auth/precheck`、`POST /api/auth/login`、`POST /api/auth/logout`）的 `Bun.serve` 原生路由表片段。
+ * 统一挂载 `MINI_APP_INIT_DATA_AUTH_POLICY`（核验 `initData` 签名与登录锁定，不在前置层要求或续期 45 分钟会话，
+ * 使登录经临时 X25519 + HKDF 端到端加密完成、登出可直接吊销原会话）；预检失败时一并清除客户端携带的门禁 Cookie。
  */
 export const MINI_APP_AUTH_BUN_ROUTES: MiniAppBunRouteTable = {
   "/api/auth/precheck": {

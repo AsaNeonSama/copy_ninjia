@@ -5,6 +5,7 @@ import { rename } from "node:fs/promises";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { STATIC_CONFIG_DIR_NAME } from "../../packages/consts/configLayout";
+import { DEFAULT_LOG_LEVEL } from "../../packages/consts/logger";
 import { storageMetadataRows } from "../../packages/database/interact/initialization";
 import { createFixture, writeText, cleanupFixtures, REQUIRED_BUN_VERSION } from "../../scripts/installIsolation/fixture";
 import type { InstallerFixture } from "../../scripts/installIsolation/fixture";
@@ -94,7 +95,7 @@ test("空环境 bootstrap 安装并启动真实应用，系统操作与网络由
     },
     input: "123456789:audit_mock_token\n123456789\nn\n", timeout: 30_000,
   });
-  const output: string = (child.stdout + child.stderr).replaceAll("123456789:audit_mock_token", "[mock-token]");
+  const output: string = Bun.stripANSI(child.stdout + child.stderr).replaceAll("123456789:audit_mock_token", "[mock-token]");
   expect(output).not.toContain("Unhandled error");
   expect(output).not.toContain("Shutdown drain/flush results:");
   const calls: string = await Bun.file(fixture.callLog).text();
@@ -102,9 +103,11 @@ test("空环境 bootstrap 安装并启动真实应用，系统操作与网络由
   const checks: Readonly<Record<string, boolean | number | string | null | undefined>> = {
     exit: child.exitCode, fetchedLatest: calls.includes("mock:latest"), cloned: calls.includes("mock:clone"),
     installedBun: calls.includes("mock:bun-install"), dependencies: calls.includes("bun:install"),
-    applicationStarted: output.includes("Bot started as @installation_test_bot"), polled: output.includes("INSTALL_API getUpdates"),
+    infoLogsSuppressed:
+      !output.includes("Bot started.") &&
+      !output.includes("Beginning graceful shutdown."),
+    polled: output.includes("INSTALL_API getUpdates"),
     workerGuards: output.match(/^INSTALL_WORKER_NETWORK_GUARD\r?$/gm)?.length,
-    gracefullyStopped: output.includes("Received SIGTERM; beginning graceful shutdown."),
     database: await Bun.file(join(fixture.runtimeRoot, "database/storage.sqlite")).exists(),
     lockReleased: !await Bun.file(join(fixture.runtimeRoot, "bot.lock")).exists(),
     noUnexpectedOutbound: !outbound.includes(":blocked") && !output.includes("INSTALL_NETWORK_BLOCKED"),
@@ -119,9 +122,13 @@ test("空环境 bootstrap 安装并启动真实应用，系统操作与网络由
   const unit: string = await Bun.file(join(fixture.runtimeRoot, "unit-preview")).text();
   expect(unit).toContain(fixture.worktree);
   expect(unit).toContain(fixture.runtimeRoot);
-  // 空环境新建的库是当前 schema，并绑定安装时写下的 bot.json 时区。
-  const bot: { readonly time_zone: string } =
-    await Bun.file(join(fixture.configRoot, STATIC_CONFIG_DIR_NAME, "bot.json")).json() as { readonly time_zone: string };
+  // 空环境新建的库是当前 schema，并绑定安装时写下的 bot.json 时区；默认 log_level 为 DEFAULT_LOG_LEVEL。
+  const bot: { readonly time_zone: string; readonly log_level: string } =
+    await Bun.file(join(fixture.configRoot, STATIC_CONFIG_DIR_NAME, "bot.json")).json() as {
+      readonly time_zone: string;
+      readonly log_level: string;
+    };
+  expect(bot.log_level).toBe(DEFAULT_LOG_LEVEL);
   const client: Database = new Database(join(fixture.runtimeRoot, "database/storage.sqlite"), { readonly: true });
   try {
     expect<readonly unknown[]>(client.query("SELECT key, json(data) AS data FROM storage_metadata ORDER BY key").all())

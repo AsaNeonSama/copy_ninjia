@@ -16,7 +16,11 @@ for (const outcome of ["success", "api-error", "network-error"] as const) {
       for (let index: number = 0; index < 64; index++) {
         const task: Promise<unknown> = api.getUpdates({}, controller.signal as unknown as Parameters<Api["getUpdates"]>[1]);
         if (outcome === "success") expect(await task).toEqual([]);
-        else await expect(task).rejects.toThrow();
+        else if (outcome === "api-error") {
+          await expect(task).rejects.toThrow("Call to 'getUpdates' failed! (429: fixture flood)");
+        } else {
+          await expect(task).rejects.toThrow("Network request for 'getUpdates' failed!");
+        }
       }
       expect(add).toHaveBeenCalledTimes(64);
       expect(remove.mock.calls).toEqual(add.mock.calls);
@@ -43,7 +47,7 @@ test("真实 grammY 在途请求仍传播取消并移除监听器", async (): Pr
     const task: Promise<unknown> = api.getUpdates({}, controller.signal as unknown as Parameters<Api["getUpdates"]>[1]);
     await started.promise;
     controller.abort();
-    await expect(task).rejects.toThrow();
+    await expect(task).rejects.toThrow("Network request for 'getUpdates' failed!");
     expect(remove).toHaveBeenCalled();
   } finally {
     remove.mockRestore();

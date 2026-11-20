@@ -39,9 +39,9 @@ const sendVoiceWithResult = mock(async (..._args: unknown[]): Promise<TelegramSe
 const loggerError = mock((..._args: unknown[]): void => {});
 const sleep = mock(async (_ms: number, _signal?: AbortSignal): Promise<void> => {});
 
-const realProvider = await import("../../../packages/aiChat/provider");
+const realProvider = await import("../../../packages/workers/aiChat/provider");
 const realTelegram = await import("../../../packages/infra/telegram");
-mock.module("../../../packages/aiChat/provider", () => ({ ...realProvider, ttsAiProvider }));
+mock.module("../../../packages/workers/aiChat/provider", () => ({ ...realProvider, ttsAiProvider }));
 mock.module("../../../packages/infra/telegram", () => ({ ...realTelegram, sendVoiceWithResult }));
 mock.module("../../../packages/infra/logger", () => ({ logger: loggerStub({ error: loggerError }) }));
 mock.module("../../../packages/libs/sleep", () => ({ sleep }));
@@ -49,8 +49,8 @@ mock.module("../../../packages/libs/sleep", () => ({ sleep }));
 const {
   buildSendVoiceToolDefinition,
   createSendVoiceExecutor,
-} = await import("../../../packages/aiChat/ai/tools/replyToolset/voiceMessage");
-const { buildToolStatusBlock } = await import("../../../packages/aiChat/ai/tools/replyToolset/toolStatus");
+} = await import("../../../packages/workers/aiChat/ai/tools/replyToolset/voiceMessage");
+const { buildToolStatusBlock } = await import("../../../packages/workers/aiChat/ai/tools/replyToolset/toolStatus");
 const {
   TTS_BOT_LANGUAGES,
   TTS_USAGE_WINDOW_MS,
@@ -65,8 +65,8 @@ const { TOOL_STATUS_POINTER, VOICE_LANGUAGE_PROMPTS, voiceToolStatus } = await i
 /** 执行器按默认台词语言拿到的朗读语言要求；每次合成请求都应原样带上。 */
 const LANGUAGE_STYLE: string = VOICE_LANGUAGE_PROMPTS[TTS_DEFAULT_BOT_LANGUAGE].speechLanguageStyle;
 const { adoptAgentDeploymentConfig } = await import("../../../packages/config/agent");
-const { encodeVoiceMessage } = await import("../../../packages/aiChat/ai/voiceEncoding");
-const { createSimulatedPause } = await import("../../../packages/aiChat/ai/tools/replyToolset/pacing");
+const { encodeVoiceMessage } = await import("../../../packages/workers/aiChat/ai/voiceEncoding");
+const { createSimulatedPause } = await import("../../../packages/workers/aiChat/ai/tools/replyToolset/pacing");
 const { OGG_OPUS_MIME_TYPE } = await import("../../../packages/consts/audio");
 
 const CAPABILITY = { provider: "google", apiKey: "key", baseUrl: undefined, model: "m" } as const;
@@ -97,6 +97,7 @@ function recordedChains(): RecordedChains {
     defer: (_name: string, pending: Promise<ReplyActionRun | null>): void => {
       deferred.push(pending);
     },
+    track: (): void => {},
     settle: async (): Promise<void> => {},
     completed: (): number => 0,
   };
@@ -379,7 +380,10 @@ describe("send_voice 投递", () => {
 
     synthesis.resolve({ ok: false, reason: "synthesis failed" });
     expect(await chains.deferred[0]!).toBeNull();
-    expect(loggerError).toHaveBeenCalledWith("AI reply voice was not sent (chat -1001): synthesis failed.");
+    expect(loggerError).toHaveBeenCalledWith("AI reply voice was not sent.", {
+      chatId: -1001,
+      reason: "synthesis failed",
+    });
     expect(sendVoiceWithResult).not.toHaveBeenCalled();
     expect(ctx.onVoiceSent).not.toHaveBeenCalled();
     expect(ttsDailyUsage.current).toBeNull();
@@ -455,14 +459,23 @@ describe("send_voice 投递", () => {
     const failed = await runVoice(ctx, { text: "バカ" });
     expect(JSON.parse(failed.accepted)).toMatchObject({ success: true, queued: true, actions_used: 1 });
     expect(JSON.parse(failed.result)).toEqual({ synthesis: "failed" });
-    expect(loggerError).toHaveBeenCalledWith("AI reply voice was not sent (chat -1001): synthesis failed.");
+    expect(loggerError).toHaveBeenCalledWith("AI reply voice was not sent.", {
+      chatId: -1001,
+      reason: "synthesis failed",
+    });
     expect(ttsDailyUsage.current).toBeNull();
     expect(pendingAiTtsReservations.current).toBe(0);
 
     synthesizeSpeech.mockImplementationOnce(async (): Promise<SpeechSynthesisAttempt> => spoken(new Uint8Array([1, 2, 3]), "audio/mp3"));
     expect(JSON.parse((await runVoice(ctx, { text: "バカ" })).result)).toEqual({ synthesis: "failed" });
-    expect(loggerError).toHaveBeenCalledWith("Voice message encoding failed (chat -1001): unsupported speech mime type.");
-    expect(loggerError).toHaveBeenCalledWith("AI reply voice was not sent (chat -1001): unsupported speech mime type.");
+    expect(loggerError).toHaveBeenCalledWith("Voice message encoding failed.", {
+      chatId: -1001,
+      reason: "unsupported speech mime type",
+    });
+    expect(loggerError).toHaveBeenCalledWith("AI reply voice was not sent.", {
+      chatId: -1001,
+      reason: "unsupported speech mime type",
+    });
     expect(ttsDailyUsage.current).toMatchObject({ agentCount: 1 });
     expect(pendingAiTtsReservations.current).toBe(0);
     expect(sendVoiceWithResult).not.toHaveBeenCalled();
@@ -478,8 +491,11 @@ describe("send_voice 投递", () => {
     const { accepted, result } = await runVoice(ctx, { text: "バカ" });
     expect(JSON.parse(accepted).success).toBe(true);
     expect(JSON.parse(result)).toEqual({ synthesis: "failed" });
-    expect(loggerError).toHaveBeenCalledWith("Voice synthesis failed unexpectedly (chat -1001):", failure);
-    expect(loggerError).toHaveBeenCalledWith("AI reply voice was not sent (chat -1001): synthesis failed.");
+    expect(loggerError).toHaveBeenCalledWith("Voice synthesis failed unexpectedly:", { chatId: -1001 }, failure);
+    expect(loggerError).toHaveBeenCalledWith("AI reply voice was not sent.", {
+      chatId: -1001,
+      reason: "synthesis failed",
+    });
     expect(ttsDailyUsage.current).toBeNull();
     expect(pendingAiTtsReservations.current).toBe(0);
     expect(sendVoiceWithResult).not.toHaveBeenCalled();

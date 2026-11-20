@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { App } from "./App";
 import { getTelegramWebApp } from "./libs/telegram";
-import type { TelegramWebApp, TelegramWindow } from "./types/miniApp";
+import type { TelegramWebApp, TelegramWindow } from "./types/miniApp/host";
 
 /**
  * 初始化 Telegram WebApp 宿主并将 React 应用挂载到 `#root`。

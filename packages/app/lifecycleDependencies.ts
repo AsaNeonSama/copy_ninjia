@@ -19,7 +19,10 @@ import { drainQaForms } from "../commands/qa";
 import { drainTargetMessageDeletions } from "../commands/deleteMessage/queue";
 import { assertSuperAdminNotDeleteMessageTarget } from "../commands/deleteMessage";
 import { drainDeferredCommandRuntime, initDeferredCommandRuntime, quiesceDeferredCommandRuntime } from "../commands/deferredCommands";
-import { ensureRandomImageDirectory } from "../infra/imageGallery";
+import {
+  adoptRandomImageDirectory,
+  inspectRandomImageDirectory,
+} from "../infra/imageGallery";
 import { drainCronScheduler, quiesceCronScheduler, startCronScheduler } from "../cron/scheduler";
 import { hydrateWedMembers } from "../commands/wed/persistence";
 import { enableWedMemberReview } from "../commands/wed/memberReview";
@@ -32,6 +35,7 @@ import {
   refreshAllChatTitles,
 } from "../infra/chatTitle";
 import { BOT_TOKEN, SUPER_ADMIN_USER_ID } from "../config/bot";
+import { assertDeploymentConfigLayout } from "../config/layout";
 import { flushDiskIO, initDiskIO, loadPersistedData, terminateDiskIO } from "../infra/diskIO";
 import { logger } from "../infra/logger";
 import { setBusinessWorkerFatalHandler } from "../infra/workerSupervisor";
@@ -53,7 +57,6 @@ import {
 } from "../infra/telegram";
 import { drainTelegramOutbound } from "../infra/telegram/outboundLifecycle";
 import { bot, initTelegramClients } from "../infra/telegram/mainClient";
-import { sleep } from "../libs/sleep";
 import { updateCachedIdentity } from "../users/senderIdentity";
 import { hydrateIdentityStorageCounts } from "../infra/identityStorage";
 import { validateExistingDeploymentInputs } from "../config/readiness";
@@ -76,6 +79,7 @@ export const lifecycleDependencies = {
   SUPER_ADMIN_USER_ID,
   abortChatTitleRefresh,
   acquireSingleInstanceLock,
+  assertDeploymentConfigLayout,
   assertSuperAdminNotBlocked,
   assertSuperAdminNotDeleteMessageTarget,
   bot,
@@ -124,7 +128,10 @@ export const lifecycleDependencies = {
   logger,
   monotonicNow: (): number => performance.now(),
   validateExistingDeploymentInputs,
-  prepareRandomImageDirectory: (): Promise<void> => ensureRandomImageDirectory(getAssetConfig().randomHImageDirectory),
+  prepareRandomImageDirectory: async (): Promise<void> => {
+    const directory: string = getAssetConfig().randomHImageDirectory;
+    adoptRandomImageDirectory(directory, await inspectRandomImageDirectory(directory));
+  },
   refreshAllChatTitles,
   registerCommandMenu,
   registerHandlers,
@@ -145,7 +152,6 @@ export const lifecycleDependencies = {
   seedTranslateTargets,
   setBusinessWorkerFatalHandler,
   setStatePersistenceFatalHandler,
-  sleep,
   startConfigReload,
   startCronScheduler,
   startMiniAppServer,

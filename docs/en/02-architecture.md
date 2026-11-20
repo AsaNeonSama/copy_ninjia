@@ -206,12 +206,13 @@ The model can execute multiple tool calls within a single round. All visible sid
 
 The entry point [`index.ts`](../../index.ts) solely delegates to [`ApplicationLifecycle`](../../packages/app/lifecycle.ts). Merely importing modules never starts background workers, timers, or network connections. `ApplicationLifecycle.init()` orchestrates startup sequentially:
 
-0. **Configuration Layout Verification**: When `config/bot.ts` is imported, `layout.ts` enforces the three-level directory whitelist across `config/`, `config/static/`, and `config/dynamic/` and verifies `config/dynamic/` is an existing directory before strictly parsing `bot.json`.
+0. **Core Bot Config & Narrow Layout Pre-Check**: When `packages/config/bot.ts` is imported, `assertNoLegacyOrMisplacedBotConfig` in `packages/config/layout.ts` checks the top-level `config/` directory by entry name for legacy `config/telegram.json` or misplaced `config/bot.json` before strictly parsing `config/static/bot.json` and adopting its time zone and log level.
 1. **Data Root Preflight & Instance Locking**: `acquireSingleInstanceLock` tests data root capabilities (writable, fsync, same-directory hard-links, atomic renames, directory fsync), then acquires the `/proc`-based `bot.lock` single-instance lock. It then registers the worker fatal callback and initializes avatar, chat title, translation, gag, wed, and deferred command runtimes.
-2. **Global State & Configuration Preflight**:
-   - Cleans up orphaned temporary files from previous unexpected terminations.
-   - Restores and strictly validates `memory/mini-app-totp/totp.json` (when present) and `memory/global/state.json` via `StateStore` (rejecting any legacy `state.json` or `state.json.bak` in the data root).
-   - Validates all dynamic and static deployment JSON inputs.
+2. **Orphan Cleanup, Layout Verification, Global State & Config Preflight**:
+   - Calls `cleanupOrphanedTempFiles` to remove orphaned runtime and config atomic-write temporary files from previous unexpected terminations.
+   - Runs `assertDeploymentConfigLayout` (`packages/config/layout.ts`) to enforce the full three-level directory whitelist across `config/`, `config/static/`, and `config/dynamic/` and verify `config/dynamic/` is an existing accessible directory.
+   - Restores and strictly validates `memory/mini-app-totp/totp.json` (when present, via `totpStorage.ts`) and then `memory/global/state.json` (via `StateStore`, rejecting any legacy `state.json` or `state.json.bak` in the data root).
+   - Strictly validates all existing dynamic and static deployment JSON inputs via `validateExistingDeploymentInputs`.
    - Verifies permissions and filenames in the dedicated random image library directory.
 3. **Disk I/O Worker Initialization & Data Recovery**:
    - Disk I/O Worker performs a read-only integrity scan across all persistence domains (database, logs, AI cache usage, sticker catalogs, fortune records, verification records, join logs, wed member pools).

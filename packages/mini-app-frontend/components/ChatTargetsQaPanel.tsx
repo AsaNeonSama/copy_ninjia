@@ -10,7 +10,7 @@ import type {
   ChatTargetsQaEditorFormSlice,
   ChatTargetsQaPanelSlice,
 } from "../types/chatTargets";
-import type { MiniAppChatQaItem } from "../types/miniApp";
+import type { MiniAppChatQaItem } from "../types/miniApp/chats";
 import type { MiniAppTranslations } from "../types/miniAppI18n";
 import { InlineNoticeCollapse } from "./animations/CollapseGrid";
 import { useClosingSnapshot } from "./animations/useDelayedUnmount";

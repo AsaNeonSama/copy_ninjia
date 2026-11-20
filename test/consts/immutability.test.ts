@@ -12,7 +12,14 @@ import {
   RELEASE_REQUIRED_FILES,
   RELEASE_VERSION_PATTERN,
 } from "../../packages/consts/release";
-import { LOGGER_HTTP_URL_PATTERN, LOGGER_SENSITIVE_FIELD_NAMES } from "../../packages/consts/logger";
+import {
+  CONSOLE_METHOD_BY_LOG_LEVEL,
+  CONSOLE_PREFIX_BY_LOG_LEVEL,
+  LOG_LEVEL_PRIORITY,
+  LOG_LEVELS,
+  LOGGER_HTTP_URL_PATTERN,
+  LOGGER_SENSITIVE_FIELD_NAMES,
+} from "../../packages/consts/logger";
 import {
   AI_CACHE_SUMMARY_ALLOWED_FIELDS,
   AI_CACHE_TOKEN_ROW_ALLOWED_FIELDS,
@@ -38,6 +45,14 @@ function assertReleaseAndLogConstantsReadonly(): void {
   LOGGER_HTTP_URL_PATTERN.lastIndex = 1;
   // @ts-expect-error 日志敏感字段名表禁止调用方增删。
   LOGGER_SENSITIVE_FIELD_NAMES.push("mock-field");
+  // @ts-expect-error 日志级别枚举表禁止调用方增删。
+  LOG_LEVELS.push("info");
+  // @ts-expect-error 日志级别优先级映射表禁止调用方改写。
+  LOG_LEVEL_PRIORITY.info = 99;
+  // @ts-expect-error 日志级别对应 console 方法映射表禁止调用方改写。
+  CONSOLE_METHOD_BY_LOG_LEVEL.operation = "warn";
+  // @ts-expect-error 日志级别输出到原生 console 的标签前缀映射表禁止调用方改写。
+  CONSOLE_PREFIX_BY_LOG_LEVEL.operation = "[OP]";
   // @ts-expect-error AI 用量 token 行允许字段表禁止调用方增删。
   AI_CACHE_TOKEN_ROW_ALLOWED_FIELDS.push("mockField");
   // @ts-expect-error AI 用量合计允许字段表禁止调用方增删。
@@ -103,6 +118,8 @@ function assertReplyToolHandlesReadonly(
   action.run = async (): Promise<string> => "";
   // @ts-expect-error 调用链 owner 的入口不可替换。
   chains.start = (): void => {};
+  // @ts-expect-error 调用链追踪入口不可替换。
+  chains.track = (): void => {};
 }
 void assertReplyToolHandlesReadonly;
 
@@ -731,6 +748,17 @@ import {
   MINI_APP_TRANSLATE_LANGUAGES,
 } from "../../packages/consts/miniApp";
 import {
+  MINI_APP_DYNAMIC_CONFIG_FILES,
+  MINI_APP_SERVICE_RESTART_COMMAND,
+  MINI_APP_STATIC_CONFIG_FILES,
+} from "../../packages/consts/miniAppConfig";
+import {
+  MINI_APP_CONFIG_SAVE_AUTH_POLICY,
+  MINI_APP_GALLERY_FILE_AUTH_POLICY,
+  MINI_APP_GALLERY_UPLOAD_AUTH_POLICY,
+} from "../../packages/consts/miniAppCrypto";
+import {
+  MINI_APP_ACCESS_DENIED_ERROR_CODES,
   MINI_APP_BATCH_KICK_PRESET_HOURS,
   MINI_APP_CHATS_PAGE_SIZE_OPTIONS,
   MINI_APP_CHAT_TARGET_KINDS as FRONTEND_MINI_APP_CHAT_TARGET_KINDS,
@@ -746,6 +774,7 @@ import {
   MINI_APP_IDENTITY_PAGE_SIZE_OPTIONS,
   MINI_APP_LANGUAGES,
   MINI_APP_MESSAGES_PAGE_SIZE_OPTIONS,
+  MINI_APP_SESSION_REAUTH_ERROR_CODES,
   MINI_APP_STATUS_SKELETON_CAPABILITY_INDICES,
   MINI_APP_STATUS_SKELETON_MEMORY_INDICES,
   MINI_APP_TAB_KEYS,
@@ -754,6 +783,10 @@ import {
   MINI_APP_TRANSLATE_LANGUAGES as FRONTEND_MINI_APP_TRANSLATE_LANGUAGES,
 } from "../../packages/mini-app-frontend/consts/miniApp";
 import { WHITELIST_PERMISSION_KEYS as FRONTEND_WHITELIST_PERMISSION_KEYS } from "../../packages/mini-app-frontend/consts/whitelist";
+import {
+  STATUS_QUAD_CHECK_BOX_HEIGHTS_PX,
+  STATUS_QUAD_CHECK_BOX_WIDTHS_PX,
+} from "../../packages/mini-app-frontend/consts/statusMosaic";
 import {
   QR_ALIGNMENT_CENTERS_V4_TO_V8,
   QR_L_DATA_CODEWORDS_PER_BLOCK,
@@ -767,15 +800,31 @@ function assertMiniAppConstantsReadonly(): void {
   // @ts-expect-error Mini App 功能开关键闭集禁止调用方增删。
   MINI_APP_FEATURE_KEYS.push("init");
   // @ts-expect-error Mini App 仅 initData 鉴权策略禁止调用方改写。
-  MINI_APP_INIT_DATA_AUTH_POLICY.allowQueryAuth = true;
+  MINI_APP_INIT_DATA_AUTH_POLICY.requireSession = true;
   // @ts-expect-error Mini App 受保护资源鉴权策略禁止调用方改写。
-  MINI_APP_PROTECTED_ASSET_AUTH_POLICY.allowQueryAuth = false;
+  MINI_APP_PROTECTED_ASSET_AUTH_POLICY.requireSession = false;
   // @ts-expect-error Mini App 业务 API 鉴权策略禁止调用方改写。
   MINI_APP_API_AUTH_POLICY.requireSession = false;
   // @ts-expect-error Mini App 图库下载鉴权策略禁止调用方改写。
-  MINI_APP_GALLERY_DOWNLOAD_AUTH_POLICY.allowVerifiedAssetTokenBypass = true;
+  MINI_APP_GALLERY_DOWNLOAD_AUTH_POLICY.encryptResponse = true;
+  // @ts-expect-error Mini App 图库预览读取鉴权策略禁止调用方改写。
+  MINI_APP_GALLERY_FILE_AUTH_POLICY.encryptResponse = true;
+  // @ts-expect-error Mini App 图库上传鉴权策略禁止调用方改写。
+  MINI_APP_GALLERY_UPLOAD_AUTH_POLICY.encryptRequest = false;
+  // @ts-expect-error Mini App 配置保存鉴权策略禁止调用方改写。
+  MINI_APP_CONFIG_SAVE_AUTH_POLICY.encryptResponse = false;
+  // @ts-expect-error Mini App 动态配置文件名闭集禁止调用方增删。
+  MINI_APP_DYNAMIC_CONFIG_FILES.push("mood.json");
+  // @ts-expect-error Mini App 静态配置文件名闭集禁止调用方增删。
+  MINI_APP_STATIC_CONFIG_FILES.push("bot.json");
+  // @ts-expect-error Mini App 服务重启命令参数列表禁止调用方增删。
+  MINI_APP_SERVICE_RESTART_COMMAND.push("--force");
   // @ts-expect-error 前端功能开关键闭集禁止调用方增删。
   FRONTEND_MINI_APP_FEATURE_KEYS.push("init");
+  // @ts-expect-error Mini App 触发重认证的错误码集合禁止调用方增删。
+  MINI_APP_SESSION_REAUTH_ERROR_CODES.add("EXTRA");
+  // @ts-expect-error Mini App 触发门禁拒绝的错误码集合禁止调用方增删。
+  MINI_APP_ACCESS_DENIED_ERROR_CODES.add("EXTRA");
   // @ts-expect-error 前端白名单权限键全集禁止调用方增删。
   FRONTEND_WHITELIST_PERMISSION_KEYS.push("isCanMute");
   // @ts-expect-error Mini App 选择器目标名单闭集禁止调用方增删。
@@ -822,6 +871,10 @@ function assertMiniAppConstantsReadonly(): void {
   MINI_APP_STATUS_SKELETON_CAPABILITY_INDICES.push(6);
   // @ts-expect-error 实时状态骨架内存卡片序号表禁止调用方增删。
   MINI_APP_STATUS_SKELETON_MEMORY_INDICES.push(3);
+  // @ts-expect-error 四象限拼块参考盒宽度表禁止调用方增删。
+  STATUS_QUAD_CHECK_BOX_WIDTHS_PX.push(512);
+  // @ts-expect-error 四象限拼块参考盒高度表禁止调用方增删。
+  STATUS_QUAD_CHECK_BOX_HEIGHTS_PX.push(256);
   // @ts-expect-error 名单分页档位列表禁止调用方增删。
   MINI_APP_IDENTITY_PAGE_SIZE_OPTIONS.push(50);
   // @ts-expect-error 图库分页档位列表禁止调用方增删。
@@ -852,3 +905,27 @@ function assertMiniAppBunRouteTableReadonly(routes: MiniAppBunRouteTable): void 
   routes["/api/status"]!.GET = async (): Promise<Response> => new Response(null);
 }
 void assertMiniAppBunRouteTableReadonly;
+
+import type { BotConfig } from "../../packages/types/config";
+import type { CronConfig, CronTask } from "../../packages/types/cron";
+function assertToolAndDeploymentConfigReadonly(
+  botConfig: BotConfig,
+  cronConfig: CronConfig,
+  cronTask: CronTask
+): void {
+  // @ts-expect-error 工具声明列表禁止调用方增删。
+  TOOL_DECLARATIONS.push(WEB_SEARCH_TOOL_DECLARATION);
+  // @ts-expect-error AI 工具参数 JSON Schema 禁止调用方改写。
+  TOOL_DECLARATIONS[0]!.parametersJsonSchema.type = "string";
+  // @ts-expect-error Google 搜索工具参数 JSON Schema 禁止调用方改写。
+  WEB_SEARCH_TOOL_DECLARATION.parametersJsonSchema.type = "string";
+  // @ts-expect-error BotConfig 的 miniApp 字段与内层配置禁止调用方改写。
+  botConfig.miniApp = undefined;
+  // @ts-expect-error BotMiniAppConfig 密码字段禁止调用方改写。
+  botConfig.miniApp!.password = "mock";
+  // @ts-expect-error CronConfig 的 tasks 列表禁止调用方增删。
+  cronConfig.tasks.push(cronTask);
+  // @ts-expect-error CronTask 调度字段禁止调用方改写。
+  cronTask.schedule = "0 0 * * *";
+}
+void assertToolAndDeploymentConfigReadonly;

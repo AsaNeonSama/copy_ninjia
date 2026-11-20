@@ -59,8 +59,14 @@ function reconcileAdDetectAvailability(changes: HotDeploymentConfigChanges): voi
   // 先更新就绪结论，供下方 syncAntiRaidAgentConfig 决定是否投递 ad_detect.json 快照。
   if (!sameReadiness(next, current)) adoptAdDetectConfigReadiness(next);
   if (availabilityChanged) {
-    if (next.ok) logger.log("Ad detection became available after a deployment config reload.");
-    else logger.log(`Ad detection became unavailable after a deployment config reload: ${next.failure.reason}`);
+    if (next.ok) {
+      logger.info("Ad detection became available after a deployment config reload.");
+    } else {
+      logger.warn("Ad detection became unavailable after a deployment config reload.", {
+        file: next.failure.file,
+        reason: next.failure.reason,
+      });
+    }
   }
   if (availabilityChanged || changes.adDetect || changes.adDetectConfig) syncAntiRaidAgentConfig();
 }
@@ -74,7 +80,10 @@ function reconcileAiChatAvailability(changes: HotDeploymentConfigChanges): void 
   const current: ConfigReadiness = aiChatConfigReadiness();
   if (!next.ok) {
     if (current.ok) {
-      logger.log(`AI chat became unavailable after a deployment config reload; the AI Worker stays idle: ${next.failure.reason}`);
+      logger.warn("AI chat became unavailable after a deployment config reload; the AI Worker stays idle.", {
+        file: next.failure.file,
+        reason: next.failure.reason,
+      });
     }
     if (!sameReadiness(next, current)) adoptAiChatConfigReadiness(next);
     return;
@@ -87,7 +96,7 @@ function reconcileAiChatAvailability(changes: HotDeploymentConfigChanges): void 
       return;
     }
     adoptAiChatConfigReadiness(next);
-    logger.log("AI chat became available after a deployment config reload.");
+    logger.info("AI chat became available after a deployment config reload.");
     return;
   }
   if (changes.aiAgent || changes.mood || changes.stickers) syncAiChatConfig(changes);
@@ -99,13 +108,15 @@ async function reconcileDeploymentConfigs(): Promise<void> {
   if (!configReloadRuntime.accepting) return;
   const changes: HotDeploymentConfigChanges = applyHotDeploymentConfigs(reads);
   for (const rejection of changes.rejections) {
-    logger.error(`Rejected a runtime deployment config change; keeping the last validated snapshot: ${rejection}`);
+    logger.error("Rejected a runtime deployment config change; keeping the last validated snapshot.", {
+      reason: rejection,
+    });
   }
   for (const path of changes.reloadedPaths) {
-    logger.log(`Reloaded deployment config ${path}.`);
+    logger.info("Reloaded deployment config.", { path });
   }
   for (const path of changes.removedPaths) {
-    logger.log(`Deployment config ${path} was removed.`);
+    logger.info("Deployment config was removed.", { path });
   }
   reconcileAdDetectAvailability(changes);
   reconcileAiChatAvailability(changes);
@@ -177,7 +188,7 @@ function rewatchConfigDirectory(): void {
   }
   configReloadRuntime.rewatchAttempts = 0;
   installConfigWatcher(watcher);
-  logger.log(`Re-attached the deployment config watcher to ${DYNAMIC_CONFIG_DIR}.`);
+  logger.info("Re-attached the deployment config watcher.", { directory: DYNAMIC_CONFIG_DIR });
   runConfigReload();
 }
 

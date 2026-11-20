@@ -206,7 +206,6 @@ export interface TrackedMessageEvent {
 export interface ConfirmedThreadCommentEvent {
   type: "confirmedThreadComment";
   messageId: number;
-  now: number;
   /** 只允许撤回由本 owner 覆盖消息同步触发、且尚未开始执行的 flood 终态。 */
   allowFloodTerminalExemption: boolean;
 }

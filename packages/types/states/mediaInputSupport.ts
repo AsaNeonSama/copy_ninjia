@@ -36,7 +36,7 @@ export interface MediaInputSupportState {
 /**
  * 媒体模态状态机要求调用方执行的副作用：模态落定为 misconfigured 的那一次记一条英文诊断。
  * 状态归约在 packages/states/mediaInputSupport.ts，状态缓存位于 AI Chat Worker 的 owner 缓存，
- * 效果解释与状态写回在 packages/aiChat/ai/mediaInputSupport.ts。
+ * 效果解释与状态写回在 packages/workers/aiChat/ai/mediaInputSupport.ts。
  */
 export interface MediaInputEffect {
   readonly kind: "logMisconfiguredMediaEndpoint";

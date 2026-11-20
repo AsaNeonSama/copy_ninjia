@@ -130,7 +130,7 @@ describe("copyFixtureTree、installIsolation assertions 与 migrations/files", (
     await expect(readMigrationFileRecords(root, ["sub"])).rejects.toThrow(
       "must be a regular file without symbolic links"
     );
-    await expect(readMigrationFileRecords(root, ["missing.txt"])).rejects.toThrow();
+    await expect(readMigrationFileRecords(root, ["missing.txt"])).rejects.toThrow(/ENOENT.*missing\.txt/);
 
     expect(migrationPathContains("/srv/app", "/srv/app")).toBe(true);
     expect(migrationPathContains("/srv/app", "/srv/app/data/db.sqlite")).toBe(true);

@@ -10,8 +10,8 @@ import type { DiskBusinessMessage } from "../../packages/types/diskIO";
 import type { AntiRaidWorkerMessage } from "../../packages/types/antiRaid/protocol";
 
 const diskPosts: DiskBusinessMessage[] = [];
-const errorLogs: string[] = [];
-const infoLogs: string[] = [];
+const errorLogs: unknown[][] = [];
+const infoLogs: unknown[][] = [];
 mock.module("../../packages/infra/diskIO", () => (diskIOStub({
   postDiskIO: (message: DiskBusinessMessage): boolean => {
     diskPosts.push(message);
@@ -20,8 +20,8 @@ mock.module("../../packages/infra/diskIO", () => (diskIOStub({
 })));
 mock.module("../../packages/infra/logger", () => ({
   logger: loggerStub({
-    error: (message: unknown): void => { errorLogs.push(String(message)); },
-    log: (message: unknown): void => { infoLogs.push(String(message)); },
+    error: (...args: unknown[]): void => { errorLogs.push(args); },
+    info: (...args: unknown[]): void => { infoLogs.push(args); },
   }),
 }));
 
@@ -64,13 +64,18 @@ test("开关已关群的延后验证：撤镜像、写 tombstone 并让 Worker �
     revision: 4,
   })]);
   expect(errorLogs).toEqual([]);
-  expect(infoLogs.some((line: string): boolean => line.includes(String(DISABLED_CHAT)))).toBeTrue();
+  expect(infoLogs).toEqual([[
+    "Cleared join guard runtime left over in chats whose /antiraid switch is off.",
+    { purgedCount: 1, chatIds: [DISABLED_CHAT] },
+  ]]);
 });
 
 test("Worker 拒收清理消息时记错误、不报清理成功，留给下一次重建重试", () => {
   purgeDisabledJoinGuards((): boolean => false);
 
-  expect(errorLogs).toHaveLength(1);
-  expect(errorLogs[0]).toContain(`join guard cleanup for chat ${DISABLED_CHAT}`);
+  expect(errorLogs).toEqual([[
+    "Anti-Raid Worker rejected the join guard cleanup; relying on the next respawn to retry it.",
+    { chatId: DISABLED_CHAT },
+  ]]);
   expect(infoLogs).toEqual([]);
 });

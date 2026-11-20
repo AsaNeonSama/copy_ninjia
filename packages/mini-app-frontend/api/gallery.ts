@@ -1,4 +1,4 @@
-import type { MiniAppGalleryPage } from "../types/miniApp";
+import type { MiniAppGalleryPage } from "../types/miniApp/gallery";
 import { miniAppFetchJson } from "./request";
 
 /**

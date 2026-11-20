@@ -1,10 +1,10 @@
 /**
- * 业务 Worker 侧 error 日志回主线程的有界转发通道，供 infra/logger.ts 按
+ * 业务 Worker 侧已启用级别日志（`>= log_level`）回主线程的有界转发通道，供 infra/logger.ts 按
  * `Bun.isMainThread` 在 Worker 侧调用；主线程直接落盘不经过此通道。
  *
  * 通道形状：任一时刻只有一个批次在途，主线程回 `__logBatchAccepted` 才推进下一批。
  * 总消息数与 JSON 载荷字节双上限（见 cache/perThread/logger.ts 的 forwardedLogQueue），
- * 越界的那条 error 已写进本线程 stderr，这里只累计丢弃条数与字节两个标量，
+ * 越界的那条日志已写进本线程控制台，这里只累计丢弃条数与字节两个标量，
  * 队列有空间后补一条汇总日志。
  *
  * @see ../../../docs/cn/04-invariants.md
@@ -69,9 +69,11 @@ export function enqueueForwardedLogDropSummary(now: number = Date.now()): void {
     timestamp: now,
     level: "error",
     args: [
-      `[logger] dropped ${droppedMessages} Worker error log(s) totaling ` +
-      `${dropState.droppedSerializedBytes} serialized byte(s) after ` +
-      "the forwarding queue reached its hard limits.",
+      "[logger] Dropped Worker logs after the forwarding queue reached its hard limits.",
+      {
+        droppedMessages,
+        droppedSerializedBytes: dropState.droppedSerializedBytes,
+      },
     ],
   };
   if (!forwardedLogQueue.enqueue(summary, jsonSerializedBytes(summary))) return;
@@ -80,9 +82,9 @@ export function enqueueForwardedLogDropSummary(now: number = Date.now()): void {
 }
 
 /**
- * Worker error 日志进入有界转发队列；主线程不调用这条路径。
+ * Worker 达到或高于当前 `log_level` 阈值的日志进入有界转发队列；主线程不调用这条路径。
  *
- * @param message 待转发给主线程落盘的 Worker 错误日志消息。
+ * @param message 待转发给主线程落盘的 Worker 日志消息。
  * @param post 负责将转发日志批次发送到主线程的投递回调。
  */
 export function forwardWorkerLog(message: LogMessage, post: ForwardedLogSink): void {

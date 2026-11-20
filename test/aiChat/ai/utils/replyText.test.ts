@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { cleanReply, isEmojiOnly } from "../../../../packages/aiChat/ai/utils/replyText";
+import { cleanReply, isEmojiOnly } from "../../../../packages/workers/aiChat/ai/utils/replyText";
 
 describe("isEmojiOnly", () => {
   test("含数字/井号/星号的正常回复不是纯表情", () => {
@@ -50,8 +50,26 @@ describe("cleanReply 的引号剥离", () => {
     expect(cleanReply("「他说「你好」了」")).toBe("他说「你好」了");
   });
 
-  test("引号只在一头时不动", () => {
+  test("引号只在一头或嵌套未闭合时不动", () => {
     expect(cleanReply("他说「你好」")).toBe("他说「你好」");
     expect(cleanReply("「开头有")).toBe("「开头有");
+    expect(cleanReply("「a「b」")).toBe("「a「b」");
+    expect(cleanReply("“a“b”")).toBe("“a“b”");
+  });
+});
+
+describe("cleanReply 的代码围栏剥离", () => {
+  test("单个外层围栏（语言标记含数字、符号或行尾空白）照常剥离，开围栏行含多个词或中日文正文时按正文保留，多个围栏不误剥", () => {
+    expect(cleanReply("```python3\nprint(1)\n```")).toBe("print(1)");
+    expect(cleanReply("```\nhello\n```")).toBe("hello");
+    expect(cleanReply("```python \nprint(1)\n```")).toBe("print(1)");
+    expect(cleanReply("```c++\nint x;\n```")).toBe("int x;");
+    expect(cleanReply("```shell-session\r\n$ ls\r\n```")).toBe("$ ls");
+    expect(cleanReply("```hello```")).toBe("hello");
+    expect(cleanReply("```两个 词\n正文\n```")).toBe("两个 词\n正文");
+    expect(cleanReply("```哈哈哈\n第二行\n```")).toBe("哈哈哈\n第二行");
+    expect(cleanReply("```今天也很开心呢\n```")).toBe("今天也很开心呢");
+    const multiFence: string = "```js\na\n```\n中间\n```py\nb\n```";
+    expect(cleanReply(multiFence)).toBe(multiFence);
   });
 });

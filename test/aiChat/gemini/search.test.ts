@@ -10,7 +10,7 @@ import { installAiCacheUsageSink } from "../../../packages/infra/aiCacheUsage";
 import { getAgentDeploymentConfig } from "../../../packages/config/agent";
 import type { AiCacheUsage } from "../../../packages/types/aiCache";
 import type { GeminiRequestResult } from "../../../packages/types/aiChat/gemini";
-import type { GeminiRequestOptions } from "../../../packages/aiChat/gemini/client";
+import type { GeminiRequestOptions } from "../../../packages/workers/aiChat/gemini/client";
 import type { AgentCapability } from "../../../packages/types/config";
 
 /** agent.json 的检索能力名，即用量记录与客户端缓存的能力键。 */
@@ -22,9 +22,9 @@ async function requestGeminiResultStub(..._args: unknown[]): Promise<GeminiReque
   return { ok: false, failureKind: "request" };
 }
 const requestGeminiResult = mock(requestGeminiResultStub);
-mock.module("../../../packages/aiChat/gemini/client", () => ({ requestGeminiResult }));
+mock.module("../../../packages/workers/aiChat/gemini/client", () => ({ requestGeminiResult }));
 
-const { searchGeminiWeb } = await import("../../../packages/aiChat/gemini/search");
+const { searchGeminiWeb } = await import("../../../packages/workers/aiChat/gemini/search");
 const { GEMINI_WEB_SEARCH_MAX_TOKENS } = await import("../../../packages/consts/aiChat/gemini");
 
 /** 一份检索过两次、带三个 grounding 来源（其中一个没有地址）的响应。 */

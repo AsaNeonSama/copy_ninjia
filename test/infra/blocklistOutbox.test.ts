@@ -178,14 +178,17 @@ describe("黑名单 outbox 的启动恢复过滤", () => {
   test("过滤后的删除行投不出去：点名记一行错误，不静默", () => {
     // 投不出去时落盘侧仍留着那条已经被主线程丢弃的任务，两边不一致，记一行日志。
     const error = spyOn(logger, "error").mockImplementation((): void => {});
-    postDiskIO.mockImplementation((): boolean => false);
+    try {
+      postDiskIO.mockImplementation((): boolean => false);
 
-    hydrateBlocklist(new Map([frozenTask(21)]));
+      hydrateBlocklist(new Map([frozenTask(21)]));
 
-    expect(error).toHaveBeenCalledWith(
-      "Failed to queue the filtered blocklist removal outbox after startup recovery."
-    );
-    error.mockRestore();
+      expect(error).toHaveBeenCalledWith(
+        "Failed to queue the filtered blocklist removal outbox after startup recovery."
+      );
+    } finally {
+      error.mockRestore();
+    }
   });
 
   test("没有任何任务被过滤时不发写入", () => {
@@ -273,17 +276,21 @@ describe("黑名单 outbox 的运行期销账", () => {
 
   test("销账后的行写入投不出去：点名被解封的那个 id", () => {
     const error = spyOn(logger, "error").mockImplementation((): void => {});
-    governedChat();
-    blockedUserIds.set(7, { isBlocked: true, blockedAt: "2026/08/11 00:00:00" });
-    hydrateBlocklist(new Map([frozenTask(21, [7])]));
-    postDiskIO.mockImplementation((): boolean => false);
+    try {
+      governedChat();
+      blockedUserIds.set(7, { isBlocked: true, blockedAt: "2026/08/11 00:00:00" });
+      hydrateBlocklist(new Map([frozenTask(21, [7])]));
+      postDiskIO.mockImplementation((): boolean => false);
 
-    forgetUserBlocklistRemovals(7);
+      forgetUserBlocklistRemovals(7);
 
-    expect(error).toHaveBeenCalledWith(
-      "Failed to queue blocklist removal outbox cleanup for unblocked user 7."
-    );
-    error.mockRestore();
+      expect(error).toHaveBeenCalledWith(
+        "Failed to queue blocklist removal outbox cleanup for unblocked user.",
+        { userId: 7 }
+      );
+    } finally {
+      error.mockRestore();
+    }
   });
 
   test("群停止管理：该群全部任务与补扫进度一起删掉", () => {
@@ -311,17 +318,21 @@ describe("黑名单 outbox 的运行期销账", () => {
 
   test("群停止管理后的行写入投不出去：点名那个群", () => {
     const error = spyOn(logger, "error").mockImplementation((): void => {});
-    governedChat();
-    blockedUserIds.set(7, { isBlocked: true, blockedAt: "2026/08/11 00:00:00" });
-    hydrateBlocklist(new Map([frozenTask(21, [7])]));
-    postDiskIO.mockImplementation((): boolean => false);
+    try {
+      governedChat();
+      blockedUserIds.set(7, { isBlocked: true, blockedAt: "2026/08/11 00:00:00" });
+      hydrateBlocklist(new Map([frozenTask(21, [7])]));
+      postDiskIO.mockImplementation((): boolean => false);
 
-    forgetChatBlocklistWork(-1001);
+      forgetChatBlocklistWork(-1001);
 
-    expect(error).toHaveBeenCalledWith(
-      "Failed to queue blocklist removal outbox cleanup for unmanaged chat -1001."
-    );
-    error.mockRestore();
+      expect(error).toHaveBeenCalledWith(
+        "Failed to queue blocklist removal outbox cleanup for unmanaged chat.",
+        { chatId: -1001 }
+      );
+    } finally {
+      error.mockRestore();
+    }
   });
 
   test("登记一条没有任何目标的处置：立刻抛错，且不把它留在镜像里", () => {

@@ -174,18 +174,25 @@ const JOIN_LOG_ENTRY_FIXED_BYTES: number =
   serializeJoinLogSnapshotEntry({ userId: 1, joinedAt: 1 }).length - 4;
 
 /**
- * 计算正安全整数的十进制数字位数。
+ * 计算正安全整数（`1` 到 `Number.MAX_SAFE_INTEGER`，1～16 位）的十进制数字位数。
  * @param value 正安全整数。
  * @returns 十进制表示的字符长度。
  */
 function positiveSafeIntegerDigits(value: number): number {
-  let digits: number = 1;
-  let remaining: number = value;
-  while (remaining >= 10) {
-    remaining = (remaining - (remaining % 10)) / 10;
-    digits += 1;
+  if (value < 100_000_000) {
+    if (value < 10_000) {
+      if (value < 100) return value < 10 ? 1 : 2;
+      return value < 1_000 ? 3 : 4;
+    }
+    if (value < 1_000_000) return value < 100_000 ? 5 : 6;
+    return value < 10_000_000 ? 7 : 8;
   }
-  return digits;
+  if (value < 1_000_000_000_000) {
+    if (value < 10_000_000_000) return value < 1_000_000_000 ? 9 : 10;
+    return value < 100_000_000_000 ? 11 : 12;
+  }
+  if (value < 100_000_000_000_000) return value < 10_000_000_000_000 ? 13 : 14;
+  return value < 1_000_000_000_000_000 ? 15 : 16;
 }
 
 /**

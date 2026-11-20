@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, jest, mock, spyOn, test } from "bun:test";
 
-const { startChatActionHeartbeat, pumpChatAction } = await import("../../../packages/aiChat/ai/chatActionHeartbeat");
+const { startChatActionHeartbeat, pumpChatAction } = await import("../../../packages/workers/aiChat/ai/chatActionHeartbeat");
 import type {
   ChatActionHeartbeatDependencies,
   ChatActionSendRequest,
-} from "../../../packages/aiChat/ai/chatActionHeartbeat";
+} from "../../../packages/workers/aiChat/ai/chatActionHeartbeat";
 import type { ChatActionHeartbeatEntry } from "../../../packages/types/aiChat/chatAction";
 import { settleBackgroundWork } from "../../helpers/common";
 
@@ -181,6 +181,39 @@ describe("chatActionHeartbeat", () => {
     await settleBackgroundWork();
     expect(sendTyping).toHaveBeenCalledTimes(2);
     await heartbeat.stop();
+  });
+
+  test("节流纳入话题：同群同挡位切到不同话题立即补发，同话题重复仍节流", async () => {
+    const sentThreads: (number | undefined)[] = [];
+    const deps: ChatActionHeartbeatDependencies = {
+      entries: new Map<number, ChatActionHeartbeatEntry>(),
+      intervalMs: 60_000,
+      maxConsecutiveFailures: 3,
+      restMs: 0,
+      sendChatAction: async ({ messageThreadId }: ChatActionSendRequest): Promise<boolean> => {
+        sentThreads.push(messageThreadId);
+        return true;
+      },
+    };
+    const topicA = startChatActionHeartbeat({ chatId: 790, messageThreadId: 10, dependencies: deps });
+    const topicB = startChatActionHeartbeat({ chatId: 790, messageThreadId: 20, dependencies: deps });
+
+    topicA.set("typing");
+    await settleBackgroundWork();
+    topicA.set("typing");
+    await settleBackgroundWork();
+    expect(sentThreads).toEqual([10]);
+
+    topicB.set("typing");
+    await settleBackgroundWork();
+    expect(sentThreads).toEqual([10, 20]);
+
+    topicA.set("typing");
+    await settleBackgroundWork();
+    expect(sentThreads).toEqual([10, 20, 10]);
+
+    await topicA.stop();
+    await topicB.stop();
   });
 
   test("请求在途时切走挡位：这次送达不记节流，消息之后同挡位的补发立即发出", async () => {

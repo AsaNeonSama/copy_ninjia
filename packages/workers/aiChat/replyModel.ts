@@ -15,11 +15,10 @@ import {
 import { AI_CHAT_AGENT_ROLE_INSTRUCTION } from "../../consts/aiChat/prompts/agent";
 import { WEB_SEARCH_FUNCTION_INSTRUCTION, WEB_SEARCH_INSTRUCTION } from "../../consts/aiChat/prompts/search";
 import { logger } from "../../infra/logger";
-import { textAiProvider } from "../../aiChat/provider";
+import { textAiProvider } from "./provider";
 import { ABUSE_MARK_TOOL, TOOL_BUDGET_EXHAUSTED_RESULT, WEB_SEARCH_TOOL } from "../../consts/tools";
-import { callTool } from "../../aiChat/ai/tools";
-import { diagnosticWithDetails } from "../../aiChat/ai/utils/finishDetails";
-import { parseToolResult } from "../../aiChat/ai/utils/toolResult";
+import { callTool } from "./ai/tools";
+import { parseToolResult } from "./ai/utils/toolResult";
 import type {
   ReplyPromptSections,
   ReplySystemPromptSlot,
@@ -41,14 +40,18 @@ import { buildRuntimeStateBlock } from "./runtimeState";
  */
 
 /**
- * 将按函数名累计的调用次数格式化为有序诊断字符串。
+ * 将按函数名累计的调用次数整理为有序键值对象。
  *
  * @param counts 工具函数名到调用次数的只读映射
- * @returns 形如 `name:count,...` 的诊断文本；映射为空时返回 `"none"`
+ * @returns 以工具名为键、调用次数为值的有序对象
  */
-function toolCountsDiagnostic(counts: ReadonlyMap<string, number>): string {
-  return [...counts.entries()].sort(([left]: [string, number], [right]: [string, number]): number => left.localeCompare(right))
-    .map(([name, count]: [string, number]): string => `${name}:${count}`).join(",") || "none";
+function toolCountsObject(counts: ReadonlyMap<string, number>): Record<string, number> {
+  const result: Record<string, number> = Object.create(null) as Record<string, number>;
+  const entries: [string, number][] = [...counts.entries()].sort(
+    ([left]: [string, number], [right]: [string, number]): number => left.localeCompare(right)
+  );
+  for (const [name, count] of entries) result[name] = count;
+  return result;
 }
 
 /**
@@ -161,7 +164,6 @@ export async function generateReply(
   const staticSystemPrompt: string = buildReplySystemPrompt(toolset);
 
   const session: AiReplySession = textAiProvider().createReplySession({
-    chatId,
     stableBlocks: [promptSections.referenceMemory],
     volatileBlocks: [
       promptSections.currentConversation,
@@ -193,18 +195,22 @@ export async function generateReply(
     if (!toolset.isActive()) return null;
 
     if (!turn.ok) {
-      logger.error(
-        `AI reply unusable response for chat ${chatId}: round=${round}, ` +
-        `custom_calls=${counters.customToolCalls}, per_tool=${toolCountsDiagnostic(counters.customToolCallsByName)}, ` +
-        `server_tool_invocations=${turn.webSearchCalls}, ` +
-        `${diagnosticWithDetails(`finish_reason=${turn.finishReason ?? "?"}`, turn.finishDetails)}, ` +
-        `side_effects=${toolset.actionsUsed()}.`
-      );
+      logger.error("AI reply received an unusable response.", {
+        chatId,
+        round,
+        customCalls: counters.customToolCalls,
+        perTool: toolCountsObject(counters.customToolCallsByName),
+        serverToolInvocations: turn.webSearchCalls,
+        finishReason: turn.finishReason ?? null,
+        ...(turn.finishDetails !== undefined ? { finishDetails: turn.finishDetails } : {}),
+        sideEffects: toolset.actionsUsed(),
+      });
       if (turn.toolCallLimitHit && webSearchEnabled && toolset.actionsUsed() === 0) {
         searchDisabledByFallback = true;
-        logger.error(
-          `AI reply hit the provider's server-side tool-call limit for chat ${chatId}; retrying once with web search disabled.`
-        );
+        logger.error("AI reply hit the provider server-side tool-call limit; retrying once with web search disabled.", {
+          chatId,
+          round,
+        });
         continue;
       }
       return null;
@@ -214,10 +220,11 @@ export async function generateReply(
       const previousCalls: number = counters.webSearchCalls;
       counters.webSearchCalls += turn.webSearchCalls;
       if (previousCalls <= MAX_WEB_SEARCH_CALLS_PER_REPLY && counters.webSearchCalls > MAX_WEB_SEARCH_CALLS_PER_REPLY) {
-        logger.error(
-          `AI reply exceeded the soft web search budget for chat ${chatId}: ` +
-          `${counters.webSearchCalls} server-side call(s) against a budget of ${MAX_WEB_SEARCH_CALLS_PER_REPLY}.`
-        );
+        logger.error("AI reply exceeded the soft web search budget.", {
+          chatId,
+          webSearchCalls: counters.webSearchCalls,
+          budget: MAX_WEB_SEARCH_CALLS_PER_REPLY,
+        });
       }
     }
 
@@ -226,17 +233,23 @@ export async function generateReply(
       const outputs: AiToolOutput[] | null = await runFunctionCalls(functionCalls, toolset, counters);
       if (outputs === null) return null;
       if (!session.appendToolOutputs(outputs)) {
-        logger.error(
-          `AI reply session could not continue after tool outputs for chat ${chatId}: round=${round}, ` +
-          `custom_calls=${counters.customToolCalls}, side_effects=${toolset.actionsUsed()}.`
-        );
+        logger.error("AI reply session could not continue after tool outputs.", {
+          chatId,
+          round,
+          customCalls: counters.customToolCalls,
+          sideEffects: toolset.actionsUsed(),
+        });
         return null;
       }
       continue;
     }
 
     if (functionCalls.length > 0) {
-      logger.error(`AI reply for chat ${chatId} hit the tool-round limit (${MAX_TOOL_ROUNDS}) with ${functionCalls.length} unexecuted tool call(s); ending the round.`);
+      logger.error("AI reply hit the tool-round limit; ending the round.", {
+        chatId,
+        maxToolRounds: MAX_TOOL_ROUNDS,
+        unexecutedToolCalls: functionCalls.length,
+      });
     }
 
     return turn.text;

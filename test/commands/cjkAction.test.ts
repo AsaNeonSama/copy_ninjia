@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import type { CachedUser } from "../../packages/types/chatState";
 import { replyCommandNoticeVia } from "../helpers/common";
 
@@ -25,8 +25,10 @@ const {
   resetSelfSentTracker,
 } = await import("../../packages/cache/perThread/selfSentTracker");
 const { resolveUsernameTarget } = await import("../../packages/users/senderIdentity");
+const { identityById, senderUsernameCache, userCache } = await import("../../packages/cache/main/senderIdentity");
 const { handleCjkActionUsageCommand } = await import("../../packages/commands/cjkAction");
 const { containsRenderableCommand } = await import("../../packages/libs/renderableCommand");
+const { logger } = await import("../../packages/infra/logger");
 
 const actor = { id: 100, first_name: "ネオン", last_name: "アサ", username: "neon_asa" };
 
@@ -52,15 +54,35 @@ beforeEach(() => {
   recentActionCallTimestamps.clear();
   // 自发消息登记是模块级状态且 TTL 很长，不清会渗到后续用例里。
   resetSelfSentTracker();
+  userCache.clear();
+  senderUsernameCache.clear();
+  identityById.clear();
   sendMessage.mockClear();
   resolveCommandTarget.mockClear();
 });
 
+afterEach(() => {
+  recentActionCallTimestamps.clear();
+  resetSelfSentTracker();
+  userCache.clear();
+  senderUsernameCache.clear();
+  identityById.clear();
+});
+
 describe("parseCjkActionCommand 与 hears 匹配", () => {
   test("1~2 个中文字才算动作命令，三字及以上、拼音、纯符号都不匹配", () => {
-    for (const text of ["/咬", "/摸 @alice", "/踢\n@alice", "/㐀", "/豈", "/贴贴", "/摸摸 @alice", "/咬人"]) {
+    for (const [text, expectedActionWord] of [
+      ["/咬", "咬"],
+      ["/摸 @alice", "摸"],
+      ["/踢\n@alice", "踢"],
+      ["/㐀", "㐀"],
+      ["/豈", "豈"],
+      ["/贴贴", "贴贴"],
+      ["/摸摸 @alice", "摸摸"],
+      ["/咬人", "咬人"],
+    ] as const) {
       expect(hears(text)).toBe(true);
-      expect(parseCjkActionCommand(text)?.actionWord).toBeTruthy();
+      expect(parseCjkActionCommand(text)?.actionWord).toBe(expectedActionWord);
     }
     // 三字及以上会先按 2 个字试、再回溯到 1 个字，两次都接不上空白或结束而失配。
     for (const text of ["/咬人人", "/copy", "/", "//咬", "咬", "/。", "/1", "/咬人人 @alice", "/贴贴贴"]) {
@@ -220,6 +242,32 @@ describe("/<1~2 个中文字> 动作命令", () => {
     expect(containsRenderableCommand(params.text)).toBe(false);
   });
 
+  test("成功触发中文动作时携带触发消息所在论坛话题，非话题消息不带话题", async () => {
+    const topicCtx: any = context("/咬");
+    topicCtx.msg.is_topic_message = true;
+    topicCtx.msg.message_thread_id = 77;
+    await handleCjkActionCommand(topicCtx, next);
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    const topicSent = sendMessage.mock.calls[0]![0] as {
+      chatId: number;
+      messageThreadId?: number;
+      preserveInGroup?: boolean;
+    };
+    expect(topicSent.preserveInGroup).toBe(true);
+    expect(topicSent.messageThreadId).toBe(77);
+
+    sendMessage.mockClear();
+    await handleCjkActionCommand(context("/咬"), next);
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    const plainSent = sendMessage.mock.calls[0]![0] as {
+      chatId: number;
+      messageThreadId?: number;
+      preserveInGroup?: boolean;
+    };
+    expect(plainSent.preserveInGroup).toBe(true);
+    expect(plainSent.messageThreadId).toBeUndefined();
+  });
+
   test("指名其它机器人、缺少发送者身份时放行给普通消息流水线", async () => {
     await handleCjkActionCommand(context("/咬@OtherBot"), next);
     expect(sendMessage).not.toHaveBeenCalled();
@@ -330,6 +378,64 @@ describe("动作命令的认领边界", () => {
       id: 4242,
       username: "only_seen_via_action",
     });
+  });
+
+  test("人类执行中文动作命令记录 logger.operation，普通 bot 与机器人自发回投不记录", async () => {
+    const opSpy = spyOn(logger, "operation");
+    const consoleInfoSpy = spyOn(console, "info").mockImplementation((): void => {});
+    try {
+      await handleCjkActionCommand(context("/咬"), next);
+      expect(opSpy).toHaveBeenCalledTimes(1);
+      expect(opSpy).toHaveBeenCalledWith("[TelegramCommand] CJK action invoked.", {
+        command: "/咬",
+        chatId: -1001,
+        chatType: "supergroup",
+        actorId: 100,
+        messageId: 10,
+      });
+
+      opSpy.mockClear();
+      await handleCjkActionCommand(
+        context("/咬", { id: 200, is_bot: true, first_name: "OtherBot" }),
+        next
+      );
+      expect(opSpy).not.toHaveBeenCalled();
+
+      const selfChannelCtx: any = context("/咬");
+      selfChannelCtx.msg.chat = { id: -1001, type: "channel", title: "Channel" };
+      selfChannelCtx.msg.message_id = 99;
+      markSelfSent(-1001, 99);
+      await handleCjkActionCommand(selfChannelCtx, next);
+      expect(opSpy).not.toHaveBeenCalled();
+
+      const anonymousCtx: any = context("/咬", {
+        id: 1087968824,
+        is_bot: true,
+        first_name: "GroupAnonymousBot",
+      });
+      anonymousCtx.msg.message_id = 11;
+      anonymousCtx.msg.sender_chat = { id: -1001, type: "supergroup", title: "Group" };
+      await handleCjkActionCommand(anonymousCtx, next);
+      expect(opSpy).toHaveBeenCalledTimes(1);
+      expect(opSpy).toHaveBeenCalledWith("[TelegramCommand] CJK action invoked.", {
+        command: "/咬",
+        chatId: -1001,
+        chatType: "supergroup",
+        actorId: -1001,
+        messageId: 11,
+      });
+
+      opSpy.mockClear();
+      const autoForwardCtx: any = context("/咬");
+      autoForwardCtx.msg.message_id = 12;
+      autoForwardCtx.msg.is_automatic_forward = true;
+      autoForwardCtx.msg.sender_chat = { id: -1002, type: "channel", title: "LinkedChannel" };
+      await handleCjkActionCommand(autoForwardCtx, next);
+      expect(opSpy).not.toHaveBeenCalled();
+    } finally {
+      opSpy.mockRestore();
+      consoleInfoSpy.mockRestore();
+    }
   });
 });
 

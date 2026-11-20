@@ -114,4 +114,33 @@ describe("workerRequestTable", () => {
     expect(await second).toBe("unavailable");
     expect(requests.waiters.size).toBe(0);
   });
+
+  test("cancel 与 onPostError 回调抛错时仍清理等待者并兑现结算结果", async () => {
+    const requests: WorkerRequestTable<string> = table();
+    const controller: AbortController = new AbortController();
+    const aborted: Promise<string> = beginWorkerRequest({
+      table: requests,
+      timeoutMs: 60_000,
+      post: (): boolean => true,
+      onPostError,
+      cancel: (): void => { throw new Error("cancel failed"); },
+      abort: { signal: controller.signal, result: "aborted" },
+      timedOut: "timed out",
+      rejected: "rejected",
+    });
+    expect((): void => controller.abort()).toThrow("cancel failed");
+    await expect(aborted).resolves.toBe("aborted");
+    expect(requests.waiters.size).toBe(0);
+
+    const postErrorFailed: Promise<string> = beginWorkerRequest({
+      table: requests,
+      timeoutMs: 60_000,
+      post: (): boolean => { throw new Error("post boom"); },
+      onPostError: (): void => { throw new Error("logger boom"); },
+      timedOut: "timed out",
+      rejected: "rejected",
+    });
+    await expect(postErrorFailed).resolves.toBe("rejected");
+    expect(requests.waiters.size).toBe(0);
+  });
 });

@@ -1,8 +1,9 @@
-/* 受管群目标与问答管理弹窗、标签切换、表单折叠及移动端/触控适配样式。 */
+/* 受管群目标与问答管理弹窗、标签切换、表单折叠及移动端断点适配样式。 */
 .confirm-backdrop.chat-targets-backdrop {
   z-index: 70;
   align-items: flex-start;
   padding: clamp(24px, 7vh, 64px) 14px 14px;
+  padding-top: round(nearest, clamp(24px, 7vh, 64px), 1px);
   overscroll-behavior: contain;
 }
 
@@ -13,7 +14,7 @@
 
 @keyframes miniapp-targets-stamp-in {
   from { opacity: 0; transform: translate3d(6px, 10px, 0); }
-  to { opacity: 1; transform: translate3d(0, 0, 0); }
+  to { opacity: 1; transform: translate(0, 0); }
 }
 
 @keyframes miniapp-targets-snap-out {
@@ -23,12 +24,12 @@
 
 @keyframes miniapp-tab-slide-forward {
   from { opacity: 0; transform: translate3d(10px, 0, 0); }
-  to { opacity: 1; transform: translate3d(0, 0, 0); }
+  to { opacity: 1; transform: translate(0, 0); }
 }
 
 @keyframes miniapp-tab-slide-backward {
   from { opacity: 0; transform: translate3d(-10px, 0, 0); }
-  to { opacity: 1; transform: translate3d(0, 0, 0); }
+  to { opacity: 1; transform: translate(0, 0); }
 }
 
 .chat-targets-modal {
@@ -48,14 +49,18 @@
   overscroll-behavior: contain;
   touch-action: pan-y;
   transform-origin: center top;
-  will-change: transform, opacity;
-  transform: translate3d(0, 0, 0);
-  backface-visibility: hidden;
+  will-change: auto;
+  backface-visibility: visible;
   animation: miniapp-targets-stamp-in 0.2s var(--ease-brutal);
 }
 
 [data-theme="dark"] .chat-targets-modal { background: #171b2a; border-color: var(--border-strong); }
-.chat-targets-modal.closing { pointer-events: none; animation: miniapp-targets-snap-out 0.18s var(--ease-exit) forwards; }
+.chat-targets-modal.closing {
+  pointer-events: none;
+  will-change: transform, opacity;
+  backface-visibility: hidden;
+  animation: miniapp-targets-snap-out 0.18s var(--ease-exit) forwards;
+}
 
 .chat-targets-modal-header {
   display: flex;
@@ -195,9 +200,8 @@
 
 .chat-targets-tab-pane.tab-slide-forward > .chat-targets-tab-content,
 .chat-targets-tab-pane.tab-slide-backward > .chat-targets-tab-content {
-  will-change: transform, opacity;
-  transform: translate3d(0, 0, 0);
-  backface-visibility: hidden;
+  will-change: auto;
+  backface-visibility: visible;
 }
 .chat-targets-tab-pane.tab-slide-forward > .chat-targets-tab-content { animation: miniapp-tab-slide-forward 0.22s var(--ease-brutal); }
 .chat-targets-tab-pane.tab-slide-backward > .chat-targets-tab-content { animation: miniapp-tab-slide-backward 0.22s var(--ease-brutal); }
@@ -303,14 +307,15 @@
   flex-direction: column;
   gap: 4px;
   transform-origin: top left;
-  will-change: transform, opacity;
-  transform: translate3d(0, 0, 0);
-  backface-visibility: hidden;
+  will-change: auto;
+  backface-visibility: visible;
   animation: miniapp-popover-drop 0.18s var(--ease-brutal);
 }
 
 .chat-targets-lang-popover.closing {
   pointer-events: none;
+  will-change: transform, opacity;
+  backface-visibility: hidden;
   animation: miniapp-popover-drop-out 0.18s var(--ease-exit) forwards;
 }
 
@@ -425,10 +430,9 @@
   padding: 2px 4px 5px 1px;
 }
 
-.chat-targets-qa-trigger-collapse:not(.collapsed) > .chat-targets-qa-collapse-inner,
 .chat-targets-qa-trigger-collapse.flip-closing > .chat-targets-qa-collapse-inner,
-.chat-targets-qa-collapse-grid.expanded > .chat-targets-qa-collapse-inner,
-.chat-targets-qa-collapse-grid.flip-closing > .chat-targets-qa-collapse-inner { will-change: transform, opacity; transform: translate3d(0, 0, 0); backface-visibility: hidden; }
+.chat-targets-qa-collapse-grid.flip-closing > .chat-targets-qa-collapse-inner,
+.chat-targets-qa-collapse-inner[data-flip-in-flight="1"] { will-change: transform, opacity; transform: translate3d(0, 0, 0); backface-visibility: hidden; }
 
 .chat-targets-qa-collapse-grid.expanded:has(.chat-targets-lang-popover),
 .chat-targets-qa-collapse-grid.flip-closing:has(.chat-targets-lang-popover),
@@ -561,7 +565,10 @@
 .btn.chat-targets-qa-action-btn:not(.danger) { padding: 0 10px; }
 
 @media (max-width: 440px) {
-  .confirm-backdrop.chat-targets-backdrop { padding: clamp(16px, 5vh, 40px) 10px 10px; }
+  .confirm-backdrop.chat-targets-backdrop {
+    padding: clamp(16px, 5vh, 40px) 10px 10px;
+    padding-top: round(nearest, clamp(16px, 5vh, 40px), 1px);
+  }
   .chat-targets-modal {
     max-height: min(calc(100vh - clamp(16px, 5vh, 40px) - 10px), 660px);
     max-height: min(calc(100dvh - clamp(16px, 5vh, 40px) - 10px), 660px);
@@ -576,10 +583,4 @@
 @media (max-width: 350px) {
   .chat-targets-id-inline-row { flex-direction: column; align-items: stretch; }
   .chat-targets-qa-head { flex-direction: column; align-items: stretch; gap: 6px; }
-}
-
-@media (hover: none) and (pointer: coarse) {
-  .chat-targets-qa-item {
-    will-change: transform;
-  }
 }

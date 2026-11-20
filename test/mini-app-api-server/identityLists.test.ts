@@ -289,4 +289,96 @@ describe("Mini App 名单读取与 Bot 合并身份缓存隔离", () => {
       miniAppTestJoinLogState.onFlushDiskIODomain = undefined;
     }
   });
+
+  test("游标分页（afterId）、跨页未 ACK 大 ID 过滤与多页扫描总量抬升均保持一致", async () => {
+    const baseId: number = 200_000;
+    const totalSeeded: number = BLOCKLIST_SWEEP_PAGE_SIZE + 4;
+    for (let i: number = 1; i <= totalSeeded; i += 1) {
+      whitelistRows.set(baseId + i, JSON.stringify({
+        permissions: DEFAULT_WHITELIST_PERMISSIONS,
+        meta: { firstName: `CursorMember${i}`, lastName: "", username: "" },
+      }));
+      blocklistRows.set(baseId + 10_000 + i, JSON.stringify({
+        blockedAt: "2026/11/10 00:00:00",
+        meta: { firstName: `BlockedCursor${i}`, lastName: "", username: "" },
+      }));
+    }
+
+    // 1. afterId 游标分页：有下一页时返回 nextAfterId，末页返回 null。
+    const firstCursorPage = await listWhitelistEntries({
+      afterId: baseId,
+      limit: 5,
+    });
+    expect(firstCursorPage.items.map((item) => item.id)).toEqual([
+      baseId + 1,
+      baseId + 2,
+      baseId + 3,
+      baseId + 4,
+      baseId + 5,
+    ]);
+    expect(firstCursorPage.nextAfterId).toBe(baseId + 5);
+
+    const lastCursorPage = await listWhitelistEntries({
+      afterId: baseId + totalSeeded - 2,
+      limit: 5,
+    });
+    expect(lastCursorPage.items.map((item) => item.id)).toEqual([
+      baseId + totalSeeded - 1,
+      baseId + totalSeeded,
+    ]);
+    expect(lastCursorPage.nextAfterId).toBeNull();
+
+    const blockCursorPage = await listBlocklistEntries({
+      afterId: baseId + 10_000 + totalSeeded - 1,
+      limit: 5,
+    });
+    expect(blockCursorPage.items.map((item) => item.id)).toEqual([
+      baseId + 10_000 + totalSeeded,
+    ]);
+    expect(blockCursorPage.nextAfterId).toBeNull();
+
+    // 2. 非末页叠加未 ACK 写入时，大于当前页 nextCursor 的大 ID 不提前混入首页，直到翻至末页才出现；
+    //    同时多页扫描的最后一页若实际扫描数大于持久化计数（stale knownTotal），自动抬升 total 与 totalPages。
+    const highPendingId: number = baseId + 9_999;
+    await prefetchIdentityPolicies([highPendingId]);
+    miniAppTestJoinLogState.onFlushDiskIODomain = (): void => {
+      miniAppTestJoinLogState.onFlushDiskIODomain = undefined;
+      queueIdentityPolicyWrite("whitelist", highPendingId, {
+        permissions: DEFAULT_WHITELIST_PERMISSIONS,
+        meta: { firstName: "HighPending", lastName: "", username: "" },
+      });
+    };
+
+    const pageOneWithPending = await listWhitelistEntries({
+      page: 1,
+      pageSize: 10,
+    });
+    expect(pageOneWithPending.items.some((item) => item.id === highPendingId)).toBeFalse();
+    expect(pageOneWithPending.nextAfterId).toBe(baseId + 10);
+
+    // 请求跨过多页（超出首个 sweep 页，触发多页推进循环且末尾扫描数包含尚未计入持久化 count 的 highPendingId）。
+    const pageSize: number = MINI_APP_IDENTITY_MAX_PAGE_SIZE;
+    const targetLastPage: number = Math.ceil(BLOCKLIST_SWEEP_PAGE_SIZE / pageSize);
+    let deepFlushCount: number = 0;
+    miniAppTestJoinLogState.onFlushDiskIODomain = (): void => {
+      deepFlushCount += 1;
+      if (deepFlushCount >= 2) {
+        queueIdentityPolicyWrite("whitelist", highPendingId, {
+          permissions: DEFAULT_WHITELIST_PERMISSIONS,
+          meta: { firstName: "HighPending", lastName: "", username: "" },
+        });
+      }
+    };
+    try {
+      const deepPage = await listWhitelistEntries({
+        page: targetLastPage,
+        pageSize,
+      });
+      expect(deepPage.items.some((item) => item.id === highPendingId)).toBeTrue();
+      expect(deepPage.total).toBe(totalSeeded + 1);
+      expect(deepPage.nextAfterId).toBeNull();
+    } finally {
+      miniAppTestJoinLogState.onFlushDiskIODomain = undefined;
+    }
+  });
 });

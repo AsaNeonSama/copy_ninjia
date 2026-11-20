@@ -12,10 +12,13 @@ BOT_CONFIG_SETTINGS="$(bun -e '
   const config = await loadInstallerBotConfig("config/static/bot.json");
   console.log(config.atmosphere ?? "");
   console.log(config.timeZone);
+  console.log(config.logLevel);
 ')" || die "config/static/bot.json 严格校验未通过，原文件未改动。"
 BOT_ATMOSPHERE="${BOT_CONFIG_SETTINGS%%$'\n'*}"
-BOT_TIME_ZONE="${BOT_CONFIG_SETTINGS#*$'\n'}"
-unset BOT_CONFIG_SETTINGS
+BOT_CONFIG_SETTINGS_REST="${BOT_CONFIG_SETTINGS#*$'\n'}"
+BOT_TIME_ZONE="${BOT_CONFIG_SETTINGS_REST%%$'\n'*}"
+BOT_LOG_LEVEL="${BOT_CONFIG_SETTINGS_REST#*$'\n'}"
+unset BOT_CONFIG_SETTINGS BOT_CONFIG_SETTINGS_REST
 BOT_CONFIG_MODE_POLICY=new
 if [ -e config/static/bot.json ] &&
    ! grep -q 'replace-with-telegram-bot-token' config/static/bot.json; then
@@ -54,10 +57,11 @@ if [ "$CONFIGURE_TELEGRAM" -eq 1 ]; then
   "bot_token": "${BOT_TOKEN}",
   "super_admin_user_id": ${SUPER_ADMIN_USER_ID},
 ${BOT_ATMOSPHERE_FIELD}
-  "time_zone": "${BOT_TIME_ZONE}"
+  "time_zone": "${BOT_TIME_ZONE}",
+  "log_level": "${BOT_LOG_LEVEL}"
 }
 JSON
-  unset BOT_TOKEN SUPER_ADMIN_USER_ID BOT_ATMOSPHERE BOT_ATMOSPHERE_FIELD BOT_TIME_ZONE
+  unset BOT_TOKEN SUPER_ADMIN_USER_ID BOT_ATMOSPHERE BOT_ATMOSPHERE_FIELD BOT_TIME_ZONE BOT_LOG_LEVEL
   bun -e '
     import { carryOverMiniAppConfig } from "./scripts/install/runtime";
     await carryOverMiniAppConfig(Bun.argv[1], Bun.argv[2]);
@@ -139,8 +143,14 @@ elif confirm "现在配置 AI 能力（AI 闲聊、广告检测、生图、语�
       done
     fi
     if [ "$capability" = "tts" ]; then
+      voice_prompt="  tts 的 voice（Google 预置音色名如 Leda，或 AI Studio Voice design 的 voice_ 音色 ID）："
+      if [ "$provider" = "openai" ] && [ "$speech_protocol" = "xai" ]; then
+        voice_prompt="  tts 的 voice（xAI 音色名如 ara、eve、rex、sal、leo）："
+      elif [ "$provider" = "openai" ]; then
+        voice_prompt="  tts 的 voice（OpenAI 音色名如 alloy、coral、marin、nova、shimmer）："
+      fi
       while [ -z "$voice" ]; do
-        ask voice "  tts 的 voice（预置音色名如 Leda，或 AI Studio Voice design 的 voice_ 音色 ID）："
+        ask voice "$voice_prompt"
         [ -z "$voice" ] && warn "voice 不能为空。"
       done
     fi

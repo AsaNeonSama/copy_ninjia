@@ -29,10 +29,8 @@ import {
 import { handleChatStateWrite } from "../../../packages/workers/diskIO/storageDatabase/chatState";
 import {
   flushStorageDatabase,
-  collectStorageDatabaseFailures,
 } from "../../../packages/workers/diskIO/storageDatabase/flush";
 import { setStorageFlushHold } from "../../../packages/workers/diskIO/storageDatabase/flushHold";
-import type { DiskIODomain } from "../../../packages/types/diskIO/replies";
 import type {
   AiMemoryDeletedPersistedReply,
   AiMemoryPersistedReply,
@@ -149,20 +147,13 @@ test("同批删除的群不被迟到快照复活", () => {
   expect(storedContexts().size).toBe(0);
 });
 
-test("非法快照就地拒收：不进共享缓冲，记 aiMemory 拒收标记供下一次领域屏障回报", () => {
-  const errors = spyOn(console, "error").mockImplementation((): void => {});
-  try {
+test("非法快照就地抛出校验错误：不进共享缓冲、不推进水位线", () => {
+  expect(() => {
     markAiMemorySnapshotDirty({ chatId, revision: 1, snapshot: JSON.stringify({ version: 2 }) });
-  } finally {
-    errors.mockRestore();
-  }
+  }).toThrow("version");
   expect(pendingAiContextWrites.size).toBe(0);
   // 非法快照不推进水位线：同一 revision 的合法快照随后仍被接受。
   expect(aiMemoryRevisions.has(chatId)).toBeFalse();
-  const failedDomains: DiskIODomain[] = [];
-  collectStorageDatabaseFailures("aiMemory", failedDomains);
-  collectStorageDatabaseFailures("aiMemory", failedDomains);
-  expect(failedDomains).toEqual(["aiMemory"]);
   markAiMemorySnapshotDirty({ chatId, revision: 1, snapshot });
   expect(pendingAiContextWrites.get(chatId)?.revision).toBe(1);
 });

@@ -16,18 +16,28 @@ interface RootPackageManifest {
   readonly devDependencies?: Readonly<Record<string, string>>;
 }
 
+/** 根 `package.json` 直接声明的依赖包名视图。 */
+export interface DeclaredPackages {
+  /** 仅包含 `dependencies` 的生产运行期包名集合。 */
+  readonly runtime: ReadonlySet<string>;
+  /** 包含 `dependencies` 与 `devDependencies` 的全部已声明包名集合。 */
+  readonly all: ReadonlySet<string>;
+}
+
 /**
- * 读取根 manifest 直接声明的包名（`dependencies` 与 `devDependencies`）。
+ * 读取根 manifest 直接声明的包名，区分运行期依赖（`dependencies`）与全量依赖（`dependencies` + `devDependencies`）。
  *
  * @param projectRoot 仓库根目录绝对路径
- * @returns 已声明包名的只读集合
+ * @returns 运行期与全量已声明包名的只读集合对象
  */
-export async function readDeclaredPackages(projectRoot: string): Promise<ReadonlySet<string>> {
+export async function readDeclaredPackages(projectRoot: string): Promise<DeclaredPackages> {
   const manifest: RootPackageManifest = await Bun.file(join(projectRoot, "package.json")).json() as RootPackageManifest;
-  return new Set<string>([
-    ...Object.keys(manifest.dependencies ?? {}),
+  const runtime: ReadonlySet<string> = new Set<string>(Object.keys(manifest.dependencies ?? {}));
+  const all: ReadonlySet<string> = new Set<string>([
+    ...runtime,
     ...Object.keys(manifest.devDependencies ?? {}),
   ]);
+  return { runtime, all };
 }
 
 /**
@@ -52,8 +62,10 @@ export interface CollectUndeclaredDependencyProblemsParams {
   readonly path: string;
   /** 带父节点指针解析的 AST。 */
   readonly source: ts.SourceFile;
-  /** readDeclaredPackages 的结果。 */
+  /** 本作用域允许引用的已声明包名集合（运行期传 `runtime`，脚本/测试传 `all`）。 */
   readonly declaredPackages: ReadonlySet<string>;
+  /** 是否仅接受 `package.json` 的 `dependencies`（生产源码传 true，默认 false）。 */
+  readonly runtimeOnly?: boolean;
 }
 
 /**
@@ -67,15 +79,17 @@ export function collectUndeclaredDependencyProblems({
   path,
   source,
   declaredPackages,
+  runtimeOnly = false,
 }: CollectUndeclaredDependencyProblemsParams): readonly string[] {
   const problems: string[] = [];
+  const manifestScope: string = runtimeOnly ? "package.json dependencies" : "package.json dependencies or devDependencies";
   for (const reference of runtimeModuleReferences(source)) {
     const packageName: string | undefined = packageNameOf(reference.specifier);
     if (packageName === undefined || declaredPackages.has(packageName)) continue;
     const line: number = source.getLineAndCharacterOfPosition(reference.start).line + 1;
     problems.push(
       `${relative(projectRoot, path)}:${line} imports ${reference.specifier} at runtime, ` +
-      `but ${packageName} is not declared in package.json dependencies or devDependencies`
+      `but ${packageName} is not declared in ${manifestScope}`
     );
   }
   return problems;

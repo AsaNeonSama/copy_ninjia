@@ -1,9 +1,9 @@
 /**
- * 合成语音容器的固定布局：RIFF/WAVE（aiChat/ai/utils/wavPcm.ts 解析、aiChat/ai/voiceEncoding.ts
- * 识别），以及 Telegram sendVoice 直接接受的 OGG/Opus 与 MP3（aiChat/ai/utils/voiceContainer.ts
+ * 合成语音容器的固定布局：RIFF/WAVE（workers/aiChat/ai/utils/wavPcm.ts 解析、workers/aiChat/ai/voiceEncoding.ts
+ * 识别），以及 Telegram sendVoice 直接接受的 OGG/Opus 与 MP3（workers/aiChat/ai/utils/voiceContainer.ts
  * 校验并计算时长）。
- * 所属模块：packages/aiChat/ai/utils/wavPcm.ts、packages/aiChat/ai/utils/voiceContainer.ts 与
- * packages/aiChat/ai/voiceEncoding.ts。
+ * 所属模块：packages/workers/aiChat/ai/utils/wavPcm.ts、packages/workers/aiChat/ai/utils/voiceContainer.ts 与
+ * packages/workers/aiChat/ai/voiceEncoding.ts。
  */
 
 /** WAV 文件头固定长度：`RIFF` + 4 字节长度 + `WAVE`。 */

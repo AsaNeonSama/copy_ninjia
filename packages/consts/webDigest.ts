@@ -54,19 +54,19 @@ export const WEB_DIGEST_SOURCE_LABELS: Readonly<Record<WebDigestLanguage, string
 /** 来源与时间之间的分隔。所属模块：libs/webDigestMarkdown.ts。 */
 export const WEB_DIGEST_TIME_SEPARATOR: string = " · ";
 
-/** 组稿最多请求次数：首次不合格（JSON 非法、字段不合格、来源未出现或超长）时带诊断重试。所属模块：aiChat/ai/webDigest.ts。 */
+/** 组稿最多请求次数：首次不合格（JSON 非法、字段不合格、来源未出现或超长）时带诊断重试。所属模块：workers/aiChat/ai/webDigest.ts。 */
 export const WEB_DIGEST_COMPOSE_ATTEMPTS: number = 2;
-/** 交给组稿模型的来源列表最多条数（按地址去重后取前若干条）。所属模块：aiChat/ai/webDigest.ts。 */
+/** 交给组稿模型的来源列表最多条数（按地址去重后取前若干条）。所属模块：workers/aiChat/ai/webDigest.ts。 */
 export const WEB_DIGEST_MAX_SOURCES: number = 20;
 /** 检索正文中 HTTPS 链接的候选模式；不跨空白、双引号与文本标记边界。所属模块：libs/webDigestUrls.ts。 */
 export const WEB_DIGEST_RESEARCH_URL_PATTERN: Readonly<RegExp> = /https:\/\/[^\s<>"`\\，。；：！？、（）【】《》「」『』]+/giu;
 /** 裸链接末尾的英文句读；显式括号、引号或标记包围的链接保留原地址。所属模块：libs/webDigestUrls.ts。 */
 export const WEB_DIGEST_RESEARCH_URL_TRAILING_PUNCTUATION_PATTERN: Readonly<RegExp> = /[.,;:!?]+$/u;
-/** 组稿请求在错误日志里的调用名。所属模块：aiChat/ai/webDigest.ts。 */
+/** 组稿请求在错误日志里的调用名。所属模块：workers/aiChat/ai/webDigest.ts。 */
 export const WEB_DIGEST_COMPOSE_ERROR_LABEL: string = "Web digest composition";
-/** 未执行搜索时写入告警日志的模型正文预览上限；完整长度与截断标记一同记录。所属模块：aiChat/ai/webDigest.ts。 */
+/** 未执行搜索时写入告警日志的模型正文预览上限；完整长度与截断标记一同记录。所属模块：workers/aiChat/ai/webDigest.ts。 */
 export const WEB_DIGEST_NO_SEARCH_LOG_MAX_CHARS: number = 2_000;
-/** 未调用搜索时加在 cron 摘要正文开头的可见提示。所属模块：aiChat/ai/webDigest.ts。 */
+/** 未调用搜索时加在 cron 摘要正文开头的可见提示。所属模块：workers/aiChat/ai/webDigest.ts。 */
 export const WEB_DIGEST_UNSEARCHED_WARNING: string = "注意，以下可能为模型侧缓存内容，请仔细甄别";
 /**
  * 一次组稿流水线里单次模型调用的上限：取三家实现包 `text` 与 `web_search` 档位超时的最大值
@@ -91,7 +91,7 @@ export const WEB_DIGEST_REQUEST_TIMEOUT_MS: number =
 /**
  * 组稿输出的 JSON Schema（digest/v1）：Gemini 以 responseJsonSchema、Anthropic 以 output_config.format
  * 约束输出，OpenAI 兼容端点的 json_object 不收 Schema，字段说明写在组稿提示词里。只用三家都接受的
- * 关键字；小节数、长度上限与条目总数由 libs/webDigest.ts 解码时核对。所属模块：aiChat/ai/webDigest.ts。
+ * 关键字；小节数、长度上限与条目总数由 libs/webDigest.ts 解码时核对。所属模块：workers/aiChat/ai/webDigest.ts。
  */
 export const WEB_DIGEST_JSON_SCHEMA: Readonly<Record<string, unknown>> = {
   type: "object",

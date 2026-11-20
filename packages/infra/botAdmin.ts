@@ -68,6 +68,7 @@ async function completeAfterTeardown(
 
 /**
  * 记录一次确证的完整权限观测；已启用 `/init` 且与已知快照不同时写入、落盘并按动作权限位变化广播。
+ * 若落盘失败仍会在 `finally` 内将最新的动作权限位通知给观察者，避免 Anti-Raid 镜像停留在旧值。
  * @param chatId 目标群 ID。
  * @param permissions 确证的机器人本群权限快照。
  */
@@ -81,11 +82,13 @@ async function recordBotChatPermissions(
   const changed: boolean = !botChatPermissionsEqual(previous, permissions);
   botPermissionProbeBackoff.delete(chatId);
   if (changed) {
+    const actionPermissionsChanged: boolean = !botActionPermissionsEqual(previous, permissions);
     chatState.botPermissions = permissions;
     if (!permissions.isAdministrator) forgetChatBlocklistWork(chatId);
-    await persistChatState(chatId, "bot permissions refresh");
-    if (!botActionPermissionsEqual(previous, permissions)) {
-      notifyBotPermissionObserver(chatId, permissions);
+    try {
+      await persistChatState(chatId, "bot permissions refresh");
+    } finally {
+      if (actionPermissionsChanged) notifyBotPermissionObserver(chatId, permissions);
     }
   }
   if (!permissions.isAdministrator) return;
@@ -93,7 +96,7 @@ async function recordBotChatPermissions(
   try {
     await sweepBlockedMembers(chatId);
   } catch (error: unknown) {
-    logger.error(`Failed to sweep blocklisted members from chat ${chatId} after gaining admin rights:`, error);
+    logger.error("Failed to sweep blocklisted members after gaining admin rights:", { chatId }, error);
   }
 }
 
@@ -139,6 +142,7 @@ export async function completeChatDeparture(chatId: number, reason: ChatDepartur
     },
     `Failed to complete departure transition for chat ${chatId}.`
   );
+  logger.info("Completed state teardown after departing chat.", { chatId });
 }
 
 /**
@@ -165,7 +169,7 @@ export async function markBotAdminObserved(chatId: number): Promise<void> {
     try {
       await sweepBlockedMembers(chatId);
     } catch (error: unknown) {
-      logger.error(`Failed to sweep blocklisted members from chat ${chatId} after an admin observation:`, error);
+      logger.error("Failed to sweep blocklisted members after an admin observation:", { chatId }, error);
     }
     return;
   }
@@ -209,8 +213,8 @@ export async function disableManagedChat(chatId: number): Promise<boolean> {
     return false;
   } catch (error: unknown) {
     logger.error(
-      `Failed to settle the chat runtime teardown for chat ${chatId}; ` +
-      "the init gate is already persisted as disabled:",
+      "Failed to settle chat runtime teardown; the init gate is already persisted as disabled:",
+      { chatId },
       error
     );
     return true;
@@ -270,7 +274,7 @@ function notifyBotPermissionObserver(chatId: number, permissions: BotChatPermiss
   try {
     botPermissionObserver.current?.(chatId, permissions);
   } catch (error: unknown) {
-    logger.error(`Failed to publish the bot's permission change for chat ${chatId}:`, error);
+    logger.error("Failed to publish the bot's permission change:", { chatId }, error);
   }
 }
 
@@ -314,7 +318,7 @@ export async function botChatPermissionsIn(chatId: number): Promise<BotChatPermi
       member = await bot.api.getChatMember(chatId, bot.botInfo.id, telegramSignal(signal));
     } catch (error: unknown) {
       throwIfUpdateAborted(signal);
-      logger.error(`Failed to read the bot's own permissions in chat ${chatId}:`, error);
+      logger.error("Failed to read the bot's own permissions:", { chatId }, error);
       return undefined;
     }
     if (botPermissionRequestTokens.get(chatId) !== requestToken) return undefined;

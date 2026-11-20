@@ -33,7 +33,7 @@ import {
   DEFAULT_ASSET_CONFIG,
   RANDOM_H_IMAGE_DIR_FIELD,
 } from "../consts/ui/assets";
-import { defaultAvatarPhotoType } from "../infra/telegram/avatar/photoType";
+import { defaultAvatarPhotoType } from "../libs/avatarPhotoType";
 import { invalidInput, readJsonInput, requiredString } from "../libs/inputValidation";
 import { isPlainRecord } from "../libs/record";
 import type { AssetConfig, DefaultAvatarSource } from "../types/config";
@@ -178,7 +178,7 @@ function assetDirectory(group: AssetGroup): string {
  * @param path 本机默认头像文件的绝对路径。
  * @param sourcePath 配置文件路径，用于构造致命错误诊断。
  */
-async function verifyDefaultAvatarFile(path: string, sourcePath: string): Promise<void> {
+export async function verifyDefaultAvatarFile(path: string, sourcePath: string): Promise<void> {
   let bytes: Uint8Array | null;
   try {
     const file: BunFile = Bun.file(path);

@@ -1,15 +1,38 @@
 import { getTimeZone } from "../../packages/config/time";
+import { adoptLogLevel, getLogLevel } from "../../packages/config/logLevel";
 import { TTS_DEFAULT_BOT_LANGUAGE, TTS_DEFAULT_STYLE } from "../../packages/consts/aiChat/voiceMessage";
-import { beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, jest, spyOn, test } from "bun:test";
+import { FLUSH_INTERVAL_MS } from "../../packages/consts/diskIO/appendOnly";
+import { DISK_DIAGNOSTIC_BATCH_MAX_MESSAGES } from "../../packages/consts/diskIO/diagnostics";
+import { diskIORuntime } from "../../packages/cache/main/diskIO";
 import {
+  pauseDiskIODiagnosticChannel,
+  resumeDiskIODiagnosticChannel,
+} from "../../packages/infra/diskIO/diagnosticChannel";
+import {
+  emitSuccessfulDiskIOLoad,
+  FakeDiskIOWorker,
+  installFakeDiskIOWorker,
+} from "../helpers/diskIOWorkerHarness";
+import {
+  CONSOLE_METHOD_BY_LOG_LEVEL,
+  CONSOLE_PREFIX_BY_LOG_LEVEL,
   LOGGER_CIRCULAR_ERROR_VALUE,
   LOGGER_MAX_REDACTED_SECRETS,
   LOGGER_NESTED_ERROR_DEPTH_EXCEEDED_VALUE,
   LOGGER_NESTED_ERROR_MAX_DEPTH,
   LOGGER_UNSERIALIZABLE_VALUE,
+  LOG_LEVELS,
+  LOG_LEVEL_PRIORITY,
 } from "../../packages/consts/logger";
 import { REDACTED_SECRET } from "../../packages/consts/redaction";
-import type { DiskDiagnosticBatchRequest, DiskIOMessage, LogEnvelope } from "../../packages/types/diskIO/messages";
+import type {
+  DiskDiagnosticBatchRequest,
+  DiskIOMessage,
+  LogEnvelope,
+  LogLevel,
+  LogMessage,
+} from "../../packages/types/diskIO/messages";
 import type { DiskIOReply } from "../../packages/types/diskIO/replies";
 import type {
   AdDetectAgentConfig,
@@ -29,6 +52,8 @@ class FakeWorker {
 
   unref(): void {}
 
+  terminate(): void {}
+
   postMessage(message: DiskIOMessage): void {
     this.messages.push(message);
   }
@@ -45,7 +70,7 @@ const {
   agentDeploymentConfigCache,
   botConfigCache,
 } = await import("../../packages/cache/perThread/config");
-const { loggerSecretsMemo } = await import("../../packages/cache/perThread/logger");
+const { logRelaySink, loggerSecretsMemo } = await import("../../packages/cache/perThread/logger");
 
 describe("logger persistence routing boundary", () => {
   // 脱敏名单会保留热重载替换下来的旧凭据；每条用例从空名单起步，不沿用前一条装进 holder 的替身值。
@@ -53,20 +78,25 @@ describe("logger persistence routing boundary", () => {
     loggerSecretsMemo.current = null;
   });
 
-  test("初始化前只写控制台，完整恢复成功后 error 才转投唯一落盘 Worker", async () => {
+  test("初始化前只写控制台，完整恢复成功后达到或高于阈值的日志才转投唯一落盘 Worker", async () => {
     const originalWorker: typeof Worker = globalThis.Worker;
+    const previousLogLevel: LogLevel = getLogLevel();
     globalThis.Worker = FakeWorker as unknown as typeof Worker;
     const consoleError = spyOn(console, "error").mockImplementation(() => {});
     const consoleInfo = spyOn(console, "info").mockImplementation(() => {});
+    adoptLogLevel("operation");
     try {
+      logger.info("suppressed-before-threshold");
+      expect(consoleInfo).not.toHaveBeenCalled();
+
       logger.error("before-lock");
-      expect(consoleError).toHaveBeenCalledWith("before-lock");
+      expect(consoleError).toHaveBeenCalledWith(CONSOLE_PREFIX_BY_LOG_LEVEL.error, "before-lock");
       expect(FakeWorker.instances).toHaveLength(0);
 
       diskIO.initDiskIO();
       const worker: FakeWorker = FakeWorker.instances[0]!;
-      logger.info("console-only");
-      expect(consoleInfo).toHaveBeenCalledWith("console-only");
+      logger.operation("buffered-before-loaded");
+      expect(consoleInfo).toHaveBeenCalledWith(CONSOLE_PREFIX_BY_LOG_LEVEL.operation, "buffered-before-loaded");
       expect(worker.messages).toHaveLength(0);
 
       const loaded = diskIO.loadPersistedData(1_000);
@@ -91,6 +121,9 @@ describe("logger persistence routing boundary", () => {
         chatQa: new Map(),
       } satisfies DiskIOReply } as unknown as MessageEvent<DiskIOReply>);
       await loaded;
+      expect(worker.messages).toHaveLength(1);
+      expect(diskIORuntime.diagnosticQueue.size).toBe(1);
+      expect(diskIORuntime.diagnosticFlushTimer).not.toBeNull();
       worker.messages.length = 0;
 
       logger.error("after-lock", new Error("persist me"));
@@ -98,29 +131,113 @@ describe("logger persistence routing boundary", () => {
       const message: DiskIOMessage = worker.messages[0]!;
       expect(message.type).toBe("diagnosticBatch");
       const batch: DiskDiagnosticBatchRequest = message as DiskDiagnosticBatchRequest;
-      const log: LogEnvelope = batch.messages[0] as LogEnvelope;
-      expect(log.level).toBe("error");
-      expect(log.args[0]).toBe("after-lock");
-      expect(log.args[1]).toMatchObject({ name: "Error", message: "persist me" });
+      expect(batch.messages).toHaveLength(2);
+      const bufferedLog: LogEnvelope = batch.messages[0] as LogEnvelope;
+      expect(bufferedLog.level).toBe("operation");
+      expect(bufferedLog.args).toEqual(["buffered-before-loaded"]);
+      const errorLog: LogEnvelope = batch.messages[1] as LogEnvelope;
+      expect(errorLog.level).toBe("error");
+      expect(errorLog.args[0]).toBe("after-lock");
+      expect(errorLog.args[1]).toMatchObject({ name: "Error", message: "persist me" });
+      expect(diskIORuntime.diagnosticFlushTimer).toBeNull();
       worker.onmessage!({
         data: { type: "diagnosticBatchAccepted", batchId: batch.batchId },
       } as MessageEvent<DiskIOReply>);
     } finally {
+      adoptLogLevel(previousLogLevel);
       consoleInfo.mockRestore();
       consoleError.mockRestore();
+      diskIORuntime.writable = false;
+      await diskIO.terminateDiskIO();
       globalThis.Worker = originalWorker;
+      FakeWorker.instances.length = 0;
+    }
+  });
+
+  test("四个 log_level 阈值均先过滤再序列化，达到阈值按级别路由控制台并带 level 投递落盘", () => {
+    const previousLogLevel: LogLevel = getLogLevel();
+    const previousRelaySink: typeof logRelaySink.current = logRelaySink.current;
+    const relayed: LogMessage[] = [];
+    logRelaySink.current = (message: LogMessage): boolean => {
+      relayed.push(message);
+      return true;
+    };
+    const consoleSpies = {
+      info: spyOn(console, "info").mockImplementation(() => {}),
+      warn: spyOn(console, "warn").mockImplementation(() => {}),
+      error: spyOn(console, "error").mockImplementation(() => {}),
+    };
+    try {
+      for (const threshold of LOG_LEVELS) {
+        adoptLogLevel(threshold);
+        for (const level of LOG_LEVELS) {
+          consoleSpies.info.mockClear();
+          consoleSpies.warn.mockClear();
+          consoleSpies.error.mockClear();
+          relayed.length = 0;
+
+          let evaluated: boolean = false;
+          const probe: { readonly value: string } = {
+            get value(): string {
+              evaluated = true;
+              return `payload-${level}`;
+            },
+          };
+          logger[level](`msg-${threshold}-${level}`, probe);
+
+          const enabled: boolean = LOG_LEVEL_PRIORITY[level] >= LOG_LEVEL_PRIORITY[threshold];
+          expect(evaluated).toBe(enabled);
+          if (!enabled) {
+            expect(consoleSpies.info).not.toHaveBeenCalled();
+            expect(consoleSpies.warn).not.toHaveBeenCalled();
+            expect(consoleSpies.error).not.toHaveBeenCalled();
+            expect(relayed).toHaveLength(0);
+            continue;
+          }
+
+          const targetMethod: "info" | "warn" | "error" = CONSOLE_METHOD_BY_LOG_LEVEL[level];
+          for (const method of ["info", "warn", "error"] as const) {
+            if (method === targetMethod) {
+              expect(consoleSpies[method]).toHaveBeenCalledTimes(1);
+              expect(consoleSpies[method]).toHaveBeenCalledWith(
+                CONSOLE_PREFIX_BY_LOG_LEVEL[level],
+                `msg-${threshold}-${level}`,
+                { value: `payload-${level}` }
+              );
+            } else {
+              expect(consoleSpies[method]).not.toHaveBeenCalled();
+            }
+          }
+          expect(relayed).toHaveLength(1);
+          expect(relayed[0]?.level).toBe(level);
+          expect(relayed[0]?.args).toEqual([`msg-${threshold}-${level}`, { value: `payload-${level}` }]);
+        }
+      }
+    } finally {
+      adoptLogLevel(previousLogLevel);
+      logRelaySink.current = previousRelaySink;
+      consoleSpies.info.mockRestore();
+      consoleSpies.warn.mockRestore();
+      consoleSpies.error.mockRestore();
     }
   });
 
   test("字符串参数与 Error 可枚举字段里的敏感值都被脱敏后才进控制台与落盘", () => {
     const originalTelegram: BotConfig | null = botConfigCache.current;
     const token: string = "logger-telegram-token";
-    botConfigCache.current = { timeZone: getTimeZone(), atmosphere: "mesugaki", botToken: token, superAdminUserId: 1 };
+    botConfigCache.current = {
+      timeZone: getTimeZone(),
+      atmosphere: "mesugaki",
+      logLevel: "operation",
+      botToken: token,
+      superAdminUserId: 1,
+    };
     const consoleError = spyOn(console, "error").mockImplementation(() => {});
     try {
       // 字符串走的是不经 JSON 往返的快路径；对象/Error 仍走序列化后整份脱敏。
       logger.error(`download failed: https://api.telegram.org/file/bot${token}/photo.jpg`);
-      const stringArg: unknown = consoleError.mock.calls.at(-1)![0];
+      expect(consoleError.mock.calls.at(-1)![0]).toBe(CONSOLE_PREFIX_BY_LOG_LEVEL.error);
+      const stringArg: unknown = consoleError.mock.calls.at(-1)![1];
       expect(stringArg).toBe("download failed: https://api.telegram.org/file/bot[REDACTED]/photo.jpg");
       expect(String(stringArg)).not.toContain(token);
 
@@ -128,7 +245,8 @@ describe("logger persistence routing boundary", () => {
         path: `https://api.telegram.org/file/bot${token}/photo.jpg`,
       });
       logger.error("boom", failure);
-      const errorArg = consoleError.mock.calls.at(-1)![1] as { path: string; message: string };
+      expect(consoleError.mock.calls.at(-1)![0]).toBe(CONSOLE_PREFIX_BY_LOG_LEVEL.error);
+      const errorArg = consoleError.mock.calls.at(-1)![2] as { path: string; message: string };
       expect(errorArg.message).toBe("fetch failed");
       expect(errorArg.path).toBe("https://api.telegram.org/file/bot[REDACTED]/photo.jpg");
       expect(JSON.stringify(errorArg)).not.toContain(token);
@@ -149,20 +267,33 @@ describe("logger persistence routing boundary", () => {
     try {
       botConfigCache.current = null;
       logger.error("no-config-yet");
-      expect(consoleError.mock.calls.at(-1)![0]).toBe("no-config-yet");
+      expect(consoleError.mock.calls.at(-1)![0]).toBe(CONSOLE_PREFIX_BY_LOG_LEVEL.error);
+      expect(consoleError.mock.calls.at(-1)![1]).toBe("no-config-yet");
 
       const token: string = "late-arriving-telegram-token";
-      botConfigCache.current = { timeZone: getTimeZone(), atmosphere: "mesugaki", botToken: token, superAdminUserId: 1 };
+      botConfigCache.current = {
+        timeZone: getTimeZone(),
+        atmosphere: "mesugaki",
+        logLevel: "operation",
+        botToken: token,
+        superAdminUserId: 1,
+      };
       logger.error(`now with token ${token}`);
-      const stringArg: unknown = consoleError.mock.calls.at(-1)![0];
+      const stringArg: unknown = consoleError.mock.calls.at(-1)![1];
       expect(stringArg).toBe(`now with token ${REDACTED_SECRET}`);
       expect(String(stringArg)).not.toContain(token);
 
       // 换成另一份配置同样要立刻生效（测试替身、启动总闸与热重载都是整体替换 holder）。
       const rotated: string = "rotated-telegram-token";
-      botConfigCache.current = { timeZone: getTimeZone(), atmosphere: "mesugaki", botToken: rotated, superAdminUserId: 1 };
+      botConfigCache.current = {
+        timeZone: getTimeZone(),
+        atmosphere: "mesugaki",
+        logLevel: "operation",
+        botToken: rotated,
+        superAdminUserId: 1,
+      };
       logger.error(`rotated ${rotated} but old ${token}`);
-      const afterRotate: string = String(consoleError.mock.calls.at(-1)![0]);
+      const afterRotate: string = String(consoleError.mock.calls.at(-1)![1]);
       expect(afterRotate).not.toContain(rotated);
       // 旧凭据可能还在旧客户端的在途请求里，退役后照样脱敏。
       expect(afterRotate).not.toContain(token);
@@ -185,11 +316,17 @@ describe("logger persistence routing boundary", () => {
       for (let index: number = 0; index <= LOGGER_MAX_REDACTED_SECRETS; index++) {
         const token: string = `retired-telegram-token-${String(index).padStart(3, "0")}`;
         tokens.push(token);
-        botConfigCache.current = { timeZone: getTimeZone(), atmosphere: "mesugaki", botToken: token, superAdminUserId: 1 };
+        botConfigCache.current = {
+          timeZone: getTimeZone(),
+          atmosphere: "mesugaki",
+          logLevel: "operation",
+          botToken: token,
+          superAdminUserId: 1,
+        };
         logger.error("rotate");
       }
       logger.error(tokens.join(" "));
-      const output: string = String(consoleError.mock.calls.at(-1)![0]);
+      const output: string = String(consoleError.mock.calls.at(-1)![1]);
       // 当前 1 个加最近退役的 LOGGER_MAX_REDACTED_SECRETS - 1 个仍在名单里。
       expect(output).toContain(tokens[0]!);
       for (const token of tokens.slice(1)) expect(output).not.toContain(token);
@@ -210,7 +347,10 @@ describe("logger persistence routing boundary", () => {
       "normalized-gemini-key",
       "normalized-deepseek-key",
     ];
-    botConfigCache.current = { timeZone: getTimeZone(), atmosphere: "mesugaki",
+    botConfigCache.current = {
+      timeZone: getTimeZone(),
+      atmosphere: "mesugaki",
+      logLevel: "operation",
       botToken: normalizedSecrets[0],
       superAdminUserId: 1,
     };
@@ -235,8 +375,8 @@ describe("logger persistence routing boundary", () => {
         })
       );
 
-      const stringArg: unknown = consoleError.mock.calls.at(-1)![0];
-      const errorArg: unknown = consoleError.mock.calls.at(-1)![1];
+      const stringArg: unknown = consoleError.mock.calls.at(-1)![1];
+      const errorArg: unknown = consoleError.mock.calls.at(-1)![2];
       expect(stringArg).toBe("request failed: [REDACTED] / [REDACTED] / [REDACTED]");
       expect(errorArg).toMatchObject({
         path: "https://api.telegram.org/file/bot[REDACTED]/photo.jpg",
@@ -316,7 +456,7 @@ describe("logger persistence routing boundary", () => {
 
       logger.error("image request failed", failure);
 
-      const serialized: unknown = consoleError.mock.calls.at(-1)![1];
+      const serialized: unknown = consoleError.mock.calls.at(-1)![2];
       expect(serialized).toMatchObject({
         message: "xAI request failed",
         headers: {
@@ -347,7 +487,7 @@ describe("logger persistence routing boundary", () => {
         `upstream failed: {"set-cookie":["${cloudflareCookie}"],` +
         `"x-request-id":"request-visible-456","x-ratelimit-remaining":"40","output_tokens":18}`
       );
-      const textArg: string = String(consoleError.mock.calls.at(-1)![0]);
+      const textArg: string = String(consoleError.mock.calls.at(-1)![1]);
       expect(textArg).not.toContain(cloudflareCookie);
       expect(textArg).toContain(REDACTED_SECRET);
       expect(textArg).toContain("request-visible-456");
@@ -373,7 +513,7 @@ describe("logger persistence routing boundary", () => {
       );
       logger.error("image request failed", failure);
 
-      const serialized: unknown = consoleError.mock.calls.at(-1)![1];
+      const serialized: unknown = consoleError.mock.calls.at(-1)![2];
       const message: string = (serialized as { message: string }).message;
       expect(message.includes("request-visible-789")).toBeTrue();
       expect(serialized).toMatchObject({
@@ -410,7 +550,7 @@ describe("logger persistence routing boundary", () => {
       });
       logger.error("boom", error);
 
-      const serialized: unknown = consoleError.mock.calls.at(-1)![1];
+      const serialized: unknown = consoleError.mock.calls.at(-1)![2];
       expect(serialized).toMatchObject({
         message: "dependency blew up",
         ["__proto__"]: { hint: "from dependency" },
@@ -425,7 +565,13 @@ describe("logger persistence routing boundary", () => {
   test("cause、AggregateError.errors 与值为 Error 的字段递归展开，嵌套层同样脱敏", () => {
     const originalTelegram: BotConfig | null = botConfigCache.current;
     const token: string = "nested-cause-telegram-token";
-    botConfigCache.current = { timeZone: getTimeZone(), atmosphere: "mesugaki", botToken: token, superAdminUserId: 1 };
+    botConfigCache.current = {
+      timeZone: getTimeZone(),
+      atmosphere: "mesugaki",
+      logLevel: "operation",
+      botToken: token,
+      superAdminUserId: 1,
+    };
     const consoleError = spyOn(console, "error").mockImplementation(() => {});
     try {
       const fetchFailure = Object.assign(new TypeError("fetch failed"), {
@@ -441,7 +587,7 @@ describe("logger persistence routing boundary", () => {
 
       logger.error("teardown failed", departure);
 
-      const serialized: unknown = consoleError.mock.calls.at(-1)![1];
+      const serialized: unknown = consoleError.mock.calls.at(-1)![2];
       expect(serialized).toMatchObject({
         name: "AggregateError",
         message: "Failed to complete departure",
@@ -492,7 +638,7 @@ describe("logger persistence routing boundary", () => {
         },
       });
       expect((): void => logger.error(looping)).not.toThrow();
-      expect(consoleError.mock.calls.at(-1)![0]).toMatchObject({
+      expect(consoleError.mock.calls.at(-1)![1]).toMatchObject({
         message: "self loop",
         cause: {
           message: "middle",
@@ -507,7 +653,7 @@ describe("logger persistence routing boundary", () => {
         deepest = new Error(`level ${level}`, { cause: deepest });
       }
       logger.error(deepest);
-      let record: unknown = consoleError.mock.calls.at(-1)![0];
+      let record: unknown = consoleError.mock.calls.at(-1)![1];
       for (let level: number = 0; level < LOGGER_NESTED_ERROR_MAX_DEPTH; level++) {
         expect(record).toMatchObject({ message: `level ${LOGGER_NESTED_ERROR_MAX_DEPTH + 1 - level}` });
         record = (record as { cause: unknown }).cause;
@@ -519,7 +665,7 @@ describe("logger persistence routing boundary", () => {
 
       // 无嵌套的普通 Error 输出形态不变：不凭空多出 cause/errors 字段。
       logger.error(new Error("plain"));
-      expect(Object.keys(consoleError.mock.calls.at(-1)![0] as object)).toEqual(["name", "message", "stack"]);
+      expect(Object.keys(consoleError.mock.calls.at(-1)![1] as object)).toEqual(["name", "message", "stack"]);
     } finally {
       consoleError.mockRestore();
     }
@@ -538,7 +684,7 @@ describe("logger persistence routing boundary", () => {
     try {
       // logger 内部不向上抛 SyntaxError，原始错误照常落盘。
       expect((): void => logger.error("boom", new Error("fetch failed"))).not.toThrow();
-      const fallback: unknown = consoleError.mock.calls.at(-1)![1];
+      const fallback: unknown = consoleError.mock.calls.at(-1)![2];
       // 解析不了就退化成脱敏后的文本，敏感值仍然不得出现。
       expect(typeof fallback).toBe("string");
       expect(String(fallback)).toContain("fetch failed");
@@ -561,7 +707,7 @@ describe("logger persistence routing boundary", () => {
         },
       };
       expect((): void => logger.error(hostileObject)).not.toThrow();
-      expect(consoleError.mock.calls.at(-1)![0]).toBe(LOGGER_UNSERIALIZABLE_VALUE);
+      expect(consoleError.mock.calls.at(-1)![1]).toBe(LOGGER_UNSERIALIZABLE_VALUE);
 
       const hostileError: Error = new Error("original failure");
       Object.defineProperty(hostileError, "name", {
@@ -577,7 +723,7 @@ describe("logger persistence routing boundary", () => {
         },
       });
       expect((): void => logger.error(hostileError)).not.toThrow();
-      expect(consoleError.mock.calls.at(-1)![0]).toMatchObject({
+      expect(consoleError.mock.calls.at(-1)![1]).toMatchObject({
         name: "Error",
         message: "original failure",
         response: LOGGER_UNSERIALIZABLE_VALUE,
@@ -589,7 +735,7 @@ describe("logger persistence routing boundary", () => {
         },
       });
       expect((): void => logger.error(proxiedError)).not.toThrow();
-      expect(consoleError.mock.calls.at(-1)![0]).toMatchObject({
+      expect(consoleError.mock.calls.at(-1)![1]).toMatchObject({
         name: "Error",
         message: "proxied failure",
       });
@@ -597,9 +743,245 @@ describe("logger persistence routing boundary", () => {
       const revoked: { proxy: object; revoke: () => void } = Proxy.revocable({}, {});
       revoked.revoke();
       expect((): void => logger.error(revoked.proxy)).not.toThrow();
-      expect(consoleError.mock.calls.at(-1)![0]).toBe(LOGGER_UNSERIALIZABLE_VALUE);
+      expect(consoleError.mock.calls.at(-1)![1]).toBe(LOGGER_UNSERIALIZABLE_VALUE);
     } finally {
       consoleError.mockRestore();
+    }
+  });
+});
+
+async function startWritableLogDiskIO(level: LogLevel): Promise<{
+  readonly worker: FakeDiskIOWorker;
+  readonly previousLogLevel: LogLevel;
+  readonly restoreWorker: () => void;
+}> {
+  const restoreWorker: () => void = installFakeDiskIOWorker();
+  const previousLogLevel: LogLevel = getLogLevel();
+  adoptLogLevel(level);
+  diskIO.initDiskIO();
+  const worker: FakeDiskIOWorker = FakeDiskIOWorker.instances[0]!;
+  const loaded: Promise<unknown> = diskIO.loadPersistedData(1_000);
+  emitSuccessfulDiskIOLoad(worker);
+  await loaded;
+  worker.messages.length = 0;
+  return { worker, previousLogLevel, restoreWorker };
+}
+
+async function stopWritableLogDiskIO(
+  previousLogLevel: LogLevel,
+  restoreWorker: () => void
+): Promise<void> {
+  adoptLogLevel(previousLogLevel);
+  await diskIO.terminateDiskIO();
+  restoreWorker();
+}
+
+describe("main-thread log buffering", () => {
+  afterEach((): void => {
+    jest.useRealTimers();
+  });
+
+  test("普通级别日志在主线程缓冲，到达 FLUSH_INTERVAL_MS 时整批落盘且不因后续普通日志重置计时", async () => {
+    jest.useFakeTimers();
+    const consoleInfo = spyOn(console, "info").mockImplementation(() => {});
+    const consoleWarn = spyOn(console, "warn").mockImplementation(() => {});
+    const { worker, previousLogLevel, restoreWorker } = await startWritableLogDiskIO("info");
+    try {
+      logger.info("info-1");
+      logger.operation("op-2");
+      logger.warn("warn-3");
+      expect(worker.messages).toHaveLength(0);
+      expect(diskIORuntime.diagnosticQueue.size).toBe(3);
+      expect(diskIORuntime.diagnosticFlushTimer).not.toBeNull();
+
+      jest.advanceTimersByTime(FLUSH_INTERVAL_MS - 1);
+      logger.operation("op-4");
+      expect(worker.messages).toHaveLength(0);
+      expect(diskIORuntime.diagnosticQueue.size).toBe(4);
+
+      jest.advanceTimersByTime(1);
+      expect(worker.messages).toHaveLength(1);
+      const batch = worker.messages[0] as DiskDiagnosticBatchRequest;
+      expect(batch.type).toBe("diagnosticBatch");
+      expect(batch.messages.map((entry) => (entry as LogEnvelope).args[0])).toEqual([
+        "info-1",
+        "op-2",
+        "warn-3",
+        "op-4",
+      ]);
+      expect(diskIORuntime.diagnosticFlushTimer).toBeNull();
+
+      worker.onmessage!({
+        data: { type: "diagnosticBatchAccepted", batchId: batch.batchId },
+      } as MessageEvent<DiskIOReply>);
+      expect(diskIORuntime.diagnosticQueue.size).toBe(0);
+      expect(diskIORuntime.diagnosticFlushPendingCount).toBe(0);
+    } finally {
+      consoleInfo.mockRestore();
+      consoleWarn.mockRestore();
+      await stopWritableLogDiskIO(previousLogLevel, restoreWorker);
+    }
+  });
+
+  test("普通级别日志攒满 DISK_DIAGNOSTIC_BATCH_MAX_MESSAGES 立即成批发送，且在途小批不触发提前整批冲刷", async () => {
+    jest.useFakeTimers();
+    const consoleInfo = spyOn(console, "info").mockImplementation(() => {});
+    const consoleError = spyOn(console, "error").mockImplementation(() => {});
+    const { worker, previousLogLevel, restoreWorker } = await startWritableLogDiskIO("operation");
+    try {
+      for (let i = 0; i < DISK_DIAGNOSTIC_BATCH_MAX_MESSAGES - 1; i += 1) {
+        logger.operation(`fill-${i}`);
+      }
+      expect(worker.messages).toHaveLength(0);
+      expect(diskIORuntime.diagnosticFlushTimer).not.toBeNull();
+
+      logger.operation(`fill-${DISK_DIAGNOSTIC_BATCH_MAX_MESSAGES - 1}`);
+      expect(worker.messages).toHaveLength(1);
+      const firstBatch = worker.messages[0] as DiskDiagnosticBatchRequest;
+      expect(firstBatch.messages).toHaveLength(DISK_DIAGNOSTIC_BATCH_MAX_MESSAGES);
+      expect(diskIORuntime.diagnosticFlushTimer).toBeNull();
+      worker.onmessage!({
+        data: { type: "diagnosticBatchAccepted", batchId: firstBatch.batchId },
+      } as MessageEvent<DiskIOReply>);
+      worker.messages.length = 0;
+
+      // 在途 1 条 error 时队列又堆积 MAX-1 条 operation：即使队列总长度达到 MAX，ACK 后仍继续等待凑满整批或超时。
+      logger.error("in-flight-error");
+      expect(worker.messages).toHaveLength(1);
+      const errorBatch = worker.messages[0] as DiskDiagnosticBatchRequest;
+      worker.messages.length = 0;
+
+      for (let i = 0; i < DISK_DIAGNOSTIC_BATCH_MAX_MESSAGES - 1; i += 1) {
+        logger.operation(`pending-after-error-${i}`);
+      }
+      expect(worker.messages).toHaveLength(0);
+      expect(diskIORuntime.diagnosticQueue.size).toBe(DISK_DIAGNOSTIC_BATCH_MAX_MESSAGES);
+
+      worker.onmessage!({
+        data: { type: "diagnosticBatchAccepted", batchId: errorBatch.batchId },
+      } as MessageEvent<DiskIOReply>);
+      expect(worker.messages).toHaveLength(0);
+      expect(diskIORuntime.diagnosticQueue.size).toBe(DISK_DIAGNOSTIC_BATCH_MAX_MESSAGES - 1);
+      expect(diskIORuntime.diagnosticFlushTimer).not.toBeNull();
+
+      logger.operation("complete-second-full-batch");
+      expect(worker.messages).toHaveLength(1);
+      const secondBatch = worker.messages[0] as DiskDiagnosticBatchRequest;
+      expect(secondBatch.messages).toHaveLength(DISK_DIAGNOSTIC_BATCH_MAX_MESSAGES);
+      worker.onmessage!({
+        data: { type: "diagnosticBatchAccepted", batchId: secondBatch.batchId },
+      } as MessageEvent<DiskIOReply>);
+      expect(diskIORuntime.diagnosticFlushTimer).toBeNull();
+    } finally {
+      consoleInfo.mockRestore();
+      consoleError.mockRestore();
+      await stopWritableLogDiskIO(previousLogLevel, restoreWorker);
+    }
+  });
+
+  test("非日志诊断、flushDiskIO 与 flushDiskIODomain(\"log\") 会立即排空主线程缓冲日志", async () => {
+    jest.useFakeTimers();
+    const consoleInfo = spyOn(console, "info").mockImplementation(() => {});
+    const consoleWarn = spyOn(console, "warn").mockImplementation(() => {});
+    const { worker, previousLogLevel, restoreWorker } = await startWritableLogDiskIO("info");
+    try {
+      logger.operation("before-ad-sample");
+      expect(worker.messages).toHaveLength(0);
+      expect(diskIO.postDiskIODiagnostic({
+        type: "adSample",
+        chatId: -100,
+        senderId: 42,
+        label: "tester",
+        detectedAt: "2026/07/20 12:00:00",
+        reason: "spam",
+        messages: [],
+      })).toBe(true);
+      expect(worker.messages).toHaveLength(1);
+      const sampleBatch = worker.messages[0] as DiskDiagnosticBatchRequest;
+      expect(sampleBatch.messages.map((entry) => entry.type)).toEqual(["log", "adSample"]);
+      worker.onmessage!({
+        data: { type: "diagnosticBatchAccepted", batchId: sampleBatch.batchId },
+      } as MessageEvent<DiskIOReply>);
+      worker.messages.length = 0;
+
+      logger.warn("before-flush-all");
+      expect(worker.messages).toHaveLength(0);
+      const flushAllPromise: Promise<unknown> = diskIO.flushDiskIO(1_000);
+      expect(worker.messages).toHaveLength(1);
+      const flushAllLogBatch = worker.messages[0] as DiskDiagnosticBatchRequest;
+      expect((flushAllLogBatch.messages[0] as LogEnvelope).args).toEqual(["before-flush-all"]);
+      worker.onmessage!({
+        data: { type: "diagnosticBatchAccepted", batchId: flushAllLogBatch.batchId },
+      } as MessageEvent<DiskIOReply>);
+      await Promise.resolve();
+      await Promise.resolve();
+      const flushAllReq = worker.messages[1] as Extract<DiskIOMessage, { type: "flush" }>;
+      expect(flushAllReq.type).toBe("flush");
+      expect(flushAllReq.scope).toBe("all");
+      worker.onmessage!({
+        data: { type: "flushed", flushedId: flushAllReq.flushId } satisfies DiskIOReply,
+      } as unknown as MessageEvent<DiskIOReply>);
+      await expect(flushAllPromise).resolves.toBe("flushed");
+      worker.messages.length = 0;
+
+      logger.operation("before-flush-log-domain");
+      expect(worker.messages).toHaveLength(0);
+      const flushDomainPromise: Promise<unknown> = diskIO.flushDiskIODomain("log", 1_000);
+      expect(worker.messages).toHaveLength(1);
+      const domainLogBatch = worker.messages[0] as DiskDiagnosticBatchRequest;
+      expect((domainLogBatch.messages[0] as LogEnvelope).args).toEqual(["before-flush-log-domain"]);
+      worker.onmessage!({
+        data: { type: "diagnosticBatchAccepted", batchId: domainLogBatch.batchId },
+      } as MessageEvent<DiskIOReply>);
+      await Promise.resolve();
+      await Promise.resolve();
+      const flushDomainReq = worker.messages[1] as Extract<DiskIOMessage, { type: "flush" }>;
+      expect(flushDomainReq.type).toBe("flush");
+      expect(flushDomainReq.scope).toBe("log");
+      worker.onmessage!({
+        data: { type: "flushed", flushedId: flushDomainReq.flushId } satisfies DiskIOReply,
+      } as unknown as MessageEvent<DiskIOReply>);
+      await expect(flushDomainPromise).resolves.toEqual({ result: "flushed" });
+    } finally {
+      consoleInfo.mockRestore();
+      consoleWarn.mockRestore();
+      await stopWritableLogDiskIO(previousLogLevel, restoreWorker);
+    }
+  });
+
+  test("Worker 代际切换保持未满窗缓冲继续等待，但在途未确认批次在恢复后立即重投", async () => {
+    jest.useFakeTimers();
+    const consoleInfo = spyOn(console, "info").mockImplementation(() => {});
+    const { worker, previousLogLevel, restoreWorker } = await startWritableLogDiskIO("operation");
+    try {
+      logger.operation("survives-generation-pause");
+      expect(worker.messages).toHaveLength(0);
+      expect(diskIORuntime.diagnosticFlushTimer).not.toBeNull();
+
+      pauseDiskIODiagnosticChannel();
+      expect(diskIORuntime.diagnosticFlushTimer).not.toBeNull();
+      expect(diskIORuntime.diagnosticFlushPendingCount).toBe(0);
+
+      resumeDiskIODiagnosticChannel(worker as unknown as Worker);
+      expect(worker.messages).toHaveLength(0);
+
+      jest.advanceTimersByTime(FLUSH_INTERVAL_MS);
+      expect(worker.messages).toHaveLength(1);
+      const firstDelivery = worker.messages[0] as DiskDiagnosticBatchRequest;
+      expect((firstDelivery.messages[0] as LogEnvelope).args).toEqual(["survives-generation-pause"]);
+
+      pauseDiskIODiagnosticChannel();
+      resumeDiskIODiagnosticChannel(worker as unknown as Worker);
+      expect(worker.messages).toHaveLength(2);
+      const redelivery = worker.messages[1] as DiskDiagnosticBatchRequest;
+      expect(redelivery.batchId).toBe(firstDelivery.batchId);
+      worker.onmessage!({
+        data: { type: "diagnosticBatchAccepted", batchId: redelivery.batchId },
+      } as MessageEvent<DiskIOReply>);
+      expect(diskIORuntime.diagnosticQueue.size).toBe(0);
+    } finally {
+      consoleInfo.mockRestore();
+      await stopWritableLogDiskIO(previousLogLevel, restoreWorker);
     }
   });
 });

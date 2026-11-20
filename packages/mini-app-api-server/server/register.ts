@@ -1,7 +1,5 @@
 import {
   MINI_APP_API_AUTH_POLICY,
-  MINI_APP_GALLERY_DOWNLOAD_ROUTE_PATTERN,
-  MINI_APP_GALLERY_FILE_ROUTE_PATTERN,
   MINI_APP_PROTECTED_ASSET_AUTH_POLICY,
   MINI_APP_PROTECTED_ASSET_EXT_PATTERN,
 } from "../../consts/miniApp";
@@ -12,6 +10,7 @@ import type { NormalizedRoutePath } from "../libs/routePath";
 import { runMiniAppAuthorized } from "../middleware/pipeline";
 import { MINI_APP_AUTH_BUN_ROUTES } from "../routes/auth";
 import { MINI_APP_CHATS_BUN_ROUTES } from "../routes/chats";
+import { MINI_APP_CONFIGS_BUN_ROUTES } from "../routes/configs";
 import { MINI_APP_GALLERY_BUN_ROUTES } from "../routes/gallery";
 import { MINI_APP_IDENTITIES_BUN_ROUTES } from "../routes/identities";
 import { createPageBunRoutes, dispatchBundleAssetRoute } from "../routes/page";
@@ -32,6 +31,7 @@ export function createMiniAppBunRoutes(): Bun.Serve.Routes<undefined, string> {
     ...MINI_APP_STATUS_BUN_ROUTES,
     ...MINI_APP_CHATS_BUN_ROUTES,
     ...MINI_APP_IDENTITIES_BUN_ROUTES,
+    ...MINI_APP_CONFIGS_BUN_ROUTES,
     ...MINI_APP_GALLERY_BUN_ROUTES,
   };
   const basePath: string = configuredBasePathname();
@@ -47,16 +47,13 @@ export function createMiniAppBunRoutes(): Bun.Serve.Routes<undefined, string> {
 }
 
 /**
- * 判断归一化后的内部路由路径是否属于受保护的图库图片或图片后缀路径（排除走完整双层 API 鉴权的 `/api/gallery/download/:fileName`）。
+ * 判断归一化后的内部非 `/api/` 路由路径是否属于受保护的图片或矢量图后缀路径（用于未命中原生路由表时的兜底鉴权与 404 分发）。
  * @param routePath 归一化后的内部路由路径。
- * @returns 命中受保护图片路径时返回 `true`。
+ * @returns 命中非 `/api/` 受保护图片后缀路径时返回 `true`。
  */
 function isProtectedMiniAppAssetPath(routePath: string): boolean {
-  if (MINI_APP_GALLERY_DOWNLOAD_ROUTE_PATTERN.test(routePath)) {
-    return false;
-  }
   return (
-    MINI_APP_GALLERY_FILE_ROUTE_PATTERN.test(routePath) ||
+    !routePath.startsWith("/api/") &&
     MINI_APP_PROTECTED_ASSET_EXT_PATTERN.test(routePath)
   );
 }
@@ -65,7 +62,7 @@ function isProtectedMiniAppAssetPath(routePath: string): boolean {
  * 处理未命中 `Bun.serve` 原生路由表的请求，按以下顺序兜底分发：
  * 1. `GET`/`HEAD` 访问无尾斜杠 `${basePath}` 时返回 `308` 补斜杠重定向；
  * 2. 尝试匹配并验明门禁分发前端打包静态资源；
- * 3. 非 `DELETE` 的受保护图片路径经受保护资源鉴权策略核验后返回 `404`；
+ * 3. 非 `DELETE` 的受保护非 `/api/` 图片后缀路径经受保护资源鉴权策略核验后返回 `404`；
  * 4. 非 `/api/` 未知路径直接返回 `404`；`/api/` 下的未知路径或方法不匹配经完整双层 API 鉴权后返回 `404`。
  * @param request 传入的 HTTP `Request`。
  * @returns 完整的 HTTP `Response`。
@@ -89,7 +86,6 @@ export async function handleMiniAppHttpRequest(request: Request): Promise<Respon
     request,
     url,
     method,
-    params: {},
   };
 
   const bundleAssetResponse: Response | null = await dispatchBundleAssetRoute(

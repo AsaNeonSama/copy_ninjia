@@ -1,10 +1,21 @@
-import { afterEach, beforeEach, describe, expect, jest, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, jest, mock, spyOn, test } from "bun:test";
 import { ATMOSPHERE_TEXTS } from "../../packages/consts/atmosphere";
+import { logger } from "../../packages/infra/logger";
 import type { Mock } from "bun:test";
 import type { DeleteMessageOutcome } from "../../packages/types/telegram";
 import type { QaFormSession } from "../../packages/types/qa";
-import { runWithUpdateAbortSignal, throwIfUpdateAborted } from "../../packages/infra/updateContext";
-import { CHAT_QA_MAX_PER_CHAT, CHAT_QA_QUESTION_MAX_CHARS, QA_FORM_SESSION_MAX, QA_FORM_SESSION_TTL_MS } from "../../packages/consts/qa";
+import {
+  currentUpdateAbortSignal,
+  runWithUpdateAbortSignal,
+  throwIfUpdateAborted,
+} from "../../packages/infra/updateContext";
+import {
+  CHAT_QA_MAX_PER_CHAT,
+  CHAT_QA_QUESTION_MAX_CHARS,
+  QA_FORM_SESSION_MAX,
+  QA_FORM_SESSION_TTL_MS,
+  QA_TRUNCATION_MARK,
+} from "../../packages/consts/qa";
 import { QA_COMMAND_TEXTS } from "../../packages/consts/atmosphere/teasing/qa";
 import { QA_USAGE_TEXT } from "../../packages/consts/atmosphere/teasing/commandUsage";
 import { replyCommandNoticeVia } from "../helpers/common";
@@ -322,6 +333,25 @@ describe("/qa query", () => {
 
     expect(lastText()).toBe(QA_COMMAND_TEXTS.queryMissing("不存在的"));
     expect(sendCommandMessage.mock.calls.at(-1)?.[0].preserveInGroup).toBeUndefined();
+  });
+
+  test("未命中回显清洗双向控制符、中和可点击命令并按问题上限截断，保留多行与空格", async () => {
+    chatQaEntries.set(CHAT_ID, new Map([["怎么入群？", "点置顶"]]));
+    const payload: string = `\u202E第一行 /start\n第二行  ${"x".repeat(CHAT_QA_QUESTION_MAX_CHARS)}`;
+
+    await handleQaCommand(context(7, `query ${payload}`));
+    const queryEcho: string = lastText();
+    expect(queryEcho).not.toContain("\u202E");
+    expect(queryEcho).not.toContain("/start");
+    expect(queryEcho).toContain("第一行 ／start\n第二行  ");
+    expect(queryEcho).toContain(`${QA_TRUNCATION_MARK}」`);
+
+    await handleQaCommand(context(OWNER, `remove ${payload}`));
+    const removeEcho: string = lastText();
+    expect(removeEcho).not.toContain("\u202E");
+    expect(removeEcho).not.toContain("/start");
+    expect(removeEcho).toContain("第一行 ／start\n第二行  ");
+    expect(removeEcho).toContain(`${QA_TRUNCATION_MARK}」`);
   });
 });
 
@@ -779,6 +809,62 @@ describe("填到一半时重来", () => {
   });
 });
 
+test("/qa set 表单字段保存、新建、覆盖与容量超限按阶段只记一次 operation 日志", async (): Promise<void> => {
+  const opSpy = spyOn(logger, "operation");
+  const consoleInfoSpy = spyOn(console, "info").mockImplementation((): void => {});
+  try {
+    await handleQaCommand(context(OWNER, "set"));
+    opSpy.mockClear();
+
+    await handleQaMessageIngress(delivered("问题:\n怎么入群？"));
+    expect(opSpy).toHaveBeenCalledTimes(1);
+    expect(opSpy).toHaveBeenCalledWith("[TelegramCommand] /qa set form", {
+      chatId: CHAT_ID,
+      actorId: OWNER,
+      outcome: "saved",
+    });
+
+    opSpy.mockClear();
+    await handleQaMessageIngress(delivered("回答:\n看置顶"));
+    expect(opSpy).toHaveBeenCalledTimes(1);
+    expect(opSpy).toHaveBeenCalledWith("[TelegramCommand] /qa set persisted", {
+      chatId: CHAT_ID,
+      actorId: OWNER,
+      outcome: "created",
+    });
+
+    opSpy.mockClear();
+    await handleQaCommand(context(OWNER, "set"));
+    await handleQaMessageIngress(delivered("问题:\n怎么入群？\n回答:\n看群公告"));
+    expect(opSpy).toHaveBeenCalledTimes(1);
+    expect(opSpy).toHaveBeenCalledWith("[TelegramCommand] /qa set persisted", {
+      chatId: CHAT_ID,
+      actorId: OWNER,
+      outcome: "replaced",
+    });
+
+    await handleQaCommand(context(OWNER, "set"));
+    await handleQaMessageIngress(delivered("问题:\n补充一条？"));
+    const entries: Map<string, string> = new Map<string, string>();
+    for (let index: number = 0; index < CHAT_QA_MAX_PER_CHAT; index++) {
+      entries.set(`问题${index}`, "答案");
+    }
+    chatQaEntries.set(CHAT_ID, entries);
+
+    opSpy.mockClear();
+    await handleQaMessageIngress(delivered("回答:\n已满测试"));
+    expect(opSpy).toHaveBeenCalledTimes(1);
+    expect(opSpy).toHaveBeenCalledWith("[TelegramCommand] /qa set persisted", {
+      chatId: CHAT_ID,
+      actorId: OWNER,
+      outcome: "full",
+    });
+  } finally {
+    opSpy.mockRestore();
+    consoleInfoSpy.mockRestore();
+  }
+});
+
 describe("表单异步生命周期", (): void => {
   for (const close of ["ttl", "reopen", "teardown"] as const) {
     test(`${close} 发生在删除等待期间：保持认领且禁止旧会话写入`, async (): Promise<void> => {
@@ -877,9 +963,14 @@ describe("表单异步生命周期", (): void => {
     expect(postDiskIO).not.toHaveBeenCalled();
   });
 
-  test("发送成功登记 id 后取消，关闭会话并保留取消异常", async (): Promise<void> => {
+  test("发送成功登记 id 后取消，关闭会话并脱离 update 作用域删掉表单", async (): Promise<void> => {
     const controller: AbortController = new AbortController();
     const reason: DOMException = new DOMException("shutdown", "AbortError");
+    const observedSignals: (AbortSignal | undefined)[] = [];
+    deleteMessageWithOutcome.mockImplementationOnce(async (): Promise<DeleteMessageOutcome> => {
+      observedSignals.push(currentUpdateAbortSignal());
+      return "deleted";
+    });
     sendMessage.mockImplementationOnce(async (message: { readonly onSent?: (id: number) => void }): Promise<number> => {
       message.onSent?.(88);
       controller.abort(reason);
@@ -891,16 +982,32 @@ describe("表单异步生命周期", (): void => {
     await expect(task).rejects.toBe(reason);
     expect(qaFormSessions.has(CHAT_ID)).toBeFalse();
     expect(deleteMessageWithOutcome.mock.calls).toEqual([[CHAT_ID, 88]]);
+    expect(observedSignals).toEqual([undefined]);
     expect(postDiskIO).not.toHaveBeenCalled();
   });
 
-  test("结算后的回执抛出取消异常，仍交回表单清理且只提交一次", async (): Promise<void> => {
+  test("结算后的回执抛出取消异常，仍脱离 update 作用域交回表单清理且只提交一次", async (): Promise<void> => {
     await handleQaCommand(context(OWNER, "set"));
+    const controller: AbortController = new AbortController();
     const error: DOMException = new DOMException("shutdown", "AbortError");
-    sendCommandMessage.mockImplementationOnce(async (): Promise<never> => { throw error; });
-    await expect(handleQaMessageIngress(delivered("问题:问\n回答:答")) as Promise<boolean>).rejects.toBe(error);
+    let discardSignal: AbortSignal | undefined = controller.signal;
+    sendCommandMessage.mockImplementationOnce(async (): Promise<never> => {
+      controller.abort(error);
+      throw error;
+    });
+    deleteMessageWithOutcome
+      .mockImplementationOnce(async (): Promise<DeleteMessageOutcome> => "deleted")
+      .mockImplementationOnce(async (): Promise<DeleteMessageOutcome> => {
+        discardSignal = currentUpdateAbortSignal();
+        return "deleted";
+      });
+    await expect(runWithUpdateAbortSignal(
+      controller.signal,
+      (): Promise<boolean> => handleQaMessageIngress(delivered("问题:问\n回答:答")) as Promise<boolean>
+    )).rejects.toBe(error);
     expect(qaFormSessions.has(CHAT_ID)).toBeFalse();
     expect(deleteMessageWithOutcome.mock.calls).toEqual([[CHAT_ID, 77], [CHAT_ID, 55]]);
+    expect(discardSignal).toBeUndefined();
     expect(postDiskIO).toHaveBeenCalledTimes(1);
   });
 });

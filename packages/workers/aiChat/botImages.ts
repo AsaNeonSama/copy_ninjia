@@ -1,5 +1,5 @@
-import { describeMedia } from "../../aiChat/ai/imageDescription";
-import { buildSelfRecordMessage } from "../../aiChat/ai/utils/selfRecord";
+import { describeMedia } from "./ai/imageDescription";
+import { buildSelfRecordMessage } from "../../aiChat/selfRecord";
 import { repliedBotImageBackfills } from "../../cache/workers/aiChat/botImages";
 import { botInfoState } from "../../cache/workers/aiChat/identity";
 import { dirtyMemoryChats } from "../../cache/workers/aiChat/memory";

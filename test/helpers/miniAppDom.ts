@@ -1,10 +1,56 @@
 /**
- * Mini App 前端组件测试共用的最小 DOM 替身：只实现 react-dom 客户端渲染、受控输入、行内样式、
+ * Mini App 前端组件测试共用的最小 DOM 替身：只实现 react-dom 客户端渲染、受控输入、行内样式（含 CSSOM 自定义属性读写）、
  * 属性读写与点击冒泡（经 react-dom 挂在根容器与 document 上的监听器）所需的节点接口。
  *
  * `installMiniDom` 接管 `document`、`window` 与 `IS_REACT_ACT_ENVIRONMENT` 三个全局量，
  * 返回的 `restore` 按安装前的状态逐个还原（安装前不存在的全局量直接删除）。
  */
+
+/** 最小 DOM 元素的行内样式表：兼容键值读写、`toEqual` 枚举比较与 CSSOM 自定义属性读写方法。 */
+export type MiniDomStyle = Record<string, string> & {
+  setProperty: (name: string, value: string | null) => void;
+  getPropertyValue: (name: string) => string;
+  removeProperty: (name: string) => string;
+};
+
+/**
+ * 构造最小 DOM 元素的行内样式表对象；CSSOM 方法设为不可枚举以保持 `toEqual` 枚举语义不变。
+ * @returns 带 `setProperty`、`getPropertyValue`、`removeProperty` 的样式对象。
+ */
+export function createMiniDomStyle(): MiniDomStyle {
+  const target: Record<string, string> = {};
+  Object.defineProperties(target, {
+    setProperty: {
+      enumerable: false,
+      configurable: true,
+      writable: true,
+      value: (name: string, value: string | null): void => {
+        if (value === null || value === "") {
+          delete target[name];
+          return;
+        }
+        target[name] = String(value);
+      },
+    },
+    getPropertyValue: {
+      enumerable: false,
+      configurable: true,
+      writable: true,
+      value: (name: string): string => target[name] ?? "",
+    },
+    removeProperty: {
+      enumerable: false,
+      configurable: true,
+      writable: true,
+      value: (name: string): string => {
+        const prev: string = target[name] ?? "";
+        delete target[name];
+        return prev;
+      },
+    },
+  });
+  return target as MiniDomStyle;
+}
 
 /** 最小 DOM 节点：元素（1）、文本（3）与注释（8）共用同一实现。 */
 export class MiniDomNode {
@@ -14,7 +60,7 @@ export class MiniDomNode {
   parentNode: MiniDomNode | null = null;
   childNodes: MiniDomNode[] = [];
   readonly ownerDocument: MiniDomDocument;
-  readonly style: Record<string, string> = {};
+  readonly style: MiniDomStyle = createMiniDomStyle();
   readonly attributes: Map<string, string> = new Map<string, string>();
   value: string = "";
   textContentValue: string = "";

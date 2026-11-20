@@ -4,7 +4,7 @@ import { updateMiniAppWhitelistPermission } from "../api/permission";
 import { errorMessage } from "../libs/errorMessage";
 import { waitMinimumLoadingDuration } from "../libs/loading";
 import type { WhitelistPermissionKey } from "../types/identityPolicy";
-import type { MiniAppIdentityMutationResult } from "../types/miniApp";
+import type { MiniAppIdentityMutationResult } from "../types/miniApp/identities";
 import { useMiniAppStore } from "./app";
 
 /** `PermissionDrawer` 白名单权限抽屉的状态与动作接口。 */

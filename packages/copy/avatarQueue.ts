@@ -6,7 +6,7 @@ import { copyUserProfilePhoto } from "../infra/telegram/avatar/copy";
 import { restoreDefaultProfilePhoto } from "../infra/telegram/avatar/restore";
 import { getAssetConfig } from "../config/assets";
 import { sendCommandMessage } from "../infra/telegram";
-import { updateTopicThreadIdFor } from "../infra/updateContext";
+import { runOutsideUpdateScope, updateTopicThreadIdFor } from "../infra/updateContext";
 import { chatAtmosphere } from "../infra/atmosphere";
 import { formatUserLabel } from "../users/userLabel";
 import type { AtmosphereTexts } from "../types/atmosphere";
@@ -88,7 +88,7 @@ async function consumeAvatarUpdates(): Promise<void> {
 
 /**
  * 提交头像更新目标；运行中仅保留最新一份请求，历史请求不会形成 Promise 链。
- * 回执在异步执行槽里发出时已脱离触发它的 update 作用域，因此在提交时捕获触发话题。
+ * 在提交时捕获触发话题后，经 `runOutsideUpdateScope` 脱离触发 update 作用域启动后台消费，避免停机取消该 update 时中断后台执行。
  *
  * @param params 头像更新请求（含目标群聊 `chatId`、头像目标 `target`、触发来源 `source` 与是否静默 `silent`）。
  */
@@ -104,7 +104,9 @@ export function queueAvatarUpdate({ chatId, target, source, silent = false }: Av
     messageThreadId: updateTopicThreadIdFor(chatId),
     silent,
   };
-  void consumeAvatarUpdates();
+  runOutsideUpdateScope((): void => {
+    void consumeAvatarUpdates();
+  });
 }
 
 /**

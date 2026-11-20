@@ -123,8 +123,8 @@ export function registerAntiRaidBridgeObservers({
         revision: reply.revision,
       })) {
         logger.error(
-          `Anti-Raid Worker rejected the persisted verification receipt for ${reply.key}; ` +
-          "relying on respawn replay to redeliver it."
+          "Anti-Raid Worker rejected the persisted verification receipt; relying on respawn replay to redeliver it.",
+          { key: reply.key }
         );
       }
       return;

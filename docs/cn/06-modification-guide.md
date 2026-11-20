@@ -138,8 +138,8 @@ Telegram 发送富文本支持 MarkdownV2 与 Entities 两种机制，二者在�
 ## 新增一个 AI 工具
 
 1. **工具标识声明**：在 [`packages/consts/tools.ts`](../../packages/consts/tools.ts) 中声明工具常量名；产生副作用（例如群内发言、发图、发表情）的工具需额外加入 `ACTION_TOOL_NAMES` 集合。
-2. **定义工具描述（Schema）**：纯查询类工具加入 `TOOL_DECLARATIONS`；回复行动工具在 `packages/aiChat/ai/tools/replyToolset/` 中编写 definition builder。通用的 `AiToolDefinition` 会由具体厂商适配层转换为 OpenAI/Gemini/Anthropic 的专用 Schema。
-3. **编写执行逻辑**：在 `packages/aiChat/ai/tools/` 编写工具的具体执行逻辑；若涉及发消息等 Telegram 操作，统一通过跨线程消息委托主线程执行。
+2. **定义工具描述（Schema）**：纯查询类工具加入 `TOOL_DECLARATIONS`；回复行动工具在 `packages/workers/aiChat/ai/tools/replyToolset/` 中编写 definition builder。通用的 `AiToolDefinition` 会由具体厂商适配层转换为 OpenAI/Gemini/Anthropic 的专用 Schema。
+3. **编写执行逻辑**：在 `packages/workers/aiChat/ai/tools/` 编写工具的具体执行逻辑；若涉及发消息等 Telegram 操作，统一通过跨线程消息委托主线程执行。
 4. **注册执行分发**：只读工具接入 `tools/index.ts` 的 `callTool`；行动类工具接入 `replyToolset/orchestrator.ts` 的装配器与 `execute` 分发器。
 5. **调用预算控制**：群内产生实际副作用的工具必须受到回复动作总预算的严格约束（执行侧强制硬顶 `HARD_MAX_ACTIONS_PER_REPLY`）；单轮独立频次限制仅在领域有特殊配额时使用（如 `MAX_STICKERS_PER_REPLY`、`MAX_GENERATED_IMAGES_PER_REPLY`、`MAX_VOICES_PER_REPLY`）。
 6. **编写 Prompt 说明**：在 `packages/consts/aiChat/prompts/` 中补充该工具的用法指导与触发规范；若涉及消息历史引用，必须复用 `transcript.ts` 的统一格式。

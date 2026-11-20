@@ -1,14 +1,19 @@
 import {
-  MINI_APP_ASSET_CACHE_CONTROL, MINI_APP_BUNDLE_CACHE_CONTROL,
-  MINI_APP_BUNDLE_VARY_HEADER_VALUE, MINI_APP_CSP_HEADER_VALUE,
-  MINI_APP_IPV4_HOST_PATTERN, MINI_APP_NO_STORE_CACHE_CONTROL,
+  MINI_APP_ASSET_CACHE_CONTROL,
+  MINI_APP_BUNDLE_CACHE_CONTROL,
+  MINI_APP_BUNDLE_VARY_HEADER_VALUE,
+  MINI_APP_CSP_HEADER_VALUE,
+  MINI_APP_GALLERY_FILE_CACHE_CONTROL,
+  MINI_APP_GALLERY_FILE_VARY_HEADER_VALUE,
+  MINI_APP_IPV4_HOST_PATTERN,
+  MINI_APP_NO_STORE_CACHE_CONTROL,
   MINI_APP_X_FRAME_OPTIONS_VALUE,
 } from "../../consts/miniApp";
 import type { MiniAppAccessDiagnostics } from "../../types/miniApp/auth";
 import type { BundledMiniAppAsset } from "../../types/miniApp/server";
 import { firstForwardedHost, resolveSafeClientIp } from "./request";
 
-/** `serveCachedAssetResponse` 所需的已解析资源元数据。 */
+/** `serveCachedAssetResponse` 与 `serveGalleryFileResponse` 所需的已解析资源元数据。 */
 interface CachedAssetMeta {
   /** 资源的 `Content-Type` 响应头值。 */
   readonly mimeType: string;
@@ -16,6 +21,18 @@ interface CachedAssetMeta {
   readonly sizeBytes: number;
   /** 资源 `ETag` 响应头值。 */
   readonly etag: string;
+}
+
+/** `serveConditionalAssetResponse` 构造带 `ETag` 与条件协商缓存响应的入参。 */
+interface ConditionalAssetResponseOptions {
+  /** HTTP 请求对象。 */
+  readonly request: Request;
+  /** `200 OK` 时使用的静态文件或字节切片响应体（`HEAD` 请求自动置 `null`）。 */
+  readonly body: Bun.BunFile | Uint8Array<ArrayBuffer>;
+  /** 已解析资源的 MIME 类型、字节长度与 `ETag` 元数据。 */
+  readonly meta: Readonly<CachedAssetMeta>;
+  /** 固定缓存控制与隔离响应头模板（含 `Cache-Control`、`CDN-Cache-Control` 及可选 `Vary`）。 */
+  readonly cacheHeaders: Readonly<Record<string, string>>;
 }
 
 /**
@@ -64,34 +81,58 @@ const ASSET_SECURITY_HEADERS: Readonly<Record<string, string>> = {
   "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=()",
 };
 
+/** 允许客户端私有协商重验但禁止 CDN 缓存的前端打包产物响应头片段。 */
+const PRIVATE_REVALIDATE_CACHE_HEADERS: Readonly<Record<string, string>> = {
+  "Cache-Control": MINI_APP_BUNDLE_CACHE_CONTROL,
+  "CDN-Cache-Control": "no-store",
+  "Cloudflare-CDN-Cache-Control": "no-store",
+};
+
+/** 公开静态资源（如 `/favicon.ico`）允许客户端与 CDN 边缘节点持久化缓存 7 天的响应头片段。 */
+const PUBLIC_ASSET_CACHE_HEADERS: Readonly<Record<string, string>> = {
+  "Cache-Control": MINI_APP_ASSET_CACHE_CONTROL,
+  "CDN-Cache-Control": MINI_APP_ASSET_CACHE_CONTROL,
+  "Cloudflare-CDN-Cache-Control": MINI_APP_ASSET_CACHE_CONTROL,
+};
+
+/** 前端打包产物（`/chunk-*.js`、`/chunk-*.css` 等）的私有协商缓存头模板。 */
+const BUNDLE_ASSET_CACHE_HEADERS: Readonly<Record<string, string>> = {
+  ...PRIVATE_REVALIDATE_CACHE_HEADERS,
+  "Vary": MINI_APP_BUNDLE_VARY_HEADER_VALUE,
+};
+
+/** 受保护图库图片读取路由（`/api/gallery/file`）的 7 天私有协商缓存头模板。 */
+const GALLERY_FILE_CACHE_HEADERS: Readonly<Record<string, string>> = {
+  "Cache-Control": MINI_APP_GALLERY_FILE_CACHE_CONTROL,
+  "CDN-Cache-Control": "no-store",
+  "Cloudflare-CDN-Cache-Control": "no-store",
+  "Vary": MINI_APP_GALLERY_FILE_VARY_HEADER_VALUE,
+};
+
 /**
- * 生成允许已鉴权 Telegram WebView 客户端与 Cloudflare CDN 边缘节点持久化缓存 7 天的图片/SVG/图标资源响应头；
- * 仅在传入实体元数据时写入 `Content-Type` 与 `Content-Length`（`304 Not Modified` 省略实体头）。
+ * 构造静态资源、前端打包产物或图库图片的条件协商缓存响应头；
+ * 仅在传入 `meta` 时写入 `Content-Type` 与 `Content-Length`（`304 Not Modified` 省略实体头）。
+ * @param cacheHeaders 固定缓存控制与隔离响应头模板。
  * @param etag 资源校验 `ETag` 响应头值。
- * @param contentType 资源的 `Content-Type` 响应头值（`304` 时省略）。
- * @param contentLength 资源字节长度（`304` 时省略）。
+ * @param meta 已解析资源的实体元数据（`304` 时省略）。
  * @returns 响应头键值对。
  */
-function buildAssetCacheHeaders(
+function buildConditionalAssetHeaders(
+  cacheHeaders: Readonly<Record<string, string>>,
   etag: string,
-  contentType?: string,
-  contentLength?: number
+  meta?: Readonly<CachedAssetMeta>
 ): Record<string, string> {
-  if (contentType !== undefined && contentLength !== undefined) {
+  if (meta !== undefined) {
     return {
-      "Cache-Control": MINI_APP_ASSET_CACHE_CONTROL,
-      "CDN-Cache-Control": MINI_APP_ASSET_CACHE_CONTROL,
-      "Cloudflare-CDN-Cache-Control": MINI_APP_ASSET_CACHE_CONTROL,
+      ...cacheHeaders,
       "ETag": etag,
       ...ASSET_SECURITY_HEADERS,
-      "Content-Type": contentType,
-      "Content-Length": String(contentLength),
+      "Content-Type": meta.mimeType,
+      "Content-Length": String(meta.sizeBytes),
     };
   }
   return {
-    "Cache-Control": MINI_APP_ASSET_CACHE_CONTROL,
-    "CDN-Cache-Control": MINI_APP_ASSET_CACHE_CONTROL,
-    "Cloudflare-CDN-Cache-Control": MINI_APP_ASSET_CACHE_CONTROL,
+    ...cacheHeaders,
     "ETag": etag,
     ...ASSET_SECURITY_HEADERS,
   };
@@ -132,7 +173,30 @@ export function htmlResponse(html: string, headOnly: boolean): Response {
 }
 
 /**
- * 构造受保护图片或公开图标的缓存响应：按弱比较命中 `If-None-Match` 时返回不含实体头的 `304 Not Modified`，`HEAD` 请求不返回正文。
+ * 构造带 `ETag` 条件协商与 `HEAD` 空响应体处理的静态/图库/打包资源响应。
+ * @param options 请求对象、响应体、资源元数据与固定缓存头模板。
+ * @returns `200 OK` 或 `304 Not Modified` 的 `Response` 实例。
+ */
+function serveConditionalAssetResponse({
+  request,
+  body,
+  meta,
+  cacheHeaders,
+}: Readonly<ConditionalAssetResponseOptions>): Response {
+  if (ifNoneMatchMatchesEtag(request.headers.get("if-none-match"), meta.etag)) {
+    return new Response(null, {
+      status: 304,
+      headers: buildConditionalAssetHeaders(cacheHeaders, meta.etag),
+    });
+  }
+  return new Response(request.method.toUpperCase() === "HEAD" ? null : body, {
+    status: 200,
+    headers: buildConditionalAssetHeaders(cacheHeaders, meta.etag, meta),
+  });
+}
+
+/**
+ * 构造公开静态图标资源（如 `/favicon.ico`）的持久化缓存响应：按弱比较命中 `If-None-Match` 时返回不含实体头的 `304 Not Modified`，`HEAD` 请求不返回正文。
  * @param request HTTP 请求对象。
  * @param body 响应体（`Bun.BunFile`）。
  * @param meta 已解析资源的 MIME、字节长度与 `ETag`。
@@ -143,51 +207,34 @@ export function serveCachedAssetResponse(
   body: Bun.BunFile,
   meta: Readonly<CachedAssetMeta>
 ): Response {
-  if (ifNoneMatchMatchesEtag(request.headers.get("if-none-match"), meta.etag)) {
-    return new Response(null, {
-      status: 304,
-      headers: buildAssetCacheHeaders(meta.etag),
-    });
-  }
-  return new Response(request.method.toUpperCase() === "HEAD" ? null : body, {
-    status: 200,
-    headers: buildAssetCacheHeaders(meta.etag, meta.mimeType, meta.sizeBytes),
+  return serveConditionalAssetResponse({
+    request,
+    body,
+    meta,
+    cacheHeaders: PUBLIC_ASSET_CACHE_HEADERS,
   });
 }
 
 /**
- * 生成已通过超级管理员门禁校验的前端打包产物响应头（仅允许客户端私有协商重验，严禁 CDN 缓存完整前端包）；
- * 仅在传入实体元数据时写入 `Content-Type` 与 `Content-Length`（`304 Not Modified` 省略实体头）。
- * @param etag 资源校验 `ETag` 响应头值。
- * @param contentType 资源的 `Content-Type` 响应头值（`304` 时省略）。
- * @param contentLength 资源字节长度（`304` 时省略）。
- * @returns 响应头键值对。
+ * 构造已通过双层鉴权的受保护图库图片读取响应（`/api/gallery/file`）：
+ * 下发 `private, no-cache, max-age=604800, must-revalidate`、`CDN-Cache-Control: no-store` 与按鉴权请求头隔离的 `Vary`，
+ * 按弱比较命中 `If-None-Match` 时返回不含实体头的 `304 Not Modified`，`HEAD` 请求不返回正文。
+ * @param request HTTP 请求对象。
+ * @param body 响应体（`Bun.BunFile`）。
+ * @param meta 已解析资源的 MIME、字节长度与 `ETag`。
+ * @returns `200 OK` 或 `304 Not Modified` 的 `Response` 实例。
  */
-function buildBundleAssetHeaders(
-  etag: string,
-  contentType?: string,
-  contentLength?: number
-): Record<string, string> {
-  if (contentType !== undefined && contentLength !== undefined) {
-    return {
-      "Cache-Control": MINI_APP_BUNDLE_CACHE_CONTROL,
-      "CDN-Cache-Control": "no-store",
-      "Cloudflare-CDN-Cache-Control": "no-store",
-      "Vary": MINI_APP_BUNDLE_VARY_HEADER_VALUE,
-      "ETag": etag,
-      ...ASSET_SECURITY_HEADERS,
-      "Content-Type": contentType,
-      "Content-Length": String(contentLength),
-    };
-  }
-  return {
-    "Cache-Control": MINI_APP_BUNDLE_CACHE_CONTROL,
-    "CDN-Cache-Control": "no-store",
-    "Cloudflare-CDN-Cache-Control": "no-store",
-    "Vary": MINI_APP_BUNDLE_VARY_HEADER_VALUE,
-    "ETag": etag,
-    ...ASSET_SECURITY_HEADERS,
-  };
+export function serveGalleryFileResponse(
+  request: Request,
+  body: Bun.BunFile,
+  meta: Readonly<CachedAssetMeta>
+): Response {
+  return serveConditionalAssetResponse({
+    request,
+    body,
+    meta,
+    cacheHeaders: GALLERY_FILE_CACHE_HEADERS,
+  });
 }
 
 /**
@@ -262,25 +309,16 @@ export function serveBundledAssetResponse(
   request: Request,
   asset: Readonly<BundledMiniAppAsset>
 ): Response {
-  if (ifNoneMatchMatchesEtag(request.headers.get("if-none-match"), asset.etag)) {
-    return new Response(null, {
-      status: 304,
-      headers: buildBundleAssetHeaders(asset.etag),
-    });
-  }
-  return new Response(
-    request.method.toUpperCase() === "HEAD"
-      ? null
-      : (asset.content as Uint8Array<ArrayBuffer>),
-    {
-      status: 200,
-      headers: buildBundleAssetHeaders(
-        asset.etag,
-        asset.contentType,
-        asset.content.byteLength
-      ),
-    }
-  );
+  return serveConditionalAssetResponse({
+    request,
+    body: asset.content as Uint8Array<ArrayBuffer>,
+    meta: {
+      mimeType: asset.contentType,
+      sizeBytes: asset.content.byteLength,
+      etag: asset.etag,
+    },
+    cacheHeaders: BUNDLE_ASSET_CACHE_HEADERS,
+  });
 }
 
 /** `buildMiniAppAccessDiagnostics` 构造拒绝诊断快照所需的参数。 */

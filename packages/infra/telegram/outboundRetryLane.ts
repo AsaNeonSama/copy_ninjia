@@ -100,7 +100,7 @@ function extendRetry(
     retryAt <= lane.retryAt
   ) return;
   if (lane.retryTimer === null) {
-    logger.warn(`Telegram ${category} requests hit 429; backing off for ${retryAfterMs} ms.`);
+    logger.warn("Telegram requests hit 429; backing off.", { category, retryAfterMs });
   }
   lane.retryAt = retryAt;
   lane.recovering = true;

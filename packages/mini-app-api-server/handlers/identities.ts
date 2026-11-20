@@ -3,7 +3,9 @@ import {
   MINI_APP_PICKER_SUBJECT_KINDS,
   MINI_APP_PICKER_TARGET_LISTS,
   MINI_APP_TRANSLATE_LANGUAGES,
-} from "../../consts/miniApp";
+} from "../../consts/miniApp/features";
+import { logger } from "../../infra/logger";
+import { isTelegramGroupChatId } from "../../libs/telegramId";
 import type { WhitelistPermissionKey } from "../../types/identityPolicy";
 import type { MiniAppTranslateLanguage } from "../../types/miniApp/chats";
 import type {
@@ -20,6 +22,7 @@ import {
   listBlocklistEntries,
   setBlocklistEntryMembership,
 } from "../view/identities/blocklist";
+import type { ListIdentityPageParams } from "../view/identities/page";
 import {
   enableAllWhitelistEntryPermissions,
   listWhitelistEntries,
@@ -27,12 +30,20 @@ import {
   setWhitelistEntryPermission,
 } from "../view/identities/whitelist";
 
+/** 白名单或黑名单成员增删请求体解析结果。 */
+interface IdentityMembershipBody {
+  /** 目标 Telegram 用户或频道 ID（非零安全整数）。 */
+  readonly id: number;
+  /** 是否启用（加入名单为 `true`，移出为 `false`）。 */
+  readonly enabled: boolean;
+}
+
 /**
- * 处理 `GET /api/identities/whitelist`：分页读取白名单成员及其十八项细粒度权限。
- * @param url 已解析的请求 URL（读取分页、游标与搜索查询参数）。
- * @returns JSON 响应。
+ * 解析白名单与黑名单列表接口共用的分页、游标与搜索查询参数。
+ * @param url 已解封查询参数后的请求 URL。
+ * @returns 标准化后的分页查询参数。
  */
-export async function handleGetWhitelistRoute(url: URL): Promise<Response> {
+function parseIdentityPageQuery(url: URL): Readonly<ListIdentityPageParams> {
   const page: number | undefined = parseOptionalSafeInt(url.searchParams.get("page"));
   const pageSize: number | undefined = parseOptionalSafeInt(
     url.searchParams.get("pageSize")
@@ -41,23 +52,23 @@ export async function handleGetWhitelistRoute(url: URL): Promise<Response> {
   const limit: number | undefined = parseOptionalSafeInt(url.searchParams.get("limit"));
   const query: string | undefined =
     url.searchParams.get("query")?.trim() ?? url.searchParams.get("q")?.trim();
-  return jsonResponse(
-    await listWhitelistEntries({
-      page,
-      pageSize,
-      afterId: afterId ?? null,
-      limit,
-      query,
-    })
-  );
+  return {
+    page,
+    pageSize,
+    afterId: afterId ?? null,
+    limit,
+    query,
+  };
 }
 
 /**
- * 处理 `POST /api/identities/whitelist`：按 ID 添加或移出白名单。
+ * 读取并校验白名单或黑名单成员变更的 JSON 请求体（要求非零安全整数 `id` 与布尔 `enabled`）。
  * @param request HTTP 请求。
- * @returns JSON 响应。
+ * @returns 校验通过的 `{ id, enabled }`；非对象或字段非法时返回 `null`。
  */
-export async function handlePostWhitelistRoute(request: Request): Promise<Response> {
+async function parseIdentityMembershipBody(
+  request: Request
+): Promise<Readonly<IdentityMembershipBody> | null> {
   const body: Record<string, unknown> | null = await readJsonObjectBody(request);
   if (
     body === null ||
@@ -66,16 +77,45 @@ export async function handlePostWhitelistRoute(request: Request): Promise<Respon
     body.id === 0 ||
     typeof body.enabled !== "boolean"
   ) {
+    return null;
+  }
+  return {
+    id: body.id,
+    enabled: body.enabled,
+  };
+}
+
+/**
+ * 处理 `GET /api/identities/whitelist`：分页读取白名单成员及其十八项细粒度权限。
+ * @param url 已解析的请求 URL（读取分页、游标与搜索查询参数）。
+ * @returns JSON 响应。
+ */
+export async function handleGetWhitelistRoute(url: URL): Promise<Response> {
+  return jsonResponse(await listWhitelistEntries(parseIdentityPageQuery(url)));
+}
+
+/**
+ * 处理 `POST /api/identities/whitelist`：按 ID 添加或移出白名单。
+ * @param request HTTP 请求。
+ * @returns JSON 响应。
+ */
+export async function handlePostWhitelistRoute(request: Request): Promise<Response> {
+  const params: Readonly<IdentityMembershipBody> | null =
+    await parseIdentityMembershipBody(request);
+  if (params === null) {
     return jsonResponse(
       { error: "INVALID_IDENTITY_PARAMS" },
       400
     );
   }
   const result: Readonly<MiniAppIdentityMutationResult> =
-    await setWhitelistEntryMembership({
-      id: body.id,
-      enabled: body.enabled,
-    });
+    await setWhitelistEntryMembership(params);
+  logger.operation("[MiniApp] identities.whitelist", {
+    id: params.id,
+    enabled: params.enabled,
+    ok: result.ok,
+    changed: result.changed,
+  });
   return jsonResponse(result, result.ok ? 200 : 400);
 }
 
@@ -85,23 +125,7 @@ export async function handlePostWhitelistRoute(request: Request): Promise<Respon
  * @returns JSON 响应。
  */
 export async function handleGetBlocklistRoute(url: URL): Promise<Response> {
-  const page: number | undefined = parseOptionalSafeInt(url.searchParams.get("page"));
-  const pageSize: number | undefined = parseOptionalSafeInt(
-    url.searchParams.get("pageSize")
-  );
-  const afterId: number | undefined = parseOptionalSafeInt(url.searchParams.get("afterId"));
-  const limit: number | undefined = parseOptionalSafeInt(url.searchParams.get("limit"));
-  const query: string | undefined =
-    url.searchParams.get("query")?.trim() ?? url.searchParams.get("q")?.trim();
-  return jsonResponse(
-    await listBlocklistEntries({
-      page,
-      pageSize,
-      afterId: afterId ?? null,
-      limit,
-      query,
-    })
-  );
+  return jsonResponse(await listBlocklistEntries(parseIdentityPageQuery(url)));
 }
 
 /**
@@ -110,24 +134,22 @@ export async function handleGetBlocklistRoute(url: URL): Promise<Response> {
  * @returns JSON 响应。
  */
 export async function handlePostBlocklistRoute(request: Request): Promise<Response> {
-  const body: Record<string, unknown> | null = await readJsonObjectBody(request);
-  if (
-    body === null ||
-    typeof body.id !== "number" ||
-    !Number.isSafeInteger(body.id) ||
-    body.id === 0 ||
-    typeof body.enabled !== "boolean"
-  ) {
+  const params: Readonly<IdentityMembershipBody> | null =
+    await parseIdentityMembershipBody(request);
+  if (params === null) {
     return jsonResponse(
       { error: "INVALID_IDENTITY_PARAMS" },
       400
     );
   }
   const result: Readonly<MiniAppIdentityMutationResult> =
-    await setBlocklistEntryMembership({
-      id: body.id,
-      enabled: body.enabled,
-    });
+    await setBlocklistEntryMembership(params);
+  logger.operation("[MiniApp] identities.blocklist", {
+    id: params.id,
+    enabled: params.enabled,
+    ok: result.ok,
+    changed: result.changed,
+  });
   return jsonResponse(result, result.ok ? 200 : 400);
 }
 
@@ -149,6 +171,12 @@ export async function handlePostPermissionRoute(request: Request): Promise<Respo
   if (body.enableAll === true) {
     const result: Readonly<MiniAppIdentityMutationResult> =
       await enableAllWhitelistEntryPermissions(body.id);
+    logger.operation("[MiniApp] identities.permission", {
+      id: body.id,
+      enableAll: true,
+      ok: result.ok,
+      changed: result.changed,
+    });
     return jsonResponse(result, result.ok ? 200 : 400);
   }
   const key: WhitelistPermissionKey | undefined =
@@ -165,6 +193,13 @@ export async function handlePostPermissionRoute(request: Request): Promise<Respo
       key,
       value: body.value,
     });
+  logger.operation("[MiniApp] identities.permission", {
+    id: body.id,
+    key,
+    value: body.value,
+    ok: result.ok,
+    changed: result.changed,
+  });
   return jsonResponse(result, result.ok ? 200 : 400);
 }
 
@@ -190,12 +225,9 @@ export async function handlePostPickerPrepareRoute(request: Request): Promise<Re
   const targetList: MiniAppPickerTargetList = body.targetList as MiniAppPickerTargetList;
   const isChatTarget: boolean =
     targetList === "deleteMessage" || targetList === "translate";
-  if (
-    isChatTarget &&
-    (typeof body.chatId !== "number" ||
-      !Number.isSafeInteger(body.chatId) ||
-      body.chatId >= 0)
-  ) {
+  const chatId: number | undefined =
+    isChatTarget && isTelegramGroupChatId(body.chatId) ? body.chatId : undefined;
+  if (isChatTarget && chatId === undefined) {
     return jsonResponse(
       { error: "INVALID_PICKER_PARAMS" },
       400
@@ -215,13 +247,21 @@ export async function handlePostPickerPrepareRoute(request: Request): Promise<Re
       400
     );
   }
+  const subjectKind: MiniAppPickerSubjectKind =
+    body.subjectKind as MiniAppPickerSubjectKind;
   const prepResult: Readonly<PrepareMiniAppPickerResult> =
     await prepareMiniAppPicker({
       targetList,
-      subjectKind: body.subjectKind as MiniAppPickerSubjectKind,
-      ...(isChatTarget ? { chatId: body.chatId as number } : {}),
+      subjectKind,
+      ...(chatId !== undefined ? { chatId } : {}),
       ...(language !== undefined ? { language } : {}),
     });
+  logger.operation("[MiniApp] picker.prepare", {
+    targetList,
+    subjectKind,
+    chatId: chatId ?? null,
+    ok: prepResult.ok,
+  });
   return jsonResponse(prepResult, prepResult.ok ? 200 : 502);
 }
 

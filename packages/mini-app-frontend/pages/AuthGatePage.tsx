@@ -11,12 +11,13 @@ import { getTelegramWebApp } from "../libs/telegram";
 import { LockSvgIcon } from "../resource";
 import { useMiniAppStore } from "../store/app";
 import type { MiniAppUiStoreState } from "../store/app";
-import type { MiniAppLanguage, TelegramWebApp } from "../types/miniApp";
+import type { TelegramWebApp } from "../types/miniApp/host";
+import type { MiniAppLanguage } from "../types/miniApp/ui";
 import type { MiniAppAuthMode } from "../types/miniAppTotp";
 
 /**
  * 渲染访问密码或 Google Authenticator 6 位动态码登录门禁页。
- * 按服务端下发的认证模式切换输入形态，错误横幅由 `InlineNoticeCollapse` 折叠过渡，提交核验期间按钮展示加载动效；底部 `<Toast />` 与门禁主容器同级挂载于顶层 `<Fragment>` 下。
+ * 按服务端下发的认证模式切换输入形态，错误横幅由 `InlineNoticeCollapse` 折叠过渡，提交核验期间按钮展示加载动效；顶部 `<Toast />` 与门禁主容器同级挂载于顶层 `<Fragment>` 下。
  *
  * @returns React 节点
  */

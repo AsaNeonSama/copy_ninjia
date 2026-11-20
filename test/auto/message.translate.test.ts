@@ -68,6 +68,25 @@ describe("复读接管时的 AI 分流", () => {
     await handleAndSettle(ctx as never);
     expect(recordChatMessageMock).toHaveBeenCalledTimes(1);
   });
+
+  test("复读目标发出不可复制的服务消息时直接返回不落入后续分支，checklist 照常复读", async () => {
+    autoMessageTranslateSessions.clear();
+    autoMessageCopyState.targetId = 9;
+
+    const serviceCtx = context(9) as any;
+    delete serviceCtx.msg.text;
+    serviceCtx.msg.pinned_message = { message_id: 1, date: 1, chat: serviceCtx.msg.chat, text: "置顶" };
+    expect(handleIncomingMessageMiddleware(serviceCtx as never)).toBeUndefined();
+    expect(copyMessageMock).not.toHaveBeenCalled();
+    expect(sendMessageMock).not.toHaveBeenCalled();
+    expect(recordChatMessageMock).not.toHaveBeenCalled();
+
+    const checklistCtx = context(9) as any;
+    delete checklistCtx.msg.text;
+    checklistCtx.msg.checklist = { title: "待办", tasks: [] };
+    await handleIncomingMessageMiddleware(checklistCtx as never);
+    expect(copyMessageMock).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("群消息翻译分流", () => {
@@ -128,6 +147,10 @@ describe("群消息翻译分流", () => {
       }
       expect(translateMessageBacklogs.get(-1001)?.count).toBe(TRANSLATE_CHAT_BACKLOG_MAX);
       expect(loggerError).toHaveBeenCalledTimes(1);
+      expect(loggerError).toHaveBeenCalledWith(
+        "Translation backlog reached capacity; new messages are not translated while it stays full.",
+        { chatId: -1001, limit: TRANSLATE_CHAT_BACKLOG_MAX }
+      );
       releaseFirst.resolve("こんにちは");
       await Promise.allSettled([...translateRuntime.tasks]);
       expect(translateText).toHaveBeenCalledTimes(TRANSLATE_CHAT_BACKLOG_MAX);

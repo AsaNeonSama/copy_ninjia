@@ -48,15 +48,15 @@ export const BOT_PROFILE_PHOTO_FILE_NAME: string = "avatar.jpg";
 /** 上传 MP4 动态头像时附带的文件名，仅出现在 multipart 的 filename 字段里。所属模块：infra/telegram/avatar/shared.ts。 */
 export const BOT_PROFILE_ANIMATION_FILE_NAME: string = "avatar.mp4";
 /**
- * Bot API 以 multipart 上传图片的字节上限（JPEG/PNG 默认头像按此核对）。所属模块：infra/telegram/avatar/photoType.ts。
+ * Bot API 以 multipart 上传图片的字节上限（JPEG/PNG 默认头像按此核对）。所属模块：libs/avatarPhotoType.ts。
  */
 export const BOT_PROFILE_PHOTO_MAX_BYTES: number = 10 * 1024 * 1024;
 /**
- * Bot API 以 multipart 上传其他文件的字节上限（MP4 动态默认头像按此核对）。所属模块：infra/telegram/avatar/photoType.ts。
+ * Bot API 以 multipart 上传其他文件的字节上限（MP4 动态默认头像按此核对）。所属模块：libs/avatarPhotoType.ts。
  */
 export const BOT_PROFILE_ANIMATION_MAX_BYTES: number = 50 * 1024 * 1024;
 /**
- * MP4 动态头像视频轨的最大边长（像素）；视频轨须为正方形且宽高不超过此值。所属模块：infra/telegram/avatar/photoType.ts。
+ * MP4 动态头像视频轨的最大边长（像素）；视频轨须为正方形且宽高不超过此值。所属模块：libs/avatarPhotoType.ts。
  */
 export const BOT_PROFILE_ANIMATION_MAX_SIDE: number = 1_080;
 /**
@@ -71,7 +71,7 @@ export const DEFAULT_AVATAR_FETCH_TIMEOUT_MS: number = 90_000;
 export const DEFAULT_AVATAR_MAX_READ_BYTES: number =
   Math.max(BOT_PROFILE_PHOTO_MAX_BYTES, BOT_PROFILE_ANIMATION_MAX_BYTES);
 /**
- * 默认头像素材的期望形态（判定见 infra/telegram/avatar/photoType.ts）；启动核对的报错与复原失败日志共用。
+ * 默认头像素材的期望形态（判定见 libs/avatarPhotoType.ts）；启动核对的报错与复原失败日志共用。
  * 所属模块：config/assets.ts、infra/telegram/avatar/restore.ts。
  */
 export const DEFAULT_AVATAR_EXPECTED_FORM: string =
@@ -198,7 +198,7 @@ export const TELEGRAM_DELETE_MESSAGES_BATCH_MAX: number = 100;
 
 /**
  * `getCustomEmojiStickers` 单次能带的 custom_emoji_id 数上限，Bot API 官方上限（1..200）。
- * 所属模块：packages/antiRaid/adCandidate.ts 与 packages/workers/antiRaid/adDetect/verdict.ts。
+ * 所属模块：packages/antiRaid/adCandidate.ts 与 packages/workers/antiRaid/adDetect/blacklistFastPath.ts。
  */
 export const TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS: number = 200;
 

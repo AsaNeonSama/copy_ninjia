@@ -39,6 +39,7 @@ import { CRON_RANDOM_INTERVAL_MIN_MS } from "../../packages/consts/cron";
 import { readJsonInput } from "../../packages/libs/inputValidation";
 import type { CronAction, CronConfig, CronTask } from "../../packages/types/cron";
 import type { BotAtmosphere } from "../../packages/types/atmosphere";
+import type { LogLevel } from "../../packages/types/diskIO/messages";
 
 const EXAMPLE_ROOT: string = join(import.meta.dir, "..", "..", "config_example");
 
@@ -66,7 +67,9 @@ describe("config_example 与解析器保持同步", () => {
     const raw: unknown = await readJsonInput(examplePath(BOT_CONFIG_PATH));
     expect(raw).toMatchObject({
       bot_token: TELEGRAM_BOT_TOKEN_PLACEHOLDER,
-      mini_app: { password: MINI_APP_PASSWORD_PLACEHOLDER },
+      mini_app: {
+        password: MINI_APP_PASSWORD_PLACEHOLDER,
+      },
     });
 
     const path: string = examplePath(BOT_CONFIG_PATH);
@@ -83,9 +86,10 @@ describe("config_example 与解析器保持同步", () => {
       `${path}: $.mini_app.password must be a configured non-empty password string containing at least 6 digits`
     );
     expect(parseWithOnlyToken).not.toThrow(MINI_APP_PASSWORD_PLACEHOLDER);
-    // 拒绝理由只是占位 token 与占位 mini_app.password：换成真值后同一份示例能解析通过，示例的其余字段（键集合、super_admin_user_id 与 mini_app 形态）与解析器一致。
+
     const rawRecord = raw as Readonly<{
       time_zone: string;
+      log_level: LogLevel;
       atmosphere: BotAtmosphere;
       super_admin_user_id: number;
       mini_app: Readonly<{
@@ -95,6 +99,7 @@ describe("config_example 与解析器保持同步", () => {
         password: string;
       }>;
     }>;
+
     expect(
       parseBotConfig(
         {
@@ -109,6 +114,7 @@ describe("config_example 与解析器保持同步", () => {
       )
     ).toEqual({
       timeZone: rawRecord.time_zone,
+      logLevel: rawRecord.log_level,
       atmosphere: rawRecord.atmosphere,
       botToken: "123456789:example",
       superAdminUserId: rawRecord.super_admin_user_id,

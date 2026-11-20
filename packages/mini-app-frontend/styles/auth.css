@@ -603,11 +603,19 @@
   box-shadow: var(--shadow-sm);
 }
 
+.auth-gate-skeleton > .skeleton-row-between {
+  margin-bottom: 10px;
+}
+
 .skeleton-auth-desc {
   display: flex;
   flex-direction: column;
-  gap: 7px;
-  margin: 4px 0 16px;
+  gap: 6px;
+  margin: 5px 0 10px;
+}
+
+.skeleton-auth-desc > .skeleton-line {
+  height: 12px;
 }
 
 .skeleton-totp-btn {
@@ -669,10 +677,9 @@
   overflow: hidden;
 }
 
-.totp-trigger-collapse-grid:not(.collapsed) > .totp-collapse-inner,
 .totp-trigger-collapse-grid.flip-closing > .totp-collapse-inner,
-.totp-setup-collapse-grid.expanded > .totp-collapse-inner,
-.totp-setup-collapse-grid.flip-closing > .totp-collapse-inner {
+.totp-setup-collapse-grid.flip-closing > .totp-collapse-inner,
+.totp-collapse-inner[data-flip-in-flight="1"] {
   will-change: transform, opacity;
   transform: translate3d(0, 0, 0);
   backface-visibility: hidden;

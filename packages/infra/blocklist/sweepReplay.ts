@@ -45,7 +45,8 @@ export function replayPendingBlockedRemovalsForChat(chatId: number): void {
   void blockedMemberRemoverHolder.current(removals).catch(
     (error: unknown): void => {
       logger.error(
-        `Failed to replay ${removals.length} permission-blocked removal batch(es) for chat ${chatId}:`,
+        "Failed to replay permission-blocked removal batches:",
+        { chatId, batchCount: removals.length },
         error
       );
       rearmSweepAfterFailedReplay([chatId]);
@@ -168,7 +169,8 @@ async function replayPendingBlockedRemovalsAsync(
   await blockedMemberRemoverHolder.current(removals).catch(
     (error: unknown): void => {
       logger.error(
-        `Failed to replay ${removals.length} blocklist removal batch(es):`,
+        "Failed to replay blocklist removal batches:",
+        { batchCount: removals.length },
         error
       );
       rearmSweepAfterFailedReplay(replayedChatIds, replayedSweepRemovalIds);

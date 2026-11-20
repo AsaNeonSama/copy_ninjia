@@ -2,10 +2,10 @@
  * 单轮 AI 群聊回复的完整执行生命周期：完成代际校验、长窗口限频与发送顺位预留后，等待关联媒体准备就绪，
  * 启动动作心跳与回复工具集，驱动模型生成与兜底发送，并按序释放模型并发槽位与发送顺位。
  */
-import { startChatActionHeartbeat } from "../../aiChat/ai/chatActionHeartbeat";
-import { createReplyToolset } from "../../aiChat/ai/tools/replyToolset/orchestrator";
-import { buildSelfRecordMessage } from "../../aiChat/ai/utils/selfRecord";
-import { parseToolResult } from "../../aiChat/ai/utils/toolResult";
+import { startChatActionHeartbeat } from "./ai/chatActionHeartbeat";
+import { createReplyToolset } from "./ai/tools/replyToolset/orchestrator";
+import { buildSelfRecordMessage } from "../../aiChat/selfRecord";
+import { parseToolResult } from "./ai/utils/toolResult";
 import { botInfoState, superAdminUserIdState } from "../../cache/workers/aiChat/identity";
 import {
   activeReplyCounts,
@@ -214,7 +214,7 @@ function sendFallbackText(toolset: ReplyToolset, request: ReplyRoundRequest, fin
     JSON.stringify({ text: finalText, reply_to_trigger: !request.isRandomTrigger })
   );
   const error: string | null = parseToolResult(result).error;
-  if (error !== null) logger.error(`AI reply fallback send failed (chat ${request.chatId}): ${error}`);
+  if (error !== null) logger.error("AI reply fallback send failed.", { chatId: request.chatId, error });
 }
 
 /**
@@ -305,7 +305,11 @@ export function startReplyRound(
       const resolvedMedia: MediaCommentContext | null | undefined = mediaPreparation
         ? await raceAbort(mediaPreparation, { signal, cancelled: null, rejected: null })
         : mediaComment;
-      if (!isActive() || resolvedMedia === null) return;
+      if (resolvedMedia === null) {
+        longTimes.removeValue(now);
+        return;
+      }
+      if (!isActive()) return;
       const botImageBackfill: Promise<void> | undefined = repliedBotImageBackfill(chatId, replyToMessageId);
       if (botImageBackfill !== undefined) {
         await raceAbort(botImageBackfill, { signal, cancelled: undefined, rejected: undefined });
@@ -359,7 +363,11 @@ export function startReplyRound(
         }
 
         if (isActive() && toolset.actionsCompleted() === 0 && finalText !== null) {
-          logger.error(`AI reply round ended with zero actions (chat ${chatId}, trigger=${triggerKindOf(request)}, finalText=unsent).`);
+          logger.error("AI reply round ended with zero actions.", {
+            chatId,
+            trigger: triggerKindOf(request),
+            finalText: "unsent",
+          });
         }
       } finally {
         await heartbeat.stop();

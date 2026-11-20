@@ -114,6 +114,8 @@ interface DiskIORuntime {
   diagnosticQueue: AcknowledgedBatchQueue<DiskDiagnosticMessage>;
   diagnosticDroppedMessages: number;
   diagnosticDroppedSerializedBytes: number;
+  diagnosticFlushTimer: ReturnType<typeof setTimeout> | null;
+  diagnosticFlushPendingCount: number;
   diagnosticRetryTimer: ReturnType<typeof setTimeout> | null;
   consecutiveDiagnosticWriteFailures: number;
   consecutiveDiagnosticRebuilds: number;
@@ -130,9 +132,11 @@ interface DiskIORuntime {
  *   字节上限 `DISK_OPERATION_MAX_RETAINED_BYTES`），收到批次 ACK 后释放；Worker 崩溃重建期间业务消息转入
  *   `pendingBusinessMessages` 按原序重放，查询由宿主直接拒绝。
  * - 诊断队列：`diagnosticQueue` 保存单批在途诊断与日志消息（条数上限 `DISK_DIAGNOSTIC_MAX_PENDING_MESSAGES`、字节上限
- *   `DISK_DIAGNOSTIC_MAX_SERIALIZED_BYTES`），ACK 后排空，Worker 重建时原批重发；满额越界累加 `diagnosticDroppedMessages`
- *   与 `diagnosticDroppedSerializedBytes`，恢复空间后追加汇总日志；`diagnosticDrainWaiters` 在并发 flush 时登记，
- *   在 ACK、超时、放弃自愈或 `terminateDiskIO` 时结算清空。
+ *   `DISK_DIAGNOSTIC_MAX_SERIALIZED_BYTES`），ACK 后排空，Worker 重建时原批重发；普通级别日志（`info`/`operation`/`warn`）
+ *   在缓冲满 `DISK_DIAGNOSTIC_BATCH_MAX_MESSAGES` 条或 `diagnosticFlushTimer`（`FLUSH_INTERVAL_MS`）到期前滞留队列，
+ *   通过 `diagnosticFlushPendingCount` 控制本次可投递的队头窗口（`error` 日志、汇总日志、非日志诊断及显式 flush 立即覆盖全队列）；
+ *   满额越界累加 `diagnosticDroppedMessages` 与 `diagnosticDroppedSerializedBytes`，恢复空间后追加汇总日志；
+ *   `diagnosticDrainWaiters` 在并发 flush 时登记，在 ACK、超时、放弃自愈或 `terminateDiskIO` 时结算清空。
  * - 监听器：`respawnListeners`、`replyListeners`、`giveUpListeners` 由各模块初始化时登记，Worker 重建时保留，进程重启后重新注册。
  */
 export const diskIORuntime: DiskIORuntime = {
@@ -161,6 +165,8 @@ export const diskIORuntime: DiskIORuntime = {
   }),
   diagnosticDroppedMessages: 0,
   diagnosticDroppedSerializedBytes: 0,
+  diagnosticFlushTimer: null,
+  diagnosticFlushPendingCount: 0,
   diagnosticRetryTimer: null,
   consecutiveDiagnosticWriteFailures: 0,
   consecutiveDiagnosticRebuilds: 0,

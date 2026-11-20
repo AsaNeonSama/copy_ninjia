@@ -17,7 +17,7 @@
 - **`/proc` にアクセス可能な Linux 環境**：インスタンスの二重起動防止ロックは、`/proc/<pid>/stat` とシステムの boot ID に依存しています。その他の OS では安全のため起動を拒否（fail-closed）します。
 - **Bun**（バージョンは `package.json` の `packageManager` に準拠）：ソースコードからの実行およびローカル開発に必須です。次のコマンドでインストールできます：
   ```bash
-  curl -fsSL https://bun.sh/install | bash -s bun-v1.4.4
+  curl -fsSL https://bun.sh/install | bash -s bun-v1.4.5
   ```
   > [!NOTE]
   > バイナリ配布版には内蔵ランタイムが同梱されているため、ホストマシンへの Bun のインストールは不要です。なお、プロジェクト全体を通じて Node.js は一切使用しません。
@@ -109,14 +109,14 @@ bun install --frozen-lockfile
 mkdir -p config/static config/dynamic
 for example in config_example/static/*.json config_example/dynamic/*.json; do
   case "${example##*/}" in
-    g-auth.json | cron.json) ;;
+    agent.json | g-auth.json | cron.json) ;;
     *) cp -n "$example" "config/${example#config_example/}" ;;
   esac
 done
 ```
 
 > [!WARNING]
-> `g-auth.json` と `cron.json` のサンプルは記法リファレンス用であり、本番ディレクトリへ自動コピーしないでください。コピーした各設定内の `replace-with-…` プレースホルダー（`bot_token` や各 AI 機能の `api_key`）は必ず実際の値に置き換えてください。プレースホルダーが残ったままでは起動時バリデーションでエラー終了します。詳細は [`config_example/README/ja.md`](../../config_example/README/ja.md) を参照してください。
+> `agent.json`、`g-auth.json`、`cron.json` のサンプルにはプレースホルダー資格情報やダミータスクが含まれるため、該当機能を有効化するときのみコピーして記入してください。Mini App を有効化しない場合は `config/static/bot.json` から `mini_app` セクションを削除し、有効化する場合は各項目を設定のうえプレースホルダーの `password` を置き換えてください。コピーした各設定内の `replace-with-…` プレースホルダー（`bot_token`、`mini_app.password`、各 AI 機能の `api_key`）は必ず実際の値に置き換えてください。プレースホルダーが残ったままでは起動時バリデーションでエラー終了します。詳細は [`config_example/README/ja.md`](../../config_example/README/ja.md) を参照してください。
 
 ---
 
@@ -138,14 +138,17 @@ Bot の基本設定およびグローバルスーパー管理者は `config/stat
   - おみくじの日付境界、ログローテーション、広告判定の発言カウント、AI の時刻認識、日次クリーンアップ、タイムゾーン省略時の cron 実行基準となるタイムゾーンです。
   - 前後の空白をトリムし、Temporal 仕様で大文字・小文字を正規化します（エイリアスも保持）。空文字列や未対応のタイムゾーンは起動時に拒否されます。
   - **データルートとの束縛**：初回データベース初期化時に `storage_metadata` の `time-zone` へ記録され、以降そのデータルートはこのタイムゾーンに固定されます。既存データルートでの `time_zone` 変更は起動時に `storage_metadata.time-zone` エラーで拒否されます。
+- **`log_level`**（任意、列挙型：`"info"` | `"operation"` | `"warn"` | `"error"`。省略時およびテンプレートの既定値は `"operation"`）
+  - コンソール出力と `logs/<YYYY-MM-DD>.json` へのディスク永続化双方に対する最低重大度しきい値（`info` < `operation` < `warn` < `error`）です。指定時は前後の空白を除いて厳格に検証され、不正値は起動時に拒否されます。
+  - `info` は主要な内部挙動と上位レベルすべて、`operation` は Telegram の `/` コマンド・`/wed` コールバック・`/qa set` フォーム・Mini App のログイン／ログアウトと状態変更操作（＋`warn`／`error`）、`warn` は警告とエラー、`error` はエラーのみを記録します。`info`・`operation`・`warn` はメインスレッドで最大 32 件または 30 秒間隔でバッファ後に永続化され、`error` ログは即時永続化されます。
 - **`mini_app`**（任意、オブジェクト：`{ url: string, port: number, host?: string, password: string }`）
-  - スーパー管理者専用の Telegram Mini App 管理コンソールを設定します。省略時は HTTP サーバー・ルート・個人チャットメニューボタンを一切登録しません。
+  - スーパー管理者専用の Telegram Mini App 管理コンソールを設定します。省略時は HTTP サーバー・ルート・個人チャットメニューボタンを一切登録せず、セクションを指定する場合は `url`・`port`・`password` が必須、`host` は任意です。
   - **フィールド仕様**：
     - `url`（必須）：公開 `https://` URL（サブパスプレフィックスに対応）。
     - `port`（必須）：ローカル待受ポート（`MINI_APP_PORT_MIN`～`MINI_APP_PORT_MAX` の整数。サンプル設定は `3000`）。
-    - `host`（任意）：バインドアドレス（既定値は `MINI_APP_DEFAULT_HOST` の `"127.0.0.1"`）。
+    - `host`（任意）：非空のバインドアドレス（既定値は `MINI_APP_DEFAULT_HOST` の `"127.0.0.1"`）。
     - `password`（必須）：初回画面アクセスパスワード（プレースホルダー以外の文字列で、数字 `0-9` を 6 桁以上含むこと。`config_example/static/bot.json` を手動コピーして Mini App を使わない場合は `mini_app` セクションごと削除してください）。
-  - **動作と認証**：ローカル `Bun.serve` HTTP コンソールを起動し、スーパー管理者の個人チャット左下に `MenuButtonWebApp`（`App` ボタン）を設定します。`initData` 署名検証と初回画面資格情報の二段階認証を強制し、Google Authenticator (TOTP) バインド（`memory/mini-app-totp/totp.json` に永続化）にも対応します。詳細は [10 Mini App の設定方法と推奨構成](10-mini-app.md) を参照してください。
+  - **動作と認証**：ローカル `Bun.serve` HTTP コンソールを起動し、スーパー管理者の個人チャット左下に `MenuButtonWebApp`（`App` ボタン）を設定します。`initData` 署名検証と初回画面資格情報（起動時メモリ生成 `Ed25519` 署名＋一時 `X25519` ECDH ハンドシェイク）の二段階認証および 256-bit 一時鍵による AES-256-GCM 通信暗号化（5 秒～5 分のランダム冷却後に 45 分スライディング更新・最長 2 時間上限）を強制し、オンラインのハイライト付き JSON 設定エディタと Google Authenticator (TOTP) バインド（`memory/mini-app-totp/totp.json` に永続化）にも対応します。詳細は [10 Mini App の設定方法と推奨構成](10-mini-app.md) を参照してください。
 
 ---
 

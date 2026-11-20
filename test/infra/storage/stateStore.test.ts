@@ -3,8 +3,8 @@ import { waitUntil } from "../../helpers/waitUntil";
 import { lstatSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { StateStore } from "../../../packages/infra/storage/statePersistence";
 import {
-  StateStore,
   adoptCopyTarget,
   activeCopyModeIn,
   activeCopyTargetIdIn,

@@ -2,7 +2,7 @@
  * AI 回复的待处理触发队列：当群内并发轮次已满时，按 FIFO 暂存直接触发的发言快照、话题与问答上下文，
  * 并在模型并发空出槽位时按序补跑或补发队列溢出提示。
  */
-import { displaySpeakerName } from "../../aiChat/ai/utils/chatTranscript";
+import { displaySpeakerName } from "./ai/utils/chatTranscript";
 import { QUEUED_TRIGGER_SNIPPET_MAX_CHARS } from "../../consts/aiChat/rateLimit";
 import {
   activeReplyCounts,

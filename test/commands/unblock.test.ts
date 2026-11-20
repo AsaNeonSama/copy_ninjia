@@ -49,6 +49,8 @@ const flushDiskIO = mock(async (): Promise<FlushResult> => "flushed");
 const persistedListeners: ((reply: IdentityStoragePersistedReply) => void)[] = [];
 /** 为 false 时 flush 成功也不回执身份写入，模拟 Worker 尚未提交这批事务。 */
 const identityAck: { enabled: boolean } = { enabled: true };
+/** 身份冷读替身：`ready` 为 false 时预热视为 Disk I/O 未就绪直接放行；为 true 时冷读按 `error` 失败。 */
+const identityColdRead: { ready: boolean; error: Error | null } = { ready: false, error: null };
 const flushBlocklistDomain = createFlushBlocklistDomain({
   flushDiskIO,
   postDiskIO,
@@ -95,6 +97,10 @@ mock.module("../../packages/infra/chatStateStorage", () => ({
 mock.module("../../packages/commands/targetResolution", () => ({ resolveCommandTarget }));
 mock.module("../../packages/infra/diskIO", () => (diskIOStub({
   postDiskIO,
+  isDiskIOInitialized: (): boolean => identityColdRead.ready,
+  readIdentityPolicies: async (): Promise<never> => {
+    throw identityColdRead.error ?? new Error("unexpected identity cold read");
+  },
   onDiskIORespawn: (): void => {},
   relayLogMessage: (): boolean => true,
   // 身份表的确认等精确 revision ACK（flushBlocklistDomain），其余领域只看 flush 结果。
@@ -140,6 +146,8 @@ beforeEach(() => {
   postDiskIO.mockImplementation((): boolean => true);
   flushDiskIO.mockImplementation(async (): Promise<FlushResult> => "flushed");
   identityAck.enabled = true;
+  identityColdRead.ready = false;
+  identityColdRead.error = null;
   unbanChatMemberIfBanned.mockImplementation(async (): Promise<boolean> => true);
   unbanChatSenderChat.mockImplementation(async (): Promise<boolean> => true);
   resolveBotAdminStatus.mockImplementation(async (): Promise<boolean> => false);
@@ -292,7 +300,8 @@ describe("/block disable", () => {
       text: expect.stringMatching(/在 1 个群把封禁一并解开了.*还有 1 个群没解开/),
     }));
     expect(loggerError).toHaveBeenCalledWith(
-      expect.stringContaining("Unexpected error while running lift the ban on identity 7 in chat -1001"),
+      "Unexpected error while running managed chat blocklist action:",
+      { action: "lift the ban on identity", identityId: 7, chatId: -1001, batchIndex: 0 },
       expect.any(Error)
     );
   });
@@ -314,7 +323,8 @@ describe("/block disable", () => {
 
     expect(unbanChatMemberIfBanned).toHaveBeenCalledTimes(2);
     expect(loggerError).not.toHaveBeenCalledWith(
-      expect.stringContaining("Unexpected error while running"),
+      "Unexpected error while running managed chat blocklist action:",
+      expect.anything(),
       expect.anything()
     );
   });
@@ -399,5 +409,37 @@ describe("/block disable", () => {
     expect(postDiskIO).not.toHaveBeenCalledWith(expect.objectContaining({
       type: "identityPolicyWrite",
     }));
+  });
+
+  test("等串行位期间目标被身份 LRU 挤出且重预热失败：只回存储不可用，不改名单也不跨群解封", async () => {
+    const { drainDeferredCommandRuntime, initDeferredCommandRuntime } = await import("../../packages/commands/deferredCommands");
+    const { blocklistIdentityMutationRunner } = await import("../../packages/cache/main/blocklist");
+    const { resetIdentityStorageCache } = await import("../../packages/cache/main/identityStorage");
+    initDeferredCommandRuntime();
+    try {
+      blockedUserIds.set(7, { isBlocked: true, blockedAt: "2026/08/11 00:00:00" });
+      resolveBotAdminStatus.mockResolvedValue(true);
+      const earlier: PromiseWithResolvers<void> = Promise.withResolvers<void>();
+      void blocklistIdentityMutationRunner.run(7, (): Promise<void> => earlier.promise);
+
+      await handleUnblockCommand(context());
+      // 排队期间目标从身份 LRU 被挤出，且临界区内的冷读失败。
+      resetIdentityStorageCache();
+      identityColdRead.ready = true;
+      identityColdRead.error = new Error("storage offline");
+      earlier.resolve();
+      expect(await drainDeferredCommandRuntime(1_000)).toBe("flushed");
+
+      expect(unbanChatMemberIfBanned).not.toHaveBeenCalled();
+      expect(postDiskIO).not.toHaveBeenCalledWith(expect.objectContaining({
+        type: "identityPolicyWrite",
+      }));
+      expect(sendMessage).toHaveBeenCalledTimes(1);
+      expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+        text: ATMOSPHERE_TEXTS.teasing.IDENTITY_POLICY_UNAVAILABLE_TEXT,
+      }));
+    } finally {
+      await drainDeferredCommandRuntime(0);
+    }
   });
 });

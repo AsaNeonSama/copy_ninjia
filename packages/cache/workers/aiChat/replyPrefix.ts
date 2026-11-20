@@ -13,7 +13,7 @@ import type { ReplySystemPromptSlot } from "../../../types/aiChat/replies";
 export const replySystemPromptSlot: { current: ReplySystemPromptSlot | null } = { current: null };
 
 /**
- * OpenAI 回复 prompt_cache_key 的前缀哈希状态单槽（aiChat/openai/replySession.ts）。
+ * OpenAI 回复 prompt_cache_key 的前缀哈希状态单槽（workers/aiChat/openai/replySession.ts）。
  * 填充：libs/prefixFingerprint.ts 的 stablePrefixFingerprintWithSlot 在前缀变化时重建并覆盖，一致时克隆状态继续计算。
  * 清理：新值覆盖或 resetReplyPrefixCache 置空。
  * 重建：Worker 崩溃重启后从 null 开始。

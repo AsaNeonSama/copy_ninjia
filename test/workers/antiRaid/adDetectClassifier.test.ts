@@ -4,12 +4,12 @@ import { getAdDetectAgentConfig } from "../../../packages/config/agent";
 import type { AdDetectPrompts } from "../../../packages/types/antiRaid/adDetect";
 import type { AdDetectConfig } from "../../../packages/types/config";
 
-const errorLogs: string[] = [];
+const errorLogs: unknown[][] = [];
 const requestAdDetectJson = mock(async (..._args: unknown[]): Promise<string | null> =>
   "{\"ad\": false, \"reason\": \"闲聊\"}");
 
 mock.module("../../../packages/infra/logger", () => ({
-  logger: loggerStub({ error(message: unknown): void { errorLogs.push(String(message)); } }),
+  logger: loggerStub({ error(...args: unknown[]): void { errorLogs.push(args); } }),
 }));
 mock.module("../../../packages/workers/antiRaid/adDetect/ai/provider", () => ({ requestAdDetectJson }));
 mock.module("../../../packages/config/adDetectConfig", () => ({
@@ -120,7 +120,7 @@ describe("广告判定请求", () => {
     const joined = requestAdDetectJson.mock.calls[0]?.[0] as PromptParams;
     expect(joined.fact).toBe(adDetectFact(true));
     expect(joined.fact).toContain("刚加入本群、尚未通过入群验证");
-    // 规则与示例段不含系统事实，Gemini 路径可进显式缓存。
+    // 规则与示例段不含系统事实，Gemini 与 Anthropic 路径保持前缀稳定以复用服务端缓存。
     expect(joined.instructions).toBe(buildAdDetectInstructions(["加溦拉群"]));
     expect(joined.instructions).not.toContain(adDetectFact(true));
     // OpenAI 兼容路径：规则与示例段在前，系统事实固定拼在 system 段最后。
@@ -168,7 +168,10 @@ describe("广告判定请求", () => {
   test("看着像 JSON 却解析不出来时点名记录并当作没判定", async () => {
     requestAdDetectJson.mockImplementation(async (): Promise<string | null> => "{\"ad\" true}");
     await expect(classifyAdText({ text: "x", justJoined: false })).resolves.toBeNull();
-    expect(errorLogs[0]).toContain("Ad detection response was not valid JSON");
+    expect(errorLogs[0]).toEqual([
+      "Ad detection response was not valid JSON:",
+      expect.any(SyntaxError),
+    ]);
 
     // 没有大括号的输出在解析前就被挡掉，不记日志。
     errorLogs.length = 0;

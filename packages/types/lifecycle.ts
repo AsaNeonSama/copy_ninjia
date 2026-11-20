@@ -35,10 +35,12 @@ export interface HandlerRegistration {
 
 /** acknowledgement-safe Telegram update runner 的生命周期控制面。 */
 export interface AcknowledgedUpdateRunner {
-  /** 停止继续取数；已开始的 middleware 留给生命周期按 size() 做有界排空。 */
+  /** 停止继续取数；已开始的 middleware 留给生命周期按 activeTask() 与 size() 做有界排空。 */
   readonly stop: () => Promise<void>;
   /** 取数循环结束（不代表已开始的 middleware 全部结束）。 */
   readonly task: () => Promise<void>;
+  /** 当前在途 middleware 的结算 Promise；无在途 update 时返回 null。结算完成时 size() 已归零且 hasFailedUpdate() 已生效。 */
+  readonly activeTask: () => Promise<void> | null;
   /** 当前仍在执行的 middleware 数。 */
   readonly size: () => number;
   /**

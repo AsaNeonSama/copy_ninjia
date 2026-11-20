@@ -4,7 +4,8 @@ import {
   MINI_APP_CHAT_TARGETS_MUTATION_ACTIONS,
   MINI_APP_FEATURE_KEYS,
   MINI_APP_TRANSLATE_LANGUAGES,
-} from "../../consts/miniApp";
+} from "../../consts/miniApp/features";
+import { logger } from "../../infra/logger";
 import { isTelegramGroupChatId } from "../../libs/telegramId";
 import type {
   MiniAppBatchKickResult,
@@ -26,14 +27,16 @@ import { setManagedChatFeature } from "../view/chats/toggle";
 import { readManagedChatMessages } from "../view/messages";
 
 /**
- * 解析并校验路由中的群聊 ID。
- * @param rawChatId 路由参数中的原始群聊 ID 字符串。
- * @returns 合法的负数群聊 ID，非法时返回 `null`。
+ * 从请求 URL 的 `chatId` 查询参数解析并校验负数群聊 ID；缺失或非法时返回 `400 INVALID_CHAT_ID` 响应。
+ * @param url 已解封加密查询串后的请求 URL。
+ * @returns 合法的负数群聊 ID，或 `400` JSON 错误响应。
  */
-function parseGroupChatIdParam(rawChatId: string): number | null {
-  const parsed: number | undefined = parseOptionalSafeInt(rawChatId);
+function parseGroupChatIdQueryOrError(url: URL): number | Response {
+  const parsed: number | undefined = parseOptionalSafeInt(
+    url.searchParams.get("chatId")
+  );
   if (parsed === undefined || !isTelegramGroupChatId(parsed)) {
-    return null;
+    return jsonResponse({ error: "INVALID_CHAT_ID" }, 400);
   }
   return parsed;
 }
@@ -47,14 +50,14 @@ export function handleGetChatsRoute(): Response {
 }
 
 /**
- * 处理 `GET /api/chats/:chatId`：读取指定已 `/init` 群的详细状态。
- * @param rawChatId 路径中的群聊 ID 字符串。
+ * 处理 `GET /api/chats/detail`：从已解密查询参数读取 `chatId`，返回指定已 `/init` 群的详细状态。
+ * @param url 已解封加密查询串后的请求 URL（读取 `chatId` 查询参数）。
  * @returns JSON 响应。
  */
-export async function handleGetChatDetailById(rawChatId: string): Promise<Response> {
-  const chatId: number | null = parseGroupChatIdParam(rawChatId);
-  if (chatId === null) {
-    return jsonResponse({ error: "INVALID_CHAT_ID" }, 400);
+export async function handleGetChatDetailRoute(url: URL): Promise<Response> {
+  const chatId: number | Response = parseGroupChatIdQueryOrError(url);
+  if (chatId instanceof Response) {
+    return chatId;
   }
   const detail: Readonly<MiniAppChatDetail> | null = await getManagedChatDetail(chatId);
   if (detail === null) {
@@ -64,18 +67,14 @@ export async function handleGetChatDetailById(rawChatId: string): Promise<Respon
 }
 
 /**
- * 处理 `GET /api/chats/:chatId/messages`：读取指定已 `/init` 群的热 256 条发言记录。
- * @param rawChatId 路径中的群聊 ID 字符串。
- * @param url 已解析的请求 URL（读取 `page`、`pageSize` 查询参数）。
+ * 处理 `GET /api/chats/messages`：从已解密查询参数读取 `chatId`、`page` 与 `pageSize`，返回指定已 `/init` 群的热 256 条发言记录。
+ * @param url 已解封加密查询串后的请求 URL（读取 `chatId`、`page`、`pageSize` 查询参数）。
  * @returns JSON 响应。
  */
-export function handleGetChatMessagesById(
-  rawChatId: string,
-  url: URL
-): Response {
-  const chatId: number | null = parseGroupChatIdParam(rawChatId);
-  if (chatId === null) {
-    return jsonResponse({ error: "INVALID_CHAT_ID" }, 400);
+export function handleGetChatMessagesRoute(url: URL): Response {
+  const chatId: number | Response = parseGroupChatIdQueryOrError(url);
+  if (chatId instanceof Response) {
+    return chatId;
   }
   const page: number | undefined = parseOptionalSafeInt(url.searchParams.get("page"));
   const pageSize: number | undefined = parseOptionalSafeInt(url.searchParams.get("pageSize"));
@@ -91,22 +90,25 @@ export function handleGetChatMessagesById(
 }
 
 /**
- * 处理 `POST /api/chats/:chatId/feature`：切换指定群的功能开关。
- * @param request HTTP 请求。
- * @param rawChatId 路径中的群聊 ID 字符串。
+ * 处理 `POST /api/chats/feature`：从已解密 JSON 请求体读取 `chatId`、`feature` 与 `enabled`，切换指定群的功能开关。
+ * @param request HTTP 请求（请求体已由中间件解封外层加密）。
  * @returns JSON 响应。
  */
-export async function handlePostChatFeatureById(
-  request: Request,
-  rawChatId: string
+export async function handlePostChatFeatureRoute(
+  request: Request
 ): Promise<Response> {
-  const chatId: number | null = parseGroupChatIdParam(rawChatId);
-  if (chatId === null) {
+  const body: Record<string, unknown> | null = await readJsonObjectBody(request);
+  if (body === null) {
+    return jsonResponse(
+      { error: "INVALID_CHAT_FEATURE_PARAMS" },
+      400
+    );
+  }
+  if (!isTelegramGroupChatId(body.chatId)) {
     return jsonResponse({ error: "INVALID_CHAT_ID" }, 400);
   }
-  const body: Record<string, unknown> | null = await readJsonObjectBody(request);
+  const chatId: number = body.chatId;
   if (
-    body === null ||
     typeof body.feature !== "string" ||
     !MINI_APP_FEATURE_KEYS.includes(body.feature as MiniAppFeatureKey) ||
     typeof body.enabled !== "boolean"
@@ -116,12 +118,21 @@ export async function handlePostChatFeatureById(
       400
     );
   }
+  const feature: MiniAppFeatureKey = body.feature as MiniAppFeatureKey;
+  const enabled: boolean = body.enabled;
   const toggleResult: Readonly<MiniAppFeatureToggleResult> =
     await setManagedChatFeature({
       chatId,
-      feature: body.feature as MiniAppFeatureKey,
-      enabled: body.enabled,
+      feature,
+      enabled,
     });
+  logger.operation("[MiniApp] chats.feature", {
+    chatId,
+    feature,
+    enabled,
+    ok: toggleResult.ok,
+    removedFromList: toggleResult.removedFromList,
+  });
   return jsonResponse(
     toggleResult,
     toggleResult.ok || toggleResult.removedFromList ? 200 : 400
@@ -129,21 +140,25 @@ export async function handlePostChatFeatureById(
 }
 
 /**
- * 处理 `POST /api/chats/:chatId/batch-kick`：按 1–24 小时回溯窗口触发指定群的 `/batch_kick` 批量清理新进群成员。
- * @param request HTTP 请求。
- * @param rawChatId 路径中的群聊 ID 字符串。
+ * 处理 `POST /api/chats/batch-kick`：从已解密 JSON 请求体读取 `chatId` 与 `hours`，按 1–24 小时回溯窗口触发指定群的 `/batch_kick` 批量清理新进群成员。
+ * @param request HTTP 请求（请求体已由中间件解封外层加密）。
  * @returns JSON 响应。
  */
-export async function handlePostChatBatchKickById(
-  request: Request,
-  rawChatId: string
+export async function handlePostChatBatchKickRoute(
+  request: Request
 ): Promise<Response> {
-  const chatId: number | null = parseGroupChatIdParam(rawChatId);
-  if (chatId === null) {
+  const body: Record<string, unknown> | null = await readJsonObjectBody(request);
+  if (body === null) {
+    return jsonResponse(
+      { error: "INVALID_BATCH_KICK_PARAMS" },
+      400
+    );
+  }
+  if (!isTelegramGroupChatId(body.chatId)) {
     return jsonResponse({ error: "INVALID_CHAT_ID" }, 400);
   }
-  const body: Record<string, unknown> | null = await readJsonObjectBody(request);
-  const hours: unknown = body?.hours;
+  const chatId: number = body.chatId;
+  const hours: unknown = body.hours;
   if (
     typeof hours !== "number" ||
     !Number.isSafeInteger(hours) ||
@@ -157,6 +172,11 @@ export async function handlePostChatBatchKickById(
   }
   const result: Readonly<MiniAppBatchKickResult> =
     await triggerManagedChatBatchKick(chatId, hours);
+  logger.operation("[MiniApp] chats.batchKick", {
+    chatId,
+    hours,
+    outcome: result.outcome,
+  });
   const status: number =
     result.outcome === "notInitialized"
       ? 404
@@ -167,14 +187,14 @@ export async function handlePostChatBatchKickById(
 }
 
 /**
- * 处理 `GET /api/chats/:chatId/targets`：读取指定已 `/init` 群的问答对、追着删目标与追着翻目标清单。
- * @param rawChatId 路径中的群聊 ID 字符串。
+ * 处理 `GET /api/chats/targets`：从已解密查询参数读取 `chatId`，返回指定已 `/init` 群的问答对、追着删目标与追着翻目标清单。
+ * @param url 已解封加密查询串后的请求 URL（读取 `chatId` 查询参数）。
  * @returns JSON 响应。
  */
-export function handleGetChatTargetsById(rawChatId: string): Response {
-  const chatId: number | null = parseGroupChatIdParam(rawChatId);
-  if (chatId === null) {
-    return jsonResponse({ error: "INVALID_CHAT_ID" }, 400);
+export function handleGetChatTargetsRoute(url: URL): Response {
+  const chatId: number | Response = parseGroupChatIdQueryOrError(url);
+  if (chatId instanceof Response) {
+    return chatId;
   }
   const targets: Readonly<MiniAppChatTargetsView> | null = getManagedChatTargets(chatId);
   if (targets === null) {
@@ -184,22 +204,22 @@ export function handleGetChatTargetsById(rawChatId: string): Response {
 }
 
 /**
- * 处理 `POST /api/chats/:chatId/targets`：在指定已 `/init` 群内新增、修改或移除问答对、追着删目标与追着翻目标。
- * @param request HTTP 请求。
- * @param rawChatId 路径中的群聊 ID 字符串。
+ * 处理 `POST /api/chats/targets`：从已解密 JSON 请求体读取 `chatId` 与变更动作，在指定已 `/init` 群内新增、修改或移除问答对、追着删目标与追着翻目标。
+ * @param request HTTP 请求（请求体已由中间件解封外层加密）。
  * @returns JSON 响应。
  */
-export async function handlePostChatTargetsById(
-  request: Request,
-  rawChatId: string
+export async function handlePostChatTargetsRoute(
+  request: Request
 ): Promise<Response> {
-  const chatId: number | null = parseGroupChatIdParam(rawChatId);
-  if (chatId === null) {
+  const body: Record<string, unknown> | null = await readJsonObjectBody(request);
+  if (body === null) {
+    return jsonResponse({ error: "INVALID_CHAT_TARGETS_PARAMS" }, 400);
+  }
+  if (!isTelegramGroupChatId(body.chatId)) {
     return jsonResponse({ error: "INVALID_CHAT_ID" }, 400);
   }
-  const body: Record<string, unknown> | null = await readJsonObjectBody(request);
+  const chatId: number = body.chatId;
   if (
-    body === null ||
     typeof body.action !== "string" ||
     !MINI_APP_CHAT_TARGETS_MUTATION_ACTIONS.includes(
       body.action as MiniAppChatTargetsMutationAction
@@ -218,15 +238,22 @@ export async function handlePostChatTargetsById(
       ? (body.language as MiniAppTranslateLanguage)
       : undefined;
 
+  const action: MiniAppChatTargetsMutationAction =
+    body.action as MiniAppChatTargetsMutationAction;
   const result: Readonly<MiniAppChatTargetsMutationResult> =
     await mutateManagedChatTargets(chatId, {
-      action: body.action as MiniAppChatTargetsMutationAction,
+      action,
       ...(q !== undefined ? { q } : {}),
       ...(a !== undefined ? { a } : {}),
       ...(target !== undefined ? { target } : {}),
       ...(id !== undefined ? { id } : {}),
       ...(language !== undefined ? { language } : {}),
     });
+  logger.operation("[MiniApp] chats.targets", {
+    chatId,
+    action,
+    ok: result.ok,
+  });
   if (result.message === "CHAT_NOT_FOUND") {
     return jsonResponse({ error: "CHAT_NOT_FOUND" }, 404);
   }

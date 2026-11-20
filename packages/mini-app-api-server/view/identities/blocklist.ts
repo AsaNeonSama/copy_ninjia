@@ -61,7 +61,8 @@ export function listBlocklistEntries(
 }
 
 /**
- * 新增或移除黑名单成员，并在所有受管管理员群有界并发执行跨群封禁或解封（与 `/block enable|disable` 同源）。
+ * 新增或移除黑名单成员，并在所有受管管理员群有界并发执行跨群封禁或解封（与 `/block enable|disable` 同源；
+ * 重复拉黑时同样以 `retryUnacknowledged=true` 确认落盘并重新派发跨群封禁，结果携带 `persisted`/`affectedChats`/`totalChats`）。
  * @param params 目标身份 ID、启用开关与可选展示资料。
  * @returns 黑名单变更及跨群处置结果。
  */
@@ -148,16 +149,8 @@ export async function setBlocklistEntryMembership({
             message: "IDENTITY_IN_WHITELIST",
           };
         }
-        if (mutationKind === "duplicate") {
-          return {
-            ok: true,
-            changed: false,
-            duplicate: true,
-            id,
-            message: "BLOCKLIST_DUPLICATE",
-          };
-        }
-        const persisted: boolean = await confirmBlocklistPersisted(id, false);
+        const isDuplicate: boolean = mutationKind === "duplicate";
+        const persisted: boolean = await confirmBlocklistPersisted(id, isDuplicate);
         const targetChatIds: number[] = managedAdminChatIds(0, false);
         // 没有受管群时不进入扇出，也就不做扇出后的停机撤销检查。
         const bannedCount: number = targetChatIds.length === 0
@@ -165,13 +158,13 @@ export async function setBlocklistEntryMembership({
           : await banBlockedIdentityInManagedChats({ chatIds: targetChatIds, identityId: id, isChannel });
         return {
           ok: true,
-          changed: true,
-          duplicate: false,
+          changed: !isDuplicate,
+          duplicate: isDuplicate,
           id,
           persisted,
           affectedChats: bannedCount,
           totalChats: targetChatIds.length,
-          message: "BLOCKLIST_ADDED",
+          message: isDuplicate ? "BLOCKLIST_DUPLICATE" : "BLOCKLIST_ADDED",
         };
       }
 

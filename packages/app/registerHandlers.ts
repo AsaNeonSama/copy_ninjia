@@ -1,7 +1,9 @@
 import { Composer, GrammyError } from "grammy";
+import type { Message } from "grammy/types";
 import type {
   Bot,
   BotError,
+  CommandContext,
   Context,
   Filter,
   MiddlewareFn,
@@ -50,7 +52,9 @@ import {
 import { handleMyChatMemberUpdate } from "../infra/botAdmin";
 import { CJK_ACTION_COMMAND_PATTERN } from "../consts/commands";
 import { logger } from "../infra/logger";
+import { isBotOwnMessage } from "../infra/selfSentTracker";
 import { shouldPassBotMessage } from "../infra/botMessageGate";
+import { visibleSenderId } from "../users/visibleSender";
 import { createUpdatePreamble } from "./updatePreamble";
 import type { HandlerRegistration } from "../types/lifecycle";
 
@@ -92,6 +96,50 @@ function dispatchCallbackQuery(
   return wed ? undefined : claimOrContinue(handleQaBoardCallback(ctx), next);
 }
 
+/** 挂载到 ASCII `/` 命令 Composer 上的命令处理器签名。 */
+type SlashCommandHandler = (
+  ctx: CommandContext<Filter<Context, ":entities:bot_command">>,
+  next: NextFunction
+) => void | Promise<void>;
+
+/**
+ * 包装 ASCII `/` 命令处理器，在人工或频道/匿名群管身份直接触发命令时写入一条 `operation` 审计日志。
+ *
+ * 保持非 `async` 声明并直接透传 `handler` 的返回值（`void` 或 `Promise<void>`），
+ * 不额外包裹 Promise，避免改变原本可同步结束的命令执行时机。
+ * 排除机器人自发消息、关联频道自动转发以及普通 Bot 消息，并通过 `visibleSenderId` 解析真实发起者 ID；
+ * 日志仅包含命令名与发起元数据，不记录命令文本与 `/send` 等私密载荷。
+ *
+ * @param commandName 不带前导 `/` 的 ASCII 命令名。
+ * @param handler 实际处理该命令的处理器。
+ * @returns 保持原返回值语义的包装处理器。
+ */
+function auditCommand(
+  commandName: string,
+  handler: SlashCommandHandler
+): SlashCommandHandler {
+  return (
+    ctx: CommandContext<Filter<Context, ":entities:bot_command">>,
+    next: NextFunction
+  ): void | Promise<void> => {
+    const message: Message = ctx.msg;
+    if (
+      !isBotOwnMessage(message) &&
+      message.is_automatic_forward !== true &&
+      (message.from?.is_bot !== true || message.sender_chat !== undefined)
+    ) {
+      logger.operation("[TelegramCommand] Slash command invoked.", {
+        command: `/${commandName}`,
+        chatId: message.chat.id,
+        chatType: message.chat.type,
+        actorId: visibleSenderId(message) ?? null,
+        messageId: message.message_id,
+      });
+    }
+    return handler(ctx, next);
+  };
+}
+
 /**
  * 在 grammY `Bot` 实例上挂载唯一更新入口中间件与全局错误边界。
  * 斜杠命令、中文动作命令与非消息更新在此组装为三个子 `Composer`，交由 `app/updatePreamble.ts`
@@ -106,37 +154,37 @@ export function registerHandlers(bot: Bot): HandlerRegistration {
   // 的 handler 不调 next()，需经过 handleAntiRaidMessageIngress 后才执行。
   // 中文动作命令没有 bot_command 实体，由下面的「/」外闸承接。
   const commands: Composer<Filter<Context, ":entities:bot_command">> = new Composer();
-  commands.command("permission", handlePermissionCommand);
-  commands.command("white", handleWhiteCommand);
-  commands.command("copy", handleCopyCommand);
-  commands.command("translate", handleTranslateCommand);
-  commands.command("icon", handleIconCommand);
-  commands.command("wed", dispatchWedCommand);
-  commands.command("h_image", handleHImageCommand);
-  commands.command("info", handleInfoCommand);
-  commands.command("block", handleBlockCommand);
-  commands.command("batch_kick", handleBatchKickCommand);
-  commands.command("ai_chat", handleAiChatCommand);
-  commands.command("clear_context", handleClearContextCommand);
-  commands.command("ad_detect", handleAdDetectCommand);
-  commands.command("flood_control", handleFloodControlCommand);
-  commands.command("antiraid", handleAntiRaidCommand);
-  commands.command("bot_status", handleBotStatusCommand);
-  commands.command("mood", handleMoodCommand);
-  commands.command("init", handleInitCommand);
-  commands.command("quiet", handleQuietCommand);
-  commands.command("unquiet", handleUnquietCommand);
-  commands.command("mute", handleMuteCommand);
-  commands.command("unmute", handleUnmuteCommand);
-  commands.command("gag", handleGagCommand);
-  commands.command("ungag", handleUngagCommand);
-  commands.command("delete_message", handleDeleteMessageCommand);
-  commands.command("send", handleSendCommand);
-  commands.command("qa", handleQaCommand);
+  commands.command("permission", auditCommand("permission", handlePermissionCommand));
+  commands.command("white", auditCommand("white", handleWhiteCommand));
+  commands.command("copy", auditCommand("copy", handleCopyCommand));
+  commands.command("translate", auditCommand("translate", handleTranslateCommand));
+  commands.command("icon", auditCommand("icon", handleIconCommand));
+  commands.command("wed", auditCommand("wed", dispatchWedCommand));
+  commands.command("h_image", auditCommand("h_image", handleHImageCommand));
+  commands.command("info", auditCommand("info", handleInfoCommand));
+  commands.command("block", auditCommand("block", handleBlockCommand));
+  commands.command("batch_kick", auditCommand("batch_kick", handleBatchKickCommand));
+  commands.command("ai_chat", auditCommand("ai_chat", handleAiChatCommand));
+  commands.command("clear_context", auditCommand("clear_context", handleClearContextCommand));
+  commands.command("ad_detect", auditCommand("ad_detect", handleAdDetectCommand));
+  commands.command("flood_control", auditCommand("flood_control", handleFloodControlCommand));
+  commands.command("antiraid", auditCommand("antiraid", handleAntiRaidCommand));
+  commands.command("bot_status", auditCommand("bot_status", handleBotStatusCommand));
+  commands.command("mood", auditCommand("mood", handleMoodCommand));
+  commands.command("init", auditCommand("init", handleInitCommand));
+  commands.command("quiet", auditCommand("quiet", handleQuietCommand));
+  commands.command("unquiet", auditCommand("unquiet", handleUnquietCommand));
+  commands.command("mute", auditCommand("mute", handleMuteCommand));
+  commands.command("unmute", auditCommand("unmute", handleUnmuteCommand));
+  commands.command("gag", auditCommand("gag", handleGagCommand));
+  commands.command("ungag", auditCommand("ungag", handleUngagCommand));
+  commands.command("delete_message", auditCommand("delete_message", handleDeleteMessageCommand));
+  commands.command("send", auditCommand("send", handleSendCommand));
+  commands.command("qa", auditCommand("qa", handleQaCommand));
   // 菜单占位项：在命令菜单里展示「/<中文动作名>」用法（那类命令名注册不进菜单，
   // 见 consts/commands.ts）；handleCjkActionUsageCommand 回复用法并终止链路，
   // 不落到消息兜底。
-  commands.command("x", handleCjkActionUsageCommand);
+  commands.command("x", auditCommand("x", handleCjkActionUsageCommand));
 
   const cjkActions: Composer<Context> = new Composer();
   cjkActions.hears(CJK_ACTION_COMMAND_PATTERN, handleCjkActionCommand);
@@ -169,12 +217,17 @@ export function registerHandlers(bot: Bot): HandlerRegistration {
   bot.catch((err: BotError<Context>): never => {
     // GrammyError 携带完整请求 payload，这里只记录状态码和描述。
     if (err.error instanceof GrammyError) {
-      logger.error(
-        `Unhandled error while handling update ${err.ctx.update.update_id}: ` +
-        `${err.error.error_code} ${err.error.description}`
-      );
+      logger.error("Unhandled error while handling update.", {
+        updateId: err.ctx.update.update_id,
+        errorCode: err.error.error_code,
+        description: err.error.description,
+      });
     } else {
-      logger.error(`Unhandled error while handling update ${err.ctx.update.update_id}:`, err.error);
+      logger.error(
+        "Unhandled error while handling update:",
+        { updateId: err.ctx.update.update_id },
+        err.error
+      );
     }
     // 记录后继续向 acknowledged runner 传播，不吞掉异常；失败的 update
     // （包括 durability barrier 失败）因此不会被 getUpdates 确认。

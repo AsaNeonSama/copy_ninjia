@@ -34,7 +34,7 @@ export const AI_CACHE_ROW_FIELDS: readonly string[] = [
  * token 记录的可选字段：供应商给出的缓存写入 token 与同一次请求的实际检索次数。
  * 所属模块：workers/diskIO/aiCacheDocument.ts。
  */
-export const AI_CACHE_TOKEN_ROW_OPTIONAL_FIELDS: readonly string[] = ["cacheWriteInputTokens", "searchCalls"];
+const AI_CACHE_TOKEN_ROW_OPTIONAL_FIELDS: readonly string[] = ["cacheWriteInputTokens", "searchCalls"];
 
 /**
  * 按费用计量的逐条记录的全部字段（供应商只给出 cost_in_usd_ticks 时），不带 token 或检索字段。
@@ -73,7 +73,7 @@ export const AI_CACHE_TOTALS_FIELDS: readonly string[] = [
  * 合计的可选字段：缓存写入 token 合计、费用请求的费用合计与检索次数合计，各自只在这组有对应记录时
  * 写出，缺省即从没有过这类记录。所属模块：workers/diskIO/aiCacheDocument.ts。
  */
-export const AI_CACHE_TOTALS_OPTIONAL_FIELDS: readonly string[] = ["cacheWriteInputTokens", "costInUsdTicks", "searchCalls"];
+const AI_CACHE_TOTALS_OPTIONAL_FIELDS: readonly string[] = ["cacheWriteInputTokens", "costInUsdTicks", "searchCalls"];
 
 /**
  * 普通合计（byModel 分组等）允许出现的全部字段名集合。

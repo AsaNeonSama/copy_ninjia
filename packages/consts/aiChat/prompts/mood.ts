@@ -1,10 +1,10 @@
 /**
- * 心情句的标签名：拼装侧（aiChat/ai/mood.ts 的 currentMoodInstruction）以「【标签名：档位名】」
- * 开头，下面的从属声明以「「标签名」」指代它。所属模块：aiChat/ai/mood.ts 与本文件。
+ * 心情句的标签名：拼装侧（workers/aiChat/ai/mood.ts 的 currentMoodInstruction）以「【标签名：档位名】」
+ * 开头，下面的从属声明以「「标签名」」指代它。所属模块：workers/aiChat/ai/mood.ts 与本文件。
  */
 export const MOOD_LABEL_NAME: string = "今天的心情";
 
-/** 「今日心情」与基础人设的显式从属关系：拼在心情句（aiChat/ai/mood.ts 的
+/** 「今日心情」与基础人设的显式从属关系：拼在心情句（workers/aiChat/ai/mood.ts 的
  * currentMoodInstruction）之前，写明心情在哪些维度上覆盖、哪些核心设定
  * 不受影响。 */
 export const MOOD_STATE_PRECEDENCE_INSTRUCTION: string =

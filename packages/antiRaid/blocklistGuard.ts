@@ -10,11 +10,12 @@ import {
 import { requestBlocklistResweep } from "../infra/blocklist/sweep";
 import { botCanDeleteMessagesIn } from "../infra/botAdmin";
 import { logger } from "../infra/logger";
-import { deleteMessageWithOutcome } from "../infra/telegram/actions";
+import { deleteMessageWithOutcome } from "../infra/telegram/actions/messageLifecycle";
 import {
   blockedSenderChatDeleteDeniedChats,
   recentBlockedJoinCounts,
 } from "../cache/main/antiRaid/blocklistGuard";
+import { isRecordedWithin } from "../libs/clockWindow";
 import { verificationKey } from "../libs/verificationKey";
 import { JOIN_WINDOW_MS } from "../consts/antiRaid/lockdown";
 import { visibleSenderChat } from "../users/visibleSender";
@@ -47,8 +48,8 @@ export function deleteBlockedSenderChatMessage(message: Message): boolean | Prom
     if (!blockedSenderChatDeleteDeniedChats.has(chatId)) {
       blockedSenderChatDeleteDeniedChats.add(chatId);
       logger.error(
-        `Blocked sender chat message ${message.message_id} in chat ${chatId} could not be deleted: ` +
-        "the bot is known to lack can_delete_messages; further messages there are not logged."
+        "Blocked sender chat message could not be deleted; the bot is known to lack can_delete_messages and further messages there are not logged.",
+        { chatId, messageId: message.message_id }
       );
     }
     return true;
@@ -59,8 +60,8 @@ export function deleteBlockedSenderChatMessage(message: Message): boolean | Prom
     (outcome: DeleteMessageOutcome): boolean => {
       if (outcome === "forbidden" || outcome === "failed") {
         logger.error(
-          `Blocked sender chat message ${message.message_id} from ${senderChat.id} in chat ${chatId} ` +
-          `could not be deleted (${outcome}).`
+          "Blocked sender chat message could not be deleted.",
+          { chatId, senderChatId: senderChat.id, messageId: message.message_id, outcome }
         );
       }
       return true;
@@ -91,7 +92,7 @@ export interface ClaimBlockedJoinerParams {
 }
 
 /**
- * 从队首淘汰超出 JOIN_WINDOW_MS 的入群计数去重项。
+ * 从队首淘汰超出 JOIN_WINDOW_MS（或因墙钟回拨失效）的入群计数去重项。
  *
  * @param now 当前毫秒时间戳
  */
@@ -100,13 +101,13 @@ function pruneRecentBlockedJoins(now: number): void {
     const oldestKey: string | undefined = recentBlockedJoinCounts.oldestKey();
     if (oldestKey === undefined) return;
     const countedAt: number | undefined = recentBlockedJoinCounts.get(oldestKey);
-    if (countedAt !== undefined && now - countedAt < JOIN_WINDOW_MS) return;
+    if (countedAt !== undefined && isRecordedWithin(countedAt, now, JOIN_WINDOW_MS)) return;
     recentBlockedJoinCounts.delete(oldestKey);
   }
 }
 
 /**
- * 判定本次黑名单成员入群是否需要计入反刷群窗口（跨投递路径按 JOIN_WINDOW_MS 去重）。
+ * 判定本次黑名单成员入群是否需要计入反刷群窗口（跨投递路径按 `[0, JOIN_WINDOW_MS]` 去重，墙钟回拨按窗口已结束处理）。
  *
  * @param key `chatId:userId` 复合验证键
  * @param now 当前毫秒时间戳
@@ -115,7 +116,7 @@ function pruneRecentBlockedJoins(now: number): void {
 function owesBlockedJoinCount(key: string, now: number): boolean {
   pruneRecentBlockedJoins(now);
   const countedAt: number | undefined = recentBlockedJoinCounts.get(key);
-  return countedAt === undefined || now - countedAt >= JOIN_WINDOW_MS;
+  return countedAt === undefined || !isRecordedWithin(countedAt, now, JOIN_WINDOW_MS);
 }
 
 /**
@@ -159,14 +160,14 @@ export function claimBlockedJoiner({
       announcementMessageId,
     });
   } catch (error: unknown) {
-    logger.error(`Failed to queue removal of blocklisted user ${userId} in chat ${chatId}:`, error);
+    logger.error("Failed to queue removal of blocklisted user:", { chatId, userId }, error);
     requestBlocklistResweep(chatId);
     return true;
   }
   if (owesJoinCount) commitBlockedJoinCount(dedupKey, now);
   messages.push({ type: "removeBlockedMembers", ...params });
   if (replacedJoin !== undefined) replacedJoins.set(params.removalId, replacedJoin);
-  logger.log(`Blocklisted user ${userId} rejoined chat ${chatId}; queued removal.`);
+  logger.info("Blocklisted user rejoined chat; queued removal.", { chatId, userId });
   return true;
 }
 

@@ -18,7 +18,7 @@ interface RenderedToastSnapshot {
 }
 
 /**
- * 渲染底部 Toast 提示条：按递增 `toastSeq` 重播连续提示的进入动画，清空时保留快照播放退场动画，退场结束后卸载。
+ * 渲染顶部 Toast 提示条：按递增 `toastSeq` 重播连续提示的进入动画，清空时保留快照播放退场动画，退场结束后卸载。
  *
  * @returns React 节点或 `null`
  */

@@ -41,6 +41,7 @@ import type {
 } from "../helpers/gagHarness";
 
 const gag = await import("../../packages/commands/gag");
+const { resetGagSessions, teardownGagInChat } = await import("../../packages/commands/gag/runtime");
 
 installGagTestHooks();
 
@@ -322,7 +323,7 @@ describe("gag 消息与 inline 入口", () => {
       await Promise.resolve();
     }
     expect(finishSend).toBeDefined();
-    const teardown: Promise<void> = gag.teardownGagInChat(session.chatId, "explicitDisable");
+    const teardown: Promise<void> = teardownGagInChat(session.chatId, "explicitDisable");
     await Promise.resolve();
     expect(session.phase).toBe("ending");
 
@@ -781,7 +782,7 @@ describe("gag 消息与 inline 入口", () => {
     let results: readonly InlineResult[] = answerInlineQuery.mock.calls[0]?.[0] ?? [];
     expect(results).toHaveLength(0);
 
-    gag.resetGagSessions();
+    resetGagSessions();
     answerInlineQuery.mockClear();
     await gag.handleGagInlineQuery({
       inlineQuery: {

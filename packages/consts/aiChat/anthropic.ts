@@ -2,19 +2,19 @@ import type Anthropic from "@anthropic-ai/sdk";
 import type { ClientOptions as AnthropicClientOptions } from "@anthropic-ai/sdk";
 import type { AgentCapability } from "../../types/config";
 
-/** Anthropic 实现包（packages/aiChat/anthropic/）的调参常量。 */
+/** Anthropic 实现包（packages/workers/aiChat/anthropic/）的调参常量。 */
 
-/** `base_url` 缺省时传给 Anthropic SDK 的官方默认端点地址（与 SDK 内置缺省逐字相同）。所属模块：aiChat/anthropic/sdkClient.ts。 */
+/** `base_url` 缺省时传给 Anthropic SDK 的官方默认端点地址（与 SDK 内置缺省逐字相同）。所属模块：aiProviders/anthropic/sdkClient.ts。 */
 export const ANTHROPIC_API_BASE_URL: string = "https://api.anthropic.com";
 
-/** 传给 Anthropic SDK 的日志级别（与 SDK 缺省相同），显式给出后 SDK 不读取 ANTHROPIC_LOG。所属模块：aiChat/anthropic/sdkClient.ts。 */
+/** 传给 Anthropic SDK 的日志级别（与 SDK 缺省相同），显式给出后 SDK 不读取 ANTHROPIC_LOG。所属模块：aiProviders/anthropic/sdkClient.ts。 */
 export const ANTHROPIC_SDK_LOG_LEVEL: NonNullable<AnthropicClientOptions["logLevel"]> = "warn";
 
 /**
  * 按能力取 SDK 每次尝试的超时上限，requestAnthropicMessage 同时以它作整次调用的 deadline；与
  * OpenAI、Gemini 侧同口径。显式给出超时使 SDK 不按 max_tokens 拦截非流式请求。media（视觉
  * 描述）宽于纯文本往返；web_search 由交互式检索与 cron 摘要共用；image 与 tts 不会选 anthropic。
- * 所属模块：aiChat/anthropic/client.ts。
+ * 所属模块：workers/aiChat/anthropic/client.ts。
  */
 export const ANTHROPIC_REQUEST_TIMEOUTS_MS: Readonly<Record<AgentCapability, number>> = {
   text: 180_000,

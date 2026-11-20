@@ -148,8 +148,8 @@ export async function prepareDurableAntiRaidMessages(
     else withoutRemovals.push(message);
   }
   logger.error(
-    `Blocklist removal messages kept changing across ${BLOCKLIST_REMOVAL_RECONCILE_MAX_ROUNDS} durability rounds; ` +
-    `withholding the batches for ${stalledChatIds.size} chat(s), which stay in the durable outbox and now owe a resweep.`
+    "Blocklist removal messages kept changing across durability rounds; withholding stalled batches in the durable outbox for resweep.",
+    { maxRounds: BLOCKLIST_REMOVAL_RECONCILE_MAX_ROUNDS, stalledChatIds: [...stalledChatIds] }
   );
   for (const chatId of stalledChatIds) requestBlocklistResweep(chatId);
   return withoutRemovals;

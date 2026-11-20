@@ -75,7 +75,8 @@ export async function probeChatMembershipWithOutcome(
   let participantInvalid: boolean = false;
   const outcome: ChatMembershipStatusOutcome | undefined =
     await runTelegramAction<ChatMember, ChatMembershipStatusOutcome | undefined>({
-      action: `probe chat membership (chat ${chatId}, user ${userId})`,
+      action: "probe chat membership",
+      errorContext: { chatId, userId },
       execute: (signal?: AbortSignal): Promise<ChatMember> =>
         getChatMember({ api, chatId, userId, signal }),
       map: membershipStatusOutcome,
@@ -128,7 +129,8 @@ export async function probeChatAdmin(
   { chatId, userId, api = telegramApi, signal }: ProbeChatAdminOptions
 ): Promise<boolean | undefined> {
   return runTelegramAction<ChatMember, boolean | undefined>({
-    action: `probe chat admin (chat ${chatId}, user ${userId})`,
+    action: "probe chat admin",
+    errorContext: { chatId, userId },
     execute: (requestSignal?: AbortSignal): Promise<ChatMember> =>
       getChatMember({ api, chatId, userId, signal: requestSignal }),
     map: (member: ChatMember): boolean =>
@@ -157,7 +159,8 @@ export interface ChatMemberUserOptions {
  */
 export function readChatMemberUser({ chatId, userId, signal }: ChatMemberUserOptions): Promise<User | undefined> {
   return runTelegramAction<ChatMember, User | undefined>({
-    action: `read chat member identity (chat ${chatId}, user ${userId})`,
+    action: "read chat member identity",
+    errorContext: { chatId, userId },
     execute: (requestSignal?: AbortSignal): Promise<ChatMember> =>
       getChatMember({ api: telegramApi, chatId, userId, signal: requestSignal }),
     map: (member: ChatMember): User => member.user,
@@ -177,7 +180,8 @@ export async function readPresentChatUser({ chatId, userId, signal }: ChatMember
   let participantInvalid: boolean = false;
   let chatDenied: boolean = false;
   const user: User | null | undefined = await runTelegramAction<ChatMember, User | null | undefined>({
-    action: `read chat member (chat ${chatId}, user ${userId})`,
+    action: "read chat member",
+    errorContext: { chatId, userId },
     execute: (requestSignal?: AbortSignal): Promise<ChatMember> =>
       getChatMember({ api: telegramApi, chatId, userId, signal: requestSignal }),
     map: (member: ChatMember): User | null => isPresentMember(member) ? member.user : null,

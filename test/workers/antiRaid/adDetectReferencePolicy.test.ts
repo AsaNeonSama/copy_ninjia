@@ -27,8 +27,11 @@ const {
   runAdDetectBatch,
   stopAdDetectQueue,
 } = await import("../../../packages/workers/antiRaid/adDetect/queue");
-const { expireAdDetectDisposalMarkers, releaseAdDetectDedupKey } =
-  await import("../../../packages/workers/antiRaid/adDetect/queueState");
+const {
+  expireAdDetectDisposalMarkers,
+  releaseAdDetectDedupKey,
+  storeBundle,
+} = await import("../../../packages/workers/antiRaid/adDetect/queueState");
 const {
   adDetectQueue,
   adVerdictTruePublishHolder,
@@ -660,5 +663,124 @@ describe("引用广告警告状态表自身的容量与回收", () => {
     sweepReferencedAdWarnings(Number.MAX_SAFE_INTEGER);
 
     expect(referencedAdWarningStates.get("-1001:sending")).toMatchObject({ phase: "sending" });
+  });
+
+  test("警告发送失败时只删到已判定消息上界并裁剪旧条目，后续正常消息不带入旧广告上下文", async () => {
+    classifyAdText.mockImplementation(async (text: string): Promise<AdVerdict> => ({
+      isAd: text.includes("日入过千"),
+      reason: "引用内容引流",
+    }));
+    warnReferencedAdSender.mockImplementationOnce(async (): Promise<undefined> => {
+      enqueueAdCandidate(candidate({
+        messageId: 20,
+        text: "后面这条是正常发言",
+      }), 2_000);
+      return undefined;
+    });
+    enqueueAdCandidate(candidate({
+      messageId: 10,
+      text: "引用一下",
+      sampleQuote: "日入过千 加V xxx996",
+    }), 1_000);
+
+    await runAdDetectBatch(1_000);
+
+    expect(deleteReferencedAdMessages).toHaveBeenCalledWith(expect.objectContaining({
+      messageIdThrough: 10,
+    }));
+    expect(pendingAdBundle(-1001, 7)?.entries.map((entry) => entry.messageId)).toEqual([20]);
+
+    warnReferencedAdSender.mockClear();
+    await runAdDetectBatch(2_000);
+    expect(classifiedTexts.at(-1)).toBe("1. 后面这条是正常发言");
+    expect(warnReferencedAdSender).not.toHaveBeenCalled();
+    expect(disposeAdSender).not.toHaveBeenCalled();
+  });
+
+  test("警告发送失败且期间无新消息时立即移除消息束，后续正常消息不再复用旧广告上下文", async () => {
+    classifyAdText.mockImplementation(async (text: string): Promise<AdVerdict> => ({
+      isAd: text.includes("日入过千"),
+      reason: "引用内容引流",
+    }));
+    warnReferencedAdSender.mockImplementationOnce(async (): Promise<undefined> => undefined);
+    enqueueAdCandidate(candidate({
+      messageId: 10,
+      text: "引用一下",
+      sampleQuote: "日入过千 加V xxx996",
+    }), 1_000);
+
+    await runAdDetectBatch(1_000);
+    expect(pendingAdBundle(-1001, 7)).toBeUndefined();
+
+    enqueueAdCandidate(candidate({
+      messageId: 11,
+      text: "正常消息",
+    }), 2_000);
+    await runAdDetectBatch(2_000);
+    expect(classifiedTexts.at(-1)).toBe("1. 正常消息");
+    expect(disposeAdSender).not.toHaveBeenCalled();
+  });
+
+  test("警告在途期间滞后的转发+引用条目，警告结算重算后保留转发正文", async () => {
+    classifyAdText.mockImplementation(async (text: string): Promise<AdVerdict> => ({
+      isAd: text.includes("日入过千"),
+      reason: "引用内容引流",
+    }));
+    warnReferencedAdSender.mockImplementationOnce(async (): Promise<TelegramWorkerTemporaryMessageResult> => {
+      enqueueAdCandidate(candidate({
+        senderId: -1005,
+        isChannel: true,
+        isForwarded: true,
+        messageId: 556,
+        text: "转发的正文",
+        sampleQuote: "日入过千 加V same",
+        sampleReplyTo: "回复原文",
+      }), 2_000);
+      return { messageId: 555, sentAt: 3_000 };
+    });
+    enqueueAdCandidate(candidate({
+      senderId: -1005,
+      isChannel: true,
+      text: "第一次",
+      sampleQuote: "日入过千 加V same",
+    }), 1_000);
+
+    await runAdDetectBatch(1_000);
+
+    const retained = pendingAdBundle(-1001, -1005)?.entries;
+    expect(retained).toHaveLength(1);
+    expect(retained?.[0]?.text).toBe("转发的正文 日入过千 加V same 回复原文");
+    expect(retained?.[0]?.directText).toBe("");
+  });
+
+  test("待检键满载时仍放行处于处置抑制窗口内的普通用户尾随消息删帖", () => {
+    for (let index: number = 0; index < AD_DETECT_MAX_PENDING_SENDERS; index += 1) {
+      storeBundle({
+        key: `-1001:${10_000 + index}`,
+        chatId: -1001,
+        senderId: 10_000 + index,
+        meta: { firstName: "User", lastName: "", username: "" },
+        senderName: "User",
+        isChannel: false,
+        justJoined: false,
+        entries: [],
+        pendingDeleteIds: [],
+        pendingDeleteOverflowed: false,
+        uncheckedEvicted: false,
+        nextSeq: 1,
+        checkedSeq: 0,
+      });
+    }
+    recentlyDisposedAdKeys.set("-1001:99999", performance.now());
+
+    enqueueAdCandidate(candidate({
+      senderId: 99999,
+      isChannel: false,
+      messageId: 300,
+      text: "窗口内尾随广告",
+    }), 1_000);
+
+    expect(deleteStragglerAdMessage).toHaveBeenCalledWith(-1001, 300);
+    expect(pendingAdBundle(-1001, 99999)).toBeUndefined();
   });
 });

@@ -12,7 +12,7 @@ const getCurrentTime = mock(getCurrentTimeStub);
 
 mock.module("../../../packages/libs/time", () => ({ getCurrentTime }));
 
-const { currentTimeSentence } = await import("../../../packages/aiChat/ai/timeSentence");
+const { currentTimeSentence } = await import("../../../packages/workers/aiChat/ai/timeSentence");
 const { CURRENT_TIME_LABEL } = await import("../../../packages/consts/aiChat/prompts/memory");
 const { WEB_SEARCH_TIME_LABEL } = await import("../../../packages/consts/aiChat/prompts/researchTime");
 beforeEach((): void => {

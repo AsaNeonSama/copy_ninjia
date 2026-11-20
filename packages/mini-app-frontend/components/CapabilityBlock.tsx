@@ -6,7 +6,7 @@ import { ChevronDownSvgIcon } from "../resource";
 import type {
   MiniAppCapabilityDetailItem,
   MiniAppCapabilityStatus,
-} from "../types/miniApp";
+} from "../types/miniApp/status";
 import { CapabilityCollapseBody } from "./animations/CapabilityCollapseBody";
 import type { ViewportAnchorScroll } from "./animations/expandFollowScroll";
 import { LoadingDotsWave } from "./animations/LoadingDotsWave";

@@ -42,7 +42,7 @@ function barrierAntiRaidMailbox(
 }
 
 /**
- * 排空 Anti-Raid Worker 的广告检测队列、停止出站调度并刷空延迟删帖队列，
+ * 排空 Anti-Raid Worker 的广告检测队列并停止出站调度，
  * 随后等待此前启动的异步副作用全部结算（不处理跨线程持久化握手）。
  *
  * @param timeoutMs 最大等待超时预算（毫秒）
@@ -79,6 +79,11 @@ export async function drainAntiRaid(timeoutMs: number): Promise<FlushResult> {
     const initialBarrier: FlushResult =
       await barrierAntiRaidMailbox(remainingMonotonicTime(deadline));
     if (initialBarrier !== "flushed") return initialBarrier;
+    // 在落盘之前记录镜像版本，使 flush 过程中因回执触发的副作用变更能推动下一轮落盘。
+    const verificationVersionBeforeRound: number =
+      antiRaidRuntimeState.verificationVersion;
+    const lockdownVersionBeforeRound: number =
+      antiRaidRuntimeState.lockdownVersion;
 
     const persistenceBudget: number = remainingMonotonicTime(deadline);
     if (persistenceBudget === 0) return "timedOut";
@@ -105,22 +110,19 @@ export async function drainAntiRaid(timeoutMs: number): Promise<FlushResult> {
     const receiptBarrier: FlushResult =
       await barrierAntiRaidMailbox(remainingMonotonicTime(deadline));
     if (receiptBarrier !== "flushed") return receiptBarrier;
-    const verificationVersionBeforeTasks: number =
-      antiRaidRuntimeState.verificationVersion;
-    const lockdownVersionBeforeTasks: number =
-      antiRaidRuntimeState.lockdownVersion;
     const taskResult: FlushResult =
       await drainAntiRaidWorkerTasks(remainingMonotonicTime(deadline));
     if (taskResult !== "flushed") return taskResult;
     if (
-      antiRaidRuntimeState.verificationVersion === verificationVersionBeforeTasks &&
-      antiRaidRuntimeState.lockdownVersion === lockdownVersionBeforeTasks
+      antiRaidRuntimeState.verificationVersion === verificationVersionBeforeRound &&
+      antiRaidRuntimeState.lockdownVersion === lockdownVersionBeforeRound
     ) {
       return "flushed";
     }
   }
   logger.error(
-    `Anti-Raid drain did not converge after ${ANTI_RAID_DRAIN_MAX_ROUNDS} persistence rounds.`
+    "Anti-Raid drain did not converge after max persistence rounds.",
+    { maxRounds: ANTI_RAID_DRAIN_MAX_ROUNDS }
   );
   return "failed";
 }

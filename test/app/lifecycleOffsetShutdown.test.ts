@@ -1,5 +1,9 @@
-import { describe, expect, test } from "bun:test";
-import { FINAL_OFFSET_CONFIRM_TIMEOUT_MS } from "../../packages/consts/lifecycle";
+import { describe, expect, jest, test } from "bun:test";
+import {
+  FINAL_OFFSET_CONFIRM_TIMEOUT_MS,
+  RUNNER_CANCELLATION_SETTLEMENT_TIMEOUT_MS,
+  RUNNER_DRAIN_TIMEOUT_MS,
+} from "../../packages/consts/lifecycle";
 import { TELEGRAM_REPEATED_OFFSET_MIN_WAIT_MS } from "../../packages/consts/telegram";
 import {
   installLifecycleFixtureHooks,
@@ -23,12 +27,35 @@ const {
   refreshAllChatTitles,
   releaseSingleInstanceLock,
   runnerAbortActive,
+  runnerActiveTask,
   runnerHasFailedUpdate,
   runnerSize,
   setLastSeenUpdateId,
-  sleep,
   testDependencies,
 } = sharedFixture;
+
+/**
+ * 在 fake timers 模式下交替冲刷微任务与推进单调计时器，直到生命周期排空步骤结算。
+ * @param step 待等待的生命周期步骤 Promise。
+ * @param stepMs 每轮推进的模拟毫秒数。
+ * @param beforeAdvance 每轮推进计时器前执行的钩子（如模拟墙钟回拨）。
+ */
+async function settleWithFakeTimers(
+  step: Promise<void>,
+  stepMs: number,
+  beforeAdvance?: () => void
+): Promise<void> {
+  let done: boolean = false;
+  const tracked: Promise<void> = step.finally((): void => { done = true; });
+  for (let round: number = 0; round < 20 && !done; round++) {
+    for (let tick: number = 0; tick < 10; tick++) await Promise.resolve();
+    if (done) break;
+    beforeAdvance?.();
+    advanceMonotonicTime(stepMs);
+    jest.advanceTimersByTime(stepMs);
+  }
+  await tracked;
+}
 
 installLifecycleFixtureHooks();
 
@@ -47,21 +74,32 @@ describe("应用最终 offset 确认与排空", () => {
     gate.resolve("timedOut");
     await waiting;
     expect(getUpdates).not.toHaveBeenCalled();
-    expect(loggerError).toHaveBeenCalledWith(expect.stringContaining("wed=timedOut"));
+    expect(loggerError).toHaveBeenCalledWith(
+      "Pre-confirmation drain/flush did not settle; the final Telegram update offset will not be confirmed.",
+      expect.objectContaining({ wed: "timedOut" })
+    );
     await lifecycle.dispose();
     expect(process.exitCode).toBe(1);
   });
 
-  test("正常 wait 会等待 runner 排空并确认最后 update offset", async () => {
-    runnerSize.mockReturnValueOnce(1).mockReturnValue(0);
+  test("正常 wait 会等待 runner 在途任务事件驱动结算并确认最后 update offset", async () => {
+    const activeUpdate: PromiseWithResolvers<void> = Promise.withResolvers<void>();
+    let activeCount: number = 1;
+    runnerSize.mockImplementation((): number => activeCount);
+    runnerActiveTask.mockImplementation((): Promise<void> | null => (activeCount > 0 ? activeUpdate.promise : null));
     setLastSeenUpdateId(321);
     const lifecycle = new ApplicationLifecycle(testDependencies);
     await lifecycle.init();
 
-    await lifecycle.wait();
+    const waiting: Promise<void> = lifecycle.wait();
+    await Bun.sleep(0);
+    expect(getUpdates).not.toHaveBeenCalled();
+
+    activeCount = 0;
+    activeUpdate.resolve();
+    await waiting;
     await lifecycle.dispose();
 
-    expect(sleep).toHaveBeenCalledTimes(1);
     expect(getUpdates).toHaveBeenCalledWith(
       { offset: 322, limit: 1, timeout: 0 },
       expect.any(AbortSignal)
@@ -120,7 +158,10 @@ describe("应用最终 offset 确认与排空", () => {
       "Failed to confirm update offset on shutdown:",
       expect.any(Error)
     );
-    expect(loggerError).toHaveBeenCalledWith(expect.stringContaining("offset=false"));
+    expect(loggerError).toHaveBeenCalledWith(
+      "Shutdown drain/flush results:",
+      expect.objectContaining({ offsetConfirmed: false })
+    );
     // offsetWithheld 档：各 owner 都排空落盘、Worker 已终止，没有任何东西还会写共享数据目录，锁照常释放。
     expect(releaseSingleInstanceLock).toHaveBeenCalledTimes(1);
   });
@@ -224,7 +265,10 @@ describe("应用最终 offset 确认与排空", () => {
 
     expect(getUpdates).not.toHaveBeenCalled();
     expect(process.exitCode).toBe(1);
-    expect(loggerError).toHaveBeenCalledWith(expect.stringContaining("offset=false"));
+    expect(loggerError).toHaveBeenCalledWith(
+      "Shutdown drain/flush results:",
+      expect.objectContaining({ offsetConfirmed: false })
+    );
     // 迟到落定改写不了 offset 结论（上一条断言），但它证明维护任务已结束：dispose 自己那轮
     // waitForBackgroundMaintenance 是 settled，三态落在 offsetWithheld，锁可以释放；
     // 维护任务到 dispose 仍未落定时，那一轮超时，三态为 unsettled，锁扣住。
@@ -241,7 +285,10 @@ describe("应用最终 offset 确认与排空", () => {
 
     expect(process.exitCode).toBe(1);
     expect(getUpdates).not.toHaveBeenCalled();
-    expect(loggerError).toHaveBeenCalledWith(expect.stringContaining("antiRaid=timedOut"));
+    expect(loggerError).toHaveBeenCalledWith(
+      "Pre-confirmation drain/flush did not settle; the final Telegram update offset will not be confirmed.",
+      expect.objectContaining({ antiRaid: "timedOut" })
+    );
     await lifecycle.dispose();
   });
 
@@ -273,7 +320,10 @@ describe("应用最终 offset 确认与排空", () => {
 
     expect(getUpdates).not.toHaveBeenCalled();
     expect(process.exitCode).toBe(1);
-    expect(loggerError).toHaveBeenCalledWith(expect.stringContaining("telegram=timedOut"));
+    expect(loggerError).toHaveBeenCalledWith(
+      "Pre-confirmation drain/flush did not settle; the final Telegram update offset will not be confirmed.",
+      expect.objectContaining({ telegram: "timedOut" })
+    );
     await lifecycle.dispose();
   });
 
@@ -287,7 +337,10 @@ describe("应用最终 offset 确认与排空", () => {
     await lifecycle.dispose();
 
     expect(getUpdates).not.toHaveBeenCalled();
-    expect(loggerError).toHaveBeenCalledWith(expect.stringContaining("final Telegram update offset will not be confirmed"));
+    expect(loggerError).toHaveBeenCalledWith(
+      "Pre-confirmation drain/flush did not settle; the final Telegram update offset will not be confirmed.",
+      expect.objectContaining({ disk: "failed" })
+    );
   });
 
   test("停机时有 update 处理失败：不确认 offset 并以非零状态退出", async () => {
@@ -312,37 +365,78 @@ describe("应用最终 offset 确认与排空", () => {
     let wallNow: number = 1_000;
     const originalDateNow = Date.now;
     Date.now = (): number => wallNow;
+    const stuckUpdate: PromiseWithResolvers<void> = Promise.withResolvers<void>();
     runnerSize.mockReturnValue(2);
-    sleep.mockImplementation(async (): Promise<void> => {
-      wallNow -= 60_000;
-      advanceMonotonicTime(5_000);
-    });
+    runnerActiveTask.mockReturnValue(stuckUpdate.promise);
     setLastSeenUpdateId(321);
     const lifecycle = new ApplicationLifecycle(testDependencies);
 
+    jest.useFakeTimers();
     try {
       await lifecycle.init();
-      await lifecycle.wait();
-      await lifecycle.dispose();
+      await settleWithFakeTimers(lifecycle.wait(), RUNNER_DRAIN_TIMEOUT_MS, (): void => {
+        wallNow -= 60_000;
+      });
+      await settleWithFakeTimers(lifecycle.dispose(), RUNNER_DRAIN_TIMEOUT_MS, (): void => {
+        wallNow -= 60_000;
+      });
     } finally {
+      jest.useRealTimers();
       Date.now = originalDateNow;
     }
 
     expect(getUpdates).not.toHaveBeenCalled();
     expect(runnerAbortActive).toHaveBeenCalled();
-    expect(loggerError).toHaveBeenCalledWith(expect.stringContaining("withholding their Telegram offset"));
+    expect(loggerError).toHaveBeenCalledWith(
+      "Shutdown drain timed out with active updates; aborting them and withholding their Telegram offset.",
+      { activeUpdates: 2, timeoutMs: RUNNER_DRAIN_TIMEOUT_MS }
+    );
+  });
+
+  test("超时中止后若在途 update 响应取消并结算，不扣住实例锁且不确认 offset", async () => {
+    const abortableUpdate: PromiseWithResolvers<void> = Promise.withResolvers<void>();
+    let activeCount: number = 1;
+    runnerSize.mockImplementation((): number => activeCount);
+    runnerActiveTask.mockImplementation((): Promise<void> | null => (activeCount > 0 ? abortableUpdate.promise : null));
+    runnerAbortActive.mockImplementation((): number => {
+      activeCount = 0;
+      abortableUpdate.resolve();
+      return 1;
+    });
+    setLastSeenUpdateId(456);
+    const lifecycle = new ApplicationLifecycle(testDependencies);
+
+    jest.useFakeTimers();
+    try {
+      await lifecycle.init();
+      await settleWithFakeTimers(lifecycle.wait(), RUNNER_DRAIN_TIMEOUT_MS);
+      await lifecycle.dispose();
+    } finally {
+      jest.useRealTimers();
+    }
+
+    expect(getUpdates).not.toHaveBeenCalled();
+    expect(runnerAbortActive).toHaveBeenCalledTimes(1);
+    expect(releaseSingleInstanceLock).toHaveBeenCalledTimes(1);
+    expect(process.exitCode).toBe(1);
   });
 
   test("并发 update 乱序完成时不会跨过仍在途的较小 update", async () => {
     // 较大的 update 已经完成，但较小的 update 仍占据 runner，size 始终非零。
+    const stuckUpdate: PromiseWithResolvers<void> = Promise.withResolvers<void>();
     runnerSize.mockReturnValue(1);
-    sleep.mockImplementation(async (): Promise<void> => { advanceMonotonicTime(5_000); });
+    runnerActiveTask.mockReturnValue(stuckUpdate.promise);
     setLastSeenUpdateId(900);
     const lifecycle = new ApplicationLifecycle(testDependencies);
 
-    await lifecycle.init();
-    await lifecycle.wait();
-    await lifecycle.dispose();
+    jest.useFakeTimers();
+    try {
+      await lifecycle.init();
+      await settleWithFakeTimers(lifecycle.wait(), RUNNER_CANCELLATION_SETTLEMENT_TIMEOUT_MS);
+      await settleWithFakeTimers(lifecycle.dispose(), RUNNER_CANCELLATION_SETTLEMENT_TIMEOUT_MS);
+    } finally {
+      jest.useRealTimers();
+    }
 
     expect(getUpdates).not.toHaveBeenCalled();
   });

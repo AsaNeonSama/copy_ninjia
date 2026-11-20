@@ -129,9 +129,8 @@ export async function runExpelEffect({
   }
   if (permissionBlocked && !removalConfirmed) {
     logger.error(
-      `Verification expel for user ${userId} in chat ${chatId} cannot kick: the bot is confirmed to lack ` +
-      "can_restrict_members there. Cleaning up the bot's own verification messages and notifying the chat once, then " +
-      "backing off with only a membership probe per retry until the member leaves or the permission returns."
+      "Verification expel cannot kick; the bot is confirmed to lack can_restrict_members there. Cleaning up the bot's own verification messages and notifying the chat once, then backing off with only a membership probe per retry until the member leaves or the permission returns.",
+      { chatId, userId }
     );
   }
   const settled: boolean = await expelMember({
@@ -315,11 +314,10 @@ async function deleteVerificationMessages({
   }
   if (missed > 0) {
     logger.error(
-      `Verification expel could not delete ${missed} of ${messageIds.length} ` +
-      `verification-owned message(s) for user ${userId} in chat ${chatId}: ` +
-      (permissionDenied
-        ? "Telegram denied the deletion, so the bot most likely lacks can_delete_messages."
-        : "the deletions failed without a permission error, so this is most likely transient.")
+      permissionDenied
+        ? "Verification expel could not delete verification-owned messages; Telegram denied the deletion, so the bot most likely lacks can_delete_messages."
+        : "Verification expel could not delete verification-owned messages; the deletions failed without a permission error, so this is most likely transient.",
+      { chatId, userId, missedCount: missed, totalCount: messageIds.length, permissionDenied }
     );
   }
   return { total: messageIds.length, missed, permissionDenied };

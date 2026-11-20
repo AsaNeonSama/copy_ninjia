@@ -1,4 +1,4 @@
-/** owner: workers/aiChat。AI 心情状态（packages/aiChat/ai/mood.ts）。 */
+/** owner: workers/aiChat。AI 心情状态（packages/workers/aiChat/ai/mood.ts）。 */
 
 import type { CurrentMood } from "../../../types/aiChat/mood";
 

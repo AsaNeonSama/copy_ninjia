@@ -4,7 +4,7 @@
 # Bun 精确版本与本工作树的 packageManager 一致。
 readonly REQUIRED_BUN_MAJOR=1
 readonly REQUIRED_BUN_MINOR=4
-readonly REQUIRED_BUN_PATCH=4
+readonly REQUIRED_BUN_PATCH=5
 readonly REQUIRED_BUN_VERSION="${REQUIRED_BUN_MAJOR}.${REQUIRED_BUN_MINOR}.${REQUIRED_BUN_PATCH}"
 
 # --------------------------------------------------------------------------

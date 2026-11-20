@@ -199,8 +199,45 @@ export function isStringLiteralNode(node: ts.Node): node is ts.StringLiteral | t
   return ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node);
 }
 
+/** 测试块定义函数名：其标题参数不视为自造夹具字面量。 */
+const TEST_BLOCK_FUNCTIONS: ReadonlySet<string> = new Set(["describe", "it", "test"]);
+
+/** 柯里化修饰器名：接收表驱动夹具或条件，其首个参数不是用例标题。 */
+const CURRIED_TEST_MODIFIERS: ReadonlySet<string> = new Set(["each", "if", "skipIf"]);
+
 /**
- * 匹配器实参之外出现的全部字符串字面量取值：测试自造的夹具输入。
+ * 沿属性链与柯里化调用上溯到最内层的 `describe` / `test` / `it` 标识符。
+ *
+ * @param expression 待检查的被调表达式
+ * @returns 命中测试块函数名时返回该名称，否则返回 undefined
+ */
+function rootTestBlockName(expression: ts.Expression): string | undefined {
+  let current: ts.Expression = expression;
+  while (ts.isPropertyAccessExpression(current) || ts.isCallExpression(current)) {
+    current = current.expression;
+  }
+  return ts.isIdentifier(current) && TEST_BLOCK_FUNCTIONS.has(current.text) ? current.text : undefined;
+}
+
+/**
+ * 判断调用表达式是否为接收标题的 `describe(...)` / `test(...)` / `it(...)`（含 `.only`/`.skip`/`.each(...)()` 等修饰形态），
+ * 排除接收夹具表或条件的 `test.each(...)` / `describe.skipIf(...)` 内层调用。
+ *
+ * @param node 待检查的调用表达式节点
+ * @returns 首个实参为测试/套件标题时返回 true
+ */
+function isTestTitleCall(node: ts.CallExpression): boolean {
+  if (node.arguments.length === 0) return false;
+  const callee: ts.Expression = node.expression;
+  if (rootTestBlockName(callee) === undefined) return false;
+  if (ts.isPropertyAccessExpression(callee) && CURRIED_TEST_MODIFIERS.has(callee.name.text)) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * 匹配器实参及 `describe`/`test`/`it` 标题之外出现的全部字符串字面量取值：测试自造的夹具输入。
  *
  * @param source 测试源文件 AST
  * @returns 夹具字符串字面量取值的只读集合
@@ -210,6 +247,13 @@ export function fixtureLiterals(source: ts.SourceFile): ReadonlySet<string> {
   const visit = (node: ts.Node): void => {
     if (isMatcherCall(node)) {
       visit(node.expression);
+      return;
+    }
+    if (ts.isCallExpression(node) && isTestTitleCall(node)) {
+      visit(node.expression);
+      for (let index: number = 1; index < node.arguments.length; index++) {
+        visit(node.arguments[index]!);
+      }
       return;
     }
     if (isStringLiteralNode(node)) literals.add(node.text);

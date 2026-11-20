@@ -164,8 +164,10 @@ describe("Mini App 群功能开关", () => {
       expect(result.ok).toBeTrue();
       expect(result.message).toBe("FEATURE_DISABLED");
       expect(getChatState(CHAT_ID)[switchKey]).toBeFalse();
-      expect(String(loggerError.mock.calls[0]?.[0])).toContain(
-        `Failed to tear down the ${runtimeLabel} of chat ${CHAT_ID}`
+      expect(loggerError).toHaveBeenCalledWith(
+        "Failed to tear down chat feature runtime; the switch is already persisted as disabled:",
+        { chatId: CHAT_ID, feature, runtimeLabel },
+        expect.any(Error)
       );
     }
   });
@@ -183,8 +185,14 @@ describe("Mini App 群功能开关", () => {
     });
     expect(result.detail?.features.antiRaid).toBeFalse();
     expect(getChatState(CHAT_ID).isAntiRaidEnabled).toBeFalse();
-    expect(String(loggerError.mock.calls[0]?.[0])).toContain(
-      `Failed to tear down the ${CHAT_FEATURE_SWITCHES.antiRaid.runtimeLabel} of chat ${CHAT_ID}`
+    expect(loggerError).toHaveBeenCalledWith(
+      "Failed to tear down chat feature runtime; the switch is already persisted as disabled:",
+      {
+        chatId: CHAT_ID,
+        feature: "antiRaid",
+        runtimeLabel: CHAT_FEATURE_SWITCHES.antiRaid.runtimeLabel,
+      },
+      expect.any(Error)
     );
   });
 

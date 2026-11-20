@@ -22,7 +22,7 @@ interface MediaInputProbeState {
 
 /**
  * 当前 Worker 的视觉与语音模态输入支持度状态单例：
- * - 填充与更新：首次读取时按 `INITIAL_MEDIA_INPUT_STATE` 初始化，由 `aiChat/ai/mediaInputSupport.ts` 的
+ * - 填充与更新：首次读取时按 `INITIAL_MEDIA_INPUT_STATE` 初始化，由 `workers/aiChat/ai/mediaInputSupport.ts` 的
  *   `recordMediaInputResult` 经 `replaceModalityState` 归因更新；
  * - 清理与重建：`agent.json` 热重载替换 `media` 能力时由 `resetMediaInputSupport` 推进配置代次并重置为未探测；
  *   固定两个模态字段，不淘汰，Worker 重建后从 `null` 开始。

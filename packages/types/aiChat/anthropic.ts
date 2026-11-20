@@ -1,7 +1,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 
 /**
- * 按一项能力配置建好的 Anthropic 客户端（aiChat/anthropic/sdkClient.ts 的 createAnthropicClient），
+ * 按一项能力配置建好的 Anthropic 客户端（aiProviders/anthropic/sdkClient.ts 的 createAnthropicClient），
  * 与其回退中间件所用的 fallback_model 成对缓存；没有配置回退时 fallbackModel 为 undefined。
  */
 export interface AnthropicClient {
@@ -33,7 +33,7 @@ export type AnthropicRequestResult =
     /** 原样的收尾原因，如 `max_tokens`、`refusal`。 */
     stopReason: string | undefined;
     /**
-     * `stop_details` 去掉 `fallback_credit_token` 后的诊断串（见 aiChat/anthropic/response.ts 的
+     * `stop_details` 去掉 `fallback_credit_token` 后的诊断串（见 aiProviders/anthropic/response.ts 的
      * anthropicStopDetailsJson）。拒答时它是 `{ type: "refusal", category, explanation }`，category 与
      * explanation 可以为 null；请求带 fallback-credit beta 时另有 `fallback_has_prefill_claim`。收尾原因没有
      * 附加详情（字段为 null）或兼容网关不带该字段时为 undefined。
@@ -43,5 +43,17 @@ export type AnthropicRequestResult =
     message: Anthropic.Beta.BetaMessage;
   };
 
-/** Anthropic Messages 请求结果中的失败分支（见 aiChat/anthropic/pauseTurn.ts 的 `onFailure`）。 */
+/** Anthropic Messages 请求结果中的失败分支（见 workers/aiChat/anthropic/pauseTurn.ts 的 `onFailure`）。 */
 export type AnthropicRequestFailure = Extract<AnthropicRequestResult, { ok: false }>;
+
+/** Anthropic 响应 `fallback` 块的结构化改道诊断信息。 */
+export interface AnthropicFallbackDetails {
+  /** 发生拒答并触发回退的原模型名称。 */
+  readonly from: string;
+  /** 接管本次请求的回退模型名称。 */
+  readonly to: string;
+  /** 截断后的回退触发原因 JSON 字符串；缺失时为 `null`。 */
+  readonly trigger: string | null;
+  /** 截断后的回退额度结算状态 JSON 字符串；缺失时为 `null`。 */
+  readonly fallbackCredit: string | null;
+}

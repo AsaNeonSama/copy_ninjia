@@ -217,7 +217,8 @@ test("上传与 CDN 下载均经主线程出站闸；跨 owner 调用和取消�
     const controller: AbortController = new AbortController();
     controller.abort();
     const before: number = calls.length;
-    await expect(workerTelegramApi.sendMessage(-1001, "cancelled", {}, controller.signal as never)).rejects.toThrow();
+    await expect(workerTelegramApi.sendMessage(-1001, "cancelled", {}, controller.signal as never))
+      .rejects.toThrow("Telegram outbound request was aborted.");
     expect(calls.length).toBe(before);
     expect(downloads).toBe(1);
   } finally {

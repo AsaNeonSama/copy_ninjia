@@ -1,33 +1,31 @@
 import { createStore } from "zustand";
 import type { StoreApi } from "zustand";
-import { triggerMiniAppChatBatchKick } from "../api/chatBatchKick";
 import { fetchMiniAppChatDetail } from "../api/chatDetail";
-import { toggleMiniAppChatFeature } from "../api/chatFeature";
 import { fetchMiniAppChats } from "../api/chats";
 import {
   MINI_APP_BATCH_KICK_DEFAULT_HOURS,
-  MINI_APP_BATCH_KICK_MAX_HOURS,
-  MINI_APP_BATCH_KICK_MIN_HOURS,
-  MINI_APP_BATCH_KICK_WINDOW_DEBOUNCE_MS,
   MINI_APP_CHATS_DEFAULT_PAGE_SIZE,
-} from "../consts/miniApp";
-import { getMiniAppTranslations } from "../i18n";
+} from "../consts/miniApp/chats";
 import { errorMessage } from "../libs/errorMessage";
 import { waitMinimumLoadingDuration } from "../libs/loading";
 import type {
-  MiniAppBatchKickResult,
   MiniAppChatDetail,
   MiniAppChatSummary,
   MiniAppChatTargetKind,
   MiniAppChatTargetsView,
   MiniAppFeatureKey,
-  MiniAppFeatureToggleResult,
-  MiniAppIdentityAddMode,
   MiniAppTranslateLanguage,
-} from "../types/miniApp";
+} from "../types/miniApp/chats";
+import type {
+  MiniAppIdentityAddMode,
+  MiniAppPickerSubjectKind,
+} from "../types/miniApp/identities";
 import { notifyMiniAppIfAuthError, useMiniAppStore } from "./app";
-import type { MiniAppUiStoreState } from "./app";
+import { createChatMutationActions } from "./chatMutationActions";
+import type { MiniAppChatMutationBundle } from "./chatMutationActions";
 import { createChatTargetsActions } from "./chatTargetsActions";
+import { createMiniAppNativePickerController } from "./nativePicker";
+import type { MiniAppNativePickerController } from "./nativePicker";
 
 /** `ChatsPage` 受管群列表与群详情的状态与动作接口。 */
 export interface MiniAppChatsStoreState {
@@ -61,11 +59,13 @@ export interface MiniAppChatsStoreState {
   readonly loadingTargets: boolean;
   /** 是否正在提交问答对、追着删目标或追着翻目标的增删请求。 */
   readonly mutatingTargets: boolean;
+  /** 正在预备 Telegram 原生选择器的模式键（`"users"` 或 `"channel"`；未预备时为 `null`）。 */
+  readonly preparingPickerMode: MiniAppPickerSubjectKind | null;
   /** 是否展开问答对的触发问题与自动回答编辑面板（默认收起为 `false`）。 */
   readonly qaEditorOpen: boolean;
   /** 是否展开删发言目标或翻译目标的三选一添加面板（默认收起为 `false`）。 */
   readonly targetAddMenuOpen: boolean;
-  /** 是否展开删发言目标或翻译目标按 @username/ID 添加的内联输入框（默认收起为 `false`）。 */
+  /** 是否展开删发言目标或翻译目标按数字 ID 添加的内联输入框（默认收起为 `false`）。 */
   readonly targetIdFormOpen: boolean;
   /** 问答对表单的问题输入框内容。 */
   readonly qaQuestionInput: string;
@@ -169,7 +169,7 @@ export interface MiniAppChatsStoreState {
   readonly runBatchKick: () => Promise<void>;
   /** 在后台 `/batch_kick` 执行期间静默刷新当前群详情，检测服务端完成回调写入的结束状态。 */
   readonly pollRunningBatchKick: () => Promise<void>;
-  /** 取消防抖中的回溯时间窗口进群人数刷新定时器并作废在途窗口详情请求（供页面卸载清理使用）。 */
+  /** 取消防抖中的回溯时间窗口进群人数刷新定时器、作废在途窗口详情请求并中止未完成的原生选择器轮询（供页面卸载清理使用）。 */
   readonly cancelPendingRefresh: () => void;
   /** 切换群列表页码并播放最短加载骨架动画。 */
   readonly setChatPage: (page: number) => void;
@@ -194,15 +194,34 @@ export function createChatsStore(): MiniAppChatsStore {
       let listReqSeq: number = 0;
       let detailReqSeq: number = 0;
       let targetsReqSeq: number = 0;
-      let windowJoinedReqSeq: number = 0;
-      let windowJoinedTimer: ReturnType<typeof setTimeout> | null = null;
+      const pickerController: MiniAppNativePickerController =
+        createMiniAppNativePickerController();
 
-      const cancelWindowJoinedRefresh = (): void => {
-        if (windowJoinedTimer !== null) {
-          clearTimeout(windowJoinedTimer);
-          windowJoinedTimer = null;
-        }
-        windowJoinedReqSeq += 1;
+      const CLOSED_TARGETS_PANEL_RESET: Readonly<
+        Pick<
+          MiniAppChatsStoreState,
+          | "targetsMenuOpen"
+          | "activeTargetsModal"
+          | "chatTargets"
+          | "loadingTargets"
+          | "mutatingTargets"
+          | "preparingPickerMode"
+          | "qaEditorOpen"
+          | "targetAddMenuOpen"
+          | "targetIdFormOpen"
+          | "translateLangMenuOpen"
+        >
+      > = {
+        targetsMenuOpen: false,
+        activeTargetsModal: null,
+        chatTargets: null,
+        loadingTargets: false,
+        mutatingTargets: false,
+        preparingPickerMode: null,
+        qaEditorOpen: false,
+        targetAddMenuOpen: false,
+        targetIdFormOpen: false,
+        translateLangMenuOpen: false,
       };
 
       const applyChatPagination = (
@@ -231,38 +250,31 @@ export function createChatsStore(): MiniAppChatsStore {
         set({ chatDetail: detail, loadingDetail: false });
       };
 
-      const refreshWindowJoinedCount = async (reqId: number): Promise<void> => {
-        const chatId: number | null = get().selectedChatId;
-        if (chatId === null) {
-          if (reqId === windowJoinedReqSeq) {
-            set({ loadingWindowJoined: false });
-          }
-          return;
-        }
-        const detailEpoch: number = detailReqSeq;
-        try {
-          const detail: MiniAppChatDetail = await fetchMiniAppChatDetail(chatId);
-          if (reqId !== windowJoinedReqSeq || get().selectedChatId !== chatId) {
-            return;
-          }
-          if (detailEpoch !== detailReqSeq) {
-            set({ loadingWindowJoined: false });
-            return;
-          }
-          set({ chatDetail: detail, loadingWindowJoined: false });
-        } catch (error: unknown) {
-          if (reqId !== windowJoinedReqSeq || get().selectedChatId !== chatId) {
-            return;
-          }
-          if (detailEpoch !== detailReqSeq) {
-            set({ loadingWindowJoined: false });
-            return;
-          }
-          set({ loadingWindowJoined: false });
-          const message: string = errorMessage(error);
-          useMiniAppStore.getState().notify(message, "info", error);
-        }
+      const resetRemovedChat = (
+        extra: Partial<MiniAppChatsStoreState> = {}
+      ): void => {
+        detailReqSeq += 1;
+        targetsReqSeq += 1;
+        set({
+          selectedChatId: null,
+          chatDetail: null,
+          loadingDetail: false,
+          botPermsExpanded: false,
+          ...CLOSED_TARGETS_PANEL_RESET,
+          chats: [],
+          loadingList: true,
+          ...extra,
+        });
       };
+
+      const mutationBundle: MiniAppChatMutationBundle =
+        createChatMutationActions({
+          set,
+          get,
+          applyMutationDetail,
+          currentDetailReqSeq: (): number => detailReqSeq,
+          resetRemovedChat,
+        });
 
       return {
         chats: [],
@@ -275,21 +287,13 @@ export function createChatsStore(): MiniAppChatsStore {
         batchKickHours: MINI_APP_BATCH_KICK_DEFAULT_HOURS,
         loadingWindowJoined: false,
         batchKickSubmitting: false,
-        targetsMenuOpen: false,
-        activeTargetsModal: null,
-        chatTargets: null,
-        loadingTargets: false,
-        mutatingTargets: false,
-        qaEditorOpen: false,
-        targetAddMenuOpen: false,
-        targetIdFormOpen: false,
+        ...CLOSED_TARGETS_PANEL_RESET,
         qaQuestionInput: "",
         qaAnswerInput: "",
         qaEditSourceQuestion: null,
         deleteTargetInput: "",
         translateTargetInput: "",
         translateLanguageInput: "ja",
-        translateLangMenuOpen: false,
         viewingMessages: false,
         chatPage: 1,
         chatPageSize: MINI_APP_CHATS_DEFAULT_PAGE_SIZE,
@@ -308,6 +312,7 @@ export function createChatsStore(): MiniAppChatsStore {
           } catch (error: unknown) {
             await waitMinimumLoadingDuration(startedAt);
             if (reqId !== listReqSeq) {
+              notifyMiniAppIfAuthError(error);
               return;
             }
             set({ loadingList: false });
@@ -317,7 +322,7 @@ export function createChatsStore(): MiniAppChatsStore {
         },
 
         loadDetail: async (chatId: number): Promise<void> => {
-          cancelWindowJoinedRefresh();
+          mutationBundle.cancelWindowJoinedRefresh();
           const reqId: number = ++detailReqSeq;
           const startedAt: number = Date.now();
           set({ loadingDetail: true, loadingWindowJoined: false });
@@ -331,6 +336,7 @@ export function createChatsStore(): MiniAppChatsStore {
           } catch (error: unknown) {
             await waitMinimumLoadingDuration(startedAt);
             if (reqId !== detailReqSeq || get().selectedChatId !== chatId) {
+              notifyMiniAppIfAuthError(error);
               return;
             }
             const message: string = errorMessage(error);
@@ -343,7 +349,7 @@ export function createChatsStore(): MiniAppChatsStore {
         },
 
         selectChat: (chatId: number): void => {
-          cancelWindowJoinedRefresh();
+          mutationBundle.cancelWindowJoinedRefresh();
           targetsReqSeq += 1;
           set({
             selectedChatId: chatId,
@@ -351,27 +357,19 @@ export function createChatsStore(): MiniAppChatsStore {
             chatDetail: null,
             botPermsExpanded: false,
             loadingWindowJoined: false,
-            targetsMenuOpen: false,
-            activeTargetsModal: null,
-            chatTargets: null,
-            loadingTargets: false,
-            mutatingTargets: false,
-            qaEditorOpen: false,
-            targetAddMenuOpen: false,
-            targetIdFormOpen: false,
+            ...CLOSED_TARGETS_PANEL_RESET,
             qaQuestionInput: "",
             qaAnswerInput: "",
             qaEditSourceQuestion: null,
             deleteTargetInput: "",
             translateTargetInput: "",
             translateLanguageInput: "ja",
-            translateLangMenuOpen: false,
           });
           void get().loadDetail(chatId);
         },
 
         closeDetail: (): void => {
-          cancelWindowJoinedRefresh();
+          mutationBundle.cancelWindowJoinedRefresh();
           detailReqSeq += 1;
           targetsReqSeq += 1;
           set({
@@ -380,26 +378,19 @@ export function createChatsStore(): MiniAppChatsStore {
             loadingDetail: false,
             botPermsExpanded: false,
             loadingWindowJoined: false,
-            targetsMenuOpen: false,
-            activeTargetsModal: null,
-            chatTargets: null,
-            loadingTargets: false,
-            mutatingTargets: false,
-            qaEditorOpen: false,
-            targetAddMenuOpen: false,
-            targetIdFormOpen: false,
-            translateLangMenuOpen: false,
+            ...CLOSED_TARGETS_PANEL_RESET,
           });
           void get().loadChatList();
         },
 
         openMessages: (): void => {
-          cancelWindowJoinedRefresh();
+          mutationBundle.cancelWindowJoinedRefresh();
           set({
             viewingMessages: true,
             loadingWindowJoined: false,
             targetsMenuOpen: false,
             activeTargetsModal: null,
+            preparingPickerMode: null,
             qaEditorOpen: false,
             targetAddMenuOpen: false,
             targetIdFormOpen: false,
@@ -428,217 +419,10 @@ export function createChatsStore(): MiniAppChatsStore {
             return targetsReqSeq;
           },
           currentTargetsReqSeq: (): number => targetsReqSeq,
+          pickerController,
         }),
 
-        toggleFeature: async (
-          feature: MiniAppFeatureKey,
-          enabled: boolean
-        ): Promise<void> => {
-          const chatId: number | null = get().selectedChatId;
-          if (chatId === null) return;
-          const app: MiniAppUiStoreState = useMiniAppStore.getState();
-          if (
-            feature === "init" &&
-            !enabled &&
-            !(await app.requestConfirm(
-              getMiniAppTranslations(app.language).chats.confirmDisableInit,
-              "danger"
-            ))
-          ) {
-            return;
-          }
-          cancelWindowJoinedRefresh();
-          const startedAt: number = Date.now();
-          set({ togglingFeature: feature, loadingWindowJoined: false });
-          try {
-            const result: MiniAppFeatureToggleResult = await toggleMiniAppChatFeature(
-              chatId,
-              feature,
-              enabled
-            );
-            await waitMinimumLoadingDuration(startedAt);
-            if (get().selectedChatId !== chatId) {
-              set({ togglingFeature: null });
-              if (
-                (result.removedFromList || result.detail === null) &&
-                get().selectedChatId === null
-              ) {
-                void get().loadChatList();
-              }
-            } else if (result.removedFromList || result.detail === null) {
-              detailReqSeq += 1;
-              targetsReqSeq += 1;
-              set({
-                selectedChatId: null,
-                chatDetail: null,
-                loadingDetail: false,
-                botPermsExpanded: false,
-                targetsMenuOpen: false,
-                activeTargetsModal: null,
-                chatTargets: null,
-                loadingTargets: false,
-                mutatingTargets: false,
-                qaEditorOpen: false,
-                targetAddMenuOpen: false,
-                targetIdFormOpen: false,
-                translateLangMenuOpen: false,
-                chats: [],
-                loadingList: true,
-                togglingFeature: null,
-              });
-              await get().loadChatList();
-            } else {
-              applyMutationDetail(result.detail);
-              set({ togglingFeature: null });
-            }
-            useMiniAppStore.getState().notify(
-              result.message,
-              result.ok ? "info" : "warning",
-              result
-            );
-          } catch (error: unknown) {
-            await waitMinimumLoadingDuration(startedAt);
-            set({ togglingFeature: null });
-            const message: string = errorMessage(error);
-            useMiniAppStore.getState().notify(message, "info", error);
-          } finally {
-            if (get().togglingFeature !== null) {
-              set({ togglingFeature: null });
-            }
-          }
-        },
-
-        setBatchKickHours: (hours: number): void => {
-          const normalized: number = Number.isFinite(hours)
-            ? Math.trunc(hours)
-            : MINI_APP_BATCH_KICK_MIN_HOURS;
-          const safeHours: number = Math.min(
-            MINI_APP_BATCH_KICK_MAX_HOURS,
-            Math.max(MINI_APP_BATCH_KICK_MIN_HOURS, normalized)
-          );
-          const current: MiniAppChatsStoreState = get();
-          if (safeHours === current.batchKickHours && !current.loadingWindowJoined) {
-            return;
-          }
-          cancelWindowJoinedRefresh();
-          if (current.selectedChatId === null) {
-            set({ batchKickHours: safeHours, loadingWindowJoined: false });
-            return;
-          }
-          const reqId: number = windowJoinedReqSeq;
-          set({ batchKickHours: safeHours, loadingWindowJoined: true });
-          windowJoinedTimer = setTimeout((): void => {
-            windowJoinedTimer = null;
-            void refreshWindowJoinedCount(reqId);
-          }, MINI_APP_BATCH_KICK_WINDOW_DEBOUNCE_MS);
-        },
-
-        runBatchKick: async (): Promise<void> => {
-          const {
-            selectedChatId,
-            batchKickHours,
-            batchKickSubmitting,
-          }: MiniAppChatsStoreState = get();
-          if (selectedChatId === null || batchKickSubmitting) return;
-          const app: MiniAppUiStoreState = useMiniAppStore.getState();
-          if (
-            !(await app.requestConfirm(
-              getMiniAppTranslations(app.language).chats.confirmBatchKick(batchKickHours),
-              "danger"
-            ))
-          ) {
-            return;
-          }
-          cancelWindowJoinedRefresh();
-          set({ batchKickSubmitting: true, loadingWindowJoined: false });
-          try {
-            const result: MiniAppBatchKickResult = await triggerMiniAppChatBatchKick(
-              selectedChatId,
-              batchKickHours
-            );
-            useMiniAppStore.getState().notify(
-              result.message,
-              result.outcome === "accepted" ? "info" : "warning",
-              result
-            );
-            if (get().selectedChatId !== selectedChatId) {
-              if (
-                (result.outcome === "notInitialized" || result.detail === null) &&
-                get().selectedChatId === null
-              ) {
-                void get().loadChatList();
-              }
-            } else if (result.outcome === "notInitialized" || result.detail === null) {
-              detailReqSeq += 1;
-              targetsReqSeq += 1;
-              set({
-                selectedChatId: null,
-                chatDetail: null,
-                loadingDetail: false,
-                botPermsExpanded: false,
-                targetsMenuOpen: false,
-                activeTargetsModal: null,
-                chatTargets: null,
-                loadingTargets: false,
-                mutatingTargets: false,
-                qaEditorOpen: false,
-                targetAddMenuOpen: false,
-                targetIdFormOpen: false,
-                translateLangMenuOpen: false,
-                chats: [],
-                loadingList: true,
-              });
-              void get().loadChatList();
-            } else {
-              applyMutationDetail(result.detail);
-            }
-          } catch (error: unknown) {
-            const message: string = errorMessage(error);
-            useMiniAppStore.getState().notify(message, "warning", error);
-          } finally {
-            set({ batchKickSubmitting: false });
-          }
-        },
-
-        pollRunningBatchKick: async (): Promise<void> => {
-          const {
-            selectedChatId,
-            chatDetail,
-            batchKickSubmitting,
-          }: MiniAppChatsStoreState = get();
-          if (
-            selectedChatId === null ||
-            batchKickSubmitting ||
-            chatDetail?.batchKickRunning !== true
-          ) {
-            return;
-          }
-          const detailEpoch: number = detailReqSeq;
-          try {
-            const nextDetail: Readonly<MiniAppChatDetail> =
-              await fetchMiniAppChatDetail(selectedChatId);
-            const current: MiniAppChatsStoreState = get();
-            if (current.selectedChatId !== selectedChatId || detailEpoch !== detailReqSeq) return;
-            const wasRunning: boolean = current.chatDetail?.batchKickRunning === true;
-            set({ chatDetail: nextDetail });
-            if (
-              wasRunning &&
-              !nextDetail.batchKickRunning &&
-              nextDetail.lastBatchKickCompletion !== null
-            ) {
-              const app: MiniAppUiStoreState = useMiniAppStore.getState();
-              app.notify(
-                getMiniAppTranslations(app.language).chats.batchKickCompletedSummary(
-                  nextDetail.lastBatchKickCompletion
-                ),
-                "info"
-              );
-            }
-          } catch (error: unknown) {
-            // 会话失效或锁定时立即通知根仓库锁定控制台，其余后台轮询瞬时异常静默等待下一轮。
-            notifyMiniAppIfAuthError(error);
-          }
-        },
+        ...mutationBundle.actions,
 
         setChatPage: (page: number): void => {
           applyChatPagination({ chatPage: page });
@@ -648,7 +432,10 @@ export function createChatsStore(): MiniAppChatsStore {
           applyChatPagination({ chatPage: 1, chatPageSize: pageSize });
         },
 
-        cancelPendingRefresh: cancelWindowJoinedRefresh,
+        cancelPendingRefresh: (): void => {
+          mutationBundle.cancelWindowJoinedRefresh();
+          pickerController.cancel();
+        },
       };
     }
   );

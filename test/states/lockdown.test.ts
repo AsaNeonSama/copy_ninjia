@@ -740,4 +740,29 @@ describe("adopt 接管", () => {
       type: "statePersisted", phase: "restoring", intentId: 8,
     }).effects.map((effect) => effect.kind)).toEqual(["beginRestore"]);
   });
+
+  test("restoreAfterPersist 或 reapplyAfterPersist 为 true 时，迟到的重试定时器不发出副作用", () => {
+    const waitingRestore: LockdownState = {
+      kind: "restoring",
+      originalPermissions: PERMS,
+      intentId: 9,
+      restoreAfterPersist: true,
+      restoreReason: "expired",
+      ...ANNOUNCED,
+    };
+    const restoreRetry = transitionLockdown(waitingRestore, { type: "restoreRetryFired" });
+    expect(restoreRetry.next).toBe(waitingRestore);
+    expect(restoreRetry.effects).toEqual([]);
+
+    const waitingReapply: LockdownState = {
+      kind: "reconciling",
+      originalPermissions: PERMS,
+      intentId: 9,
+      reapplyAfterPersist: true,
+      ...ANNOUNCED,
+    };
+    const reapplyRetry = transitionLockdown(waitingReapply, { type: "reapplyRetryFired" });
+    expect(reapplyRetry.next).toBe(waitingReapply);
+    expect(reapplyRetry.effects).toEqual([]);
+  });
 });

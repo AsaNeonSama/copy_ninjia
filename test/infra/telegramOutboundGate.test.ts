@@ -402,7 +402,6 @@ describe("Telegram 主线程出站总闸", () => {
     expect(telegramOutboundStats()).toEqual({
       active: 0,
       pending: 0,
-      capacity: TELEGRAM_429_RETRY_QUEUE_MAX,
       messageActive: 0,
       messageRetryPending: 0,
     });
@@ -416,7 +415,6 @@ describe("Telegram 主线程出站总闸", () => {
     expect(telegramOutboundStats()).toEqual({
       active: 1,
       pending: 0,
-      capacity: TELEGRAM_429_RETRY_QUEUE_MAX,
       messageActive: 1,
       messageRetryPending: 0,
     });
@@ -440,7 +438,6 @@ describe("Telegram 主线程出站总闸", () => {
     expect(telegramOutboundStats()).toEqual({
       active: 1,
       pending: 1,
-      capacity: TELEGRAM_429_RETRY_QUEUE_MAX,
       messageActive: 1,
       messageRetryPending: 1,
     });
@@ -450,7 +447,6 @@ describe("Telegram 主线程出站总闸", () => {
     expect(telegramOutboundStats()).toEqual({
       active: 0,
       pending: 0,
-      capacity: TELEGRAM_429_RETRY_QUEUE_MAX,
       messageActive: 0,
       messageRetryPending: 0,
     });

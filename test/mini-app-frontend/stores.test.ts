@@ -21,6 +21,7 @@ import {
   MINI_APP_STATUS_POLL_INTERVAL_MS,
   MINI_APP_STATUS_SNAPSHOT_HOLD_AFTER_TOGGLE_MS,
   MINI_APP_TOAST_DURATION_MS,
+  RANDOM_IMAGE_MAX_BYTES,
   TRANSLATE_CHAT_USER_LIMIT,
 } from "../../packages/mini-app-frontend/consts/miniApp";
 import { ChatTargetsQaEditorForm } from "../../packages/mini-app-frontend/components/ChatTargetsQaPanel";
@@ -28,7 +29,6 @@ import { getMiniAppTranslations } from "../../packages/mini-app-frontend/i18n";
 import {
   clearMiniAppSessionToken,
   readMiniAppSessionToken,
-  setMiniAppSessionToken,
 } from "../../packages/mini-app-frontend/libs/credentials";
 import { TotpPage } from "../../packages/mini-app-frontend/pages/TotpPage";
 import { resetMiniAppStoreForTest, useMiniAppStore } from "../../packages/mini-app-frontend/store/app";
@@ -40,6 +40,12 @@ import { createPermissionDrawerStore } from "../../packages/mini-app-frontend/st
 import { createStatusStore } from "../../packages/mini-app-frontend/store/status";
 import { createTotpStore } from "../../packages/mini-app-frontend/store/totp";
 import type { MiniAppTranslations } from "../../packages/mini-app-frontend/types/miniAppI18n";
+import {
+  seedTestMiniAppSession, wrapEncryptedTestFetch,
+} from "./helpers/encryptedFetchMock";
+import {
+  drainImmediate, flushFakeTimersUntil, flushUntil, resolveWithFakeTimers,
+} from "./helpers/fakeTimerFlush";
 
 /** 一条路由夹具：按请求返回响应。 */
 type RouteHandler = (url: URL, init: RequestInit | undefined) => Response | Promise<Response>;
@@ -59,22 +65,17 @@ function json(payload: unknown, status: number = 200): Response {
   return Response.json(payload, { status });
 }
 
-/** 等待超过加载骨架最短展示时长，让带最短时长的加载动作结算。 */
-async function settleLoading(): Promise<void> {
-  await Bun.sleep(MINI_APP_MIN_LOADING_MS + 120);
-}
-
 beforeEach((): void => {
   routes.clear();
   fetchCalls.length = 0;
-  globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: RequestInit): Promise<Response> => {
-    const url: URL = new URL(String(input), "http://mini.test/");
+  seedTestMiniAppSession("0".repeat(64), Date.now() + 600_000);
+  globalThis.fetch = wrapEncryptedTestFetch((url: URL, init?: RequestInit): Response | Promise<Response> => {
     const key: string = `${(init?.method ?? "GET").toUpperCase()} ${url.pathname}`;
     fetchCalls.push(`${key}${url.search}`);
     const handler: RouteHandler | undefined = routes.get(key);
     if (handler === undefined) return json({ error: `no route ${key}` }, 404);
     return handler(url, init);
-  }) as typeof fetch;
+  });
   resetMiniAppStoreForTest();
   useMiniAppStore.getState().setLanguage("zh");
 });
@@ -104,7 +105,7 @@ describe("根 store", () => {
     expect(useMiniAppStore.getState().toastTone).toBe("warning");
     expect(useMiniAppStore.getState().sessionExpiresAt).toBe(0);
 
-    setMiniAppSessionToken("e".repeat(64), Date.now() + 60_000);
+    seedTestMiniAppSession("e".repeat(64), Date.now() + 60_000);
     route("GET /api/auth/precheck", (): Response =>
       json({ ok: false, code: "PASSWORD_LOCKED", error: "locked" }, 403));
     useMiniAppStore.setState({ gateState: "unlocked", sessionExpiresAt: 1 });
@@ -130,7 +131,7 @@ describe("根 store", () => {
     expect(useMiniAppStore.getState().authMode).toBe("totp");
 
     const expiresAt: number = Date.now() + 60_000;
-    setMiniAppSessionToken("a".repeat(64), expiresAt);
+    seedTestMiniAppSession("a".repeat(64), expiresAt);
     route("GET /api/auth/precheck", (): Response =>
       json({ ok: true, sessionValid: true, sessionExpiresAt: expiresAt }));
     await useMiniAppStore.getState().runAccessPrecheck();
@@ -151,15 +152,15 @@ describe("根 store", () => {
     const freshToken: string = "d".repeat(64);
     const freshExpiresAt: number = Date.now() + 60_000;
 
-    setMiniAppSessionToken(staleToken, Date.now() + 60_000);
+    seedTestMiniAppSession(staleToken, Date.now() + 60_000);
     route("GET /api/auth/precheck", (): Response => json({ ok: true, sessionValid: false }));
     await useMiniAppStore.getState().runAccessPrecheck();
     expect(useMiniAppStore.getState().gateState).toBe("password");
     expect(readMiniAppSessionToken()).toBe("");
 
-    setMiniAppSessionToken(staleToken, Date.now() + 60_000);
+    seedTestMiniAppSession(staleToken, Date.now() + 60_000);
     route("GET /api/auth/precheck", (): Response => {
-      setMiniAppSessionToken(freshToken, freshExpiresAt);
+      seedTestMiniAppSession(freshToken, freshExpiresAt);
       return json({ ok: true, sessionValid: false });
     });
     useMiniAppStore.setState({ gateState: "checking" });
@@ -167,9 +168,9 @@ describe("根 store", () => {
     expect(useMiniAppStore.getState().gateState).toBe("password");
     expect(readMiniAppSessionToken()).toBe(freshToken);
 
-    setMiniAppSessionToken(staleToken, Date.now() + 60_000);
+    seedTestMiniAppSession(staleToken, Date.now() + 60_000);
     route("GET /api/auth/precheck", (): Response => {
-      setMiniAppSessionToken(freshToken, freshExpiresAt);
+      seedTestMiniAppSession(freshToken, freshExpiresAt);
       return json({ ok: false, code: "FORBIDDEN_USER", error: "no" }, 403);
     });
     useMiniAppStore.setState({ gateState: "checking" });
@@ -179,14 +180,15 @@ describe("根 store", () => {
   });
 
   test("预检恢复的会话到期后按当前语言锁定控制台", async () => {
+    jest.useFakeTimers();
     const expiresAt: number = Date.now() + 1_000;
-    setMiniAppSessionToken("b".repeat(64), expiresAt);
+    seedTestMiniAppSession("b".repeat(64), expiresAt);
     route("GET /api/auth/precheck", (): Response =>
       json({ ok: true, sessionValid: true, sessionExpiresAt: expiresAt }));
     await useMiniAppStore.getState().runAccessPrecheck();
     expect(useMiniAppStore.getState().gateState).toBe("unlocked");
     useMiniAppStore.getState().setLanguage("ja");
-    await Bun.sleep(1_600);
+    jest.advanceTimersByTime(1_000);
     expect(useMiniAppStore.getState().gateState).toBe("password");
     expect(useMiniAppStore.getState().passwordError).toBe(getMiniAppTranslations("ja").sessionExpiredToast);
     expect(readMiniAppSessionToken()).toBe("");
@@ -196,24 +198,29 @@ describe("根 store", () => {
 
 describe("页面 store", () => {
   test("状态看板只采纳最后一次请求，成功时置根 store 就绪，手动刷新失败以 Toast 报错", async () => {
+    jest.useFakeTimers();
     const store = createStatusStore();
     let calls: number = 0;
+    const firstStatusGate: PromiseWithResolvers<void> = Promise.withResolvers<void>();
     route("GET /api/status", async (): Promise<Response> => {
       calls += 1;
       const seq: number = calls;
-      if (seq === 1) await Bun.sleep(80);
+      if (seq === 1) await firstStatusGate.promise;
       return json({ generatedAt: seq });
     });
     route("GET /api/mood", (): Response => json({ ok: true, available: true, currentMood: "happy" }));
     const first: Promise<void> = store.getState().loadStatus(false);
     const second: Promise<void> = store.getState().loadStatus(false);
-    await Promise.allSettled([first, second]);
+    await resolveWithFakeTimers(second);
+    firstStatusGate.resolve();
+    await resolveWithFakeTimers(first);
     expect(store.getState().status?.generatedAt).toBe(2);
     expect(store.getState().loading).toBeFalse();
     expect(useMiniAppStore.getState().statusReady).toBeTrue();
 
     route("GET /api/status", (): Response => json({ error: "boom" }, 500));
-    await store.getState().loadStatus(true);
+    await resolveWithFakeTimers(store.getState().loadStatus(true));
+    await flushUntil((): boolean => store.getState().currentMood === "happy");
     expect(store.getState().errorText).toBe("boom");
     expect(store.getState().refreshing).toBeFalse();
     expect(store.getState().currentMood).toBe("happy");
@@ -226,7 +233,7 @@ describe("页面 store", () => {
 
     route("POST /api/mood/switch", (): Response =>
       json({ ok: true, available: true, currentMood: "calm", message: "switched" }));
-    await store.getState().switchMood();
+    await resolveWithFakeTimers(store.getState().switchMood());
     expect(store.getState().currentMood).toBe("calm");
     expect(store.getState().switchingMood).toBeFalse();
     expect(useMiniAppStore.getState().toastText).toBe("switched");
@@ -243,7 +250,12 @@ describe("页面 store", () => {
       return json({ generatedAt: calls });
     });
     const drain = async (): Promise<void> => {
-      for (let turn: number = 0; turn < 20; turn += 1) await Promise.resolve();
+      for (let turn: number = 0; turn < 6; turn += 1) {
+        Bun.sleepSync(2);
+        await new Promise<void>((resolve: () => void): void => {
+          setImmediate(resolve);
+        });
+      }
     };
     const advance = async (ms: number): Promise<void> => {
       jest.advanceTimersByTime(ms);
@@ -307,7 +319,12 @@ describe("页面 store", () => {
       return json({ generatedAt: calls });
     });
     const drain = async (): Promise<void> => {
-      for (let turn: number = 0; turn < 20; turn += 1) await Promise.resolve();
+      for (let turn: number = 0; turn < 6; turn += 1) {
+        Bun.sleepSync(2);
+        await new Promise<void>((resolve: () => void): void => {
+          setImmediate(resolve);
+        });
+      }
     };
     const advance = async (ms: number): Promise<void> => {
       jest.advanceTimersByTime(ms);
@@ -363,10 +380,11 @@ describe("页面 store", () => {
   });
 
   test("受管群：选群加载详情，关闭 /init 需确认，移出列表后回到列表并重载", async () => {
+    jest.useFakeTimers();
     const store = createChatsStore();
     route("GET /api/chats", (): Response => json({ items: [{ chatId: -100 }] }));
-    route("GET /api/chats/-100", (): Response => json({ detail: { chatId: -100 } }));
-    await store.getState().loadChatList();
+    route("GET /api/chats/detail", (): Response => json({ detail: { chatId: -100 } }));
+    await resolveWithFakeTimers(store.getState().loadChatList());
     expect(store.getState().chats).toEqual([{ chatId: -100 }] as never);
 
     store.getState().selectChat(-100);
@@ -377,10 +395,10 @@ describe("页面 store", () => {
     store.getState().toggleBotPerms();
     expect(store.getState().botPermsExpanded).toBeFalse();
     expect(store.getState().loadingDetail).toBeTrue();
-    await settleLoading();
+    await flushFakeTimersUntil((): boolean => !store.getState().loadingDetail && store.getState().chatDetail !== null);
     expect(store.getState().chatDetail?.chatId).toBe(-100);
 
-    route("POST /api/chats/-100/feature", (): Response =>
+    route("POST /api/chats/feature", (): Response =>
       json({ ok: true, message: "off", removedFromList: true, detail: null }));
     const declined: Promise<void> = store.getState().toggleFeature("init", false);
     expect(useMiniAppStore.getState().confirmModal?.message).toBe(zh.chats.confirmDisableInit);
@@ -390,11 +408,11 @@ describe("页面 store", () => {
 
     const accepted: Promise<void> = store.getState().toggleFeature("init", false);
     useMiniAppStore.getState().resolveConfirm(true);
-    await accepted;
+    await resolveWithFakeTimers(accepted);
     expect(store.getState().selectedChatId).toBeNull();
     expect(store.getState().togglingFeature).toBeNull();
     expect(useMiniAppStore.getState().toastText).toBe("off");
-    await settleLoading();
+    await flushFakeTimersUntil((): boolean => !store.getState().loadingList && fetchCalls.filter((call: string): boolean => call === "GET /api/chats").length === 2);
     expect(fetchCalls.filter((call: string): boolean => call === "GET /api/chats")).toHaveLength(2);
 
     store.getState().setChatPage(3);
@@ -404,17 +422,17 @@ describe("页面 store", () => {
     expect(store.getState().chatPageSize).toBe(20);
     expect(store.getState().loadingList).toBeTrue();
     expect(MINI_APP_PAGINATION_HOVER_DURATION_MS).toBeGreaterThan(0);
-    await settleLoading();
+    await flushFakeTimersUntil((): boolean => !store.getState().loadingList);
     expect(store.getState().loadingList).toBeFalse();
   });
 
   test("热发言记录与名单：服务端夹紧页码时同步当前页码且后续 effect 不重复请求", async () => {
     const store = createMessagesStore();
-    route("GET /api/chats/-100/messages", (url: URL): Response =>
+    route("GET /api/chats/messages", (url: URL): Response =>
       json({ page: 2, pageSize: Number(url.searchParams.get("pageSize")), items: [] }));
     await store.getState().loadMessages(-100, 9, 15);
     await store.getState().loadMessages(-100, store.getState().pageNumber, 15);
-    expect(fetchCalls).toEqual(["GET /api/chats/-100/messages?page=9&pageSize=15"]);
+    expect(fetchCalls).toEqual(["GET /api/chats/messages?chatId=-100&page=9&pageSize=15"]);
     expect(store.getState().pageNumber).toBe(2);
     expect(store.getState().pageData?.pageSize).toBe(15);
     store.getState().setPageSize(20);
@@ -469,8 +487,11 @@ describe("页面 store", () => {
     const silentLoad: Promise<void> = store.getState().loadCurrentList(true);
     expect(store.getState().loadingList).toBeFalse();
     await silentLoad;
+    route("POST /api/identities/whitelist", (): Response =>
+      json({ ok: true, changed: false, duplicate: true, message: "WHITELIST_DUPLICATE" }));
     store.getState().setIdInput("7");
     await store.getState().addById();
+    expect(fetchCalls.filter((call: string): boolean => call === "POST /api/identities/whitelist")).toHaveLength(1);
     expect(store.getState().duplicateAlertText).toBe(zh.identities.duplicateToast("ID 7", "whitelist"));
 
     route("POST /api/identities/whitelist", (): Response =>
@@ -530,41 +551,64 @@ describe("页面 store", () => {
   });
 
   test("图库：成功加载开启新批次，缩略图在最短时长后标记加载完成，翻页、删除与上传回执", async () => {
+    jest.useFakeTimers();
     const store = createGalleryStore();
     route("GET /api/gallery", (url: URL): Response =>
       json({ page: Number(url.searchParams.get("page")), items: [], exists: true }));
-    await store.getState().loadGallery(1, 10);
+    await resolveWithFakeTimers(store.getState().loadGallery(1, 10));
     expect(store.getState().batchEpoch).toBe(1);
     store.getState().markThumbLoaded("a.png", 0);
     store.getState().markThumbLoaded("a.png", 1);
-    await settleLoading();
+    await flushFakeTimersUntil((): boolean => store.getState().loadedImages["a.png"] === true);
     expect(store.getState().loadedImages).toEqual({ "a.png": true });
 
     store.getState().setPreviewItem({ fileName: "a.png" } as never);
     store.getState().changePage(2);
     expect(store.getState().previewItem).toBeNull();
-    await Bun.sleep(50);
+    await flushFakeTimersUntil((): boolean => !store.getState().loading && store.getState().page === 2);
     expect(store.getState().page).toBe(2);
 
-    route("DELETE /api/gallery/file/a.png", (): Response => json({ ok: true, outcome: "deleted", message: "x" }));
+    route("POST /api/gallery/delete", (): Response => json({ ok: true, outcome: "deleted", message: "x" }));
     const deletion: Promise<void> = store.getState().deleteImage("a.png");
     useMiniAppStore.getState().resolveConfirm(true);
-    await deletion;
+    await resolveWithFakeTimers(deletion);
     expect(useMiniAppStore.getState().toastText).toBe(zh.gallery.deletedToast("a.png"));
     expect(store.getState().deletingFileName).toBeNull();
 
     route("POST /api/gallery/upload", (): Response => json({ ok: true, outcome: "added", message: "ok" }));
-    await store.getState().uploadFiles([new File([new Uint8Array([1])], "x.png"), new File([new Uint8Array([2])], "y.png")]);
+    await resolveWithFakeTimers(store.getState().uploadFiles([new File([new Uint8Array([1])], "x.png"), new File([new Uint8Array([2])], "y.png")]));
     expect(useMiniAppStore.getState().toastText).toBe("+2 · =0 · !0");
     expect(store.getState().uploading).toBeFalse();
     expect(store.getState().uploadStatusText).toBeNull();
     expect(store.getState().page).toBe(1);
 
     fetchCalls.length = 0;
+    await store.getState().uploadFiles([]);
+    await store.getState().uploadFiles([new File([], "empty.png")]);
+    expect(fetchCalls).toEqual([]);
+    expect(useMiniAppStore.getState().toastText).toBe(zh.serverNotice("GALLERY_IMAGE_EMPTY"));
+    expect(useMiniAppStore.getState().toastTone).toBe("warning");
+
+    await store.getState().uploadFiles([new File([new Uint8Array(RANDOM_IMAGE_MAX_BYTES + 1)], "huge.png")]);
+    expect(fetchCalls).toEqual([]);
+    expect(useMiniAppStore.getState().toastText).toBe(zh.serverNotice("GALLERY_IMAGE_TOO_LARGE"));
+
+    route("POST /api/gallery/upload", (): Response => json({ error: "disk full" }, 500));
+    await resolveWithFakeTimers(store.getState().uploadFiles([new File([new Uint8Array([1])], "err.png")]));
+    expect(useMiniAppStore.getState().toastText).toBe("disk full");
+    expect(useMiniAppStore.getState().toastTone).toBe("warning");
+
+    route("POST /api/gallery/upload", (): Response =>
+      json({ ok: false, outcome: "unsupportedFormat", message: "GALLERY_UNSUPPORTED_FORMAT" }, 400));
+    await resolveWithFakeTimers(store.getState().uploadFiles([new File([new Uint8Array([1])], "bad.gif"), new File([], "empty.png")]));
+    expect(useMiniAppStore.getState().toastText).toBe(`+0 · =0 · !2 · ${zh.serverNotice("GALLERY_UNSUPPORTED_FORMAT")}`);
+    expect(useMiniAppStore.getState().toastTone).toBe("warning");
+
+    fetchCalls.length = 0;
     useMiniAppStore.setState({ gateState: "unlocked" });
     route("POST /api/gallery/upload", (): Response =>
       json({ code: "PASSWORD_REQUIRED", error: "expired" }, 401));
-    await store.getState().uploadFiles([new File([new Uint8Array([1])], "x.png"), new File([new Uint8Array([2])], "y.png")]);
+    await resolveWithFakeTimers(store.getState().uploadFiles([new File([new Uint8Array([1])], "x.png"), new File([new Uint8Array([2])], "y.png")]));
     expect(fetchCalls).toEqual(["POST /api/gallery/upload"]);
     expect(useMiniAppStore.getState().gateState).toBe("password");
   });
@@ -599,10 +643,11 @@ describe("页面 store", () => {
   });
 
   test("受管群：详情与热发言视图切换会重载对应数据，加载失败以 Toast 报错", async () => {
+    jest.useFakeTimers();
     const store = createChatsStore();
     route("GET /api/chats", (): Response => json({ error: "list down" }, 500));
-    route("GET /api/chats/-100", (): Response => json({ detail: { chatId: -100 } }));
-    await store.getState().loadChatList();
+    route("GET /api/chats/detail", (): Response => json({ detail: { chatId: -100 } }));
+    await resolveWithFakeTimers(store.getState().loadChatList());
     expect(store.getState().loadingList).toBeFalse();
     expect(useMiniAppStore.getState().toastText).toBe("list down");
 
@@ -611,12 +656,12 @@ describe("页面 store", () => {
     expect(store.getState().viewingMessages).toBeTrue();
     store.getState().closeMessages();
     expect(store.getState().viewingMessages).toBeFalse();
-    await settleLoading();
-    expect(fetchCalls.filter((call: string): boolean => call === "GET /api/chats/-100")).toHaveLength(2);
+    await flushFakeTimersUntil((): boolean => !store.getState().loadingDetail && fetchCalls.filter((call: string): boolean => call === "GET /api/chats/detail?chatId=-100").length === 2);
+    expect(fetchCalls.filter((call: string): boolean => call === "GET /api/chats/detail?chatId=-100")).toHaveLength(2);
 
-    route("POST /api/chats/-100/feature", (): Response =>
+    route("POST /api/chats/feature", (): Response =>
       json({ ok: true, message: "on", removedFromList: false, detail: { chatId: -100, title: "x" } }));
-    await store.getState().toggleFeature("aiChat", true);
+    await resolveWithFakeTimers(store.getState().toggleFeature("aiChat", true));
     expect(useMiniAppStore.getState().confirmModal).toBeNull();
     expect(store.getState().chatDetail?.title).toBe("x");
 
@@ -627,24 +672,25 @@ describe("页面 store", () => {
     expect(store.getState().loadingWindowJoined).toBeTrue();
     store.getState().setBatchKickHours(Number.NaN);
     expect(store.getState().batchKickHours).toBe(MINI_APP_BATCH_KICK_MIN_HOURS);
-    route("GET /api/chats/-100", (): Response =>
+    route("GET /api/chats/detail", (): Response =>
       json({ detail: { chatId: -100, title: "x", joinedCountsByHour: Array.from({ length: MINI_APP_BATCH_KICK_MAX_HOURS }, (_: unknown, i: number): number => i + 10), batchKickRunning: false, lastBatchKickCompletion: null } }));
     store.getState().setBatchKickHours(6);
     expect(store.getState().batchKickHours).toBe(6);
     expect(store.getState().loadingWindowJoined).toBeTrue();
-    await Bun.sleep(MINI_APP_BATCH_KICK_WINDOW_DEBOUNCE_MS + 60);
+    await flushFakeTimersUntil((): boolean => !store.getState().loadingWindowJoined, MINI_APP_BATCH_KICK_WINDOW_DEBOUNCE_MS);
     expect(store.getState().loadingWindowJoined).toBeFalse();
     expect(store.getState().chatDetail?.joinedCountsByHour[5]).toBe(15);
 
-    const detailCallsBeforeCancel: number = fetchCalls.filter((call: string): boolean => call === "GET /api/chats/-100").length;
+    const detailCallsBeforeCancel: number = fetchCalls.filter((call: string): boolean => call === "GET /api/chats/detail?chatId=-100").length;
     store.getState().setBatchKickHours(12);
     expect(store.getState().batchKickHours).toBe(12);
     expect(store.getState().loadingWindowJoined).toBeTrue();
     store.getState().cancelPendingRefresh();
-    await Bun.sleep(MINI_APP_BATCH_KICK_WINDOW_DEBOUNCE_MS + 60);
-    expect(fetchCalls.filter((call: string): boolean => call === "GET /api/chats/-100").length).toBe(detailCallsBeforeCancel);
+    jest.advanceTimersByTime(MINI_APP_BATCH_KICK_WINDOW_DEBOUNCE_MS + 60);
+    await drainImmediate();
+    expect(fetchCalls.filter((call: string): boolean => call === "GET /api/chats/detail?chatId=-100").length).toBe(detailCallsBeforeCancel);
     store.getState().setBatchKickHours(6);
-    await Bun.sleep(MINI_APP_BATCH_KICK_WINDOW_DEBOUNCE_MS + 60);
+    await flushFakeTimersUntil((): boolean => !store.getState().loadingWindowJoined, MINI_APP_BATCH_KICK_WINDOW_DEBOUNCE_MS);
 
     const declinedKick: Promise<void> = store.getState().runBatchKick();
     expect(useMiniAppStore.getState().confirmModal?.message).toBe(zh.chats.confirmBatchKick(6));
@@ -652,11 +698,11 @@ describe("页面 store", () => {
     await declinedKick;
     expect(fetchCalls.some((call: string): boolean => call.includes("/batch-kick"))).toBeFalse();
 
-    route("POST /api/chats/-100/batch-kick", (): Response =>
+    route("POST /api/chats/batch-kick", (): Response =>
       json({ ok: true, outcome: "accepted", hours: 6, recordCount: 5, message: "BATCH_KICK_ACCEPTED", detail: { chatId: -100, title: "x", joinedCountsByHour: Array.from({ length: MINI_APP_BATCH_KICK_MAX_HOURS }, (): number => 5), batchKickRunning: true, lastBatchKickCompletion: null } }));
     const acceptedKick: Promise<void> = store.getState().runBatchKick();
     useMiniAppStore.getState().resolveConfirm(true);
-    await acceptedKick;
+    await resolveWithFakeTimers(acceptedKick);
     expect(store.getState().batchKickSubmitting).toBeFalse();
     expect(store.getState().chatDetail?.batchKickRunning).toBeTrue();
     expect(useMiniAppStore.getState().toastText).toBe(zh.serverNotice("BATCH_KICK_ACCEPTED", { hours: 6, recordCount: 5 }));
@@ -666,52 +712,45 @@ describe("页面 store", () => {
       hours: 6, recordCount: 5, scanned: 5, kicked: 4, absent: 1, protected: 0,
       blocked: 0, forbidden: 0, failed: 0, aborted: false, unmanaged: false, completedAt: 1_700_000_000_000,
     };
-    route("GET /api/chats/-100", (): Response =>
+    route("GET /api/chats/detail", (): Response =>
       json({ detail: { chatId: -100, title: "x", joinedCountsByHour: Array.from({ length: MINI_APP_BATCH_KICK_MAX_HOURS }, (): number => 1), batchKickRunning: false, lastBatchKickCompletion: completion } }));
-    jest.useFakeTimers();
     await store.getState().pollRunningBatchKick();
     expect(store.getState().chatDetail?.batchKickRunning).toBeFalse();
     expect(store.getState().chatDetail?.lastBatchKickCompletion).toEqual(completion);
     expect(useMiniAppStore.getState().toastText).toBe(zh.chats.batchKickCompletedSummary(completion));
     jest.advanceTimersByTime(MINI_APP_TOAST_DURATION_MS);
     expect(useMiniAppStore.getState().toastText).toBe("");
-    jest.useRealTimers();
 
-    route("POST /api/chats/-100/batch-kick", (): Response =>
+    route("POST /api/chats/batch-kick", (): Response =>
       json({ ok: true, outcome: "empty", hours: 6, recordCount: 0, message: "BATCH_KICK_EMPTY", detail: { chatId: -100, title: "x", joinedCountsByHour: Array.from({ length: MINI_APP_BATCH_KICK_MAX_HOURS }, (): number => 0), batchKickRunning: false } }));
     const emptyKick: Promise<void> = store.getState().runBatchKick();
     useMiniAppStore.getState().resolveConfirm(true);
-    await emptyKick;
+    await resolveWithFakeTimers(emptyKick);
     expect(useMiniAppStore.getState().toastTone).toBe("warning");
 
-    route("POST /api/chats/-100/batch-kick", (): Response => json({ error: "kick failed" }, 503));
+    route("POST /api/chats/batch-kick", (): Response => json({ error: "kick failed" }, 503));
     const failedKick: Promise<void> = store.getState().runBatchKick();
     useMiniAppStore.getState().resolveConfirm(true);
-    await failedKick;
+    await resolveWithFakeTimers(failedKick);
     expect(useMiniAppStore.getState().toastText).toBe("kick failed");
     expect(useMiniAppStore.getState().toastTone).toBe("warning");
 
-    route("GET /api/chats/-100", (): Response => json({ error: "detail down" }, 500));
+    route("GET /api/chats", (): Response => json({ items: [] }));
+    route("GET /api/chats/detail", (): Response => json({ error: "detail down" }, 500));
     store.getState().closeDetail();
     expect(store.getState().selectedChatId).toBeNull();
     store.getState().selectChat(-100);
-    await settleLoading();
+    await flushFakeTimersUntil((): boolean => !store.getState().loadingDetail);
     expect(useMiniAppStore.getState().toastText).toBe("detail down");
     expect(store.getState().loadingDetail).toBeFalse();
 
     const emptyTargets = {
-      chatId: -100,
-      qaItems: [],
-      qaMax: CHAT_QA_MAX_PER_CHAT,
-      qaQuestionMaxChars: CHAT_QA_QUESTION_MAX_CHARS,
-      qaAnswerMaxChars: CHAT_QA_ANSWER_MAX_CHARS,
-      deleteMessageTargets: [],
-      deleteMessageMax: DELETE_MESSAGE_CHAT_TARGET_MAX,
-      translateTargets: [],
-      translateMax: TRANSLATE_CHAT_USER_LIMIT,
-      isTranslationEnabled: true,
+      chatId: -100, qaItems: [], qaMax: CHAT_QA_MAX_PER_CHAT,
+      qaQuestionMaxChars: CHAT_QA_QUESTION_MAX_CHARS, qaAnswerMaxChars: CHAT_QA_ANSWER_MAX_CHARS,
+      deleteMessageTargets: [], deleteMessageMax: DELETE_MESSAGE_CHAT_TARGET_MAX,
+      translateTargets: [], translateMax: TRANSLATE_CHAT_USER_LIMIT, isTranslationEnabled: true,
     };
-    route("GET /api/chats/-100/targets", (): Response => json({ targets: emptyTargets }));
+    route("GET /api/chats/targets", (): Response => json({ targets: emptyTargets }));
     store.getState().toggleTargetsMenu();
     expect(store.getState().targetsMenuOpen).toBeTrue();
     store.getState().closeTargetsMenu();
@@ -719,7 +758,7 @@ describe("页面 store", () => {
     store.getState().openTargetsModal("qa");
     expect(store.getState().activeTargetsModal).toBe("qa");
     expect(store.getState().qaEditorOpen).toBeFalse();
-    await settleLoading();
+    await flushFakeTimersUntil((): boolean => !store.getState().loadingTargets && store.getState().chatTargets !== null);
     expect(store.getState().chatTargets?.qaItems).toEqual([]);
     store.getState().openQaEditor();
     expect(store.getState().qaEditorOpen).toBeTrue();
@@ -763,7 +802,7 @@ describe("页面 store", () => {
       .not.toContain(renameHint);
     store.getState().setQaQuestionInput("q1");
 
-    route("POST /api/chats/-100/targets", (_url: URL, init?: RequestInit): Response => {
+    route("POST /api/chats/targets", (_url: URL, init?: RequestInit): Response => {
       const body = JSON.parse(String(init?.body ?? "{}")) as { readonly action: string };
       return json({
         ok: true, message: body.action === "setQa" ? "QA_ADDED" : "QA_REMOVED",
@@ -771,7 +810,7 @@ describe("页面 store", () => {
         targets: { ...emptyTargets, qaItems: body.action === "setQa" ? [{ q: "q1", a: "a1" }] : [] },
       });
     });
-    await store.getState().submitQaPair();
+    await resolveWithFakeTimers(store.getState().submitQaPair());
     expect(store.getState().qaEditorOpen).toBeFalse();
     expect(store.getState().qaQuestionInput).toBe("");
     expect(store.getState().qaAnswerInput).toBe("");
@@ -785,11 +824,11 @@ describe("页面 store", () => {
 
     const acceptedQaDelete: Promise<void> = store.getState().removeQaPair("q1");
     useMiniAppStore.getState().resolveConfirm(true);
-    await acceptedQaDelete;
+    await resolveWithFakeTimers(acceptedQaDelete);
     expect(store.getState().chatTargets?.qaItems).toEqual([]);
 
     store.getState().setDeleteTargetInput("7001");
-    await store.getState().submitDeleteTarget();
+    await resolveWithFakeTimers(store.getState().submitDeleteTarget());
     expect(store.getState().deleteTargetInput).toBe("");
     const declinedDeleteTarget: Promise<void> = store.getState().removeDeleteTarget(7001);
     expect(useMiniAppStore.getState().confirmModal?.message).toBe(zh.chats.confirmRemoveDeleteTarget("ID 7001", 7001));
@@ -797,7 +836,7 @@ describe("页面 store", () => {
     await declinedDeleteTarget;
     const acceptedDeleteTarget: Promise<void> = store.getState().removeDeleteTarget(7001);
     useMiniAppStore.getState().resolveConfirm(true);
-    await acceptedDeleteTarget;
+    await resolveWithFakeTimers(acceptedDeleteTarget);
 
     store.getState().setTranslateTargetInput("7002");
     store.getState().toggleTranslateLangMenu();
@@ -807,7 +846,7 @@ describe("页面 store", () => {
     store.getState().toggleTranslateLangMenu();
     store.getState().setTranslateLanguageInput("en");
     expect(store.getState().translateLangMenuOpen).toBeFalse();
-    await store.getState().submitTranslateTarget();
+    await resolveWithFakeTimers(store.getState().submitTranslateTarget());
     expect(store.getState().translateTargetInput).toBe("");
     const declinedTranslateTarget: Promise<void> = store.getState().removeTranslateTarget(7002);
     expect(useMiniAppStore.getState().confirmModal?.message).toBe(zh.chats.confirmRemoveTranslateTarget("ID 7002", 7002));
@@ -815,7 +854,7 @@ describe("页面 store", () => {
     await declinedTranslateTarget;
     const acceptedTranslateTarget: Promise<void> = store.getState().removeTranslateTarget(7002);
     useMiniAppStore.getState().resolveConfirm(true);
-    await acceptedTranslateTarget;
+    await resolveWithFakeTimers(acceptedTranslateTarget);
 
     store.getState().closeTargetsModal();
     expect(store.getState().activeTargetsModal).toBeNull();
@@ -823,7 +862,7 @@ describe("页面 store", () => {
 
   test("热发言记录与状态看板：加载失败以 Toast 报错，情绪不可用时清空当前情绪", async () => {
     const messages = createMessagesStore();
-    route("GET /api/chats/-100/messages", (): Response => json({ error: "no init" }, 404));
+    route("GET /api/chats/messages", (): Response => json({ error: "no init" }, 404));
     await messages.getState().loadMessages(-100, 1, 10);
     expect(useMiniAppStore.getState().toastText).toBe("no init");
     expect(messages.getState().loading).toBeFalse();
@@ -843,6 +882,7 @@ describe("页面 store", () => {
   });
 
   test("名单：原生选择器回执含重复项时展示拦截横幅，取消或无重复时以 Toast 回报；黑名单移出与分页", async () => {
+    jest.useFakeTimers();
     const store = createIdentitiesStore();
     const chatCallbacks: ((accepted: boolean) => void)[] = [];
     (globalThis as { Telegram?: unknown }).Telegram = {
@@ -862,14 +902,14 @@ describe("页面 store", () => {
     });
     store.getState().toggleAddMenu();
     store.getState().selectAddMode("users");
-    await Bun.sleep(30);
+    await flushUntil((): boolean => chatCallbacks.length === 1 && !store.getState().busyAction);
     expect(store.getState().addMenuOpen).toBeFalse();
     expect(store.getState().busyAction).toBeFalse();
     chatCallbacks[0]?.(false);
     expect(useMiniAppStore.getState().toastText).toBe(zh.identities.pickerCancelledToast);
     chatCallbacks[0]?.(true);
     expect(useMiniAppStore.getState().toastText).toBe(zh.identities.pickerWaitingToast);
-    await Bun.sleep(MINI_APP_PICKER_POLL_INTERVAL_MS * 2 + MINI_APP_MIN_LOADING_MS + 200);
+    await flushFakeTimersUntil((): boolean => store.getState().duplicateAlertText !== null, MINI_APP_PICKER_POLL_INTERVAL_MS);
     expect(store.getState().duplicateAlertText).toBe(zh.identities.duplicateToast("ID 5, ID 6", "whitelist"));
     store.getState().dismissDuplicateAlert();
     expect(store.getState().duplicateAlertText).toBeNull();
@@ -880,10 +920,11 @@ describe("页面 store", () => {
     route("GET /api/picker/result", (): Response =>
       json({ result: { requestId: 11, targetList: "blocklist", addedIds: [], skippedIds: [77001], duplicateIds: [], summary: "IDENTITY_IN_WHITELIST" } }));
     store.getState().selectAddMode("users");
-    await Bun.sleep(30);
+    await flushUntil((): boolean => chatCallbacks.length === 2 && !store.getState().busyAction);
     chatCallbacks[1]?.(true);
-    await Bun.sleep(MINI_APP_PICKER_POLL_INTERVAL_MS + MINI_APP_MIN_LOADING_MS + 200);
-    expect(useMiniAppStore.getState().toastText).toBe(zh.serverNotice("IDENTITY_IN_WHITELIST", { id: 77001 }));
+    const expectedConflictToast: string = zh.serverNotice("IDENTITY_IN_WHITELIST", { id: 77001 });
+    await flushFakeTimersUntil((): boolean => useMiniAppStore.getState().toastText === expectedConflictToast, MINI_APP_PICKER_POLL_INTERVAL_MS);
+    expect(useMiniAppStore.getState().toastText).toBe(expectedConflictToast);
     expect(useMiniAppStore.getState().toastTone).toBe("warning");
 
     store.getState().selectAddMode("id");
@@ -905,7 +946,7 @@ describe("页面 store", () => {
     const removal: Promise<void> = store.getState().removeBlocklist({ id: 4, displayName: "Spam" } as never);
     expect(useMiniAppStore.getState().confirmModal?.message).toBe(zh.identities.confirmRemoveBlocklist("Spam", 4));
     useMiniAppStore.getState().resolveConfirm(true);
-    await removal;
+    await resolveWithFakeTimers(removal);
     expect(useMiniAppStore.getState().toastText).toBe("unblocked");
     expect(store.getState().blocklistTotal).toBe(3);
     expect(store.getState().blocklistPageNumber).toBe(2);
@@ -914,40 +955,40 @@ describe("页面 store", () => {
   });
 
   test("图库：预览周期内只采纳当前预览的加载回调，下载成功回报文件名，删除失败回报服务端说明", async () => {
+    jest.useFakeTimers();
     const store = createGalleryStore();
     store.getState().setPreviewItem({ fileName: "a.png", sizeBytes: 100, updatedAt: "2026-04-12 00:00:00", mimeType: "image/png" });
     expect(store.getState().previewLoaded).toBeFalse();
     store.getState().markPreviewLoaded();
     store.getState().markPreviewLoaded();
-    await settleLoading();
-    expect(store.getState().previewLoaded).toBeTrue();
+    await flushFakeTimersUntil((): boolean => store.getState().previewLoaded);
     store.getState().setPreviewItem({ fileName: "b.png", sizeBytes: 200, updatedAt: "2026-04-12 00:00:01", mimeType: "image/png" });
     expect(store.getState().previewLoaded).toBeFalse();
     store.getState().markPreviewLoaded();
-    await settleLoading();
-    expect(store.getState().previewLoaded).toBeTrue();
+    await flushFakeTimersUntil((): boolean => store.getState().previewLoaded);
     store.getState().setPreviewItem(null);
     expect(store.getState().previewItem).toBeNull();
     expect(store.getState().previewLoaded).toBeTrue();
 
     (globalThis as { Telegram?: unknown }).Telegram = {
-      WebApp: { downloadFile: (_params: unknown, callback: (accepted: boolean) => void): void => callback(true) },
+      WebApp: { isVersionAtLeast: (): boolean => true, downloadFile: (_p: unknown, cb: (ok: boolean) => void): void => cb(true) },
     };
-    route("HEAD /api/gallery/download/a.png", (): Response => new Response(null, { status: 200 }));
+    route("POST /api/gallery/download-ticket", (): Response =>
+      json({ ok: true, ticket: "t".repeat(64), expiresAt: Date.now() + 60_000, downloadFileName: "copy-ninja-a.png" }));
     await store.getState().downloadImage("a.png");
     expect(store.getState().downloadingFileName).toBeNull();
     expect(useMiniAppStore.getState().toastText.length).toBeGreaterThan(0);
 
-    route("DELETE /api/gallery/file/b.png", (): Response => json({ ok: false, outcome: "notFound", message: "gone already" }, 200));
+    route("POST /api/gallery/delete", (): Response => json({ ok: false, outcome: "notFound", message: "gone already" }, 200));
     const deletion: Promise<void> = store.getState().deleteImage("b.png");
     useMiniAppStore.getState().resolveConfirm(true);
-    await deletion;
+    await resolveWithFakeTimers(deletion);
     expect(useMiniAppStore.getState().toastText).toBe("gone already");
 
     route("GET /api/gallery", (): Response => json({ error: "dir error" }, 500));
     store.getState().changePageSize(20);
     expect(store.getState().pageSize).toBe(20);
-    await store.getState().loadGallery();
+    await resolveWithFakeTimers(store.getState().loadGallery());
     expect(useMiniAppStore.getState().toastText).toBe("dir error");
     expect(store.getState().loading).toBeFalse();
   });

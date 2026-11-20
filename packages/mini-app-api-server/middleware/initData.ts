@@ -2,24 +2,17 @@ import { BOT_TOKEN, SUPER_ADMIN_USER_ID } from "../../config/bot";
 import {
   MINI_APP_AUTH_MAX_AGE_SECONDS,
   MINI_APP_INIT_DATA_HEADER,
+  MINI_APP_SESSION_MAX_LIFETIME_MS,
+  MINI_APP_SESSION_TTL_MS,
 } from "../../consts/miniApp";
 import {
-  deriveMiniAppAssetTokenDigest,
   deriveMiniAppInitDataSecretKey,
-  verifyMiniAppAssetToken,
   verifyMiniAppInitData,
 } from "../../libs/miniAppAuth";
 import type { MiniAppAuthResult } from "../../types/miniApp/auth";
-import type { MiniAppRouteContext } from "../../types/miniApp/server";
-import {
-  checkSuperAdminPasswordLockout,
-  getSuperAdminPasswordLockoutRemainingMinutes,
-  hasActiveMiniAppAuthSession,
-} from "../auth/session";
-import {
-  extractAssetTokenFromQuery,
-  extractSessionToken,
-} from "../libs/request";
+import { hasActiveMiniAppAuthSession } from "../auth/session";
+import { getSuperAdminPasswordLockoutRemainingMinutes } from "../auth/lockout";
+import { extractSessionToken } from "../libs/request";
 import { accessErrorResponse } from "../libs/response";
 import type { AccessErrorResponseParams } from "../libs/response";
 import { extractVerifiedMiniAppHeaderInitData } from "./headerGuard";
@@ -28,10 +21,9 @@ import { extractVerifiedMiniAppHeaderInitData } from "./headerGuard";
 const MINI_APP_INIT_DATA_SECRET_KEY: Uint8Array =
   deriveMiniAppInitDataSecretKey(BOT_TOKEN);
 
-/** 模块加载时由 `BOT_TOKEN` 与 `SUPER_ADMIN_USER_ID` 派生一次的受保护资源令牌 32 字节摘要（进程生命周期内恒定）。 */
-const MINI_APP_ASSET_TOKEN_DIGEST: Uint8Array = deriveMiniAppAssetTokenDigest(
-  BOT_TOKEN,
-  SUPER_ADMIN_USER_ID
+/** 持有活跃二次认证会话时允许 `initData` `auth_date` 延续的最大秒数（2 小时绝对寿命 + 45 分钟窗口 = 2 小时 45 分钟）。 */
+const MINI_APP_ACTIVE_SESSION_INIT_DATA_MAX_AGE_SECONDS: number = Math.floor(
+  (MINI_APP_SESSION_MAX_LIFETIME_MS + MINI_APP_SESSION_TTL_MS) / 1_000
 );
 
 /** 内部统一校验 `initData` 签名、超管身份与密码锁定状态的入参。 */
@@ -46,23 +38,19 @@ interface VerifyInitDataSignatureAndLockoutOptions {
 
 /** `verifyMiniAppInitDataAccess` 第一层网关凭据校验的入参。 */
 export interface VerifyMiniAppInitDataAccessOptions {
-  /** 路由请求上下文。 */
-  readonly ctx: Readonly<MiniAppRouteContext>;
-  /** 是否允许在 `GET`/`HEAD` 请求中从 `token` 或 `initData` 查询参数提取凭据。 */
-  readonly allowQueryAuth: boolean;
-  /** 请求头快路径校验已提取的 `initData`（缺省时为 `null`）。 */
-  readonly headerInitData: string | null;
-  /** 请求头快路径已提取的查询参数 `initData`（不允许查询鉴权或未携带时为空字符串）。 */
-  readonly queryInitData: string;
+  /** HTTP 请求对象。 */
+  readonly request: Request;
+  /** 请求头快路径校验已提取的 `initData`。 */
+  readonly headerInitData: string;
   /** 已提取的 64 位十六进制会话令牌或空字符串。 */
   readonly sessionToken: string;
   /** 当前毫秒时间戳。 */
   readonly nowMs: number;
 }
 
-/** 第一层 `initData` / 受保护资源令牌同步校验结果。 */
+/** 第一层 `initData` 同步校验结果。 */
 export type MiniAppInitDataAccessResult =
-  | { readonly ok: true; readonly hasVerifiedAssetToken: boolean }
+  | { readonly ok: true }
   | { readonly ok: false; readonly response: Response };
 
 /**
@@ -78,7 +66,7 @@ export function hasMiniAppInitDataHeader(headers: Headers): boolean {
 }
 
 /**
- * 对 `initData` 签名、`auth_date` 时效（有效会话免过期）、超管身份与 30 分钟密码锁定执行统一校验。
+ * 对 `initData` 签名、`auth_date` 时效（有效会话放宽至 2 小时 45 分钟上限）、超管身份与 30 分钟密码锁定执行统一校验。
  * @param options 待校验的 `initData`、会话令牌与当前时间戳。
  * @returns 校验通过且未锁定时返回 `null`；否则返回结构化拒绝参数。
  */
@@ -103,7 +91,7 @@ function verifyInitDataSignatureAndLockout({
       initData,
       secretKey: MINI_APP_INIT_DATA_SECRET_KEY,
       superAdminUserId: SUPER_ADMIN_USER_ID,
-      maxAgeSeconds: Number.POSITIVE_INFINITY,
+      maxAgeSeconds: MINI_APP_ACTIVE_SESSION_INIT_DATA_MAX_AGE_SECONDS,
       nowMs,
     });
   }
@@ -132,7 +120,7 @@ function verifyInitDataSignatureAndLockout({
 }
 
 /**
- * 校验请求头中显式携带的 `X-Telegram-Init-Data` / `Authorization`：依次核验基础形态、HMAC-SHA256 签名、`auth_date` 时效（持有有效会话时免检时效）、超级管理员 ID 与 30 分钟锁定期。
+ * 校验请求头中显式携带的 `X-Telegram-Init-Data` / `Authorization`：依次核验基础形态、HMAC-SHA256 签名、`auth_date` 时效（持有有效会话放宽至 2 小时 45 分钟）、超级管理员 ID 与 30 分钟锁定期。
  * @param request HTTP 请求对象。
  * @param nowMs 当前毫秒时间戳。
  * @returns 校验通过且未锁定时返回 `null`；否则返回结构化拒绝参数。
@@ -162,65 +150,19 @@ export function verifyMiniAppHeaderInitDataError(
 }
 
 /**
- * 同步执行第一层网关身份校验：基于前置步骤已提取的请求头/查询串 `initData` 与会话令牌，核验 Telegram WebApp 签名（或受保护资源令牌 `?token=`）、时效、超级管理员身份及 30 分钟锁定期。
- * 当请求同时携带 `?token=` 与显式 `initData` 请求头时，两者必须同时通过校验，任一无效均拒绝。
+ * 同步执行第一层网关身份校验：基于请求头快路径提取的 `initData` 与会话令牌，核验 Telegram WebApp 签名、时效、超级管理员身份及 30 分钟锁定期。
  * @param options 网关第一层同步校验入参。
- * @returns 校验通过时标记是否已验明受保护资源令牌；失败时返回带请求诊断的 `401` 或 `403` `Response`。
+ * @returns 校验通过返回 `{ ok: true }`；失败时返回带请求诊断的 `401` 或 `403` `Response`。
  */
 export function verifyMiniAppInitDataAccess({
-  ctx,
-  allowQueryAuth,
+  request,
   headerInitData,
-  queryInitData,
   sessionToken,
   nowMs,
 }: Readonly<VerifyMiniAppInitDataAccessOptions>): MiniAppInitDataAccessResult {
-  const request: Request = ctx.request;
-  if (allowQueryAuth) {
-    const assetToken: string = extractAssetTokenFromQuery(request, ctx.url);
-    if (assetToken.length > 0) {
-      if (!verifyMiniAppAssetToken(assetToken, MINI_APP_ASSET_TOKEN_DIGEST)) {
-        return {
-          ok: false,
-          response: accessErrorResponse(request, {
-            status: 401,
-            code: "INVALID_SIGNATURE",
-            reason: "invalid_signature",
-            error: "INVALID_SIGNATURE",
-          }),
-        };
-      }
-      if (headerInitData !== null) {
-        const headerErrorParams: Readonly<AccessErrorResponseParams> | null =
-          verifyInitDataSignatureAndLockout({
-            initData: headerInitData,
-            sessionToken,
-            nowMs,
-          });
-        if (headerErrorParams !== null) {
-          return {
-            ok: false,
-            response: accessErrorResponse(request, headerErrorParams),
-          };
-        }
-        return { ok: true, hasVerifiedAssetToken: true };
-      }
-      const lockoutResponse: Response | null = checkSuperAdminPasswordLockout(
-        request,
-        nowMs
-      );
-      if (lockoutResponse !== null) {
-        return { ok: false, response: lockoutResponse };
-      }
-      return { ok: true, hasVerifiedAssetToken: true };
-    }
-  }
-
-  const initData: string =
-    headerInitData ?? (allowQueryAuth ? queryInitData : "");
   const errorParams: Readonly<AccessErrorResponseParams> | null =
     verifyInitDataSignatureAndLockout({
-      initData,
+      initData: headerInitData,
       sessionToken,
       nowMs,
     });
@@ -230,5 +172,5 @@ export function verifyMiniAppInitDataAccess({
       response: accessErrorResponse(request, errorParams),
     };
   }
-  return { ok: true, hasVerifiedAssetToken: false };
+  return { ok: true };
 }

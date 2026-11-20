@@ -5,7 +5,7 @@ import {
   MINI_APP_CHAT_TARGET_KINDS,
   MINI_APP_TAB_HEIGHT_CLEANUP_MS,
 } from "../../consts/miniApp";
-import type { MiniAppChatTargetKind } from "../../types/miniApp";
+import type { MiniAppChatTargetKind } from "../../types/miniApp/chats";
 
 /** 支持读取像素高度并写入行内高度过渡样式的折叠面板或弹窗内容容器最小 DOM 接口。 */
 export interface MeasurableBodyElement {
@@ -17,6 +17,8 @@ export interface MeasurableBodyElement {
   readonly offsetHeight?: number;
   /** 元素内容总像素高度（不受外层 `height: 0` 裁切影响）。 */
   readonly scrollHeight?: number;
+  /** 写入元素属性（用于在切入动画结束后移除滑动方向类名）。 */
+  readonly setAttribute?: (qualifiedName: string, value: string) => void;
   /** 行内样式对象。 */
   readonly style?: {
     height: string;
@@ -158,15 +160,6 @@ export interface TabHeightSizerProps {
 }
 
 /**
- * 返回弹窗标签页外层容器 `height` 过渡的 CSS `transition` 声明（对应 `MINI_APP_TAB_HEIGHT_TRANSITION`，与 `frameMotion` 共用同一三次贝塞尔缓动控制点）。
- *
- * @returns CSS `height` 过渡声明字符串
- */
-export function formatTabHeightTransition(): string {
-  return MINI_APP_TAB_HEIGHT_TRANSITION;
-}
-
-/**
  * 根据前后激活的目标管理标签类别计算面板切换滑动方向类名（向右切入或向左切入）。
  *
  * @param prevTab 上一次激活的标签类别
@@ -204,11 +197,13 @@ export interface SyncTabHeightTransitionEffectOptions {
   readonly prevTabRef: React.RefObject<MiniAppChatTargetKind | null>;
   /** 上一次是否已加载目标数据的标记引用。 */
   readonly prevHadTargetsRef: React.RefObject<boolean>;
+  /** 当前切入方向类名引用（过渡到期清理时同步清空并从内层面板移除方向类）。 */
+  readonly lastDirectionRef?: { current: string };
 }
 
 /**
- * 同步弹窗标签页切换或首次注水完成时的前后像素高度，写入基于 `formatTabHeightTransition()` 的行内 `height` 过渡，
- * 并在 `MINI_APP_TAB_HEIGHT_CLEANUP_MS` 后清除行内 `height` / `overflow` / `transition` 恢复自适应高度。
+ * 同步弹窗标签页切换或首次注水完成时的前后像素高度，写入基于 `MINI_APP_TAB_HEIGHT_TRANSITION` 的行内 `height` 过渡，
+ * 并在 `MINI_APP_TAB_HEIGHT_CLEANUP_MS` 后清除行内 `height` / `overflow` / `transition` 与切入方向类名，恢复自适应高度及主绘制层驻留。
  *
  * @param options 标签页状态与容器节点引用
  * @returns 清理函数或 `undefined`
@@ -221,11 +216,19 @@ export function syncTabHeightTransitionEffect({
   lastHeightRef,
   prevTabRef,
   prevHadTargetsRef,
+  lastDirectionRef,
 }: SyncTabHeightTransitionEffectOptions): (() => void) | undefined {
+  const clearSlideDirection = (): void => {
+    if (lastDirectionRef !== undefined && lastDirectionRef.current !== "") {
+      lastDirectionRef.current = "";
+    }
+    paneRef.current?.setAttribute?.("class", "chat-targets-tab-pane");
+  };
   if (activeTab === null) {
     prevTabRef.current = null;
     prevHadTargetsRef.current = false;
     lastHeightRef.current = 0;
+    clearSlideDirection();
     return undefined;
   }
   const prevTab: MiniAppChatTargetKind | null = prevTabRef.current;
@@ -252,7 +255,7 @@ export function syncTabHeightTransitionEffect({
     sizerEl.style.transition = "none";
     sizerEl.style.height = `${prevHeight}px`;
     void sizerEl.offsetHeight;
-    sizerEl.style.transition = formatTabHeightTransition();
+    sizerEl.style.transition = MINI_APP_TAB_HEIGHT_TRANSITION;
     sizerEl.style.height = `${nextHeight}px`;
     const timer: ReturnType<typeof setTimeout> = setTimeout((): void => {
       if (sizerEl.style !== undefined) {
@@ -260,6 +263,7 @@ export function syncTabHeightTransitionEffect({
         sizerEl.style.overflow = "";
         sizerEl.style.transition = "";
       }
+      clearSlideDirection();
     }, MINI_APP_TAB_HEIGHT_CLEANUP_MS);
     return (): void => {
       clearTimeout(timer);
@@ -275,12 +279,20 @@ export function syncTabHeightTransitionEffect({
     sizerEl.style.overflow = "";
     sizerEl.style.transition = "";
   }
+  if (tabChanged && (lastDirectionRef?.current ?? "") !== "") {
+    const timer: ReturnType<typeof setTimeout> = setTimeout((): void => {
+      clearSlideDirection();
+    }, MINI_APP_TAB_HEIGHT_CLEANUP_MS);
+    return (): void => {
+      clearTimeout(timer);
+    };
+  }
   return undefined;
 }
 
 /**
  * 弹窗子页签高度过渡容器：切换标签页或首次注水完成时测量前后像素高度，写入基于 `MINI_APP_TAB_HEIGHT_TRANSITION` 的行内 `height` 过渡与方向切入类名，
- * 并在 `MINI_APP_TAB_HEIGHT_CLEANUP_MS` 到期后清除行内样式恢复自适应高度。
+ * 并在 `MINI_APP_TAB_HEIGHT_CLEANUP_MS` 到期后清除行内样式与方向类名，恢复自适应高度和主绘制层驻留。
  *
  * @param props 高度过渡容器属性
  * @returns React 节点
@@ -359,6 +371,7 @@ export function TabHeightSizer({
         lastHeightRef,
         prevTabRef,
         prevHadTargetsRef,
+        lastDirectionRef,
       }),
     [
       activeTab,

@@ -5,7 +5,6 @@ import type {
   MessageEntity,
 } from "grammy/types";
 import { InlineQueryResultBuilder } from "grammy";
-import { telegramSignal } from "../../libs/telegramSignal";
 import type { Context } from "grammy";
 import { gagSessionsByChat } from "../../cache/main/gag";
 import {
@@ -14,15 +13,7 @@ import {
 } from "../../consts/gag";
 import { recordInlineResultSources } from "../../infra/inlineResultSources";
 import { getAssetConfig } from "../../config/assets";
-import {
-  deleteMessageWithOutcome,
-  logApiError,
-} from "../../infra/telegram";
-import { isTelegramRequestRejected } from "../../infra/telegram/errors";
-import {
-  currentUpdateAbortSignal,
-  throwIfUpdateAborted,
-} from "../../infra/updateContext";
+import { deleteMessageWithOutcome } from "../../infra/telegram";
 import { forumTopicThreadId } from "../../libs/forumTopic";
 import { sanitizeInline, truncateInline } from "../../libs/text";
 import { chatAtmosphere } from "../../infra/atmosphere";
@@ -31,6 +22,8 @@ import type {
   GagSession,
   ParsedGagInlineQuery,
 } from "../../types/gag";
+import { visibleSenderId } from "../../users/visibleSender";
+import { answerInlineQuery } from "../inlineAnswer";
 import {
   gagSpeechPrefix,
   parseGagInlineQuery,
@@ -195,8 +188,7 @@ function claimGagMessage(
   botId: number,
   sessions: GagSession[]
 ): boolean | Promise<boolean> {
-  const senderId: number | undefined =
-    message.sender_chat?.id ?? message.from?.id;
+  const senderId: number | undefined = visibleSenderId(message);
   const session: GagSession | undefined = findActiveGagSenderSession(
     sessions,
     senderId
@@ -336,20 +328,12 @@ export async function handleGagInlineQuery(ctx: Context): Promise<boolean> {
       }
     }
   }
-  try {
-    await ctx.answerInlineQuery(
-      results,
-      {
-        cache_time: 0,
-        is_personal: true,
-      },
-      telegramSignal(currentUpdateAbortSignal())
-    );
-  } catch (error: unknown) {
-    throwIfUpdateAborted();
-    logApiError("answer gag inline query", error);
-    if (isTelegramRequestRejected(error)) return true;
-  }
+  if (await answerInlineQuery({
+    ctx,
+    results,
+    cacheTime: 0,
+    action: "answer gag inline query",
+  })) return true;
   // 登记结果正文对应的源文本（见 infra/inlineResultSources.ts），广告检测按结果
   // 正文取回。归一方式与 renderGagSpeech 内部一致（sanitizeInline）。登记在会话
   // 目标 id 名下，落群后的发送者（本人 from.id 或频道 sender_chat.id）即该 id。

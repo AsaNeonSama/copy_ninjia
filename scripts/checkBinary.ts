@@ -183,10 +183,20 @@ async function runBinaryCheck(
       stdout: "pipe", stderr: "pipe", timeout: 30_000, killSignal: "SIGKILL",
     });
     const migratedOutput: string = UTF8_DECODER.decode(started.stdout) + UTF8_DECODER.decode(started.stderr);
-    for (const marker of ["diskIOWorker.ts", "aiChatWorker.ts", "antiRaidWorker.ts", "Received SIGTERM; beginning graceful shutdown."]) {
+    for (const marker of [
+      "diskIOWorker.ts",
+      "aiChatWorker.ts",
+      "antiRaidWorker.ts",
+      "[INFO] Bot started.",
+      'username: "@binary_test_bot"',
+      "restoredChats: 1",
+      "copiedUserId: 42",
+      "[INFO] Beginning graceful shutdown.",
+      'signal: "SIGTERM"',
+    ]) {
       if (!migratedOutput.includes(marker)) throw new Error(`Migrated binary startup missing ${marker}:\n${migratedOutput}`);
     }
-    if (started.exitCode !== 0 || !migratedOutput.includes("Restored state for 1 chat(s), currently copying 42.") ||
+    if (started.exitCode !== 0 ||
     !migratedOutput.includes("BINARY_API getUpdates") || migratedOutput.includes("BINARY_NETWORK_BLOCKED") ||
     migratedOutput.includes("Shutdown drain/flush results:") || await Bun.file(join(fixture.runtimeRoot, "bot.lock")).exists()) {
       throw new Error(`Migrated binary startup failed:\n${migratedOutput}`);

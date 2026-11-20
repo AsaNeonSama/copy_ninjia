@@ -22,12 +22,12 @@ const requestAnthropicMessage = mock(async (...args: unknown[]): Promise<Anthrop
 });
 /** 会话创建时固定的客户端替身；请求经被替换的 requestAnthropicMessage 发出，不触达它。 */
 const PINNED_CLIENT: object = { label: "pinned anthropic client" };
-mock.module("../../../packages/aiChat/anthropic/client", () => ({
+mock.module("../../../packages/workers/aiChat/anthropic/client", () => ({
   getAnthropicClient: (): object => PINNED_CLIENT,
   requestAnthropicMessage,
 }));
 
-const { createAnthropicReplySession } = await import("../../../packages/aiChat/anthropic/replySession");
+const { createAnthropicReplySession } = await import("../../../packages/workers/aiChat/anthropic/replySession");
 const {
   ANTHROPIC_PAUSE_TURN_MAX_CONTINUATIONS,
   ANTHROPIC_REPLY_MAX_TOKENS,
@@ -60,7 +60,7 @@ describe("Anthropic 回复会话的热重载边界", () => {
   test("会话创建时固定模型与客户端：工具往返之间热重载 text 配置，后续请求仍用旧模型与旧客户端", async () => {
     const original = agentDeploymentConfigCache.current!;
     results.push({ ok: true, message: message([{ type: "tool_use", id: "tu-1", name: SEND.name, input: { text: "嗨" } }], "tool_use") });
-    const session: AiReplySession = createAnthropicReplySession({ chatId: -1001, stableBlocks: ["记忆"], volatileBlocks: ["转录"] });
+    const session: AiReplySession = createAnthropicReplySession({ stableBlocks: ["记忆"], volatileBlocks: ["转录"] });
     const first: AiReplyTurn = await session.request(REQUEST);
     expect(session.appendToolOutputs([{ call: first.functionCalls[0]!, responseJson: "{}" }])).toBeTrue();
     try {
@@ -84,11 +84,11 @@ describe("Anthropic 回复会话的热重载边界", () => {
       { ok: true, message: message([{ type: "text", text: "好" }]) },
       { ok: true, message: message([{ type: "text", text: "好" }]) }
     );
-    const session: AiReplySession = createAnthropicReplySession({ chatId: -1001, stableBlocks: ["记忆"], volatileBlocks: ["转录"] });
+    const session: AiReplySession = createAnthropicReplySession({ stableBlocks: ["记忆"], volatileBlocks: ["转录"] });
     const first: AiReplyTurn = await session.request(REQUEST);
     expect(session.appendToolOutputs([{ call: first.functionCalls[0]!, responseJson: "{}" }])).toBeTrue();
     await session.request(REQUEST);
-    await createAnthropicReplySession({ chatId: -1001, stableBlocks: ["记忆"], volatileBlocks: ["转录"] }).request(REQUEST);
+    await createAnthropicReplySession({ stableBlocks: ["记忆"], volatileBlocks: ["转录"] }).request(REQUEST);
 
     expect(stateOf(0)).toBeInstanceOf(BetaFallbackState);
     expect(stateOf(1)).toBe(stateOf(0));
@@ -100,7 +100,7 @@ describe("Anthropic 回复会话的热重载边界", () => {
 describe("Anthropic 回复会话", () => {
   test("请求体：内建检索在前且只许直接调用，自定义工具透传 Schema；系统提示词、最后一个稳定区块与请求顶层带缓存断点，不带温度", async () => {
     results.push({ ok: true, message: message([{ type: "text", text: "好" }]) });
-    const session: AiReplySession = createAnthropicReplySession({ chatId: -1001, stableBlocks: ["记忆一", "记忆二"], volatileBlocks: ["转录"] });
+    const session: AiReplySession = createAnthropicReplySession({ stableBlocks: ["记忆一", "记忆二"], volatileBlocks: ["转录"] });
     const turn: AiReplyTurn = await session.request(REQUEST);
 
     expect(turn).toMatchObject({ ok: true, text: "好", functionCalls: [], webSearchCalls: 0 });
@@ -129,7 +129,6 @@ describe("Anthropic 回复会话", () => {
     const conversation: string = "第一格\n第二格\n未定的最新格";
     const offsets: readonly number[] = [conversation.indexOf("\n第二格"), conversation.indexOf("\n未定")];
     const session: AiReplySession = createAnthropicReplySession({
-      chatId: -1001,
       stableBlocks: ["记忆"],
       volatileBlocks: [conversation, "运行时状态"],
       conversationSettledOffsets: offsets,
@@ -157,7 +156,7 @@ describe("Anthropic 回复会话", () => {
       { type: "tool_use", id: "call-1", name: "send_message", input: { text: "你好" } },
     ];
     results.push({ ok: true, message: message(assistant, "tool_use", 1) }, { ok: true, message: message([{ type: "text", text: "完" }]) });
-    const session: AiReplySession = createAnthropicReplySession({ chatId: -1001, stableBlocks: [], volatileBlocks: ["转录"] });
+    const session: AiReplySession = createAnthropicReplySession({ stableBlocks: [], volatileBlocks: ["转录"] });
     const first: AiReplyTurn = await session.request(REQUEST);
     expect(first.functionCalls).toEqual([{ id: "call-1", name: "send_message", argumentsJson: "{\"text\":\"你好\"}" }]);
     expect(first.webSearchCalls).toBe(1);
@@ -184,7 +183,7 @@ describe("Anthropic 回复会话", () => {
       { type: "tool_use", id: "call-1", name: "send_message", input: {} },
     ];
     results.push({ ok: true, message: message(paused, "pause_turn", 1) }, { ok: true, message: message(rest, "tool_use", 1) });
-    const session: AiReplySession = createAnthropicReplySession({ chatId: -1001, stableBlocks: [], volatileBlocks: ["转录"] });
+    const session: AiReplySession = createAnthropicReplySession({ stableBlocks: [], volatileBlocks: ["转录"] });
     const turn: AiReplyTurn = await session.request(REQUEST);
 
     expect(turn.webSearchCalls).toBe(2);
@@ -209,7 +208,7 @@ describe("Anthropic 回复会话", () => {
     for (let index: number = 0; index <= ANTHROPIC_PAUSE_TURN_MAX_CONTINUATIONS; index++) {
       results.push({ ok: true, message: message([], "pause_turn", 1) });
     }
-    const session: AiReplySession = createAnthropicReplySession({ chatId: -1001, stableBlocks: [], volatileBlocks: ["转录"] });
+    const session: AiReplySession = createAnthropicReplySession({ stableBlocks: [], volatileBlocks: ["转录"] });
     expect(await session.request(REQUEST)).toMatchObject({ ok: false, finishReason: "pause_turn", webSearchCalls: ANTHROPIC_PAUSE_TURN_MAX_CONTINUATIONS + 1 });
 
     results.push({ ok: false, failureKind: "response", stopReason: "refusal", stopDetails: "{\"type\":\"refusal\"}", message: message([], "refusal", 2) });

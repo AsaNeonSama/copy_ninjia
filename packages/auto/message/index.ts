@@ -23,6 +23,7 @@ import { cacheSender } from "../../users/senderIdentity";
 import { handleAnimationMessage } from "./animation";
 import { observeGroupMessageForAiReply } from "./aiReplyActivity";
 import { echoMessage } from "./echo";
+import { isCopyableTargetMessage } from "./facts";
 import {
   isBotOwnMessage,
   needsBotOwnMessageWait,
@@ -101,6 +102,7 @@ function handleAcceptedIncomingMessage(
     return undefined;
   }
   if (copyTargetId !== undefined && senderId === copyTargetId) {
+    if (!isCopyableTargetMessage(message)) return undefined;
     return echoMessage({
       chatId,
       message,

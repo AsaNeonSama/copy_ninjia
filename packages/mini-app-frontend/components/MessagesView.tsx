@@ -19,10 +19,8 @@ import { useMiniAppStore } from "../store/app";
 import type { MiniAppUiStoreState } from "../store/app";
 import { createMessagesStore } from "../store/messages";
 import type { MiniAppMessagesStoreState } from "../store/messages";
-import type {
-  MiniAppLanguage,
-  MiniAppMessageItem,
-} from "../types/miniApp";
+import type { MiniAppMessageItem } from "../types/miniApp/chats";
+import type { MiniAppLanguage } from "../types/miniApp/ui";
 import { PaginationBar } from "./PaginationBar";
 import { LoadingBox } from "./skeletons/LoadingBox";
 import { MessageSkeletonRows } from "./skeletons/MessageSkeletonRows";

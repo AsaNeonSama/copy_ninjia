@@ -228,7 +228,6 @@ function confirmThreadComment({
       dispatchVerification(message.chatId, message.userId, {
         type: "confirmedThreadComment",
         messageId: confirmation.messageId,
-        now: confirmation.observedAt,
         allowFloodTerminalExemption:
           confirmation.allowFloodTerminalExemption,
       });

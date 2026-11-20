@@ -8,12 +8,20 @@ import {
   cancelsReferencedAdWarning,
   commitReferencedAdWarning,
   referencedAdWarningWindow,
+  sendingReferencedAdWarningState,
 } from "../../packages/states/adReferenceWarning";
 import type { ReferencedAdWarningState } from "../../packages/types/states/adReferenceWarning";
 
 describe("引用类广告警告状态纯归约", () => {
+  test("sendingReferencedAdWarningState 构造指定代次的 sending 状态", () => {
+    expect(sendingReferencedAdWarningState(7)).toEqual({
+      phase: "sending",
+      generation: 7,
+    });
+  });
+
   test("commitReferencedAdWarning 仅在同代 sending 时提交为 warned，其余情形原样返回原引用", () => {
-    const sendingGen3: ReferencedAdWarningState = { phase: "sending", generation: 3 };
+    const sendingGen3: ReferencedAdWarningState = sendingReferencedAdWarningState(3);
     const committed: ReferencedAdWarningState | undefined = commitReferencedAdWarning(
       sendingGen3,
       3,

@@ -1,9 +1,6 @@
 import { create } from "zustand";
 import type { UseBoundStore, StoreApi } from "zustand";
-import { loginMiniAppWithPassword } from "../api/authLogin";
-import { logoutMiniAppSession } from "../api/authLogout";
-import { precheckMiniAppAccess } from "../api/authPrecheck";
-import { isMiniAppAuthErrorMessage } from "../api/request";
+import { classifyMiniAppAuthError } from "../api/authError";
 import {
   MINI_APP_DARK_BG_COLOR,
   MINI_APP_DARK_HEADER_COLOR,
@@ -12,32 +9,25 @@ import {
   MINI_APP_LIGHT_HEADER_COLOR,
   MINI_APP_THEME_MODES,
   MINI_APP_TOAST_DURATION_MS,
-} from "../consts/miniApp";
+} from "../consts/miniApp/ui";
 import {
   detectInitialMiniAppLanguage,
-  extractServerNoticeParams,
   getMiniAppTranslations,
 } from "../i18n";
-import type { MiniAppTranslations } from "../i18n";
 import {
-  clearMiniAppAssetToken,
   clearMiniAppSessionToken,
   readMiniAppSessionExpiresAt,
-  readMiniAppSessionToken,
 } from "../libs/credentials";
-import { buildFallbackDiagnostics } from "../libs/diagnostics";
 import { errorMessage } from "../libs/errorMessage";
-import { waitMinimumLoadingDuration } from "../libs/loading";
+import type { MiniAppAccessDiagnostics } from "../types/miniApp/auth";
+import type { TelegramWebApp, TelegramWindow } from "../types/miniApp/host";
 import type {
-  MiniAppAccessDiagnostics,
   MiniAppLanguage,
-  MiniAppPrecheckResult,
   MiniAppTabKey,
   MiniAppThemeMode,
-  TelegramWebApp,
-  TelegramWindow,
-} from "../types/miniApp";
+} from "../types/miniApp/ui";
 import type { MiniAppAuthMode } from "../types/miniAppTotp";
+import { createAppGateActions } from "./appGateActions";
 
 /** Mini App 门禁状态枚举。 */
 export type MiniAppGateState = "checking" | "denied" | "password" | "unlocked";
@@ -45,12 +35,24 @@ export type MiniAppGateState = "checking" | "denied" | "password" | "unlocked";
 /** Mini App 顶部 Toast 提示色调。 */
 export type MiniAppToastTone = "info" | "warning" | "danger";
 
+/** Mini App 确认弹窗的可选自定义按钮文案（缺省项回退至当前语言的默认确认弹窗文案）。 */
+export interface MiniAppConfirmButtonLabels {
+  /** 取消按钮文案（缺省回退至 `t.confirmDialog.cancelButton`）。 */
+  readonly cancelLabel?: string;
+  /** 确认按钮文案（缺省回退至 `t.confirmDialog.confirmButton`）。 */
+  readonly confirmLabel?: string;
+}
+
 /** Mini App 自定义确认弹窗状态。 */
 export interface MiniAppConfirmModalState {
   /** 确认提示正文。 */
   readonly message: string;
   /** 确认按钮色调（默认 `"danger"`）。 */
   readonly tone: "danger" | "primary";
+  /** 可选自定义取消按钮文案（缺省回退至 `t.confirmDialog.cancelButton`）。 */
+  readonly cancelLabel?: string;
+  /** 可选自定义确认按钮文案（缺省回退至 `t.confirmDialog.confirmButton`）。 */
+  readonly confirmLabel?: string;
   /** 递增的确认请求序号（驱动连续确认请求重新挂载节点播放进入动画）。 */
   readonly requestSeq: number;
   /** 内部 Promise 结算回调。 */
@@ -97,16 +99,22 @@ export interface MiniAppUiStoreState {
   readonly setStatusReady: (ready: boolean) => void;
   readonly showToast: (text: string, tone?: MiniAppToastTone) => void;
   readonly clearToast: () => void;
+  /**
+   * 弹出自定义确认弹窗并等待用户点击确认或取消（存在未结算的前序确认请求时先按取消结算）；
+   * 可选覆盖取消与确认按钮文案，未指定项回退至当前语言的 `t.confirmDialog` 默认按钮文案。
+   */
   readonly requestConfirm: (
     message: string,
-    tone?: "danger" | "primary"
+    tone?: "primary" | "danger",
+    labels?: Readonly<MiniAppConfirmButtonLabels>
   ) => Promise<boolean>;
   readonly resolveConfirm: (accepted: boolean) => void;
   /** 更新门禁输入框（TOTP 模式由调用方先过滤为最多 6 位数字）。 */
   readonly setPasswordInput: (value: string) => void;
   /**
    * 展示一条自动消失的 Toast（`MINI_APP_TOAST_DURATION_MS` 后清除，重复调用重新计时），服务端状态码按当前语言映射为本地化文案。
-   * 文本含 `[PASSWORD_REQUIRED]` 时改为按会话过期锁定控制台；含 `[PASSWORD_LOCKED]` 时清除本地会话并回到 `checking` 重新预检进入拦截页。
+   * 命中会话过期、凭据缺失或密钥吊销/加密载荷失效错误（含带前缀、裸状态码或 `metaSource` 中携带的错误码）时改为锁定控制台并跳转回登录门禁；
+   * 命中 `PASSWORD_LOCKED`、`EXPIRED_AUTH_DATE` 等一层门禁拒绝错误时清除本地会话并回到 `checking` 重新预检进入拦截页。
    */
   readonly notify: (
     message: string,
@@ -212,7 +220,6 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
 
       const clearActiveSessionState = (): void => {
         clearSessionTimer();
-        clearMiniAppAssetToken();
         clearMiniAppSessionToken();
         get().resolveConfirm(false);
       };
@@ -314,7 +321,8 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
 
         requestConfirm: (
           message: string,
-          tone: "danger" | "primary" = "danger"
+          tone: "primary" | "danger" = "danger",
+          labels?: Readonly<MiniAppConfirmButtonLabels>
         ): Promise<boolean> => {
           const prev: Readonly<MiniAppConfirmModalState> | null = get().confirmModal;
           if (prev !== null) {
@@ -322,11 +330,15 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
           }
           confirmRequestSeq += 1;
           const requestSeq: number = confirmRequestSeq;
+          const cancelLabel: string | undefined = labels?.cancelLabel;
+          const confirmLabel: string | undefined = labels?.confirmLabel;
           return new Promise<boolean>((resolve: (accepted: boolean) => void): void => {
             set({
               confirmModal: {
                 message,
                 tone,
+                ...(cancelLabel !== undefined ? { cancelLabel } : {}),
+                ...(confirmLabel !== undefined ? { confirmLabel } : {}),
                 requestSeq,
                 resolve,
               },
@@ -346,164 +358,15 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
           set({ passwordInput: value });
         },
 
-        notify: (
-          message: string,
-          tone: MiniAppToastTone = "info",
-          metaSource?: unknown
-        ): void => {
-          const t: Readonly<MiniAppTranslations> = getMiniAppTranslations(
-            get().language
-          );
-          const localized: string = t.serverNotice(
-            message,
-            extractServerNoticeParams(metaSource)
-          );
-          if (message.includes("[PASSWORD_LOCKED]")) {
-            clearToastTimer();
-            clearActiveSessionState();
-            set({
-              gateState: "checking",
-              langMenuOpen: false,
-              sidebarOpen: false,
-              statusReady: false,
-              sessionExpiresAt: 0,
-              confirmModal: null,
-              passwordInput: "",
-            });
-            return;
-          }
-          if (message.includes("[PASSWORD_REQUIRED]")) {
-            get().lockSession(localized);
-            return;
-          }
-          get().showToast(localized, tone);
-          if (localized.length > 0) {
-            scheduleToastDismiss();
-          } else {
-            clearToastTimer();
-          }
-        },
-
-        lockSession: (reason: string): void => {
-          clearActiveSessionState();
-          const localizedReason: string = getMiniAppTranslations(
-            get().language
-          ).serverNotice(reason);
-          set((state: MiniAppUiStoreState): Partial<MiniAppUiStoreState> => ({
-            passwordInput: "",
-            passwordError: localizedReason,
-            sessionExpiresAt: 0,
-            statusReady: false,
-            langMenuOpen: false,
-            sidebarOpen: false,
-            confirmModal: null,
-            gateState: "password",
-            toastText: localizedReason,
-            toastTone: "warning",
-            toastSeq:
-              localizedReason.length > 0 ? state.toastSeq + 1 : state.toastSeq,
-          }));
-          if (localizedReason.length > 0) {
-            scheduleToastDismiss();
-          } else {
-            clearToastTimer();
-          }
-        },
-
-        logout: (reason: string): void => {
-          const sessionToken: string = readMiniAppSessionToken();
-          if (sessionToken.length > 0) {
-            void logoutMiniAppSession(sessionToken);
-          }
-          get().lockSession(reason);
-        },
-
-        runAccessPrecheck: async (): Promise<void> => {
-          try {
-            const result: MiniAppPrecheckResult = await precheckMiniAppAccess();
-            if (!result.ok) {
-              set({ deniedDiag: result.diagnostics, gateState: "denied" });
-              return;
-            }
-            set({
-              authMode: result.authMode ?? (result.totpEnabled === true ? "totp" : "password"),
-              passwordError: null,
-            });
-            if (
-              result.sessionValid === true &&
-              typeof result.sessionExpiresAt === "number" &&
-              result.sessionExpiresAt > Date.now() &&
-              readMiniAppSessionToken().length > 0
-            ) {
-              scheduleSessionExpiry(result.sessionExpiresAt);
-              set({ sessionExpiresAt: result.sessionExpiresAt, gateState: "unlocked" });
-              return;
-            }
-            set({ gateState: "password" });
-          } catch (error: unknown) {
-            clearMiniAppAssetToken();
-            clearMiniAppSessionToken();
-            const message: string = errorMessage(error);
-            set({ deniedDiag: buildFallbackDiagnostics(message), gateState: "denied" });
-          }
-        },
-
-        submitCredential: async (): Promise<void> => {
-          const { authMode, passwordInput, language }: MiniAppUiStoreState = get();
-          const t: Readonly<MiniAppTranslations> = getMiniAppTranslations(language);
-          const trimmed: string = passwordInput.trim();
-          if (authMode === "totp") {
-            if (!/^\d{6}$/u.test(trimmed)) {
-              set({ passwordError: t.gate.totpEmptyHint });
-              return;
-            }
-          } else if (trimmed.length === 0) {
-            set({ passwordError: t.gate.passwordEmptyHint });
-            return;
-          }
-          const startedAt: number = Date.now();
-          set({ passwordBusy: true, passwordError: null, langMenuOpen: false });
-          try {
-            await loginMiniAppWithPassword(trimmed, authMode);
-            await waitMinimumLoadingDuration(startedAt);
-            const localExpiresAt: number = readMiniAppSessionExpiresAt();
-            scheduleSessionExpiry(localExpiresAt);
-            set({
-              sessionExpiresAt: localExpiresAt,
-              statusReady: false,
-              passwordInput: "",
-              gateState: "unlocked",
-            });
-            get().notify(t.gate.unlockedToast);
-          } catch (error: unknown) {
-            const message: string = errorMessage(error);
-            if (message.includes("[PASSWORD_LOCKED]")) {
-              const lockedCheck: MiniAppPrecheckResult = await precheckMiniAppAccess();
-              await waitMinimumLoadingDuration(startedAt);
-              set({
-                deniedDiag: lockedCheck.ok
-                  ? buildFallbackDiagnostics(message.replace("[PASSWORD_LOCKED]", "").trim())
-                  : lockedCheck.diagnostics,
-                gateState: "denied",
-              });
-              return;
-            }
-            await waitMinimumLoadingDuration(startedAt);
-            set({
-              passwordError: t.serverNotice(
-                message.replace("[PASSWORD_REQUIRED]", "").trim(),
-                extractServerNoticeParams(error)
-              ),
-            });
-          } finally {
-            set({ passwordBusy: false });
-          }
-        },
-
-        clearTimers: (): void => {
-          clearToastTimer();
-          clearSessionTimer();
-        },
+        ...createAppGateActions({
+          set,
+          get,
+          clearToastTimer,
+          scheduleToastDismiss,
+          clearSessionTimer,
+          scheduleSessionExpiry,
+          clearActiveSessionState,
+        }),
       };
     }
   );
@@ -512,7 +375,6 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
  * 重置 Mini App Zustand 状态仓库为默认初始状态（供单元测试使用）。
  */
 export function resetMiniAppStoreForTest(): void {
-  clearMiniAppAssetToken();
   useMiniAppStore.getState().clearTimers();
   const prev: Readonly<MiniAppConfirmModalState> | null =
     useMiniAppStore.getState().confirmModal;
@@ -541,13 +403,17 @@ export function resetMiniAppStoreForTest(): void {
 }
 
 /**
- * 后台静默查询或轮询捕获异常时，若命中 `[PASSWORD_REQUIRED]` 或 `[PASSWORD_LOCKED]` 鉴权失效前缀则立即通知根仓库锁定控制台，其余瞬时异常静默忽略。
+ * 检查捕获到的异常是否属于会话过期、密钥吊销或门禁拒绝错误；
+ * 命中时立即经根仓库 `notify` 触发重定向与凭据清理并返回 `true`，其余瞬时或业务异常静默忽略并返回 `false`。
  *
  * @param error 捕获到的异常对象
+ * @returns 命中并已交由根仓库重定向时返回 `true`，否则返回 `false`
  */
-export function notifyMiniAppIfAuthError(error: unknown): void {
+export function notifyMiniAppIfAuthError(error: unknown): boolean {
   const rawMessage: string = errorMessage(error);
-  if (isMiniAppAuthErrorMessage(rawMessage)) {
+  if (classifyMiniAppAuthError(rawMessage, error) !== null) {
     useMiniAppStore.getState().notify(rawMessage, "info", error);
+    return true;
   }
+  return false;
 }

@@ -61,6 +61,7 @@ export interface GagSession {
    * 目标在另一话题发言时，入口按 current/pending/retired 槽位换新到该话题：先在新话题
    * 发一条，再删旧的（见 commands/gag/refresh.ts 的 replaceGagSpeakNotice）。本字段只在
    * 发送成功后更新，指向当前挂着按钮的话题；是否搬家由它与来消息的话题比较得出。
+   * 到期解除回执也落在本字段记录的话题；显式 `/ungag` 回执则落在命令自身所在话题；
    * 删除不需要话题，pending/retired 只存 id。
    */
   speakNoticeThreadId: number | undefined;

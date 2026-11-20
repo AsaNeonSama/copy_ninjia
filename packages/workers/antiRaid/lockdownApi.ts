@@ -19,11 +19,16 @@ import { lockdownAnnouncementText } from "./lockdownJoinWindow";
 
 /**
  * Worker 停机 drain 撤销的请求不是远端故障，不记错误日志（口径同 runTelegramAction）。
- * @param message 错误日志前缀文本。
+ * @param message 静态英文错误摘要（含冒号）。
+ * @param context 结构化上下文字段。
  * @param error 捕获到的异常对象。
  */
-function logLockdownApiError(message: string, error: unknown): void {
-  if (!isAbortError(error)) logger.error(message, error);
+function logLockdownApiError(
+  message: string,
+  context: Readonly<Record<string, unknown>>,
+  error: unknown
+): void {
+  if (!isAbortError(error)) logger.error(message, context, error);
 }
 
 /**
@@ -77,7 +82,7 @@ export function beginLockdownAnnouncement(chatId: number, joinCount: number | un
       });
       if (sentMessageId !== undefined) messageId = sentMessageId;
     } catch (error: unknown) {
-      logLockdownApiError(`Error sending anti-raid lockdown announcement for chat ${chatId}:`, error);
+      logLockdownApiError("Error sending anti-raid lockdown announcement:", { chatId }, error);
     }
     if (lockdownEntries.get(chatId) !== entry) {
       if (messageId !== undefined) deleteLockdownAnnouncement(chatId, messageId);
@@ -98,7 +103,8 @@ export function deleteLockdownAnnouncement(chatId: number, messageId: number): v
       await deleteMessage(chatId, messageId, telegramApi);
     } catch (error: unknown) {
       logLockdownApiError(
-        `Error deleting the anti-raid lockdown announcement in chat ${chatId}:`,
+        "Error deleting the anti-raid lockdown announcement:",
+        { chatId },
         error
       );
     }
@@ -122,7 +128,10 @@ export function prepareApplyLockdown(chatId: number, dispatchLockdown: LockdownD
       if (!isCurrent()) return;
       if (!("permissions" in chat) || !chat.permissions) {
         // 恢复意图只接受带权限字段的群响应，缺失时撤销占位。
-        logger.error(`Chat ${chatId} getChat response missing permissions field, skipping anti-raid lockdown`);
+        logger.error(
+          "Chat getChat response missing permissions field; skipping anti-raid lockdown.",
+          { chatId }
+        );
         dispatchLockdown(chatId, { type: "applyPreparationFailed" });
         return;
       }
@@ -134,7 +143,7 @@ export function prepareApplyLockdown(chatId: number, dispatchLockdown: LockdownD
         intentId: nextLockdownIntentId(),
       });
     } catch (error: unknown) {
-      logLockdownApiError("Error preparing anti-raid lockdown:", error);
+      logLockdownApiError("Error preparing anti-raid lockdown:", { chatId }, error);
       if (isCurrent()) dispatchLockdown(chatId, { type: "applyPreparationFailed" });
     }
   });
@@ -161,7 +170,8 @@ export function commitApplyLockdown(chatId: number, dispatchLockdown: LockdownDi
       if (!isCurrent()) return;
       if (!("permissions" in chat) || !chat.permissions) {
         logger.error(
-          `Chat ${chatId} commit getChat response missing permissions field, abandoning anti-raid lockdown`
+          "Chat commit getChat response missing permissions field; abandoning anti-raid lockdown.",
+          { chatId }
         );
         dispatchLockdown(chatId, { type: "applyCommitPreparationFailed" });
         return;
@@ -170,6 +180,7 @@ export function commitApplyLockdown(chatId: number, dispatchLockdown: LockdownDi
     } catch (error: unknown) {
       logLockdownApiError(
         "Error refreshing chat permissions before anti-raid lockdown; abandoning unapplied intent:",
+        { chatId },
         error
       );
       if (isCurrent()) dispatchLockdown(chatId, { type: "applyCommitPreparationFailed" });
@@ -181,9 +192,16 @@ export function commitApplyLockdown(chatId: number, dispatchLockdown: LockdownDi
         restrictedPermissions(currentPermissions),
         INDEPENDENT_CHAT_PERMISSIONS_OTHER
       );
-      if (isCurrent()) dispatchLockdown(chatId, { type: "applyResult", ok: true });
+      if (isCurrent()) {
+        logger.info("Anti-raid lockdown entered.", { chatId });
+        dispatchLockdown(chatId, { type: "applyResult", ok: true });
+      }
     } catch (error: unknown) {
-      logLockdownApiError("Error applying anti-raid lockdown; scheduling a restorative reconciliation:", error);
+      logLockdownApiError(
+        "Error applying anti-raid lockdown; scheduling a restorative reconciliation:",
+        { chatId },
+        error
+      );
       if (isCurrent()) dispatchLockdown(chatId, { type: "applyResult", ok: false, restoreIntentId: nextLockdownIntentId() });
     }
   });
@@ -212,6 +230,7 @@ export function beginRestoreLockdown(chatId: number, originalPermissions: ChatPe
       });
       const currentEntry: LockdownEntry | undefined = lockdownEntries.get(chatId);
       if (currentEntry !== undefined) currentEntry.restorePermanentFailures = 0;
+      logger.info("Anti-raid lockdown lifted; invite permissions restored.", { chatId });
       dispatchLockdown(chatId, { type: "restoreResult", ok: true });
     } catch (error: unknown) {
       if (isAbortError(error)) {
@@ -225,11 +244,11 @@ export function beginRestoreLockdown(chatId: number, originalPermissions: ChatPe
         failures = currentEntry.restorePermanentFailures;
       }
       if (failures <= RESTORE_PERMANENT_FAILURE_LOG_LIMIT) {
-        logger.error(`Failed to restore chat permissions for ${chatId}, retrying shortly:`, error);
+        logger.error("Failed to restore chat permissions; retrying shortly:", { chatId }, error);
       } else {
         logger.warn(
-          `Restoring chat permissions for ${chatId} was denied ${failures} times in a row; ` +
-          "keeping the lockdown record and retrying with backoff:",
+          "Restoring chat permissions was denied repeatedly; keeping the lockdown record and retrying with backoff:",
+          { chatId, consecutivePermissionFailures: failures },
           error
         );
       }
@@ -261,7 +280,11 @@ export function reapplyLockdownRestriction(chatId: number, dispatchLockdown: Loc
       );
       if (isCurrent()) dispatchLockdown(chatId, { type: "reapplyResult", ok: true });
     } catch (error: unknown) {
-      logLockdownApiError(`Error reapplying anti-raid restriction for chat ${chatId} after a stale restore succeeded; retrying shortly:`, error);
+      logLockdownApiError(
+        "Error reapplying anti-raid restriction after a stale restore succeeded; retrying shortly:",
+        { chatId },
+        error
+      );
       if (isCurrent()) dispatchLockdown(chatId, { type: "reapplyResult", ok: false });
     }
   });

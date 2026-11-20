@@ -1,14 +1,26 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { getTimeZone } from "../../../packages/config/time";
+import { getDateKey } from "../../../packages/libs/time";
+import { getLogLevel } from "../../../packages/config/logLevel";
 /** Anti-Raid 主线程镜像的启动恢复、adopt 与 Worker 重建重放。 */
 
 import { describe, expect, test } from "bun:test";
 
 import { adDetectAgentConfigSnapshot, adoptAdDetectAgentConfig } from "../../../packages/config/agent";
 import { adoptAdDetectConfig, getAdDetectConfig } from "../../../packages/config/adDetectConfig";
+import { resetVerificationPersistenceCache } from "../../../packages/cache/workers/diskIO/verification";
+import {
+  adoptVerificationDay,
+  inspectVerificationDay,
+} from "../../../packages/workers/diskIO/verificationRecovery";
+import { handleVerificationUpsert } from "../../../packages/workers/diskIO/verificationWrites";
 
 import type { AntiRaidWorkerMessage } from "../../../packages/types/antiRaid/protocol";
 import type { AdDetectConfig } from "../../../packages/types/config";
 import type { DiskBusinessMessage, DiskIORecoveryTransport, VerificationDeleteDiskMessage, VerificationUpsertDiskMessage } from "../../../packages/types/diskIO/messages";
+import type { VerificationPersistedReply } from "../../../packages/types/diskIO/replies";
 
 const {
   activeVerificationSnapshots,
@@ -83,8 +95,11 @@ describe("Anti-Raid main-thread persistence mirror", () => {
       adoptAdDetectAgentConfig(reloadedAdDetect);
       adoptAdDetectConfig(reloadedSamples);
       syncAntiRaidAgentConfig();
-      const expected: AntiRaidWorkerMessage = { atmosphere: "teasing",
-        type: "agentConfig", timeZone: getTimeZone(),
+      const expected: AntiRaidWorkerMessage = {
+        atmosphere: "teasing",
+        type: "agentConfig",
+        timeZone: getTimeZone(),
+        logLevel: getLogLevel(),
         adDetect: reloadedAdDetect,
         adDetectConfig: reloadedSamples,
       };
@@ -258,8 +273,11 @@ describe("Anti-Raid main-thread persistence mirror", () => {
     workerHooks.supervisorOptions!.onEvent({ type: "verificationDelete", chatId: -1001, userId: 42, generation: 1, revision: 5 });
 
     // 配置快照排在第一条：广告判定逐条候选取模型名与凭据（见 types/antiRaid.ts 的 AntiRaidAgentConfigMessage）。
-    expect(workerPosts[0]).toEqual({ atmosphere: "teasing",
-      type: "agentConfig", timeZone: getTimeZone(),
+    expect(workerPosts[0]).toEqual({
+      atmosphere: "teasing",
+      type: "agentConfig",
+      timeZone: getTimeZone(),
+      logLevel: getLogLevel(),
       adDetect: adDetectAgentConfigSnapshot(),
       adDetectConfig: getAdDetectConfig(),
     });
@@ -281,8 +299,11 @@ describe("Anti-Raid main-thread persistence mirror", () => {
     ]);
     expect(respawnPosts).toEqual([
       // 重生同样先投配置快照，且投的是主线程那份唯一快照，不重新读盘。
-      { atmosphere: "teasing",
-        type: "agentConfig", timeZone: getTimeZone(),
+      {
+        atmosphere: "teasing",
+        type: "agentConfig",
+        timeZone: getTimeZone(),
+        logLevel: getLogLevel(),
         adDetect: adDetectAgentConfigSnapshot(),
         adDetectConfig: getAdDetectConfig(),
       },
@@ -568,5 +589,64 @@ describe("Anti-Raid main-thread persistence mirror", () => {
     }]);
     expect(pendingLockdownPersistence.has(-2005)).toBeFalse();
     expect(queuedLockdownPersistence.has(-2005)).toBeFalse();
+  });
+
+  test("Disk I/O Worker 终态落盘后崩溃重建，主线程重放同版 critical upsert 时立刻推进 Anti-Raid 持久化回执", async () => {
+    const dir: string = mkdtempSync(join(tmpdir(), "copy-ninjia-diskio-respawn-"));
+    const day: string = getDateKey();
+    resetVerificationPersistenceCache();
+    try {
+      const snapshot = terminalRecord(1, 3);
+      // 1. Disk I/O 落盘同一终态快照，但主线程在回执抵达前收到事件后发生 Disk I/O Worker 崩溃。
+      await handleVerificationUpsert({
+        msg: { type: "verificationUpsert", record: snapshot, critical: true },
+        reply: (_reply: VerificationPersistedReply): void => {},
+        dir,
+        day,
+      });
+      workerHooks.supervisorOptions!.onEvent({
+        type: "verificationUpsert",
+        record: snapshot,
+      });
+      expect(activeVerificationSnapshots.get("-1001:42")).toEqual(snapshot);
+
+      // 2. 新 Disk I/O Worker 从磁盘恢复并清空内存待写表。
+      resetVerificationPersistenceCache();
+      adoptVerificationDay(await inspectVerificationDay(day, dir));
+
+      // 3. 主线程 DiskIO 重建重放把同版关键写送入新 Worker，并把回执交还 persistedAck。
+      workerPosts.length = 0;
+      const asyncReplies: Promise<void>[] = [];
+      const replayedOk: boolean = await workerHooks.diskRespawn!({
+        post(message: DiskBusinessMessage): boolean {
+          if (message.type === "verificationUpsert") {
+            asyncReplies.push(handleVerificationUpsert({
+              msg: message,
+              reply: (reply: VerificationPersistedReply): void => {
+                workerHooks.persistedAck!(reply);
+              },
+              dir,
+              day,
+            }));
+          }
+          return true;
+        },
+        ensureLuckReceiptSecret: async (): Promise<never> => {
+          throw new Error("Unexpected luck secret request.");
+        },
+      });
+      expect(replayedOk).toBeTrue();
+      await Promise.allSettled(asyncReplies);
+
+      expect(workerPosts).toContainEqual({
+        type: "verificationPersisted",
+        key: "-1001:42",
+        generation: 1,
+        revision: 3,
+      });
+    } finally {
+      resetVerificationPersistenceCache();
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

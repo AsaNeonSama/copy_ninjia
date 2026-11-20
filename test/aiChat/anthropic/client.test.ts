@@ -50,11 +50,11 @@ mock.module("@anthropic-ai/sdk", () => {
   };
 });
 
-const { requestAnthropicMessage, requestAnthropicTextResult } = await import("../../../packages/aiChat/anthropic/client");
+const { requestAnthropicMessage, requestAnthropicTextResult } = await import("../../../packages/workers/aiChat/anthropic/client");
 const { anthropicClientCache } = await import("../../../packages/cache/workers/aiChat/anthropic");
 const { adoptAgentDeploymentConfig, getAgentDeploymentConfig } = await import("../../../packages/config/agent");
 const { installAiCacheUsageSink } = await import("../../../packages/infra/aiCacheUsage");
-const { searchAnthropicWeb } = await import("../../../packages/aiChat/anthropic/search");
+const { searchAnthropicWeb } = await import("../../../packages/workers/aiChat/anthropic/search");
 const {
   ANTHROPIC_REQUEST_MAX_RETRIES,
   ANTHROPIC_REQUEST_TIMEOUTS_MS,
@@ -133,7 +133,13 @@ describe("requestAnthropicMessage", () => {
     expect(await requestAnthropicMessage({ capability: "text", buildBody: body, errorLabel: "test" })).toMatchObject({ ok: true });
     expect(create.mock.calls[0]?.[1]).toHaveProperty("fallbackState");
     expect(reported[0]).toMatchObject({ capability: "text", model: "claude-fallback" });
-    expect(loggerWarn).toHaveBeenCalledWith(`test fell back after a refusal: from=claude-test, to=claude-fallback, trigger=${JSON.stringify(trigger)}, fallback_credit=null.`);
+    expect(loggerWarn).toHaveBeenCalledWith("Anthropic request fell back after a refusal.", {
+      errorLabel: "test",
+      from: "claude-test",
+      to: "claude-fallback",
+      trigger: JSON.stringify(trigger),
+      fallbackCredit: null,
+    });
 
     await requestAnthropicMessage({ capability: "text", buildBody: body, errorLabel: "test" });
     expect(reported[1]).toMatchObject({ model: "claude-test" });
@@ -201,16 +207,23 @@ describe("requestAnthropicMessage", () => {
     create.mockImplementationOnce(async (): Promise<unknown> => ({ ...(message("refusal", "") as object), stop_details: stopDetails }));
     expect(await requestAnthropicMessage({ capability: "text", buildBody: body, errorLabel: "test" }))
       .toMatchObject({ ok: false, failureKind: "refused", stopReason: "refusal", stopDetails: JSON.stringify(stopDetails) });
-    expect(loggerError).toHaveBeenLastCalledWith(
-      `test returned an unusable response: model=claude-test, stop_reason=refusal, details=${JSON.stringify(stopDetails)} (hasPartialText=false).`
-    );
+    expect(loggerError).toHaveBeenLastCalledWith("Anthropic API returned an unusable response.", {
+      errorLabel: "test",
+      model: "claude-test",
+      stopReason: "refusal",
+      stopDetails: JSON.stringify(stopDetails),
+      hasPartialText: false,
+    });
 
     create.mockImplementationOnce(async (): Promise<unknown> => ({ ...(message("max_tokens") as object), stop_details: null }));
     expect(await requestAnthropicMessage({ capability: "text", buildBody: body, errorLabel: "test" }))
       .toMatchObject({ ok: false, failureKind: "response", stopReason: "max_tokens", stopDetails: undefined });
-    expect(loggerError).toHaveBeenLastCalledWith(
-      "test returned an unusable response: model=claude-test, stop_reason=max_tokens (hasPartialText=true)."
-    );
+    expect(loggerError).toHaveBeenLastCalledWith("Anthropic API returned an unusable response.", {
+      errorLabel: "test",
+      model: "claude-test",
+      stopReason: "max_tokens",
+      hasPartialText: true,
+    });
   });
 
   test("调用方已取消时不发请求，按请求失败结算且不记日志", async () => {

@@ -12,7 +12,7 @@ import type {
   MiniAppTotpSetupResponse,
   MiniAppTotpStatusView,
 } from "../types/miniAppTotp";
-import { useMiniAppStore } from "./app";
+import { notifyMiniAppIfAuthError, useMiniAppStore } from "./app";
 
 /** `TotpPage` 验证器管理的状态与动作接口。 */
 export interface MiniAppTotpStoreState {
@@ -82,6 +82,7 @@ export function createTotpStore(): MiniAppTotpStore {
           } catch (error: unknown) {
             await waitMinimumLoadingDuration(startedAt);
             if (reqId !== requestSeq) {
+              notifyMiniAppIfAuthError(error);
               return;
             }
             set({ loadingStatus: false });

@@ -248,9 +248,9 @@ describe("应用启动失败与退出清理", () => {
     expect(calls.indexOf("quiesceTitles")).toBeGreaterThan(-1);
     expect(calls.indexOf("quiesceTitles")).toBeLessThan(calls.indexOf("refreshTitles"));
     const signalLogs: unknown[][] = loggerLog.mock.calls.filter(
-      (args: unknown[]): boolean => args[0] === "Received SIGTERM; beginning graceful shutdown."
+      (args: unknown[]): boolean => args[0] === "Beginning graceful shutdown."
     );
-    expect(signalLogs).toHaveLength(1);
+    expect(signalLogs).toEqual([["Beginning graceful shutdown.", { signal: "SIGTERM" }]]);
     expect(process.exitCode).toBe(0);
   });
 
@@ -269,9 +269,9 @@ describe("应用启动失败与退出清理", () => {
     expect(afterSecondSignal).toBe(baseline + 1);
     expect(process.listenerCount("SIGTERM")).toBe(baseline);
     const signalLogs: unknown[][] = loggerLog.mock.calls.filter(
-      (args: unknown[]): boolean => args[0] === "Received SIGTERM; beginning graceful shutdown."
+      (args: unknown[]): boolean => args[0] === "Beginning graceful shutdown."
     );
-    expect(signalLogs).toHaveLength(1);
+    expect(signalLogs).toEqual([["Beginning graceful shutdown.", { signal: "SIGTERM" }]]);
     expect(process.exitCode).toBe(0);
   });
 
@@ -283,7 +283,7 @@ describe("应用启动失败与退出清理", () => {
 
     await lifecycle.run("main");
 
-    expect(loggerLog).toHaveBeenCalledWith("Received SIGINT; beginning graceful shutdown.");
+    expect(loggerLog).toHaveBeenCalledWith("Beginning graceful shutdown.", { signal: "SIGINT" });
     expect(runnerStop).toHaveBeenCalledTimes(1);
     expect(process.exitCode).toBe(0);
   });
@@ -292,7 +292,11 @@ describe("应用启动失败与退出清理", () => {
     const lifecycle = new ApplicationLifecycle(testDependencies);
     await lifecycle.init();
 
-    expect(calls.indexOf("cleanupTemps")).toBeLessThan(calls.indexOf("loadState"));
+    expect(calls.indexOf("cleanupTemps")).toBeLessThan(calls.indexOf("assertConfigLayout"));
+    expect(calls.indexOf("assertConfigLayout")).toBeGreaterThan(-1);
+    expect(calls.indexOf("assertConfigLayout")).toBeLessThan(calls.indexOf("loadState"));
+    expect(calls.indexOf("assertConfigLayout")).toBeLessThan(calls.indexOf("validateDeploymentInputs"));
+    expect(calls.indexOf("assertConfigLayout")).toBeLessThan(calls.indexOf("prepareImageDir"));
     expect(calls.indexOf("loadState")).toBeLessThan(
       calls.indexOf("validateDeploymentInputs")
     );
@@ -382,10 +386,11 @@ describe("应用启动失败与退出清理", () => {
     expect(runnerStop).not.toHaveBeenCalled();
     // task() 抛错会跳过确认前闸门，跳过按失败处理（见 docs/cn/04-invariants.md）。
     expect(process.exitCode).toBe(1);
+    expect(loggerError).toHaveBeenCalledWith(
+      "Shutdown drain/flush results:",
+      expect.objectContaining({ offsetConfirmed: false })
+    );
     const errorLines: string[] = loggerError.mock.calls.map((call: unknown[]): string => String(call[0]));
-    expect(errorLines.some((line: string): boolean =>
-      line.startsWith("Shutdown drain/flush results:") && line.includes("offset=false")
-    )).toBeTrue();
     // 仅 offset 未确认：runner 已排空、各 owner 已 flush、Worker 已 terminate，锁照常释放。
     expect(releaseSingleInstanceLock).toHaveBeenCalledTimes(1);
     expect(errorLines.some((line: string): boolean =>
@@ -438,7 +443,8 @@ describe("应用启动失败与退出清理", () => {
     expect(releaseSingleInstanceLock).toHaveBeenCalledTimes(1);
     expect(process.exitCode).toBe(1);
     expect(loggerError).toHaveBeenCalledWith(
-      "Shutdown owner single-instance lock release threw during disposal:",
+      "Shutdown owner threw during disposal:",
+      { owner: "single-instance lock release" },
       expect.any(Error)
     );
   });
@@ -457,7 +463,8 @@ describe("应用启动失败与退出清理", () => {
     expect(releaseSingleInstanceLock).not.toHaveBeenCalled();
     expect(process.exitCode).toBe(1);
     expect(loggerError).toHaveBeenCalledWith(
-      "Shutdown owner disk I/O termination threw during disposal:",
+      "Shutdown owner threw during disposal:",
+      { owner: "disk I/O termination" },
       expect.any(Error)
     );
   });
@@ -535,7 +542,10 @@ describe("应用启动失败与退出清理", () => {
       deadlineCallback!();
       expect(exit).toHaveBeenCalledTimes(1);
       expect(exit).toHaveBeenCalledWith(1);
-      expect(loggerError).toHaveBeenCalledWith(expect.stringContaining("hard deadline"));
+      expect(loggerError).toHaveBeenCalledWith(
+        "Emergency shutdown exceeded hard deadline; forcing exit.",
+        { deadlineMs: EMERGENCY_REUSED_DISPOSE_DEADLINE_MS }
+      );
 
       antiRaidGate.resolve("flushed");
       await disposing;
@@ -616,7 +626,10 @@ describe("应用启动失败与退出清理", () => {
     expect(setBusinessWorkerFatalHandler).toHaveBeenLastCalledWith(undefined);
     expect(process.exitCode).toBe(1);
     expect(releaseSingleInstanceLock).not.toHaveBeenCalled();
-    expect(loggerError).toHaveBeenCalledWith(expect.stringContaining("avatar=failed"));
+    expect(loggerError).toHaveBeenCalledWith(
+      "Shutdown drain/flush results:",
+      expect.objectContaining({ avatar: "failed" })
+    );
   });
 
   test("任一 quiesce 抛错时仍关闭其余入口，并把失败纳入停机结果", async () => {
@@ -636,10 +649,14 @@ describe("应用启动失败与退出清理", () => {
     expect(process.exitCode).toBe(1);
     expect(releaseSingleInstanceLock).not.toHaveBeenCalled();
     expect(loggerError).toHaveBeenCalledWith(
-      "Shutdown owner avatar quiesce threw during shutdown:",
+      "Shutdown owner quiesce threw during shutdown:",
+      { owner: "avatar" },
       expect.any(Error)
     );
-    expect(loggerError).toHaveBeenCalledWith(expect.stringContaining("maintenance=false"));
+    expect(loggerError).toHaveBeenCalledWith(
+      "Shutdown drain/flush results:",
+      expect.objectContaining({ maintenanceSettled: false })
+    );
   });
 
   test("紧急预算跳过未结束的标题刷新时必须 abort 标题 owner", async () => {
@@ -666,7 +683,10 @@ describe("应用启动失败与退出清理", () => {
     expect(terminateAntiRaid).toHaveBeenCalledTimes(1);
     expect(terminateDiskIO).toHaveBeenCalledTimes(1);
     expect(releaseSingleInstanceLock).not.toHaveBeenCalled();
-    expect(loggerError).toHaveBeenCalledWith(expect.stringContaining("antiRaid=failed"));
+    expect(loggerError).toHaveBeenCalledWith(
+      "Shutdown drain/flush results:",
+      expect.objectContaining({ antiRaid: "failed" })
+    );
   });
 
   test("Telegram 总闸排空失败仍继续落盘和终止，但不得释放实例锁", async () => {
@@ -682,7 +702,10 @@ describe("应用启动失败与退出清理", () => {
     expect(terminateDiskIO).toHaveBeenCalledTimes(1);
     expect(process.exitCode).toBe(1);
     expect(releaseSingleInstanceLock).not.toHaveBeenCalled();
-    expect(loggerError).toHaveBeenCalledWith(expect.stringContaining("telegram=failed"));
+    expect(loggerError).toHaveBeenCalledWith(
+      "Shutdown drain/flush results:",
+      expect.objectContaining({ telegram: "failed" })
+    );
   });
 
   test("gag 提示未清理时仍继续后续 owner，但不得释放实例锁", async () => {
@@ -697,7 +720,10 @@ describe("应用启动失败与退出清理", () => {
     expect(flushStateToDisk).toHaveBeenCalledTimes(1);
     expect(process.exitCode).toBe(1);
     expect(releaseSingleInstanceLock).not.toHaveBeenCalled();
-    expect(loggerError).toHaveBeenCalledWith(expect.stringContaining("gag=failed"));
+    expect(loggerError).toHaveBeenCalledWith(
+      "Shutdown drain/flush results:",
+      expect.objectContaining({ gag: "failed" })
+    );
   });
 
   test("wed 任务未排空时保留诊断并继续磁盘收尾，不能宣称干净退出", async () => {
@@ -710,7 +736,10 @@ describe("应用启动失败与退出清理", () => {
     expect(flushStateToDisk).toHaveBeenCalledTimes(1);
     expect(process.exitCode).toBe(1);
     expect(releaseSingleInstanceLock).not.toHaveBeenCalled();
-    expect(loggerError).toHaveBeenCalledWith(expect.stringContaining("wed=timedOut"));
+    expect(loggerError).toHaveBeenCalledWith(
+      "Shutdown drain/flush results:",
+      expect.objectContaining({ wed: "timedOut" })
+    );
   });
 
   test("翻译 drain 超时仍关闭 gRPC 客户端，并保留实例锁", async () => {
@@ -723,7 +752,10 @@ describe("应用启动失败与退出清理", () => {
     expect(closeTranslate).toHaveBeenCalledTimes(1);
     expect(process.exitCode).toBe(1);
     expect(releaseSingleInstanceLock).not.toHaveBeenCalled();
-    expect(loggerError).toHaveBeenCalledWith(expect.stringContaining("translate=timedOut"));
+    expect(loggerError).toHaveBeenCalledWith(
+      "Shutdown drain/flush results:",
+      expect.objectContaining({ translate: "timedOut" })
+    );
   });
 
   test("Disk I/O 运行时 fatal 会设置非零退出码并停止继续取 update", async () => {
@@ -776,7 +808,10 @@ describe("应用启动失败与退出清理", () => {
     expect(terminateDiskIO).toHaveBeenCalledTimes(1);
     expect(abortChatTitleRefresh).toHaveBeenCalledTimes(1);
     expect(releaseSingleInstanceLock).not.toHaveBeenCalled();
-    expect(loggerError).toHaveBeenCalledWith(expect.stringContaining("maintenance=false"));
+    expect(loggerError).toHaveBeenCalledWith(
+      "Shutdown drain/flush results:",
+      expect.objectContaining({ maintenanceSettled: false })
+    );
     expect(loggerError).toHaveBeenCalledWith(expect.stringContaining("Retaining the single-instance lock"));
   });
 
@@ -789,7 +824,10 @@ describe("应用启动失败与退出清理", () => {
 
     expect(flushStateToDisk).toHaveBeenCalledTimes(1);
     expect(releaseSingleInstanceLock).not.toHaveBeenCalled();
-    expect(loggerError).toHaveBeenCalledWith(expect.stringContaining("state=timedOut"));
+    expect(loggerError).toHaveBeenCalledWith(
+      "Shutdown drain/flush results:",
+      expect.objectContaining({ state: "timedOut" })
+    );
   });
 
   test("state writer 明确失败时也保留实例锁，不能假设后台重试已经停止", async () => {
@@ -800,7 +838,10 @@ describe("应用启动失败与退出清理", () => {
     await lifecycle.dispose({ aiMemoryMs: 10, antiRaidMs: 10, diskIOMs: 10, stateMs: 1, translateMs: 10, maintenanceMs: 10 });
 
     expect(releaseSingleInstanceLock).not.toHaveBeenCalled();
-    expect(loggerError).toHaveBeenCalledWith(expect.stringContaining("state=failed"));
+    expect(loggerError).toHaveBeenCalledWith(
+      "Shutdown drain/flush results:",
+      expect.objectContaining({ state: "failed" })
+    );
   });
 
   test("Disk flush 明确失败时设置非零退出码并保留实例锁", async () => {
@@ -812,7 +853,10 @@ describe("应用启动失败与退出清理", () => {
 
     expect(process.exitCode).toBe(1);
     expect(releaseSingleInstanceLock).not.toHaveBeenCalled();
-    expect(loggerError).toHaveBeenCalledWith(expect.stringContaining("disk=failed"));
+    expect(loggerError).toHaveBeenCalledWith(
+      "Shutdown drain/flush results:",
+      expect.objectContaining({ disk: "failed" })
+    );
   });
 
 });

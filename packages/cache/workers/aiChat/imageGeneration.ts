@@ -1,4 +1,4 @@
-/** owner: workers/aiChat。AI 生图工具按群冷却占位状态（packages/aiChat/ai/tools/replyToolset/imageGeneration.ts）。 */
+/** owner: workers/aiChat。AI 生图工具按群冷却占位状态（packages/workers/aiChat/ai/tools/replyToolset/imageGeneration.ts）。 */
 
 import { IMAGE_GENERATION_COOLDOWN_MS } from "../../../consts/aiChat/imageGeneration";
 import {

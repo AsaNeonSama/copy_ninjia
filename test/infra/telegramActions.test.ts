@@ -9,20 +9,28 @@ import { sentMessageCount } from "../helpers/selfSentCount";
 import { MUTED_CHAT_PERMISSIONS, UNMUTED_CHAT_PERMISSIONS } from "../../packages/consts/telegram";
 import { MARKDOWN_V2_PARSE_MODE } from "../../packages/consts/telegramMarkdown";
 import {
+  sendPhotoWithResult,
+  sendVoiceWithResult,
+} from "../../packages/infra/telegram/actions/mediaMessages";
+import {
   deleteEphemeralMessageWithOutcome,
+} from "../../packages/infra/telegram/actions/messageLifecycle";
+import {
+  probeChatAdmin,
+  probeChatMembership,
+  readChatMemberUser,
+} from "../../packages/infra/telegram/actions/membership";
+import {
   editMessageText,
+  sendEphemeralMessage,
+  sendMessageWithResult,
+} from "../../packages/infra/telegram/actions/messages";
+import {
   kickChatMemberWithOutcome,
   muteChatMemberPermanentlyWithOutcome,
   muteChatMemberWithOutcome,
-  probeChatAdmin,
-  probeChatMembership,
-  sendEphemeralMessage,
-  sendMessageWithResult,
-  sendVoiceWithResult,
-  sendPhotoWithResult,
   unmuteChatMemberWithOutcome,
-} from "../../packages/infra/telegram/actions";
-import { readChatMemberUser } from "../../packages/infra/telegram/actions/membership";
+} from "../../packages/infra/telegram/actions/moderation";
 import { telegramApiState } from "../../packages/cache/perThread/telegramApi";
 import { isSelfSent } from "../../packages/infra/selfSentTracker";
 import { TelegramRetryPreconditionChangedError } from "../../packages/infra/telegram/errors";

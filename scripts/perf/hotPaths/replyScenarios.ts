@@ -1,5 +1,5 @@
-import { decodeBase64Payload } from "../../../packages/aiChat/ai/utils/base64Payload";
-import type { DecodeBase64PayloadOptions } from "../../../packages/aiChat/ai/utils/base64Payload";
+import { decodeBase64Payload } from "../../../packages/workers/aiChat/ai/utils/base64Payload";
+import type { DecodeBase64PayloadOptions } from "../../../packages/workers/aiChat/ai/utils/base64Payload";
 import { IMAGE_GENERATION_MAX_BYTES } from "../../../packages/consts/aiChat/imageGeneration";
 import { VOICE_SPEECH_MAX_BYTES, VOICE_SPEECH_MAX_ENCODED_CHARS } from "../../../packages/consts/aiChat/voiceMessage";
 import { RATE_LIMIT_LONG_MAX_TRIGGERS, REPLY_DELIVERY_MAX_PER_CHAT, REPLY_DELIVERY_MAX_TOTAL, REPLY_ROUND_MAX_CONCURRENT, REPLY_TRIGGER_QUEUE_MAX } from "../../../packages/consts/aiChat/rateLimit";

@@ -204,14 +204,12 @@ export function runtimeModuleReferences(source: ts.SourceFile): readonly Runtime
 }
 
 /**
- * 按仓库 tsconfig 为给定入口文件建一个只做类型检查的 program。常量不可变性断言、字面量
- * 联合全集表与测试替身复位三道门禁共用同一份覆盖 `constFiles ∪ testFiles` 的 Program。
+ * 解析仓库 `tsconfig.json` 生成只读类型检查所需的 `ts.CompilerOptions`（固定开启 `noEmit`）。
  *
  * @param projectRoot 仓库根目录绝对路径
- * @param rootFiles Program 根文件绝对路径列表
- * @returns 仅用于类型检查的 TypeScript Program
+ * @returns 类型检查用的编译器选项
  */
-export function createTypeCheckProgram(projectRoot: string, rootFiles: readonly string[]): ts.Program {
+export function readTypeCheckCompilerOptions(projectRoot: string): ts.CompilerOptions {
   const configPath: string = join(projectRoot, "tsconfig.json");
   const config: { config?: unknown; error?: ts.Diagnostic } = ts.readConfigFile(
     configPath,
@@ -229,7 +227,22 @@ export function createTypeCheckProgram(projectRoot: string, rootFiles: readonly 
   if (parsed.errors.length > 0) {
     throw new Error(ts.formatDiagnostics(parsed.errors, diagnosticHost));
   }
-  return ts.createProgram({ rootNames: [...rootFiles], options: { ...parsed.options, noEmit: true } });
+  return { ...parsed.options, noEmit: true };
+}
+
+/**
+ * 按仓库 tsconfig 为给定入口文件建一个只做类型检查的 program。常量不可变性断言、字面量
+ * 联合全集表与测试替身复位三道门禁共用同一份覆盖 `constFiles ∪ testFiles` 的 Program。
+ *
+ * @param projectRoot 仓库根目录绝对路径
+ * @param rootFiles Program 根文件绝对路径列表
+ * @returns 仅用于类型检查的 TypeScript Program
+ */
+export function createTypeCheckProgram(projectRoot: string, rootFiles: readonly string[]): ts.Program {
+  return ts.createProgram({
+    rootNames: [...rootFiles],
+    options: readTypeCheckCompilerOptions(projectRoot),
+  });
 }
 
 /**

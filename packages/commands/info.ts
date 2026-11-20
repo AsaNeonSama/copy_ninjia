@@ -89,7 +89,8 @@ async function lookUp(request: InfoRequest, signal: AbortSignal): Promise<InfoLo
     return user === undefined ? cachedLookup(target) : userLookup(user);
   }
   const chat: ChatFullInfo | undefined = await runTelegramAction({
-    action: `read chat ${target.id} for /info`,
+    action: "read chat for /info",
+    errorContext: { chatId: target.id },
     execute: (requestSignal?: AbortSignal): Promise<ChatFullInfo> => bot.api.getChat(target.id, telegramSignal(requestSignal)),
     map: (value: ChatFullInfo): ChatFullInfo => value,
     fallback: undefined,

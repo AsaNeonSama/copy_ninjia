@@ -14,6 +14,7 @@ import {
   replyDeliveryTotal,
   sweepAiChatReplyCache,
 } from "../../../packages/cache/workers/aiChat/replies";
+import { AI_CHAT_INVALIDATE_DRAIN_TIMEOUT_MS } from "../../../packages/consts/lifecycle";
 import {
   RATE_LIMIT_LONG_MAX_TRIGGERS,
   RATE_LIMIT_LONG_WINDOW_MS,
@@ -66,6 +67,7 @@ describe("AI 回复代际状态", () => {
       pendingSend: false,
       pendingSendDeduplicate: true,
       lastSentPhase: "typing",
+      lastSentThreadId: undefined,
       lastSentAt: Date.now(),
       restUntil: 0,
       restTimer: null,
@@ -146,7 +148,8 @@ describe("AI 回复代际状态", () => {
       await invalidated;
 
       expect(loggerErrorSpy).toHaveBeenCalledWith(
-        expect.stringContaining(`AI chat invalidation for chat ${chatId} gave up waiting`)
+        "AI chat invalidation gave up waiting on generation tasks; they stay generation-guarded and cannot write anymore.",
+        { chatId, pendingTasks: 1, timeoutMs: AI_CHAT_INVALIDATE_DRAIN_TIMEOUT_MS }
       );
       expect(replyGenerationTasks.size).toBe(0);
       expect(cachedReplyGeneration(chatId)).not.toBe(generation);
@@ -220,6 +223,7 @@ describe("AI 回复代际状态", () => {
       pendingSend: false,
       pendingSendDeduplicate: true,
       lastSentPhase: "choose_sticker",
+      lastSentThreadId: undefined,
       lastSentAt: Date.now(),
       restUntil: 0,
       restTimer: null,

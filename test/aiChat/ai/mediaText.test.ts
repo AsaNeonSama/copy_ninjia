@@ -14,6 +14,8 @@ const stickerMessage: AiRecordMediaMessage = {
   type: "recordMedia",
   messageThreadId: undefined,
   mediaGroupId: undefined,
+  chatQaJson: undefined,
+  chatQaCount: 0,
   kind: "sticker",
   chatId: -1001,
   senderId: 7,

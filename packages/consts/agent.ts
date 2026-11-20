@@ -38,7 +38,7 @@ export const AGENT_AI_CHAT_REQUIRED_CAPABILITIES: readonly string[] = [
 /**
  * agent 段 provider 的完整闭集；部署配置解析（config/agentCapability.ts）与 AI 用量文件解码
  * （workers/diskIO/aiCacheDocument.ts）共用。新增 provider 时同步 AgentProvider、
- * AGENT_PROVIDER_LABELS 与 aiChat/provider.ts 的实现包映射。所属模块：AI 能力部署配置。
+ * AGENT_PROVIDER_LABELS 与 workers/aiChat/provider.ts 的实现包映射。所属模块：AI 能力部署配置。
  */
 export const AGENT_PROVIDERS: readonly AgentProvider[] = exhaustiveList<AgentProvider>()(["google", "openai", "anthropic"]);
 
@@ -51,7 +51,7 @@ export function isAgentProvider(value: string): value is AgentProvider {
   return (AGENT_PROVIDERS as readonly string[]).includes(value);
 }
 
-/** 各 provider 在错误文案里的名称（SDK 客户端未按能力配置时）。所属模块：aiChat/capabilityClient.ts。 */
+/** 各 provider 在错误文案里的名称（SDK 客户端未按能力配置时）。所属模块：workers/aiChat/capabilityClient.ts。 */
 export const AGENT_PROVIDER_LABELS: Readonly<Record<AgentProvider, string>> = {
   google: "Google",
   openai: "OpenAI",

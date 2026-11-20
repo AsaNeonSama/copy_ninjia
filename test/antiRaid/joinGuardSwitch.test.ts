@@ -50,12 +50,18 @@ mock.module("../../packages/infra/chatStateStorage", () => ({
   persistChatState: async (): Promise<void> => {},
   saveChatStateInBackground: (): void => {},
 }));
-mock.module("../../packages/infra/telegram/actions", () => ({
+const realMessages = await import("../../packages/infra/telegram/actions/messages");
+const realMessageLifecycle = await import("../../packages/infra/telegram/actions/messageLifecycle");
+mock.module("../../packages/infra/telegram/actions/messages", () => ({
+  ...realMessages,
   answerCallbackQuery: async (params: { callbackQueryId: string; text?: string }): Promise<boolean> => {
     answeredCallbacks.push(params);
     return true;
   },
   sendMessage: async (): Promise<number | undefined> => undefined,
+}));
+mock.module("../../packages/infra/telegram/actions/messageLifecycle", () => ({
+  ...realMessageLifecycle,
   deleteMessageAfter: (): void => {},
   deleteMessageWithOutcome: async (): Promise<"deleted"> => "deleted",
 }));
@@ -79,6 +85,7 @@ mock.module("../../packages/infra/botAdmin", () => ({
   botChatPermissionsIn: async (): Promise<undefined> => undefined,
   registerBotPermissionObserver: (): void => {},
   botCanDeleteMessagesIn: (): true => true,
+  botCanRestrictMembersIn: (): true => true,
 }));
 mock.module("../../packages/infra/supervisedWorker", () => ({
   superviseWorker: () => ({

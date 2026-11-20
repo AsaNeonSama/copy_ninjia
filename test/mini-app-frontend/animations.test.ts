@@ -1,7 +1,7 @@
 /**
  * Mini App 前端组件几何、骨架屏与过渡样式测试：
  * - 弹窗 Tab 高度与方向过渡、各类骨架屏与加载动效、问答卡片、权限抽屉、门禁页、常驻确认弹窗与受管群弹窗保活渲染；
- * - 侧栏与弹窗纯合成层过渡、退场缓动曲线、切角卡片与按钮几何、暗色对比令牌及响应式断点规则。
+ * - 侧栏常驻合成层与弹窗静止态主绘制层驻留、退场缓动与合成层隔离、切角卡片与按钮几何、暗色对比令牌及响应式断点规则。
  */
 
 import { describe, expect, test } from "bun:test";
@@ -10,7 +10,6 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { App } from "../../packages/mini-app-frontend/App";
 import { LoadingDotsWave } from "../../packages/mini-app-frontend/components/animations/LoadingDotsWave";
 import {
-  formatTabHeightTransition,
   readElementBodyHeight,
   resolveTabSlideDirectionClass,
   syncTabHeightTransitionEffect,
@@ -383,13 +382,31 @@ describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
     expect(enabledUploadMarkup).toContain('class="btn primary icon-btn gallery-upload-btn"');
     expect(enabledUploadMarkup).toContain('aria-disabled="false"');
     expect(enabledUploadMarkup).toContain('class="gallery-upload-input"');
+    expect(enabledUploadMarkup).not.toContain('class="row-sub"');
     expect(enabledUploadMarkup).not.toContain("display:none");
+
+    galleryStore.setState({
+      galleryPage: {
+        directory: "/data/gallery",
+        exists: false,
+        total: 0,
+        page: 1,
+        pageSize: MINI_APP_GALLERY_DEFAULT_PAGE_SIZE,
+        totalPages: 1,
+        items: [],
+      },
+    });
+    const missingDirMarkup: string = renderToStaticMarkup(
+      createElement(GalleryPage, { storeFactory: () => galleryStore })
+    );
+    expect(missingDirMarkup).toContain(
+      getMiniAppTranslations("zh").gallery.directoryMissingText("/data/gallery")
+    );
   });
 
   test("TabHeightSizer 高度过渡曲线绑定、亚像素高度测量、门禁错误折叠、全局弹窗连续序号与硬边骨架屏核验", async () => {
     const expectedTransition: string = `height ${MINI_APP_TAB_HEIGHT_TRANSITION_MS / 1_000}s cubic-bezier(${MINI_APP_FLIP_COLLAPSE_EASING_POINTS.join(", ")})`;
     expect(MINI_APP_TAB_HEIGHT_TRANSITION).toBe(expectedTransition);
-    expect(formatTabHeightTransition()).toBe(expectedTransition);
     expect(
       readElementBodyHeight({
         offsetHeight: 180,
@@ -423,22 +440,18 @@ describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
         overflow: "",
         transition: "",
       };
-      const sizerRef: { current: MeasurableBodyElement | null } = {
-        current: { offsetHeight: 180, style: sizerStyle },
+      const sizerRef: { current: MeasurableBodyElement | null } = { current: { offsetHeight: 180, style: sizerStyle } };
+      let paneClassAttr: string = "chat-targets-tab-pane tab-slide-forward";
+      const paneRef: { current: MeasurableBodyElement | null } = {
+        current: { offsetHeight: 264, setAttribute: (_name: string, val: string): void => { paneClassAttr = val; } },
       };
-      const paneRef: { current: MeasurableBodyElement | null } = { current: { offsetHeight: 264 } };
       const lastHeightRef: { current: number } = { current: 180 };
       const prevTabRef: { current: MiniAppChatTargetKind | null } = { current: "qa" };
       const prevHadTargetsRef: { current: boolean } = { current: true };
+      const lastDirectionRef: { current: string } = { current: "tab-slide-forward" };
       const runSizer = (activeTab: MiniAppChatTargetKind | null, hasTargets: boolean): (() => void) | undefined =>
         syncTabHeightTransitionEffect({
-          activeTab,
-          hasTargets,
-          sizerRef,
-          paneRef,
-          lastHeightRef,
-          prevTabRef,
-          prevHadTargetsRef,
+          activeTab, hasTargets, sizerRef, paneRef, lastHeightRef, prevTabRef, prevHadTargetsRef, lastDirectionRef,
         });
 
       const cleanupSwitch: (() => void) | undefined = runSizer("translate", true);
@@ -451,6 +464,22 @@ describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
 
       scheduledTimers[0]?.run();
       expect(sizerStyle).toEqual({ height: "", overflow: "", transition: "" });
+      expect(lastDirectionRef.current).toBe("");
+      expect(paneClassAttr).toBe("chat-targets-tab-pane");
+
+      // 等高切页无高度过渡时同样在清理周期结束后清除切入方向类，卸载清理回调同样可取消定时器
+      lastDirectionRef.current = "tab-slide-backward";
+      paneClassAttr = "chat-targets-tab-pane tab-slide-backward";
+      const cleanupSameHeight: (() => void) | undefined = runSizer("qa", true);
+      expect(typeof cleanupSameHeight).toBe("function");
+      scheduledTimers.at(-1)?.run();
+      expect(lastDirectionRef.current).toBe("");
+      expect(paneClassAttr).toBe("chat-targets-tab-pane");
+      lastDirectionRef.current = "tab-slide-forward";
+      const cleanupSameHeightAbort: (() => void) | undefined = runSizer("translate", true);
+      const sameHeightTimerId: number = scheduledTimers.at(-1)?.id ?? -1;
+      cleanupSameHeightAbort?.();
+      expect(clearedTimerIds).toContain(sameHeightTimerId);
 
       // 首次注水高度变化同样写入快出急停曲线过渡，优先采纳 getBoundingClientRect 小数高度，卸载清理回调立即清除定时器与行内样式
       prevTabRef.current = "qa";
@@ -464,15 +493,18 @@ describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
       expect(sizerStyle.transition).toBe(expectedTransition);
       expect(sizerStyle.height).toBe("228.5px");
       expect(lastHeightRef.current).toBe(228.5);
+      const hydrateTimerId: number = scheduledTimers.at(-1)?.id ?? -1;
       cleanupHydrate?.();
-      expect(clearedTimerIds).toContain(scheduledTimers[1]?.id ?? -1);
+      expect(clearedTimerIds).toContain(hydrateTimerId);
       expect(sizerStyle).toEqual({ height: "", overflow: "", transition: "" });
 
-      // 弹窗关闭后重置内部记录状态
+      // 弹窗关闭后重置内部记录状态与残留方向类
+      lastDirectionRef.current = "tab-slide-forward";
       expect(runSizer(null, false)).toBeUndefined();
       expect(prevTabRef.current).toBeNull();
       expect(prevHadTargetsRef.current).toBe(false);
       expect(lastHeightRef.current).toBe(0);
+      expect(lastDirectionRef.current).toBe("");
     } finally {
       globalThis.setTimeout = prevSetTimeout;
       globalThis.clearTimeout = prevClearTimeout;
@@ -484,15 +516,9 @@ describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
 
     const statusSkeletonMarkup: string = renderToStaticMarkup(createElement(StatusSkeleton));
     expect(statusSkeletonMarkup).toContain('aria-hidden="true"');
-    expect(statusSkeletonMarkup.match(/memory-metric-card/g)?.length).toBe(
-      MINI_APP_STATUS_SKELETON_MEMORY_INDICES.length
-    );
-    expect(statusSkeletonMarkup.match(/memory-legend-item/g)?.length).toBe(
-      MINI_APP_STATUS_SKELETON_MEMORY_INDICES.length
-    );
-    expect(statusSkeletonMarkup.match(/skeleton-cap-row/g)?.length).toBe(
-      MINI_APP_STATUS_SKELETON_CAPABILITY_INDICES.length
-    );
+    expect(statusSkeletonMarkup.match(/memory-metric-card/g)?.length).toBe(MINI_APP_STATUS_SKELETON_MEMORY_INDICES.length);
+    expect(statusSkeletonMarkup.match(/memory-legend-item/g)?.length).toBe(MINI_APP_STATUS_SKELETON_MEMORY_INDICES.length);
+    expect(statusSkeletonMarkup.match(/skeleton-cap-row/g)?.length).toBe(MINI_APP_STATUS_SKELETON_CAPABILITY_INDICES.length);
     for (const cls of ["skeleton-stat-value", "skeleton-chevron-box", "skeleton-cpu-ring"]) {
       expect(statusSkeletonMarkup).toContain(cls);
     }
@@ -677,28 +703,14 @@ describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
 
     // 1. 下拉看板与内部卡片变量定义与引用一致，暗色多层高对比令牌与共享几何令牌完备
     for (const token of [
-      "--cap-expanded-bg:",
-      "--dropdown-board-bg:",
-      "--dropdown-board-border:",
-      "--dropdown-item-bg:",
-      "--dropdown-item-border:",
-      `--bg: ${MINI_APP_DARK_BG_COLOR};`,
-      `--header-bg: ${MINI_APP_DARK_HEADER_COLOR};`,
-      "--btn-bg:",
-      "--btn-border:",
-      "--btn-shadow-hover:",
-      "--btn-primary-bg:",
-      "--btn-primary-shadow:",
-      "--btn-danger-bg:",
-      "--switch-off-bg:",
-      "--switch-on-bg:",
-      "--skew-btn:",
-      "--skew-chip:",
-      "--clip-chamfer:",
-      "--clip-dogear:",
+      "--cap-expanded-bg:", "--dropdown-board-bg:", "--dropdown-board-border:",
+      "--dropdown-item-bg:", "--dropdown-item-border:", `--bg: ${MINI_APP_DARK_BG_COLOR};`,
+      `--header-bg: ${MINI_APP_DARK_HEADER_COLOR};`, "--btn-bg:", "--btn-border:",
+      "--btn-shadow-hover:", "--btn-primary-bg:", "--btn-primary-shadow:",
+      "--btn-danger-bg:", "--switch-off-bg:", "--switch-on-bg:",
+      "--skew-btn:", "--skew-chip:", "--clip-chamfer:", "--clip-dogear:",
       `--ease-brutal: cubic-bezier(${MINI_APP_FLIP_COLLAPSE_EASING_POINTS.join(", ")});`,
-      "overflow-anchor: none;",
-      "@keyframes miniapp-spin",
+      "overflow-anchor: none;", "@keyframes miniapp-spin",
     ]) {
       expect(baseCss).toContain(token);
     }
@@ -711,19 +723,8 @@ describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
 
     // 2. 快出急停曲线令牌与逐帧折叠样式规则统一对齐
     for (const css of [
-      baseCss,
-      shellCss,
-      primitivesCss,
-      overlaysCss,
-      paginationCss,
-      skeletonsCss,
-      statusCss,
-      chatsCss,
-      chatsDetailCss,
-      chatsTargetsCss,
-      identitiesCss,
-      authCss,
-      galleryCss,
+      baseCss, shellCss, primitivesCss, overlaysCss, paginationCss, skeletonsCss,
+      statusCss, chatsCss, chatsDetailCss, chatsTargetsCss, identitiesCss, authCss, galleryCss,
     ]) {
       expect(css).toContain("var(--ease-brutal");
       // 逐帧跟滚以 `scrollBy({ behavior: "auto" })` 即时写入，样式表不得设置 `scroll-behavior`。
@@ -732,27 +733,17 @@ describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
 
     // 3. 平行四边形骨架条、异形多边形骨架规则、电流感刷新扫描与按钮内水平方形加载块样式规则
     for (const token of [
-      "border: 1.5px solid var(--border-subtle);",
-      "border-radius: 2px;",
-      "box-shadow: 2px 2px 0 var(--border-subtle);",
-      "transform: skewX(var(--skew-chip, -8deg));",
-      "max-width: calc(100% - 6px);",
-      "clip-path: polygon(4px 0, 100% 0, calc(100% - 12px) 100%, 0 100%);",
-      "clip-path: var(--clip-chamfer);",
-      "clip-path: var(--clip-dogear);",
+      "border: 1.5px solid var(--border-subtle);", "border-radius: 2px;",
+      "box-shadow: 2px 2px 0 var(--border-subtle);", "transform: skewX(var(--skew-chip, -8deg));",
+      "max-width: calc(100% - 6px);", "clip-path: polygon(4px 0, 100% 0, calc(100% - 12px) 100%, 0 100%);",
+      "clip-path: var(--clip-chamfer);", "clip-path: var(--clip-dogear);",
       "clip-path: polygon(28% 0, 72% 0, 100% 28%, 100% 72%, 72% 100%, 28% 100%, 0 72%, 0 28%);",
-      "border-radius: 2px 10px 2px 10px;",
-      "border-radius: 10px 2px 10px 2px;",
-      "background: var(--surface-elevated);",
-      "--refresh-arc-band:",
-      "opacity: 0.86;",
-      "@keyframes miniapp-electric-flicker",
-      "@keyframes miniapp-electric-arc-sweep",
+      "border-radius: 2px 10px 2px 10px;", "border-radius: 10px 2px 10px 2px;",
+      "background: var(--surface-elevated);", "--refresh-arc-band:", "opacity: 0.86;",
+      "@keyframes miniapp-electric-flicker", "@keyframes miniapp-electric-arc-sweep",
       "animation: miniapp-electric-flicker 0.56s var(--ease-brutal) infinite;",
-      ".content-refreshing::after",
-      "animation: miniapp-electric-arc-sweep 0.56s var(--ease-brutal) infinite;",
-      "@keyframes miniapp-brutal-scan",
-      "@keyframes miniapp-brutal-dot-step",
+      ".content-refreshing::after", "animation: miniapp-electric-arc-sweep 0.56s var(--ease-brutal) infinite;",
+      "@keyframes miniapp-brutal-scan", "@keyframes miniapp-brutal-dot-step",
       ".join-clean-loading-dots.loading-dots-wave > .loading-dot-block",
     ]) {
       expect(skeletonsCss).toContain(token);
@@ -845,15 +836,19 @@ describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
     expect(topbarTransition).not.toContain("transform");
 
     const sidebarDrawerBody: string = /(?:^|\n)\.sidebar-drawer\s*\{([^}]*)\}/u.exec(shellCss)?.[1] ?? "";
+    expect(sidebarDrawerBody).toContain("width: round(nearest, min(312px, 86vw), 1px);");
     expect(sidebarDrawerBody).toContain("box-shadow: var(--shadow-lg);");
     expect(sidebarDrawerBody).toContain("will-change: transform;");
-    expect(sidebarDrawerBody).toContain("transform: translate3d(calc(-100% - 8px), 0, 0);");
+    expect(sidebarDrawerBody).toContain("backface-visibility: hidden;");
+    expect(sidebarDrawerBody).toContain("transform: translate3d(-324px, 0, 0);");
     expect(sidebarDrawerBody).toContain("transition: transform 0.19s var(--ease-brutal);");
     expect(sidebarDrawerBody).not.toMatch(/transition\s*:[^;]*box-shadow/u);
 
     const sidebarDrawerOpenBody: string = /(?:^|\n)\.sidebar-drawer\.open\s*\{([^}]*)\}/u.exec(shellCss)?.[1] ?? "";
     expect(sidebarDrawerOpenBody).toContain("transform: translate3d(0, 0, 0);");
     expect(sidebarDrawerOpenBody).toContain("pointer-events: auto;");
+    expect(sidebarDrawerOpenBody).not.toContain("will-change");
+    expect(sidebarDrawerOpenBody).not.toContain("transform: none");
     expect(sidebarDrawerOpenBody).not.toContain("box-shadow");
 
     expect(overlaysCss).toContain("var(--btn-primary-bg)");
@@ -930,12 +925,13 @@ describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
     expect(galleryCss).toContain(".gallery-preview-collapse-grid.flip-closing");
     expect(galleryCss).toContain(".gallery-preview-collapse-grid.expanded ~ .card");
     expect(galleryCss).toContain(".gallery-preview-collapse-grid.flip-closing ~ .card");
-    expect(statusCss).toContain(".cap-collapse-wrap.expanded > .cap-collapse-inner");
+    expect(statusCss).toContain('.cap-collapse-inner[data-flip-in-flight="1"]');
     expect(identitiesCss).toContain(".perm-drawer-collapse-grid.flip-closing > .perm-drawer-collapse-inner");
-    expect(galleryCss).toContain(".gallery-preview-collapse-grid.expanded > .gallery-preview-collapse-inner");
-    for (const css of [statusCss, identitiesCss, chatsTargetsCss, galleryCss]) {
+    expect(galleryCss).toContain('.gallery-preview-collapse-inner[data-flip-in-flight="1"]');
+    for (const css of [statusCss, identitiesCss, galleryCss]) {
       expect(css).toContain("@media (hover: none) and (pointer: coarse)");
     }
+    expect(chatsTargetsCss).not.toContain("@media (hover: none) and (pointer: coarse)");
     expect(galleryCss).toContain(".gallery-preview-collapse-grid ~ .card { will-change: transform; }");
     expect(galleryCss).toContain("height: clamp(220px, 42vh, 320px);");
     expect(identitiesCss).toContain("@media (max-width: 440px)");
@@ -944,7 +940,7 @@ describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
     expect(chatsTargetsCss).toContain("@media (max-width: 350px)");
     expect(primitivesCss).toContain("@media (min-width: 720px)");
 
-    // 6. 弹窗/浮层/Toast 退场缓动曲线、纯整数 translate3d 无缩放、常驻合成层、顶边锚定与一体式卡片恒定底边框核验
+    // 6. 弹窗/浮层/Toast 入场落点归位主绘制层、退场缓动与合成层隔离、整数像素对齐及一体式卡片恒定底边框核验
     const htmlBodyRootRule: string = /html,\s*body,\s*#root\s*\{([^}]*)\}/u.exec(baseCss)?.[1] ?? "";
     expect(htmlBodyRootRule).toContain("--ease-exit: cubic-bezier(0.32, 0, 0.67, 0);");
     expect(baseCss.slice(0, baseCss.indexOf("* {"))).not.toContain("--ease-exit");
@@ -952,19 +948,23 @@ describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
     expect(authCss).toContain("miniapp-backdrop-fade-in");
     expect(authCss).not.toMatch(/\.inline-notice-collapse-grid[^{]*\{[^}]*margin-top\s*:/u);
     expect(authCss).not.toContain(".auth-gate-form > .inline-notice-collapse-grid");
-    for (const [cssSource, keyframeName] of [
-      [overlaysCss, "miniapp-toast-in"], [overlaysCss, "miniapp-toast-out"],
-      [overlaysCss, "miniapp-modal-pop"], [overlaysCss, "miniapp-modal-pop-out"],
-      [shellCss, "miniapp-popover-drop"], [shellCss, "miniapp-popover-drop-out"],
-      [chatsTargetsCss, "miniapp-targets-stamp-in"], [chatsTargetsCss, "miniapp-targets-snap-out"],
+    for (const [cssSource, keyframeName, isEntrance] of [
+      [overlaysCss, "miniapp-toast-in", true], [overlaysCss, "miniapp-toast-out", false],
+      [overlaysCss, "miniapp-modal-pop", true], [overlaysCss, "miniapp-modal-pop-out", false],
+      [shellCss, "miniapp-popover-drop", true], [shellCss, "miniapp-popover-drop-out", false],
+      [chatsTargetsCss, "miniapp-targets-stamp-in", true], [chatsTargetsCss, "miniapp-targets-snap-out", false],
+      [chatsTargetsCss, "miniapp-tab-slide-forward", true], [chatsTargetsCss, "miniapp-tab-slide-backward", true],
     ] as const) {
       const kfBody: string = new RegExp(`@keyframes\\s+${keyframeName}\\s*\\{([\\s\\S]*?\\}\\s*)\\}`, "u").exec(cssSource)?.[1] ?? "";
       expect(kfBody).toContain("translate3d(");
+      if (isEntrance) expect(kfBody).toContain("transform: translate(0, 0)");
       expect(kfBody).not.toContain("scale(");
       expect(kfBody).not.toContain("translateX(-50%)");
     }
     const toastBaseBody: string = /(?:^|\n)\.toast\s*\{([^}]*)\}/u.exec(overlaysCss)?.[1] ?? "";
-    for (const token of ["left: 0;", "right: 0;", "margin-inline: auto;"]) expect(toastBaseBody).toContain(token);
+    for (const token of ["left: 0;", "right: 0;", "margin-inline: auto;", "width: min(calc(100vw - 24px), 560px);"]) {
+      expect(toastBaseBody).toContain(token);
+    }
     expect(toastBaseBody).not.toContain("translateX(-50%)");
     expect(toastBaseBody).not.toMatch(/(?<![\w-])transition\s*:/u);
     for (const [cssSource, selectorPattern] of [
@@ -973,9 +973,9 @@ describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
       [chatsDetailCss, /(?:^|\n)\.chat-targets-menu-popover\s*\{([^}]*)\}/u], [chatsTargetsCss, /(?:^|\n)\.chat-targets-lang-popover\s*\{([^}]*)\}/u],
     ] as const) {
       const layerBody: string = selectorPattern.exec(cssSource)?.[1] ?? "";
-      expect(layerBody).toContain("will-change: transform, opacity;");
-      expect(layerBody).toContain("transform: translate3d(0, 0, 0);");
-      expect(layerBody).toContain("backface-visibility: hidden;");
+      expect(layerBody).toContain("will-change: auto;");
+      expect(layerBody).toContain("backface-visibility: visible;");
+      expect(layerBody).not.toContain("translate3d(");
     }
     for (const [cssSource, closingPattern] of [
       [overlaysCss, /(?:^|\n)\.toast\.closing\s*\{([^}]*)\}/u], [overlaysCss, /(?:^|\n)\.confirm-backdrop\.closing::before\s*\{([^}]*)\}/u],

@@ -10,8 +10,8 @@ import { afterEach, beforeEach, describe, expect, jest, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { App } from "../../packages/mini-app-frontend/App";
-import { buildMiniAppGalleryDownloadUrl, downloadMiniAppGalleryImageByName } from "../../packages/mini-app-frontend/api/galleryDownload";
-import { buildMiniAppGalleryImageUrl } from "../../packages/mini-app-frontend/api/galleryFile";
+import { downloadMiniAppGalleryImageByName } from "../../packages/mini-app-frontend/api/galleryDownload";
+import { fetchMiniAppGalleryImageObjectUrl } from "../../packages/mini-app-frontend/api/galleryFile";
 import { uploadMiniAppGalleryImageBytes } from "../../packages/mini-app-frontend/api/galleryUpload";
 import { buildMiniAppAuthHeaders, miniAppFetchJson } from "../../packages/mini-app-frontend/api/request";
 import {
@@ -24,14 +24,12 @@ import {
 } from "../../packages/mini-app-frontend/consts/miniApp";
 import { getMiniAppTranslations } from "../../packages/mini-app-frontend/i18n";
 import {
-  clearMiniAppAssetToken,
   clearMiniAppSessionToken,
-  readMiniAppAssetToken,
+  hydrateMiniAppSessionFromStorage,
   readMiniAppSessionExpiresAt,
   readMiniAppSessionToken,
-  setMiniAppAssetToken,
-  setMiniAppSessionToken,
 } from "../../packages/mini-app-frontend/libs/credentials";
+import { setMiniAppServerSigningPublicKeyForTest } from "../../packages/mini-app-frontend/libs/signingKey";
 import { readMiniAppInitData } from "../../packages/mini-app-frontend/libs/telegram";
 import { resetMiniAppStoreForTest, useMiniAppStore } from "../../packages/mini-app-frontend/store/app";
 import { createChatsStore } from "../../packages/mini-app-frontend/store/chats";
@@ -43,8 +41,17 @@ import { createPermissionDrawerStore } from "../../packages/mini-app-frontend/st
 import { createStatusStore } from "../../packages/mini-app-frontend/store/status";
 import type { MiniAppStatusStore } from "../../packages/mini-app-frontend/store/status";
 import { createTotpStore } from "../../packages/mini-app-frontend/store/totp";
-import type { MiniAppChatDetail, MiniAppStatusView } from "../../packages/mini-app-frontend/types/miniApp";
+import type {
+  MiniAppChatDetail,
+  MiniAppStatusView,
+} from "../../packages/mini-app-frontend/types/miniApp";
 import type { MiniAppTranslations } from "../../packages/mini-app-frontend/types/miniAppI18n";
+import {
+  createInMemoryIdbFactory,
+  seedTestMiniAppSession,
+  TEST_RUNTIME_SIGNING_KEY_PAIR,
+  wrapEncryptedTestFetch,
+} from "./helpers/encryptedFetchMock";
 
 /** 测试捕获到的单次前端出站请求记录。 */
 interface CapturedRequest {
@@ -84,6 +91,7 @@ const SNAPSHOTTED_GLOBAL_KEYS: readonly string[] = [
   "window",
   "localStorage",
   "sessionStorage",
+  "indexedDB",
   "Telegram",
   "location",
   "document",
@@ -173,13 +181,11 @@ function assertRenderedGateView(
 }
 
 /**
- * 在内存、`localStorage` 与 `sessionStorage` 中预置一对尚未到期的会话令牌与受保护资源令牌，用于验证失败或登出时被彻底擦除。
+ * 在内存与 `sessionStorage`/`indexedDB` 中预置尚未到期的会话令牌与密钥（`localStorage` 不得写入会话凭据）。
  * @param sessionHex 64 位十六进制会话令牌。
- * @param assetHex 64 位十六进制资源令牌。
  */
-function seedActiveLocalCredentials(sessionHex: string, assetHex: string): void {
-  setMiniAppAssetToken(assetHex);
-  setMiniAppSessionToken(sessionHex, Date.now() + MINI_APP_SESSION_TTL_MS);
+function seedActiveLocalCredentials(sessionHex: string): void {
+  seedTestMiniAppSession(sessionHex, Date.now() + MINI_APP_SESSION_TTL_MS);
 }
 
 let localStoreFixture: MemoryStorage = createMemoryStorage();
@@ -211,27 +217,36 @@ beforeEach((): void => {
     writable: true,
     value: sessionStoreFixture,
   });
+  Object.defineProperty(globalThis, "indexedDB", {
+    configurable: true,
+    enumerable: true,
+    writable: true,
+    value: createInMemoryIdbFactory(),
+  });
+  setMiniAppServerSigningPublicKeyForTest(TEST_RUNTIME_SIGNING_KEY_PAIR.publicKeyBase64);
 
-  const mockedFetch: typeof fetch = (async (
-    input: Parameters<typeof fetch>[0],
-    init?: RequestInit
-  ): Promise<Response> => {
-    const url: URL = new URL(String(input), "https://miniapp.example.com/");
-    const method: string = (init?.method ?? "GET").toUpperCase();
-    const routeKey: string = `${method} ${url.pathname}`;
-    const headers: Record<string, string> = normalizeHeaders(init?.headers);
-    capturedRequests.push({
-      routeKey,
-      fullPath: `${url.pathname}${url.search}`,
-      headers,
-      keepalive: init?.keepalive === true,
-    });
-    const handler: MockRouteHandler | undefined = mockRoutes.get(routeKey);
-    if (handler !== undefined) {
-      return handler(url, init, headers);
+  const mockedFetch: typeof fetch = wrapEncryptedTestFetch(
+    (
+      url: URL,
+      decryptedInit: RequestInit | undefined,
+      rawInit: RequestInit | undefined
+    ): Response | Promise<Response> => {
+      const method: string = (rawInit?.method ?? "GET").toUpperCase();
+      const routeKey: string = `${method} ${url.pathname}`;
+      const headers: Record<string, string> = normalizeHeaders(rawInit?.headers);
+      capturedRequests.push({
+        routeKey,
+        fullPath: `${url.pathname}${url.search}`,
+        headers,
+        keepalive: rawInit?.keepalive === true,
+      });
+      const handler: MockRouteHandler | undefined = mockRoutes.get(routeKey);
+      if (handler !== undefined) {
+        return handler(url, decryptedInit, headers);
+      }
+      return jsonRes({ error: `Unhandled route ${routeKey}` }, 404);
     }
-    return jsonRes({ error: `Unhandled route ${routeKey}` }, 404);
-  }) as typeof fetch;
+  );
   Object.defineProperty(globalThis, "fetch", {
     configurable: true,
     enumerable: true,
@@ -240,16 +255,15 @@ beforeEach((): void => {
   });
 
   clearMiniAppSessionToken();
-  clearMiniAppAssetToken();
   resetMiniAppStoreForTest();
   useMiniAppStore.getState().setLanguage("zh");
 });
 
 afterEach((): void => {
   jest.useRealTimers();
+  setMiniAppServerSigningPublicKeyForTest(null);
   resetMiniAppStoreForTest();
   clearMiniAppSessionToken();
-  clearMiniAppAssetToken();
   for (const key of SNAPSHOTTED_GLOBAL_KEYS) {
     const descriptor: PropertyDescriptor | undefined = savedGlobalDescriptors.get(key);
     if (descriptor !== undefined) {
@@ -275,8 +289,13 @@ describe("Mini App 前端未授权访问门禁与凭据隔离", () => {
     expect(bareHeaders[MINI_APP_INIT_DATA_HEADER]).toBeUndefined();
     expect(bareHeaders.authorization).toBeUndefined();
     expect(bareHeaders[MINI_APP_SESSION_HEADER]).toBeUndefined();
-    expect(buildMiniAppGalleryImageUrl("sample.png")).toBe("./api/gallery/file/sample.png");
-    expect(buildMiniAppGalleryDownloadUrl("sample.png")).toBe("./api/gallery/download/sample.png");
+    await expect(fetchMiniAppGalleryImageObjectUrl("sample.png")).rejects.toThrow(
+      "[PASSWORD_REQUIRED] PASSWORD_REQUIRED"
+    );
+    await expect(downloadMiniAppGalleryImageByName("sample.png", "sample.png")).rejects.toThrow(
+      "[PASSWORD_REQUIRED] PASSWORD_REQUIRED"
+    );
+    expect(capturedRequests).toEqual([]);
 
     interface PrecheckFailureCase {
       readonly label: string;
@@ -365,9 +384,8 @@ describe("Mini App 前端未授权访问门禁与凭据隔离", () => {
       capturedRequests.length = 0;
       (globalThis as { Telegram?: unknown }).Telegram =
         item.initData === undefined ? undefined : { WebApp: { initData: item.initData } };
-      seedActiveLocalCredentials("a".repeat(64), "b".repeat(64));
+      seedActiveLocalCredentials("a".repeat(64));
       expect(readMiniAppSessionToken()).toBe("a".repeat(64));
-      expect(readMiniAppAssetToken()).toBe("b".repeat(64));
 
       registerRoute("GET /api/auth/precheck", item.responder);
       await useMiniAppStore.getState().runAccessPrecheck();
@@ -375,8 +393,8 @@ describe("Mini App 前端未授权访问门禁与凭据隔离", () => {
       expect(`${item.label} -> ${useMiniAppStore.getState().gateState}`).toBe(`${item.label} -> denied`);
       expect(useMiniAppStore.getState().deniedDiag?.code).toBe(item.expectedCode);
       expect(readMiniAppSessionToken()).toBe("");
-      expect(readMiniAppAssetToken()).toBe("");
       expect(localStoreFixture.getItem(MINI_APP_SESSION_STORAGE_KEY)).toBeNull();
+      expect(localStoreFixture.size()).toBe(0);
       expect(sessionStoreFixture.getItem(MINI_APP_SESSION_STORAGE_KEY)).toBeNull();
       expect(capturedRequests.map((req: CapturedRequest): string => req.routeKey)).toEqual([
         "GET /api/auth/precheck",
@@ -413,7 +431,7 @@ describe("Mini App 前端未授权访问门禁与凭据隔离", () => {
       WebApp: { initData: "valid-superadmin-initdata", initDataUnsafe: { user: { id: 10001 } } },
     };
 
-    seedActiveLocalCredentials("c".repeat(64), "d".repeat(64));
+    seedActiveLocalCredentials("c".repeat(64));
     const headersWithoutSession: Record<string, string> = buildMiniAppAuthHeaders(false);
     expect(headersWithoutSession[MINI_APP_INIT_DATA_HEADER]).toBe("valid-superadmin-initdata");
     expect(headersWithoutSession.Authorization).toBe(
@@ -429,17 +447,19 @@ describe("Mini App 前端未授权访问门禁与凭据隔离", () => {
     expect(useMiniAppStore.getState().gateState).toBe("password");
     expect(useMiniAppStore.getState().authMode).toBe("password");
     expect(readMiniAppSessionToken()).toBe("");
-    expect(readMiniAppAssetToken()).toBe("");
     const pwGateHtml: string = assertRenderedGateView("password");
     expect(pwGateHtml).toContain('type="password"');
 
-    // 未解锁态构造图库图片或下载 URL 仅携带 initData，绝不携带 assetToken 或失效 session。
-    expect(buildMiniAppGalleryImageUrl("pic.png")).toBe(
-      "./api/gallery/file/pic.png?initData=valid-superadmin-initdata"
+    // 未解锁态请求图库图片或下载必须先持有效会话密钥，否则直接阻断并不触发任何外发请求。
+    await expect(fetchMiniAppGalleryImageObjectUrl("pic.png")).rejects.toThrow(
+      "[PASSWORD_REQUIRED] PASSWORD_REQUIRED"
     );
-    expect(buildMiniAppGalleryDownloadUrl("pic.png")).toBe(
-      "./api/gallery/download/pic.png?initData=valid-superadmin-initdata"
+    await expect(downloadMiniAppGalleryImageByName("pic.png", "pic.png")).rejects.toThrow(
+      "[PASSWORD_REQUIRED] PASSWORD_REQUIRED"
     );
+    expect(
+      capturedRequests.filter((req: CapturedRequest): boolean => req.routeKey !== "GET /api/auth/precheck")
+    ).toEqual([]);
 
     // 2. TOTP 模式预检未解锁 -> 停留在 AuthGatePage（6 位数字动态码输入框）。
     resetMiniAppStoreForTest();
@@ -455,7 +475,7 @@ describe("Mini App 前端未授权访问门禁与凭据隔离", () => {
 
     // 3. 服务端返回 sessionValid: true 但到期时间戳已过期 -> 拒绝解锁，清理凭据并进入 AuthGatePage。
     resetMiniAppStoreForTest();
-    seedActiveLocalCredentials("e".repeat(64), "f".repeat(64));
+    seedActiveLocalCredentials("e".repeat(64));
     registerRoute("GET /api/auth/precheck", (): Response =>
       jsonRes({
         ok: true,
@@ -464,27 +484,25 @@ describe("Mini App 前端未授权访问门禁与凭据隔离", () => {
         authMode: "password",
         sessionValid: true,
         sessionExpiresAt: Date.now() - 5_000,
-        assetToken: "f".repeat(64),
       })
     );
     await useMiniAppStore.getState().runAccessPrecheck();
     expect(useMiniAppStore.getState().gateState).toBe("password");
     expect(readMiniAppSessionToken()).toBe("");
-    expect(readMiniAppAssetToken()).toBe("");
     assertRenderedGateView("password");
 
-    // 4. 本地 Web Storage 被注入非 64 位十六进制的畸形令牌 -> 读取即自毁，预检后仍停留在 AuthGatePage。
+    // 4. 本地 sessionStorage 被注入非 64 位十六进制的畸形令牌 -> 水合即自毁，预检后仍停留在 AuthGatePage。
     resetMiniAppStoreForTest();
-    localStoreFixture.setItem(
+    sessionStoreFixture.setItem(
       MINI_APP_SESSION_STORAGE_KEY,
       JSON.stringify({
         token: "malformed-non-hex-token",
         expiresAt: Date.now() + MINI_APP_SESSION_TTL_MS,
-        assetToken: "1".repeat(64),
       })
     );
+    await hydrateMiniAppSessionFromStorage();
     expect(readMiniAppSessionToken()).toBe("");
-    expect(localStoreFixture.getItem(MINI_APP_SESSION_STORAGE_KEY)).toBeNull();
+    expect(sessionStoreFixture.getItem(MINI_APP_SESSION_STORAGE_KEY)).toBeNull();
     registerRoute("GET /api/auth/precheck", (): Response =>
       jsonRes({
         ok: true,
@@ -506,6 +524,27 @@ describe("Mini App 前端未授权访问门禁与凭据隔离", () => {
     };
     useMiniAppStore.setState({ gateState: "password", authMode: "totp", passwordInput: "123456" });
 
+    let locked: boolean = false;
+    registerRoute("GET /api/auth/precheck", (): Response => {
+      if (locked) {
+        return jsonRes(
+          {
+            ok: false,
+            status: 403,
+            code: "PASSWORD_LOCKED",
+            error: "PASSWORD_LOCKED",
+            remainingMinutes: 30,
+          },
+          403
+        );
+      }
+      return jsonRes({
+        ok: true,
+        ttlMs: MINI_APP_SESSION_TTL_MS,
+        totpEnabled: true,
+        authMode: "totp",
+      });
+    });
     registerRoute("POST /api/auth/login", (): Response =>
       jsonRes(
         {
@@ -522,12 +561,12 @@ describe("Mini App 前端未授权访问门禁与凭据隔离", () => {
     expect(useMiniAppStore.getState().gateState).toBe("password");
     expect(useMiniAppStore.getState().passwordError).toBe(zh.serverNotice("INVALID_TOTP_CODE", { remainingAttempts: 2 }));
     expect(readMiniAppSessionToken()).toBe("");
-    expect(readMiniAppAssetToken()).toBe("");
     assertRenderedGateView("password");
 
     // 第 3 次错误返回 PASSWORD_LOCKED -> 自动重跑 precheck 并切入 AccessDeniedPage。
-    registerRoute("POST /api/auth/login", (): Response =>
-      jsonRes(
+    registerRoute("POST /api/auth/login", (): Response => {
+      locked = true;
+      return jsonRes(
         {
           ok: false,
           status: 403,
@@ -536,20 +575,8 @@ describe("Mini App 前端未授权访问门禁与凭据隔离", () => {
           remainingMinutes: 30,
         },
         403
-      )
-    );
-    registerRoute("GET /api/auth/precheck", (): Response =>
-      jsonRes(
-        {
-          ok: false,
-          status: 403,
-          code: "PASSWORD_LOCKED",
-          error: "PASSWORD_LOCKED",
-          remainingMinutes: 30,
-        },
-        403
-      )
-    );
+      );
+    });
     await useMiniAppStore.getState().submitCredential();
     expect(useMiniAppStore.getState().gateState).toBe("denied");
     expect(useMiniAppStore.getState().deniedDiag?.code).toBe("PASSWORD_LOCKED");
@@ -561,8 +588,7 @@ describe("Mini App 前端未授权访问门禁与凭据隔离", () => {
       WebApp: { initData: "valid-superadmin-initdata" },
     };
     const activeToken: string = "7".repeat(64);
-    const activeAsset: string = "8".repeat(64);
-    seedActiveLocalCredentials(activeToken, activeAsset);
+    seedActiveLocalCredentials(activeToken);
     useMiniAppStore.setState({
       gateState: "unlocked",
       sessionExpiresAt: Date.now() + MINI_APP_SESSION_TTL_MS,
@@ -580,7 +606,7 @@ describe("Mini App 前端未授权访问门禁与凭据隔离", () => {
 
     useMiniAppStore.getState().logout(zh.lockSessionToast);
 
-    // 同步断言：本地令牌、资源令牌、Web Storage、弹窗与侧栏状态均已立即清空并退回密码门禁。
+    // 同步断言：本地令牌、Web Storage、弹窗与侧栏状态均已立即清空并退回密码门禁。
     expect(await confirmPromise).toBeFalse();
     expect(useMiniAppStore.getState().gateState).toBe("password");
     expect(useMiniAppStore.getState().sidebarOpen).toBeFalse();
@@ -588,7 +614,6 @@ describe("Mini App 前端未授权访问门禁与凭据隔离", () => {
     expect(useMiniAppStore.getState().sessionExpiresAt).toBe(0);
     expect(readMiniAppSessionToken()).toBe("");
     expect(readMiniAppSessionExpiresAt()).toBe(0);
-    expect(readMiniAppAssetToken()).toBe("");
     expect(localStoreFixture.getItem(MINI_APP_SESSION_STORAGE_KEY)).toBeNull();
     expect(sessionStoreFixture.getItem(MINI_APP_SESSION_STORAGE_KEY)).toBeNull();
     assertRenderedGateView("password");
@@ -599,14 +624,23 @@ describe("Mini App 前端未授权访问门禁与凭据隔离", () => {
     expect(capturedRequests[0]?.keepalive).toBeTrue();
     expect(capturedRequests[0]?.headers[MINI_APP_SESSION_HEADER]).toBe(activeToken);
 
-    // 登出后发起任何后续 API 请求、构造请求头或图库 URL，均不再附带已吊销的会话或资源令牌。
+    // 登出后发起任何后续 API 请求、构造请求头、上传或下载，均不再附带已吊销的会话令牌；本地无会话密钥的加密请求一律在发出前拦截。
     expect(buildMiniAppAuthHeaders(true)[MINI_APP_SESSION_HEADER]).toBeUndefined();
-    expect(buildMiniAppGalleryImageUrl("a.png")).not.toContain(activeAsset);
-    expect(buildMiniAppGalleryDownloadUrl("a.png")).not.toContain(activeToken);
+    await expect(fetchMiniAppGalleryImageObjectUrl("a.png")).rejects.toThrow(
+      "[PASSWORD_REQUIRED] PASSWORD_REQUIRED"
+    );
+    await expect(downloadMiniAppGalleryImageByName("a.png", "a.png")).rejects.toThrow(
+      "[PASSWORD_REQUIRED] PASSWORD_REQUIRED"
+    );
+    await expect(uploadMiniAppGalleryImageBytes(new Uint8Array([1, 2, 3]))).rejects.toThrow(
+      "[PASSWORD_REQUIRED] PASSWORD_REQUIRED"
+    );
+    expect(capturedRequests).toHaveLength(1);
 
-    await expect(miniAppFetchJson("./api/status")).rejects.toThrow("[PASSWORD_REQUIRED]");
-    expect(capturedRequests[1]?.routeKey).toBe("GET /api/status");
-    expect(capturedRequests[1]?.headers[MINI_APP_SESSION_HEADER]).toBeUndefined();
+    await expect(miniAppFetchJson("./api/status")).rejects.toThrow(
+      "[PASSWORD_REQUIRED] PASSWORD_REQUIRED"
+    );
+    expect(capturedRequests).toHaveLength(1);
   });
 
   test("会话中任意业务 API 或各领域 Store 收到 401 PASSWORD_REQUIRED / 403 PASSWORD_LOCKED 及 45 分钟到期时立即清除凭据并锁定", async () => {
@@ -618,22 +652,29 @@ describe("Mini App 前端未授权访问门禁与凭据隔离", () => {
     registerRoute("POST /api/gallery/upload", (): Response =>
       jsonRes({ code: "PASSWORD_REQUIRED", error: "SESSION_EXPIRED" }, 401)
     );
-    seedActiveLocalCredentials("1".repeat(64), "2".repeat(64));
+    seedActiveLocalCredentials("1".repeat(64));
     await expect(uploadMiniAppGalleryImageBytes(new Uint8Array([1, 2, 3]))).rejects.toThrow(
       "[PASSWORD_REQUIRED] SESSION_EXPIRED"
     );
     expect(readMiniAppSessionToken()).toBe("");
-    expect(readMiniAppAssetToken()).toBe("");
 
-    registerRoute("GET /api/gallery/download/a.png", (): Response =>
+    registerRoute("GET /api/gallery/download", (): Response =>
       jsonRes({ code: "PASSWORD_REQUIRED", error: "SESSION_EXPIRED" }, 401)
     );
-    seedActiveLocalCredentials("1".repeat(64), "2".repeat(64));
+    seedActiveLocalCredentials("1".repeat(64));
     await expect(downloadMiniAppGalleryImageByName("a.png", "1.png")).rejects.toThrow(
       "[PASSWORD_REQUIRED] SESSION_EXPIRED"
     );
     expect(readMiniAppSessionToken()).toBe("");
-    expect(readMiniAppAssetToken()).toBe("");
+
+    registerRoute("GET /api/gallery/file", (): Response =>
+      jsonRes({ code: "PASSWORD_REQUIRED", error: "SESSION_EXPIRED" }, 401)
+    );
+    seedActiveLocalCredentials("1".repeat(64));
+    await expect(fetchMiniAppGalleryImageObjectUrl("a.png")).rejects.toThrow(
+      "[PASSWORD_REQUIRED] SESSION_EXPIRED"
+    );
+    expect(readMiniAppSessionToken()).toBe("");
 
     // 2. 各业务页面 Store 遇到 401 PASSWORD_REQUIRED 时均通过 notify 立即把根门禁锁定回 AuthGatePage。
     interface StoreRevocationAction {
@@ -647,7 +688,7 @@ describe("Mini App 前端未授权访问门禁与凭据隔离", () => {
       "GET /api/status",
       "GET /api/mood",
       "GET /api/chats",
-      "GET /api/chats/-1001/messages",
+      "GET /api/chats/messages",
       "GET /api/identities/whitelist",
       "POST /api/identities/permission",
       "GET /api/gallery",
@@ -709,7 +750,7 @@ describe("Mini App 前端未授权访问门禁与凭据隔离", () => {
     ];
 
     for (const action of storeActions) {
-      seedActiveLocalCredentials("3".repeat(64), "4".repeat(64));
+      seedActiveLocalCredentials("3".repeat(64));
       useMiniAppStore.setState({
         gateState: "unlocked",
         sessionExpiresAt: Date.now() + MINI_APP_SESSION_TTL_MS,
@@ -723,7 +764,6 @@ describe("Mini App 前端未授权访问门禁与凭据隔离", () => {
         `${action.name} -> password`
       );
       expect(readMiniAppSessionToken()).toBe("");
-      expect(readMiniAppAssetToken()).toBe("");
       assertRenderedGateView("password");
 
       // 锁定后再次请求不再附带旧的 X-Mini-App-Session 头。
@@ -733,7 +773,7 @@ describe("Mini App 前端未授权访问门禁与凭据隔离", () => {
     }
 
     // 3. 会话中收到 403 PASSWORD_LOCKED 时立即擦除凭据、回到 checking 并经重预检落入 AccessDeniedPage。
-    seedActiveLocalCredentials("5".repeat(64), "6".repeat(64));
+    seedActiveLocalCredentials("5".repeat(64));
     useMiniAppStore.setState({
       gateState: "unlocked",
       sessionExpiresAt: Date.now() + MINI_APP_SESSION_TTL_MS,
@@ -748,7 +788,6 @@ describe("Mini App 前端未授权访问门禁与凭据隔离", () => {
     await totpStore.getState().loadTotpStatus();
     expect(useMiniAppStore.getState().gateState).toBe("checking");
     expect(readMiniAppSessionToken()).toBe("");
-    expect(readMiniAppAssetToken()).toBe("");
     assertRenderedGateView("checking");
 
     await useMiniAppStore.getState().runAccessPrecheck();
@@ -759,7 +798,7 @@ describe("Mini App 前端未授权访问门禁与凭据隔离", () => {
     jest.useFakeTimers();
     const shortTtlMs: number = 5_000;
     const tokenBeforeTimer: string = "9".repeat(64);
-    seedActiveLocalCredentials(tokenBeforeTimer, "a".repeat(64));
+    seedActiveLocalCredentials(tokenBeforeTimer);
     registerRoute("GET /api/auth/precheck", (): Response =>
       jsonRes({
         ok: true,
@@ -768,7 +807,6 @@ describe("Mini App 前端未授权访问门禁与凭据隔离", () => {
         authMode: "password",
         sessionValid: true,
         sessionExpiresAt: Date.now() + shortTtlMs,
-        assetToken: "a".repeat(64),
       })
     );
     await useMiniAppStore.getState().runAccessPrecheck();
@@ -778,7 +816,6 @@ describe("Mini App 前端未授权访问门禁与凭据隔离", () => {
     jest.advanceTimersByTime(shortTtlMs + 100);
     expect(useMiniAppStore.getState().gateState).toBe("password");
     expect(readMiniAppSessionToken()).toBe("");
-    expect(readMiniAppAssetToken()).toBe("");
     assertRenderedGateView("password");
   });
 
@@ -802,9 +839,7 @@ describe("Mini App 前端未授权访问门禁与凭据隔离", () => {
       activeSessions: { total: 0, gag: 0, wed: 0, verify: 0, qaSet: 0 },
       telegramOutbound: {
         inFlight: 0,
-        maxConcurrency: 30,
-        waiting: 0,
-        retryQueueSize: 0,
+        retryWaiting: 0,
         retryQueueMax: 128,
       },
       capabilities: [],
@@ -867,7 +902,7 @@ describe("Mini App 前端未授权访问门禁与凭据隔离", () => {
       },
       {
         name: "chatsStore.pollRunningBatchKick()",
-        routeKey: "GET /api/chats/-1001",
+        routeKey: "GET /api/chats/detail",
         prepareAndPoll: async (registerTarget: () => void): Promise<void> => {
           const chatsStore: MiniAppChatsStore = createChatsStore();
           chatsStore.setState({
@@ -883,7 +918,7 @@ describe("Mini App 前端未授权访问门禁与凭据隔离", () => {
 
     // 1. 后台静默轮询收到 401 PASSWORD_REQUIRED 时立即清空本地令牌并将 gateState 锁定回 password。
     for (const pollCase of backgroundPollCases) {
-      seedActiveLocalCredentials("b".repeat(64), "c".repeat(64));
+      seedActiveLocalCredentials("b".repeat(64));
       useMiniAppStore.setState({
         gateState: "unlocked",
         sessionExpiresAt: Date.now() + MINI_APP_SESSION_TTL_MS,
@@ -899,7 +934,6 @@ describe("Mini App 前端未授权访问门禁与凭据隔离", () => {
         `${pollCase.name} 401 -> password`
       );
       expect(readMiniAppSessionToken()).toBe("");
-      expect(readMiniAppAssetToken()).toBe("");
       expect(localStoreFixture.getItem(MINI_APP_SESSION_STORAGE_KEY)).toBeNull();
       expect(sessionStoreFixture.getItem(MINI_APP_SESSION_STORAGE_KEY)).toBeNull();
       assertRenderedGateView("password");
@@ -910,7 +944,7 @@ describe("Mini App 前端未授权访问门禁与凭据隔离", () => {
       jsonRes({ ok: false, status: 403, code: "PASSWORD_LOCKED", error: "PASSWORD_LOCKED" }, 403)
     );
     for (const pollCase of backgroundPollCases) {
-      seedActiveLocalCredentials("d".repeat(64), "e".repeat(64));
+      seedActiveLocalCredentials("d".repeat(64));
       useMiniAppStore.setState({
         gateState: "unlocked",
         sessionExpiresAt: Date.now() + MINI_APP_SESSION_TTL_MS,
@@ -926,7 +960,6 @@ describe("Mini App 前端未授权访问门禁与凭据隔离", () => {
         `${pollCase.name} 403 -> checking`
       );
       expect(readMiniAppSessionToken()).toBe("");
-      expect(readMiniAppAssetToken()).toBe("");
       expect(localStoreFixture.getItem(MINI_APP_SESSION_STORAGE_KEY)).toBeNull();
       expect(sessionStoreFixture.getItem(MINI_APP_SESSION_STORAGE_KEY)).toBeNull();
       assertRenderedGateView("checking");

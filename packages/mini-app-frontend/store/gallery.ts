@@ -1,12 +1,15 @@
 import { createStore } from "zustand";
 import type { StoreApi } from "zustand";
+import { classifyMiniAppAuthError } from "../api/authError";
 import { fetchMiniAppGallery } from "../api/gallery";
 import { deleteMiniAppGalleryImageByName } from "../api/galleryDelete";
 import { downloadMiniAppGalleryImageByName } from "../api/galleryDownload";
 import { uploadMiniAppGalleryImageBytes } from "../api/galleryUpload";
-import { isMiniAppAuthErrorMessage } from "../api/request";
-import { MINI_APP_GALLERY_DEFAULT_PAGE_SIZE } from "../consts/miniApp";
-import { getMiniAppTranslations } from "../i18n";
+import {
+  MINI_APP_GALLERY_DEFAULT_PAGE_SIZE,
+  RANDOM_IMAGE_MAX_BYTES,
+} from "../consts/miniApp";
+import { extractServerNoticeParams, getMiniAppTranslations } from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
 import { errorMessage } from "../libs/errorMessage";
 import {
@@ -20,8 +23,8 @@ import type {
   MiniAppGalleryItem,
   MiniAppGalleryPage,
   MiniAppGalleryUploadResult,
-} from "../types/miniApp";
-import { useMiniAppStore } from "./app";
+} from "../types/miniApp/gallery";
+import { notifyMiniAppIfAuthError, useMiniAppStore } from "./app";
 import type { MiniAppUiStoreState } from "./app";
 
 /** `GalleryPage` 图库管理的状态与动作接口。 */
@@ -72,7 +75,7 @@ export interface MiniAppGalleryStoreState {
   readonly downloadImage: (fileName: string) => Promise<void>;
   /** 确认后删除指定图片并重载当前页。 */
   readonly deleteImage: (fileName: string) => Promise<void>;
-  /** 逐张上传选中图片并汇总结果，完成后回到第 1 页重载；遇鉴权失败（会话失效或锁定）立即中止并交由全局通知处理。 */
+  /** 逐张上传选中图片并汇总结果（空文件与超 10 MiB 文件在本地即拦截报错，新增入库或目录缺失时回到第 1 页重载）；遇鉴权失败（会话失效或锁定）立即中止并交由全局通知处理。 */
   readonly uploadFiles: (files: readonly File[]) => Promise<void>;
 }
 
@@ -145,6 +148,7 @@ export function createGalleryStore(): MiniAppGalleryStore {
           } catch (error: unknown) {
             await waitMinimumLoadingDuration(startedAt);
             if (reqId !== requestSeq) {
+              notifyMiniAppIfAuthError(error);
               return;
             }
             set({ loading: false });
@@ -273,12 +277,17 @@ export function createGalleryStore(): MiniAppGalleryStore {
         },
 
         uploadFiles: async (files: readonly File[]): Promise<void> => {
+          if (files.length === 0) {
+            return;
+          }
           set({ uploading: true });
           let added: number = 0;
           let existing: number = 0;
-          let invalidDimensions: number = 0;
           let failed: number = 0;
-          let lastSingleResult: MiniAppGalleryUploadResult | null = null;
+          let sawMissingDirectory: boolean = false;
+          let lastResult: MiniAppGalleryUploadResult | null = null;
+          let firstFailureMessage: string | null = null;
+          let firstFailureMeta: unknown = undefined;
 
           try {
             for (let i: number = 0; i < files.length; i++) {
@@ -289,43 +298,86 @@ export function createGalleryStore(): MiniAppGalleryStore {
                   `(${i + 1}/${files.length}) ${truncateDisplayText(shortenGalleryFileName(file.name), 20)}…`,
               });
               try {
-                const buffer: ArrayBuffer = await file.arrayBuffer();
-                const bytes: Uint8Array = new Uint8Array(buffer);
-                const result: MiniAppGalleryUploadResult =
-                  await uploadMiniAppGalleryImageBytes(bytes);
-                lastSingleResult = result;
+                let result: MiniAppGalleryUploadResult;
+                if (file.size === 0) {
+                  result = {
+                    ok: false,
+                    outcome: "empty",
+                    message: "GALLERY_IMAGE_EMPTY",
+                  };
+                } else if (file.size > RANDOM_IMAGE_MAX_BYTES) {
+                  result = {
+                    ok: false,
+                    outcome: "tooLarge",
+                    message: "GALLERY_IMAGE_TOO_LARGE",
+                  };
+                } else {
+                  const buffer: ArrayBuffer = await file.arrayBuffer();
+                  const bytes: Uint8Array = new Uint8Array(buffer);
+                  result = await uploadMiniAppGalleryImageBytes(bytes);
+                }
+                lastResult = result;
                 if (result.outcome === "added") {
                   added++;
                 } else if (result.outcome === "existing") {
                   existing++;
-                } else if (result.outcome === "invalidDimensions") {
-                  invalidDimensions++;
                 } else {
                   failed++;
+                  if (result.outcome === "missingDirectory") {
+                    sawMissingDirectory = true;
+                  }
+                  if (firstFailureMessage === null) {
+                    firstFailureMessage = result.message;
+                    firstFailureMeta = result;
+                  }
                 }
               } catch (error: unknown) {
-                if (isMiniAppAuthErrorMessage(errorMessage(error))) {
+                const errText: string = errorMessage(error);
+                if (classifyMiniAppAuthError(errText, error) !== null) {
                   throw error;
                 }
                 failed++;
+                if (firstFailureMessage === null) {
+                  firstFailureMessage = errText;
+                  firstFailureMeta = error;
+                }
               }
             }
 
-            set({ loadedImages: {}, uploadStatusText: null });
-            await get().loadGallery(1, get().pageSize);
-            await waitMinimumLoadingDuration(pageRenderAt);
-            if (files.length === 1 && lastSingleResult !== null) {
-              useMiniAppStore
-                .getState()
-                .notify(
-                  lastSingleResult.message,
-                  lastSingleResult.ok ? "info" : "warning",
-                  lastSingleResult
-                );
+            if (added > 0 || sawMissingDirectory) {
+              set({ loadedImages: {}, uploadStatusText: null });
+              await get().loadGallery(1, get().pageSize);
+              await waitMinimumLoadingDuration(pageRenderAt);
             } else {
-              useMiniAppStore.getState().notify(
-                `+${added} · =${existing} · !${invalidDimensions + failed}`
-              );
+              set({ uploadStatusText: null });
+            }
+
+            const app: MiniAppUiStoreState = useMiniAppStore.getState();
+            if (files.length === 1) {
+              if (lastResult?.ok === true) {
+                app.notify(lastResult.message, "info", lastResult);
+              } else if (firstFailureMessage !== null) {
+                app.notify(firstFailureMessage, "warning", firstFailureMeta);
+              }
+            } else {
+              const summaryText: string = `+${added} · =${existing} · !${failed}`;
+              if (failed === 0) {
+                app.notify(summaryText);
+              } else {
+                let reasonText: string = "";
+                if (firstFailureMessage !== null) {
+                  reasonText = getMiniAppTranslations(app.language).serverNotice(
+                    firstFailureMessage,
+                    extractServerNoticeParams(firstFailureMeta)
+                  );
+                }
+                app.notify(
+                  reasonText.length > 0
+                    ? `${summaryText} · ${reasonText}`
+                    : summaryText,
+                  "warning"
+                );
+              }
             }
           } catch (error: unknown) {
             useMiniAppStore.getState().notify(errorMessage(error), "warning", error);

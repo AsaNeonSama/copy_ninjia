@@ -17,10 +17,19 @@ export const TRUNCATION_ELLIPSIS: string = "…";
  * 不变量：带 g 标志，只交给 `String.prototype.replace` 整段替换，不用于 test()/exec()；取值与
  * `packages/mini-app-frontend/consts/miniApp.ts` 的 `MINI_APP_BIDI_CONTROL_CHARS_PATTERN` 一致，由
  * `test/mini-app-frontend/frontendParity.test.ts` 核对。
- * 所属模块：`packages/libs/text.ts` 的 `sanitizeDisplayName`、`packages/mini-app-api-server/view/identities/metadata.ts`
- * 与 `packages/mini-app-api-server/view/chats/targets.ts`。
+ * 所属模块：`packages/libs/text.ts` 的 `sanitizeDisplayName`、`packages/commands/qa/rendering.ts`、
+ * `packages/mini-app-api-server/view/identities/metadata.ts` 与 `packages/mini-app-api-server/view/chats/targets.ts`。
  */
 export const BIDI_CONTROL_PATTERN: RegExp = /[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/g;
+
+/**
+ * Unicode 双向文本控制字符的非全局前置检测规则，与 `BIDI_CONTROL_PATTERN` 字符类完全一致。
+ * 不变量：不带 `g`/`y` 标志，`test()` 不受 `lastIndex` 影响也不改写它，可安全共享复用；取值与
+ * `packages/mini-app-frontend/consts/miniApp.ts` 的 `MINI_APP_BIDI_CONTROL_CHARS_TEST_PATTERN` 一致，由
+ * `test/mini-app-frontend/frontendParity.test.ts` 核对。
+ * 所属模块：`packages/libs/text.ts` 的 `sanitizeDisplayName`。
+ */
+export const BIDI_CONTROL_TEST_PATTERN: RegExp = /[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/;
 
 /** 用户名规范化时去除的连续前导 @。 */
 export const LEADING_AT_SIGNS_PATTERN: RegExp = /^@+/;

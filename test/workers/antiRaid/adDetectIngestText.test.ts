@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, spyOn, test } from "bun:test";
 import type { Sticker } from "grammy/types";
+import { logger } from "../../../packages/infra/logger";
 import { defaultAdDetectConfigCache } from "../../../packages/cache/perThread/config";
 import type { AdVerdict, AdVerdictTrueEvent } from "../../../packages/types/antiRaid/adDetect";
 import {
@@ -73,6 +74,7 @@ describe("入队时的送检文本整形", () => {
         messageId: 1,
         seq: 1,
         text: "第一条",
+        senderText: "第一条",
         directText: "第一条",
         receivedAt: 1,
         withinReferencedWarning: false,
@@ -85,6 +87,7 @@ describe("入队时的送检文本整形", () => {
         messageId: 2,
         seq: 2,
         text: "第二条",
+        senderText: "第二条",
         directText: "第二条",
         receivedAt: 2,
         withinReferencedWarning: false,
@@ -219,17 +222,24 @@ describe("入队时的送检文本整形", () => {
   });
 
   test("单 key 条数上限挤掉从没判过的正文时记一行日志，每个发送者只记一次", () => {
-    for (let index: number = 0; index < AD_DETECT_MAX_MESSAGES_PER_SENDER + 3; index++) {
-      enqueueAdCandidate(candidate({ messageId: index + 1, text: `广告 ${index}` }), 1_000);
-    }
+    const errorSpy = spyOn(logger, "error");
+    try {
+      for (let index: number = 0; index < AD_DETECT_MAX_MESSAGES_PER_SENDER + 3; index++) {
+        enqueueAdCandidate(candidate({ messageId: index + 1, text: `广告 ${index}` }), 1_000);
+      }
 
-    const dropped: string[] = errorLogs.filter((line: string): boolean =>
-      line.includes("dropped never-judged message text")
-    );
-    // 丢的正文不会进入分类器；每个发送者只记一次，之后挤掉的不再逐条记。
-    expect(dropped).toHaveLength(1);
-    expect(dropped[0]).toContain("sender 7");
-    expect(pendingAdBundle(-1001, 7)!.pendingDeleteIds).toHaveLength(3);
+      const droppedCalls: unknown[][] = errorSpy.mock.calls.filter((call: unknown[]): boolean =>
+        String(call[0]).includes("dropped never-judged message text")
+      );
+      // 丢的正文不会进入分类器；每个发送者只记一次，之后挤掉的不再逐条记。
+      expect(droppedCalls).toEqual([[
+        expect.stringContaining("dropped never-judged message text"),
+        { chatId: -1001, senderId: 7, maxMessagesPerSender: AD_DETECT_MAX_MESSAGES_PER_SENDER },
+      ]]);
+      expect(pendingAdBundle(-1001, 7)!.pendingDeleteIds).toHaveLength(3);
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 
   test("sticker_black_list 快路径命中时跳过自定义表情查询与 AI 检测，即使带引用也直接走 block", async () => {
@@ -471,16 +481,22 @@ describe("入队时的送检文本整形", () => {
     });
     enqueueAdCandidate(candidate({ text: "第一条", customEmojiIds: ["emoji-spam"] }), 1_000);
 
-    await runAdDetectBatch(1_000);
+    const errorSpy = spyOn(logger, "error");
+    try {
+      await runAdDetectBatch(1_000);
 
-    expect(getCustomEmojiStickers).toHaveBeenCalledTimes(AD_DETECT_CUSTOM_EMOJI_QUERY_MAX_RETRIES + 1);
-    expect(errorLogs.some((line: string): boolean =>
-      line.includes("failed to query custom emoji stickers") &&
-      line.includes(`(${AD_DETECT_CUSTOM_EMOJI_QUERY_MAX_RETRIES} retries used)`)
-    )).toBe(true);
-    expect(customEmojiSetNames.size).toBe(0);
-    expect(classifyAdText).toHaveBeenCalledTimes(1);
-    expect(pendingAdBundle(-1001, 7)?.checkedSeq).toBe(1);
+      expect(getCustomEmojiStickers).toHaveBeenCalledTimes(AD_DETECT_CUSTOM_EMOJI_QUERY_MAX_RETRIES + 1);
+      expect(errorSpy.mock.calls).toContainEqual([
+        expect.stringContaining("failed to query custom emoji stickers"),
+        { chatId: -1001, senderId: 7, retriesUsed: AD_DETECT_CUSTOM_EMOJI_QUERY_MAX_RETRIES },
+        expect.any(Error),
+      ]);
+      expect(customEmojiSetNames.size).toBe(0);
+      expect(classifyAdText).toHaveBeenCalledTimes(1);
+      expect(pendingAdBundle(-1001, 7)?.checkedSeq).toBe(1);
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 
   test("重试预算跨批共用：前一批用掉的次数不再归还给后一批", async () => {
@@ -509,15 +525,22 @@ describe("入队时的送检文本整形", () => {
       ),
     }), 1_000);
 
-    await runAdDetectBatch(1_000);
+    const errorSpy = spyOn(logger, "error");
+    try {
+      await runAdDetectBatch(1_000);
 
-    // 第一批失败 firstBatchFailures 次后成功；第二批用掉剩下的 1 次重试后再失败即放弃。
-    expect(getCustomEmojiStickers).toHaveBeenCalledTimes(firstBatchFailures + 1 + 2);
-    expect(errorLogs.some((line: string): boolean =>
-      line.includes(`(${AD_DETECT_CUSTOM_EMOJI_QUERY_MAX_RETRIES} retries used)`)
-    )).toBe(true);
-    expect(customEmojiSetNames.size).toBe(TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS);
-    expect(classifyAdText).toHaveBeenCalledTimes(1);
+      // 第一批失败 firstBatchFailures 次后成功；第二批用掉剩下的 1 次重试后再失败即放弃。
+      expect(getCustomEmojiStickers).toHaveBeenCalledTimes(firstBatchFailures + 1 + 2);
+      expect(errorSpy.mock.calls).toContainEqual([
+        expect.stringContaining("failed to query custom emoji stickers"),
+        { chatId: -1001, senderId: 7, retriesUsed: AD_DETECT_CUSTOM_EMOJI_QUERY_MAX_RETRIES },
+        expect.any(Error),
+      ]);
+      expect(customEmojiSetNames.size).toBe(TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS);
+      expect(classifyAdText).toHaveBeenCalledTimes(1);
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 
   test("进入停机后查询失败不再重试，直接放弃本轮表情核对", async () => {
@@ -533,11 +556,20 @@ describe("入队时的送检文本整形", () => {
     });
     enqueueAdCandidate(candidate({ text: "第一条", customEmojiIds: ["emoji-spam"] }), 1_000);
 
-    await runAdDetectBatch(1_000);
+    const errorSpy = spyOn(logger, "error");
+    try {
+      await runAdDetectBatch(1_000);
 
-    expect(getCustomEmojiStickers).toHaveBeenCalledTimes(1);
-    expect(errorLogs.some((line: string): boolean => line.includes("(0 retries used)"))).toBe(true);
-    expect(disposeAdSender).not.toHaveBeenCalled();
+      expect(getCustomEmojiStickers).toHaveBeenCalledTimes(1);
+      expect(errorSpy.mock.calls).toContainEqual([
+        expect.stringContaining("failed to query custom emoji stickers"),
+        { chatId: -1001, senderId: 7, retriesUsed: 0 },
+        expect.any(Error),
+      ]);
+      expect(disposeAdSender).not.toHaveBeenCalled();
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 
   test("Bot API 以 4xx 拒绝查询时不重试，直接放弃本轮表情核对", async () => {
@@ -552,11 +584,20 @@ describe("入队时的送检文本整形", () => {
     });
     enqueueAdCandidate(candidate({ text: "第一条", customEmojiIds: ["emoji-bad"] }), 1_000);
 
-    await runAdDetectBatch(1_000);
+    const errorSpy = spyOn(logger, "error");
+    try {
+      await runAdDetectBatch(1_000);
 
-    expect(getCustomEmojiStickers).toHaveBeenCalledTimes(1);
-    expect(errorLogs.some((line: string): boolean => line.includes("(0 retries used)"))).toBe(true);
-    expect(classifyAdText).toHaveBeenCalledTimes(1);
+      expect(getCustomEmojiStickers).toHaveBeenCalledTimes(1);
+      expect(errorSpy.mock.calls).toContainEqual([
+        expect.stringContaining("failed to query custom emoji stickers"),
+        { chatId: -1001, senderId: 7, retriesUsed: 0 },
+        expect.any(Error),
+      ]);
+      expect(classifyAdText).toHaveBeenCalledTimes(1);
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 
   test("自定义表情所属包写入 LRU：已查过的 ID（含无所属包）不再查询，缓存命中黑名单直接处置", async () => {

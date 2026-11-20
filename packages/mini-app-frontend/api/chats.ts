@@ -1,4 +1,4 @@
-import type { MiniAppChatSummary } from "../types/miniApp";
+import type { MiniAppChatSummary } from "../types/miniApp/chats";
 import { miniAppFetchJson } from "./request";
 
 /**

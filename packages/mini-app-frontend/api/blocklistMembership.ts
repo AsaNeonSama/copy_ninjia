@@ -1,4 +1,4 @@
-import type { MiniAppIdentityMutationResult } from "../types/miniApp";
+import type { MiniAppIdentityMutationResult } from "../types/miniApp/identities";
 import { miniAppFetchJson } from "./request";
 
 /**

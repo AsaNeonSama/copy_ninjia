@@ -17,7 +17,7 @@ This guide walks you through the quickest path to take a clean server environmen
 - **Linux Operating System** (must have a readable `/proc` filesystem): The instance lock depends strictly on `/proc/<pid>/stat` and the system boot ID. Unsupported operating systems will fail closed and refuse to start.
 - **Bun** (version per `package.json` `packageManager`): Required for source installs and local development. Install via:
   ```bash
-  curl -fsSL https://bun.sh/install | bash -s bun-v1.4.4
+  curl -fsSL https://bun.sh/install | bash -s bun-v1.4.5
   ```
   > [!NOTE]
   > Binary release packages bundle a standalone Bun runtime, requiring no pre-installed Bun or Node.js on the host. Node.js is not used anywhere in this project.
@@ -109,14 +109,14 @@ bun install --frozen-lockfile
 mkdir -p config/static config/dynamic
 for example in config_example/static/*.json config_example/dynamic/*.json; do
   case "${example##*/}" in
-    g-auth.json | cron.json) ;;
+    agent.json | g-auth.json | cron.json) ;;
     *) cp -n "$example" "config/${example#config_example/}" ;;
   esac
 done
 ```
 
 > [!WARNING]
-> The examples for `g-auth.json` and `cron.json` are illustrative templates and must not be blindly copied to production. Replace all `replace-with-…` placeholder values (`bot_token` and provider `api_key` entries) with actual credentials; unedited placeholders will trigger a fail-fast error at startup. See [`config_example/README/en.md`](../../config_example/README/en.md).
+> The examples for `agent.json`, `g-auth.json`, and `cron.json` contain placeholder credentials or sample schedules and should be copied and filled in only when enabling those features; remove the `mini_app` section from `config/static/bot.json` unless enabling the Mini App (otherwise configure it and replace its placeholder `password`). Replace all `replace-with-…` placeholder values (`bot_token`, `mini_app.password`, and provider `api_key` entries) with actual credentials; unedited placeholders will trigger a fail-fast error at startup. See [`config_example/README/en.md`](../../config_example/README/en.md).
 
 ---
 
@@ -138,14 +138,17 @@ Core bot credentials and administrator ownership are declared in `config/static/
   - Defines the authoritative calendar time zone for fortunes, rotation logs, daily maintenance crons, AI time awareness, and ad quotas.
   - Trimmed and case-normalized via Temporal (aliases are preserved).
   - **Data Root Binding**: The initial setup permanently stamps this time zone into `database/storage.sqlite`. Changing `time_zone` on an existing data root will be rejected at startup to prevent time-series corruption.
+- **`log_level`** (optional, enum: `"info"` | `"operation"` | `"warn"` | `"error"`, defaulting to `"operation"` when omitted or from template)
+  - Sets the minimum severity threshold for both console output and disk persistence under `logs/<YYYY-MM-DD>.json` (`info` < `operation` < `warn` < `error`); trimmed and strictly validated when present (invalid values fail closed).
+  - `info` captures internal behavior diagnostics plus all higher levels; `operation` captures Telegram `/` commands, `/wed` callbacks, `/qa set` forms, Mini App login/logout and state mutations (plus `warn`/`error`); `warn` captures warnings and errors; `error` records errors only. `info`/`operation`/`warn` logs batch-buffer on the main thread (up to 32 entries or 30 seconds), while `error` logs flush immediately.
 - **`mini_app`** (optional, object: `{ url: string, port: number, host?: string, password: string }`)
-  - Configures the SuperAdmin-only Telegram Mini App management console. When omitted, no HTTP server, routes, or private-chat menu button are registered.
+  - Configures the SuperAdmin-only Telegram Mini App management console. When omitted, no HTTP server, routes, or private-chat menu button are registered; when present, `url`, `port`, and `password` are required and `host` is optional.
   - **Fields**:
     - `url` (required): Public `https://` URL (subpath prefixes supported).
     - `port` (required): Local listening port (`MINI_APP_PORT_MIN`–`MINI_APP_PORT_MAX` integer; `3000` in the example config).
-    - `host` (optional): Local bind address, defaulting to `MINI_APP_DEFAULT_HOST` (`"127.0.0.1"`).
+    - `host` (optional): Non-empty local bind address, defaulting to `MINI_APP_DEFAULT_HOST` (`"127.0.0.1"`).
     - `password` (required): First-screen access password (non-placeholder string containing at least 6 digits `0-9`; remove the `mini_app` section if copying `config_example/static/bot.json` manually without enabling the Mini App).
-  - **Runtime & Authentication**: Starts a local `Bun.serve` HTTP console, attaches `MenuButtonWebApp` (`App`) to the SuperAdmin's private chat, enforces two-tier authentication (`initData` signature + first-screen credential), and supports optional Google Authenticator TOTP 2FA persisted at `memory/mini-app-totp/totp.json`. See [10 Mini App Setup and Recommended Configuration](10-mini-app.md).
+  - **Runtime & Authentication**: Starts a local `Bun.serve` HTTP console, attaches `MenuButtonWebApp` (`App`) to the SuperAdmin's private chat, enforces two-tier authentication (`initData` signature + runtime-generated `Ed25519` / ephemeral `X25519` ECDH credential handshake) with 256-bit temporary-key AES-256-GCM transport encryption (45-minute sliding renewal after a randomized 5s–5min per-epoch cooldown, capped at 2 hours), provides an online highlighted JSON config editor, and supports optional Google Authenticator TOTP 2FA persisted at `memory/mini-app-totp/totp.json`. See [10 Mini App Setup and Recommended Configuration](10-mini-app.md).
 
 ---
 

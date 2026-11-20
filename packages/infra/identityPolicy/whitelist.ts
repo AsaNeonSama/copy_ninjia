@@ -6,20 +6,20 @@ import {
   WHITELIST_PERMISSION_KEYS,
 } from "../../consts/whitelist";
 import { SUPER_ADMIN_USER_ID } from "../../config/bot";
+import { identityPolicyCache } from "../../cache/main/identityStorage";
 import {
   cachedWhitelistEntry,
   queueIdentityPolicyWrite,
 } from "../identityStorage";
-import {
-  hasActiveTemporaryAdBypass,
-  hasActiveTemporaryAdBypassAt,
-} from "./temporaryAdBypass";
+import { isTemporaryAdBypassActive } from "../../states/temporaryAdBypass";
 import type {
   TelegramIdentityMetadata,
   WhitelistEntryData,
   WhitelistPermissionKey,
   WhitelistPermissions,
 } from "../../types/identityPolicy";
+import type { IdentityPolicyCacheEntry } from "../../types/identityStorage";
+import type { TemporaryAdBypassActivity } from "../../types/states/temporaryAdBypass";
 
 /** /permission 持久化一项授权时的入参。 */
 export interface SetWhitelistPermissionParams {
@@ -68,9 +68,36 @@ export interface PromoteAdBypassWhitelistResult {
   readonly queued: boolean;
 }
 
+/** 单次合并身份缓存读取得到的「单项白名单权限优先于黑名单」三态结果。 */
+export type WhitelistPermissionOrBlocklistStatus = "allowed" | "blocked" | "none";
+
+/**
+ * 从合并身份缓存条目派生非超级管理员当前生效的白名单权限：永久白名单条目优先；
+ * 无永久白名单时仅在确有已授予的临时广告免检记录时校验有效期（未传时刻时惰性读取
+ * 墙钟，负缓存与未获免检条目不触碰时钟）。
+ *
+ * @param entry 合并身份缓存条目；冷缺失时为 `undefined`。
+ * @param now 可选的墙钟毫秒时间戳；未传时在需要判定临时免检时取 `Date.now()`。
+ * @returns 身份当前生效的白名单权限只读对象；既不在永久白名单也无有效临时免检时返回 `undefined`。
+ */
+function effectiveWhitelistPermissionsFromEntry(
+  entry: Readonly<IdentityPolicyCacheEntry> | undefined,
+  now?: number
+): Readonly<WhitelistPermissions> | undefined {
+  if (entry === undefined) return undefined;
+  const permanent: Readonly<WhitelistEntryData> | null | undefined = entry.whitelist;
+  if (permanent !== undefined && permanent !== null) return permanent.permissions;
+  const activity: Readonly<TemporaryAdBypassActivity> | null | undefined =
+    entry.temporaryAdBypass;
+  if (!activity?.adBypass) return undefined;
+  return isTemporaryAdBypassActive(activity, now ?? Date.now())
+    ? TEMPORARY_AD_BYPASS_PERMISSIONS
+    : undefined;
+}
+
 /**
  * 取得某身份在指定墙钟时刻的完整权限；未传时刻则读取当前值，且只在确有临时免检记录时才读
- * 墙钟。普通身份只读主线程合并身份缓存的白名单项，超级管理员由身份直授。
+ * 墙钟。普通身份经一次主线程合并身份缓存读取后派生有效权限，超级管理员由身份直授。
  *
  * @param id 待查询的用户或频道身份 ID。
  * @param now 可选的墙钟毫秒时间戳；未传时在需要判定临时免检时取 `Date.now()`。
@@ -81,14 +108,36 @@ export function getEffectiveWhitelistPermissions(
   now?: number
 ): Readonly<WhitelistPermissions> | undefined {
   if (id === SUPER_ADMIN_USER_ID) return SUPER_ADMIN_WHITELIST_PERMISSIONS;
-  const permanent: Readonly<WhitelistEntryData> | undefined = cachedWhitelistEntry(id);
-  if (permanent !== undefined) return permanent.permissions;
-  const temporaryActive: boolean = now === undefined
-    ? hasActiveTemporaryAdBypass(id)
-    : hasActiveTemporaryAdBypassAt(id, now);
-  return temporaryActive
-    ? TEMPORARY_AD_BYPASS_PERMISSIONS
-    : undefined;
+  return effectiveWhitelistPermissionsFromEntry(identityPolicyCache.get(id), now);
+}
+
+/**
+ * 经一次主线程合并身份缓存读取同时判定身份是否持有指定生效白名单权限或位于黑名单中。
+ *
+ * 超级管理员直接按身份直授权限返回结果，不触碰缓存；其余身份先按
+ * `effectiveWhitelistPermissionsFromEntry` 判定指定生效权限（命中返回 `"allowed"`），
+ * 未命中时再检查同一缓存条目的黑名单项（命中返回 `"blocked"`，否则返回 `"none"`）。
+ *
+ * @param id 待检查的用户或频道身份 ID。
+ * @param key 优先判定的白名单权限键名。
+ * @param now 可选的墙钟毫秒时间戳；未传时仅在确有临时免检记录时惰性读取 `Date.now()`。
+ * @returns 持有指定生效权限返回 `"allowed"`，否则命中黑名单返回 `"blocked"`，其余返回 `"none"`。
+ */
+export function readWhitelistPermissionOrBlocked(
+  id: number,
+  key: WhitelistPermissionKey,
+  now?: number
+): WhitelistPermissionOrBlocklistStatus {
+  if (id === SUPER_ADMIN_USER_ID) {
+    return SUPER_ADMIN_WHITELIST_PERMISSIONS[key] ? "allowed" : "none";
+  }
+  const entry: Readonly<IdentityPolicyCacheEntry> | undefined = identityPolicyCache.get(id);
+  if (effectiveWhitelistPermissionsFromEntry(entry, now)?.[key] === true) {
+    return "allowed";
+  }
+  return entry?.blocklist !== undefined && entry.blocklist !== null
+    ? "blocked"
+    : "none";
 }
 
 /**

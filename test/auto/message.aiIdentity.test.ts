@@ -336,6 +336,8 @@ describe("AI 缓存发送者 username 传递", () => {
       stickerFallbackText: undefined,
       voiceMime: undefined,
       directTriggerReason: undefined,
+      chatQaJson: undefined,
+      chatQaCount: 0,
     });
   });
 });

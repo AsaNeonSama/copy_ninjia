@@ -1,9 +1,7 @@
 import { memo } from "react";
 import type React from "react";
-import {
-  MINI_APP_LANG_MENU_CLOSE_ANIMATION_MS,
-  MINI_APP_TRANSLATE_LANGUAGES,
-} from "../consts/miniApp";
+import { MINI_APP_LANG_MENU_CLOSE_ANIMATION_MS } from "../consts/miniApp/animation";
+import { MINI_APP_TRANSLATE_LANGUAGES } from "../consts/miniApp/chats";
 import {
   readEventTargetValue,
   sanitizeBidiText,
@@ -23,9 +21,9 @@ import type {
 import type {
   MiniAppChatDeleteTargetItem,
   MiniAppChatDetail,
-  MiniAppChatTranslateTargetItem,
   MiniAppTranslateLanguage,
-} from "../types/miniApp";
+} from "../types/miniApp/chats";
+import type { MiniAppPickerSubjectKind } from "../types/miniApp/identities";
 import type { MiniAppTranslations } from "../types/miniAppI18n";
 import { AddModeButtonList } from "./AddModeButtonList";
 import { CollapseGrid, InlineNoticeCollapse } from "./animations/CollapseGrid";
@@ -36,37 +34,46 @@ import {
 import type { DelayedUnmountState } from "./animations/useDelayedUnmount";
 import { ChatTargetsListSkeleton } from "./skeletons/ChatTargetsListSkeleton";
 
-/** `DeleteTargetItemList` 删发言目标卡片列表的属性参数。 */
-interface DeleteTargetItemListProps {
-  /** 已配置的删发言目标列表。 */
-  readonly items: readonly Readonly<MiniAppChatDeleteTargetItem>[];
+/** 成员目标卡片列表单项的通用视图（兼容删发言目标与附带目标语言的追着翻目标）。 */
+interface ChatMemberTargetListItem extends MiniAppChatDeleteTargetItem {
+  /** 可选的目标翻译语言代码（仅追着翻目标携带）。 */
+  readonly language?: MiniAppTranslateLanguage;
+}
+
+/** `ChatMemberTargetItemList` 成员目标卡片列表的属性参数。 */
+interface ChatMemberTargetItemListProps {
+  /** 已配置的删发言或追着翻目标列表。 */
+  readonly items: readonly Readonly<ChatMemberTargetListItem>[];
   /** 当前是否正在提交目标变更。 */
   readonly mutatingTargets: boolean;
   /** 弹窗是否正处于退场收起阶段（禁用焦点与点击穿透）。 */
   readonly isClosing?: boolean;
+  /** 单项移除按钮的展示文案。 */
+  readonly removeButtonLabel: string;
   /** 当前语言翻译字典。 */
   readonly t: Readonly<MiniAppTranslations>;
-  /** 移除指定删发言目标的回调。 */
-  readonly onRemoveDeleteTarget: (id: number) => Promise<void>;
+  /** 移除指定成员目标的回调。 */
+  readonly onRemoveTarget: (id: number) => Promise<void>;
 }
 
 /**
- * 渲染删发言目标卡片列表；与顶部折叠添加菜单及按 ID 输入状态隔离，按列表相关属性浅比较跳过重渲染。
+ * 渲染删发言目标或追着翻目标卡片列表；与顶部折叠添加菜单及按 ID 输入状态隔离，按列表相关属性浅比较跳过重渲染。
  *
  * @param props 列表属性
  * @returns React 节点
  */
-function DeleteTargetItemListView({
+function ChatMemberTargetItemListView({
   items,
   mutatingTargets,
   isClosing = false,
+  removeButtonLabel,
   t,
-  onRemoveDeleteTarget,
-}: DeleteTargetItemListProps): React.JSX.Element {
+  onRemoveTarget,
+}: ChatMemberTargetItemListProps): React.JSX.Element {
   return (
     <div className="chat-targets-list">
       {items.map(
-        (item: Readonly<MiniAppChatDeleteTargetItem>): React.JSX.Element => (
+        (item: Readonly<ChatMemberTargetListItem>): React.JSX.Element => (
           <div key={item.id} className="chat-targets-item">
             <div className="row-main">
               <div className="identity-title-row">
@@ -87,6 +94,11 @@ function DeleteTargetItemListView({
                     ? t.identities.channelBadge
                     : t.identities.userBadge}
                 </span>
+                {item.language !== undefined ? (
+                  <span className="badge ok">
+                    {t.chats.translateLanguageLabels[item.language]}
+                  </span>
+                ) : null}
               </div>
               <div className="row-sub identity-sub-row">
                 {`ID: ${item.id}${item.username !== undefined ? ` · @${sanitizeBidiText(item.username)}` : ""}`}
@@ -101,11 +113,11 @@ function DeleteTargetItemListView({
                 if (isClosing) {
                   return;
                 }
-                void onRemoveDeleteTarget(item.id);
+                void onRemoveTarget(item.id);
               }}
             >
               <TrashSvgIcon size={13} />
-              <span>{t.chats.deleteTargetRemoveButton}</span>
+              <span>{removeButtonLabel}</span>
             </button>
           </div>
         )
@@ -114,96 +126,10 @@ function DeleteTargetItemListView({
   );
 }
 
-/** 按属性浅比较跳过重渲染的删发言目标列表组件。 */
-const DeleteTargetItemList: React.MemoExoticComponent<
-  typeof DeleteTargetItemListView
-> = memo(DeleteTargetItemListView);
-
-/** `TranslateTargetItemList` 翻译目标卡片列表的属性参数。 */
-interface TranslateTargetItemListProps {
-  /** 已配置的翻译目标列表。 */
-  readonly items: readonly Readonly<MiniAppChatTranslateTargetItem>[];
-  /** 当前是否正在提交目标变更。 */
-  readonly mutatingTargets: boolean;
-  /** 弹窗是否正处于退场收起阶段（禁用焦点与点击穿透）。 */
-  readonly isClosing?: boolean;
-  /** 当前语言翻译字典。 */
-  readonly t: Readonly<MiniAppTranslations>;
-  /** 移除指定翻译目标的回调。 */
-  readonly onRemoveTranslateTarget: (id: number) => Promise<void>;
-}
-
-/**
- * 渲染翻译目标卡片列表；与顶部折叠添加菜单及按 ID 输入状态隔离，按列表相关属性浅比较跳过重渲染。
- *
- * @param props 列表属性
- * @returns React 节点
- */
-function TranslateTargetItemListView({
-  items,
-  mutatingTargets,
-  isClosing = false,
-  t,
-  onRemoveTranslateTarget,
-}: TranslateTargetItemListProps): React.JSX.Element {
-  return (
-    <div className="chat-targets-list">
-      {items.map(
-        (item: Readonly<MiniAppChatTranslateTargetItem>): React.JSX.Element => (
-          <div key={item.id} className="chat-targets-item">
-            <div className="row-main">
-              <div className="identity-title-row">
-                <bdi
-                  className="identity-name"
-                  title={sanitizeBidiText(item.displayName)}
-                >
-                  {truncateDisplayText(item.displayName, 16)}
-                </bdi>
-                <span
-                  className={`badge ${
-                    item.isChannel
-                      ? "identity-channel-badge"
-                      : "identity-user-badge"
-                  }`}
-                >
-                  {item.isChannel
-                    ? t.identities.channelBadge
-                    : t.identities.userBadge}
-                </span>
-                <span className="badge ok">
-                  {t.chats.translateLanguageLabels[item.language]}
-                </span>
-              </div>
-              <div className="row-sub identity-sub-row">
-                {`ID: ${item.id}${item.username !== undefined ? ` · @${sanitizeBidiText(item.username)}` : ""}`}
-              </div>
-            </div>
-            <button
-              type="button"
-              className="btn danger icon-btn"
-              disabled={mutatingTargets}
-              tabIndex={isClosing ? -1 : undefined}
-              onClick={(): void => {
-                if (isClosing) {
-                  return;
-                }
-                void onRemoveTranslateTarget(item.id);
-              }}
-            >
-              <TrashSvgIcon size={13} />
-              <span>{t.chats.translateTargetRemoveButton}</span>
-            </button>
-          </div>
-        )
-      )}
-    </div>
-  );
-}
-
-/** 按属性浅比较跳过重渲染的翻译目标列表组件。 */
-const TranslateTargetItemList: React.MemoExoticComponent<
-  typeof TranslateTargetItemListView
-> = memo(TranslateTargetItemListView);
+/** 按属性浅比较跳过重渲染的成员目标列表组件。 */
+const ChatMemberTargetItemList: React.MemoExoticComponent<
+  typeof ChatMemberTargetItemListView
+> = memo(ChatMemberTargetItemListView);
 
 /** `ChatTargetsMemberAddForm` 删发言目标与翻译目标折叠添加表单的属性参数。 */
 export interface ChatTargetsMemberAddFormProps {
@@ -231,6 +157,7 @@ export function ChatTargetsMemberAddForm({
 }: ChatTargetsMemberAddFormProps): React.JSX.Element {
   const {
     mutatingTargets,
+    preparingPickerMode,
     targetAddMenuOpen,
     targetIdFormOpen,
     deleteTargetInput,
@@ -262,6 +189,8 @@ export function ChatTargetsMemberAddForm({
     mutatingTargets,
     targetAddMenuOpen
   );
+  const displayPreparingPickerMode: MiniAppPickerSubjectKind | null =
+    useClosingSnapshot(preparingPickerMode, targetAddMenuOpen);
   const displayInputValue: string = useClosingSnapshot(
     inputValue,
     targetAddMenuOpen && targetIdFormOpen
@@ -378,6 +307,7 @@ export function ChatTargetsMemberAddForm({
       <AddModeButtonList
         idFormOpen={displayIdFormOpen}
         disabled={displayMutating}
+        loadingMode={displayPreparingPickerMode}
         interactive={targetAddMenuOpen && !isClosing}
         className="chat-targets-add-mode-grid"
         t={t}
@@ -503,23 +433,25 @@ export function ChatTargetsMemberPanels({
         (chatTargets?.deleteMessageTargets.length ?? 0) === 0 ? (
           <div className="empty">{t.chats.deleteTargetEmptyHint}</div>
         ) : (
-          <DeleteTargetItemList
+          <ChatMemberTargetItemList
             items={chatTargets!.deleteMessageTargets}
             mutatingTargets={mutatingTargets}
             isClosing={isClosing}
+            removeButtonLabel={t.chats.deleteTargetRemoveButton}
             t={t}
-            onRemoveDeleteTarget={removeDeleteTarget}
+            onRemoveTarget={removeDeleteTarget}
           />
         )
       ) : (chatTargets?.translateTargets.length ?? 0) === 0 ? (
         <div className="empty">{t.chats.translateTargetEmptyHint}</div>
       ) : (
-        <TranslateTargetItemList
+        <ChatMemberTargetItemList
           items={chatTargets!.translateTargets}
           mutatingTargets={mutatingTargets}
           isClosing={isClosing}
+          removeButtonLabel={t.chats.translateTargetRemoveButton}
           t={t}
-          onRemoveTranslateTarget={removeTranslateTarget}
+          onRemoveTarget={removeTranslateTarget}
         />
       )}
     </div>

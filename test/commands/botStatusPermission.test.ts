@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type { TranslateState } from "../../packages/types/translate";
 import { GAG_SESSION_MAX } from "../../packages/consts/gag";
-import { TELEGRAM_429_RETRY_QUEUE_MAX } from "../../packages/consts/telegram";
 import { TRANSLATE_CHAT_USER_LIMIT } from "../../packages/consts/translate";
 import { ATMOSPHERE_TEXTS } from "../../packages/consts/atmosphere";
 import { replyCommandNoticeVia } from "../helpers/common";
@@ -24,8 +23,7 @@ const adDetectConfigReadiness = mock((): Readonly<{ ok: boolean }> => ({ ok: fal
 const telegramOutboundStats = mock((): Readonly<{
   active: number;
   pending: number;
-  capacity: number;
-}> => ({ active: 0, pending: 0, capacity: TELEGRAM_429_RETRY_QUEUE_MAX }));
+}> => ({ active: 0, pending: 0 }));
 /** 各群翻译会话；getChatState 按群带出 translate 字段。 */
 const translateStates = new Map<number, readonly TranslateState[]>();
 const getChatState = mock((chatId: number): Readonly<{ translate: readonly TranslateState[] | undefined }> => ({

@@ -28,6 +28,7 @@
 | `bun run test:fault-injection` | 确定性故障注入套件 | 由 `scripts/testFaultInjection.ts` 按 `FAULT_INJECTION_TESTS` 清单运行，验证进程崩溃、异常停机、数据库瞬断与 Worker 重生时的恢复一致性 |
 | `bun run perf:hot-paths -- <场景> [--profile]` | 热路径独立进程测量 | 在 `performance/` 下的隔离数据根与配置副本中，按 `HOT_PATH_PROFILE_REPEATS` 轮独立进程测量单个热路径场景（`--profile` 用于采样分析）；直接运行 `scripts/perf/hotPaths.ts` 会在加载场景前拒绝 |
 | `bun run perf:hot-path-gate` | **热路径性能门禁** | 精选热路径场景的内存/GC/JIT 硬门禁（已并入 `check`） |
+| `bun run perf:disk-transport` | 业务通道传输压力基准 | 在 mock Worker 下独立测量主线程业务传输通道的队列开销、ACK 吞吐与延迟，隔离磁盘 I/O 等待 |
 | `bun run perf:join-log` | 入群日志性能基准 | 入群日志容量/快照/追加记账的独立进程对照基准 |
 | `bun run perf:identity-database` | 身份数据库基准 | 身份数据库冷热读写、主线程 LRU 读与写透链路的独立进程基准 |
 | `bun run perf:full` | 全量性能基准套件 | 各分区按默认轮数跑独立子进程（`--write-doc` 写回三语 11 性能页及 `performance-result.json`） |
@@ -38,6 +39,7 @@
 | `bun run release:verify -- --version <tag> --platforms <列表>` | 发行包校验 | 核对全部目标平台的包、SHA-256、版本与 Git tree 一致性 |
 | `bun run release:publish -- --version <tag> --platforms <列表> --notes-file <文件>` | 发布到 GitHub | 校验远端引用，创建草稿，上传并核验资产，正式发布为 Latest |
 | `bun run audit:release` | 依赖安全审计 | 扫描依赖漏洞（moderate 及以上级别） |
+| `bun run migrate:wed-member-window` | `/wed` 成员滑窗冷迁移 | 停机离线将 17.2.1 的 `memory/wed` 成员 ID 数组迁移为 `{ id, enteredAt }` 滑窗格式（详见 [07 运维手册](07-operations.md)） |
 
 ---
 
@@ -52,8 +54,8 @@
   - 后端文件超过 512 行时应评估拆分，超过 `MAX_SOURCE_LINES`（1024 行）时必须拆分；前端 `.tsx`、`.css` 与 `.html` 文件上限为 `MAX_FRONTEND_SOURCE_LINES`（1536 行）。
   - 检查范围覆盖所有受 Git 跟踪的文件及暂存区新文件，忽略的文件不纳入扫描。安装语法检查全面覆盖 `install.sh` 及其调用的所有独立 Shell 模块。
 - **全源码覆盖率考核**：
-  - `test/productionModules.test.ts` 主动加载 `index.ts` 以及 `packages/` 下除 `packages/types/` 外的全部运行时模块；未被任何测试覆盖的模块直接按 0% 计入分母。
-  - 函数与行覆盖率必须达到 `bunfig.toml` 中配置的 `coverageThreshold` 阈值。新增业务模块若缺少单元测试，将直接导致整体覆盖率不达标。
+  - `test/productionModules.test.ts` 主动加载 `index.ts` 以及 `packages/` 下除 `packages/types/` 与顶层挂载入口 `packages/mini-app-frontend/main.tsx` 外的全部 `.ts` / `.tsx` 运行时模块；未被任何测试覆盖的模块直接按 0% 计入分母。
+  - `bunfig.toml` 配置了 `coverageSkipTestFiles = true` 与 `coveragePathIgnorePatterns = ["test/**"]`（排除 `test/` 下的测试与辅助文件），且函数与行覆盖率必须达到 `coverageThreshold` 阈值。新增业务模块若缺少单元测试，将直接导致整体覆盖率不达标。
 - **严格类型与语法规范**：
   - `tsconfig.json` 全面启用 `strict`、`noUncheckedIndexedAccess`、`noUnusedLocals` 与 `noUnusedParameters`。
   - 生产代码中严禁使用 `any`（测试代码豁免）；严禁随意使用原生 `Promise.all`（ESLint 规则拒绝），必须改用具备并发容错控制的 `Promise.allSettled`；JSX/TSX 片段必须显式使用 `react` 的 `<Fragment>`，禁止使用 `<>...</>` 简写。
@@ -74,10 +76,11 @@
   - **运行时安全与 API 规范**：
     - `packages/workers/` 中的定时器必须显式调用 `unref()`；`packages/` 内禁止 `Object.freeze`。
     - 禁止用 `.keys().next()`、`.values().next()`、`.entries().next()` 取最早项，有界 FIFO / LRU 的最早项一律经 `libs/fifoMap.ts` 的 `FifoMap`（或继承它的 `LruCache`）取得。
-    - Node 兼容模块与 `Buffer` 仅放行在白名单中登记的调用（未使用的登记同样报错）；统一使用 `Bun.argv` 读取命令行参数；运行期裸导入的包必须在根 `package.json` 中直接声明。
+    - Node 兼容模块与 `Buffer` 仅放行在白名单中登记的调用（未使用的登记同样报错）；统一使用 `Bun.argv` 读取命令行参数；`collectUndeclaredDependencyProblems` 对 `index.ts` 与 `packages/` 仅放行在根 `package.json` 的 `dependencies` 中声明的运行期裸导入包（`scripts/` 与 `test/` 放行 `dependencies` 与 `devDependencies`）。
+    - `packages/` 下禁止任何静态 `console.*` 属性访问（`console.error` 仅限 `packages/workers/diskIOWorker.ts` 与 `packages/workers/diskIO/` 边界）。
   - **门禁与指标对账**：
     - 静态检查 `index.ts`、`packages/` 与 `scripts/` 中顶层函数、类方法及 `*Params`/`*Options` 参数接口属性的 JSDoc（含 `@param` 与非 `void`/`never` 返回值的 `@returns`，见 `scripts/conventions/sourceRules.ts` 的 `collectFunctionJsDocProblems`）。
-    - 静态检查 Telegram 消息清理例外与话题归属；核对冷迁移脚本与 `package.json` 的 `migrate:*` 入口一一对应；核对故障注入套件清单；比对三语文档与 `performance-result.json` 中的测试覆盖率和性能指标同源。
+    - 静态检查 Telegram 消息清理例外、触发话题归属、属性访问形式的 `*.sendMessage(...)` 旁路、命令文本输出模块中 `sendMessageWithResult` 导入，以及 `collectTelegramMessageProblems` 中 `directBoundaries` 注册目标文件与边界函数的真实存在性；核对冷迁移脚本与 `package.json` 的 `migrate:*` 入口一一对应；核对故障注入套件清单；比对三语文档与 `performance-result.json` 中的测试覆盖率和性能指标同源。
     - 注释中「`<模块>.ts` 的 `<符号>`」式的交叉引用必须指向现存符号：以 `./`、`../` 开头的路径按注释所在源文件的目录解析，目标文件或符号缺失都会报错；其余写法在能唯一确定目标文件时核对。
   - **测试断言规范**：测试用例中严禁将导入的大写常量直接与字面量常量进行比对，禁止直接在断言中硬编码与 `packages/consts` 相同的长字符串或中文提示文案片段（必须引用常量或模板辅助函数 `test/helpers/templateText.ts`）。特殊断言豁免必须在 `scripts/conventions/testAssertionFragments.ts` 中显式登记。
   - **测试替身复位**：两项门禁均通过 TypeScript checker 把替身解析到声明符号判定（用例中途仅清空调用记录的 `mockClear()` 不在判定范围内）：
@@ -111,7 +114,7 @@
 
 ### 当前文档版本实测
 
-`bun run test:coverage`：**7200 tests / 605 files / 463493 次 `expect()`**；全源码**函数覆盖率 96.85% / 行覆盖率 97.58%**。三语项目 README 的 Coverage 徽章展示行覆盖率。
+`bun run test:coverage`：**7448 tests / 649 files / 592390 次 `expect()`**；全源码**函数覆盖率 98.02% / 行覆盖率 98.07%**。三语项目 README 的 Coverage 徽章展示行覆盖率。
 
 ---
 
@@ -121,7 +124,7 @@
 
 1. **测试文件上下文隔离**：Bun 为每个测试文件创建完全独立的全局对象，`mock.module` 与模块级全局变量绝不跨文件产生污染。
 2. **专属临时数据根**：`test/preloadEnv.ts` 在加载任何业务代码之前，为当前测试进程创建两棵独立临时目录（`mkdtempSync`）：一棵赋给 `COPY_NINJIA_DATA_ROOT`，另一棵赋给 `TMPDIR`（承接用例与被测代码经 `os.tmpdir()` 创建的临时文件）。
-   - 当 `/dev/shm` 为 tmpfs 且可用空间不少于 `TMPFS_MIN_AVAILABLE_BYTES` 时，两棵目录优先建在 `/dev/shm` 下；否则建在进程原有的 `os.tmpdir()` 下。
+   - 当 `/dev/shm` 为 tmpfs 且可用空间不少于 `TMPFS_MIN_AVAILABLE_BYTES`（定义于 `test/preloadEnv.ts`）时，两棵目录优先建在 `/dev/shm` 下；否则建在进程原有的 `os.tmpdir()` 下。
    - 所有文件 I/O 均严格局限于临时目录内，绝不触碰真实部署文件（`memory/`、`logs/`、`database/`、`bot.lock`）；测试结束后自动清理两棵目录并还原 `TMPDIR`。
 3. **独立配置根目录**：自动将 `config_example/static/` 与 `config_example/dynamic/` 复制到临时目录的 `config/static/` 与 `config/dynamic/`，通过 `COPY_NINJIA_CONFIG_ROOT` 引导程序读取测试专用配置。占位密钥替换为安全的虚拟凭据，屏蔽 `g-auth.json`，并将 `cron.json` 初始化为空任务表。
 4. **配置快照同步与空库初始化**：`test/preload.ts` 将测试副本中的 `agent.json`、`ad_detect.json`、`mood.json`、`stickers.json`、`cron.json`、机器人语气及内置人设一次性加载至测试环境的 holder 中，并在临时数据根创建带时区标记的空 SQLite 数据库，各功能 readiness 状态直接置为就绪。
@@ -140,7 +143,7 @@
 
 `bun run test:fault-injection` 全面验证服务崩溃、异常中断与极端边界下的系统一致性（完整清单见 [`scripts/conventions/faultInjectionSuite.ts`](../../scripts/conventions/faultInjectionSuite.ts) 的 `FAULT_INJECTION_TESTS`，按字典序一行一个）：
 - **生命周期与恢复边界**：覆盖应用与 Worker 生命周期（含停机时间预算与总截止）、群锁定恢复、AI 回复容量与取消、凭据快照一致性、Telegram 出站与自毁消息的停机排空、群 teardown 清理。
-- **数据持久化与一致性**：验证入群日志未确认镜像与处置回执、Anti-Raid 任务排空与验证恢复、双工 Worker 重建取消、SQLite 启动检查与停机关库（残余写提交、WAL checkpoint）、冷迁移以及 Disk I/O Worker 的原子写入故障恢复。
+- **数据持久化与一致性**：验证入群日志未确认镜像与处置回执、Anti-Raid 任务排空与验证恢复、双工 Worker 重建取消、SQLite 启动检查与停机关库（残余写提交、WAL checkpoint）、冷迁移、Mini App TOTP 与配置原子落盘及服务重启边界（`test/mini-app-api-server/persistenceAndRestartFaults.test.ts`、`test/mini-app-api-server/totpStorageConcurrency.test.ts`），以及 Disk I/O Worker 的原子写入故障恢复。
 - **交互状态机稳定性**：包含 `test/workers/antiRaid/verificationWelcome.test.ts`（双工协议与临时提示自毁）以及 `/wed` 交互状态机（群容量上限 `STATE_MANAGED_CHAT_LIMIT`、排队取消、头像抓取与停机排空）。
 
 ---

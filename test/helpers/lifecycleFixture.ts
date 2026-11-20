@@ -10,6 +10,7 @@ import type { ApplicationLifecycleDependencies } from "../../packages/app/lifecy
 const calls: string[] = [];
 
 const acquireSingleInstanceLock = mock(async (): Promise<void> => { calls.push("acquireLock"); });
+const assertDeploymentConfigLayout = mock(async (): Promise<void> => { calls.push("assertConfigLayout"); });
 const releaseSingleInstanceLock = mock(async (): Promise<void> => { calls.push("releaseLock"); });
 const initTelegramClients = mock((): void => { calls.push("initTelegram"); });
 let diskIOFatalHandler: ((error: Error) => void) | undefined;
@@ -108,7 +109,6 @@ const registerHandlers = mock(() => ({ getLastSeenUpdateId: (): number => lastSe
 const getChatStateCache = mock(() => new Map<number, unknown>());
 let copiedUser: object | null = null;
 const getGlobalCopyState = mock(() => ({ copiedUser }));
-const sleep = mock(async (): Promise<void> => {});
 let monotonicTime: number = 0;
 const monotonicNow = mock((): number => monotonicTime);
 const setStatePersistenceFatalHandler = mock((_handler: ((error: Error) => void) | undefined): void => {});
@@ -130,12 +130,14 @@ const bot = {
 
 const runnerStop = mock(async (): Promise<void> => { calls.push("runnerStop"); });
 const runnerTask = mock(async (): Promise<void> => {});
+const runnerActiveTask = mock((): Promise<void> | null => null);
 const runnerSize = mock((): number => 0);
 const runnerAbortActive = mock((): number => 0);
 const runnerHasFailedUpdate = mock((): boolean => false);
 const runnerHandle = {
   stop: runnerStop,
   task: runnerTask,
+  activeTask: runnerActiveTask,
   size: runnerSize,
   abortActive: runnerAbortActive,
   hasFailedUpdate: runnerHasFailedUpdate,
@@ -150,6 +152,7 @@ const testDependencies = {
   SUPER_ADMIN_USER_ID: 1,
   abortChatTitleRefresh,
   acquireSingleInstanceLock,
+  assertDeploymentConfigLayout,
   bot,
   cleanupOrphanedTempFiles,
   closeTranslate,
@@ -195,8 +198,8 @@ const testDependencies = {
   initTranslate,
   loadPersistedData,
   logger: {
-    log: loggerLog,
-    info: mock((..._args: unknown[]): void => {}),
+    info: loggerLog,
+    operation: mock((..._args: unknown[]): void => {}),
     warn: mock((..._args: unknown[]): void => {}),
     error: loggerError,
   },
@@ -222,7 +225,6 @@ const testDependencies = {
   seedSenderCache,
   setBusinessWorkerFatalHandler,
   setStatePersistenceFatalHandler,
-  sleep,
   startConfigReload,
   startMiniAppServer,
   stopMiniAppServer,
@@ -272,6 +274,7 @@ export function installLifecycleFixtureHooks(): void {
     monotonicTime = 0;
     for (const mocked of [
       acquireSingleInstanceLock,
+      assertDeploymentConfigLayout,
       releaseSingleInstanceLock,
       initTelegramClients,
       initDiskIO,
@@ -339,7 +342,6 @@ export function installLifecycleFixtureHooks(): void {
       setStatePersistenceFatalHandler,
       registerCommandMenu,
       registerHandlers,
-      sleep,
       monotonicNow,
       loggerLog,
       loggerError,
@@ -347,6 +349,7 @@ export function installLifecycleFixtureHooks(): void {
       botInit,
       runnerStop,
       runnerTask,
+      runnerActiveTask,
       runnerSize,
       runnerAbortActive,
       runnerHasFailedUpdate,
@@ -379,6 +382,7 @@ export function installLifecycleFixtureHooks(): void {
     });
     closeTranslate.mockImplementation(async () => { calls.push("closeTranslate"); return "flushed" as const; });
     runnerTask.mockImplementation(async (): Promise<void> => {});
+    runnerActiveTask.mockImplementation((): Promise<void> | null => null);
     runnerSize.mockImplementation((): number => 0);
     runnerHasFailedUpdate.mockImplementation((): boolean => false);
     getUpdates.mockImplementation(async (): Promise<unknown[]> => {
@@ -398,6 +402,7 @@ export const lifecycleFixture = {
   abortChatTitleRefresh,
   acquireSingleInstanceLock,
   advanceMonotonicTime,
+  assertDeploymentConfigLayout,
   assertSuperAdminNotDeleteMessageTarget,
   botInit,
   calls,
@@ -457,6 +462,7 @@ export const lifecycleFixture = {
   releaseSingleInstanceLock,
   restoreLuckState,
   runnerAbortActive,
+  runnerActiveTask,
   runnerHasFailedUpdate,
   runnerSize,
   runnerStop,
@@ -466,7 +472,6 @@ export const lifecycleFixture = {
   setLastSeenUpdateId,
   setBusinessWorkerFatalHandler,
   setStatePersistenceFatalHandler,
-  sleep,
   startConfigReload,
   quiesceConfigReload,
   sweepManagedBlocklistChats,

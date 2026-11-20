@@ -15,7 +15,13 @@ const delegatedPermissions = new Set<number>();
 mock.module("../../packages/config/bot", () => ({
   BOT_ATMOSPHERE: "teasing",
   SUPER_ADMIN_USER_ID: 100,
-  getBotConfig: (): BotConfig => ({ timeZone: getTimeZone(), atmosphere: "mesugaki", botToken: "telegram-token", superAdminUserId: 100 }),
+  getBotConfig: (): BotConfig => ({
+    timeZone: getTimeZone(),
+    atmosphere: "mesugaki",
+    logLevel: "operation",
+    botToken: "telegram-token",
+    superAdminUserId: 100,
+  }),
 }));
 // 超级管理员直授全部权限，普通成员按被授予的独立权限位判定。
 mock.module("../../packages/infra/identityPolicy/whitelist", () => ({
@@ -128,7 +134,8 @@ describe("/clear_context", () => {
     await expect(handleClearContextCommand(context())).resolves.toBeUndefined();
 
     expect(loggerError).toHaveBeenCalledWith(
-      "Failed to clear the AI chat context of chat -1001:",
+      "Failed to clear the AI chat context:",
+      { chatId: -1001 },
       failure
     );
     expect(sendMessage).toHaveBeenLastCalledWith({

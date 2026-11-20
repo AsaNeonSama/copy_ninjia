@@ -10,7 +10,6 @@ import {
   markAiMemoryDeleted,
   markAiMemoryDirty,
 } from "../../cache/workers/diskIO/snapshots";
-import { rejectedStorageDomains } from "../../cache/workers/diskIO/storageDatabase";
 import { assertAiContextSnapshot, queueAiContextWrite } from "./storageDatabase/aiContext";
 import { commitStorageUrgently, scheduleStorageCommit } from "./storageDatabase/flush";
 
@@ -39,7 +38,8 @@ export interface MarkAiMemorySnapshotDirtyParams {
 }
 
 /**
- * 校验并接管快照变更；非法快照登记领域拒收，persistImmediately 为真时立即提交事务。
+ * 校验并接管快照变更；非法快照原样抛出由 Worker 入口记录领域拒收与重放失败，
+ * `persistImmediately` 为真时立即提交事务。
  * @param params 快照变更参数。
  */
 export function markAiMemorySnapshotDirty({
@@ -48,13 +48,7 @@ export function markAiMemorySnapshotDirty({
   snapshot,
   persistImmediately = false,
 }: MarkAiMemorySnapshotDirtyParams): void {
-  try {
-    assertAiContextSnapshot(chatId, snapshot);
-  } catch (error: unknown) {
-    rejectedStorageDomains.add("aiMemory");
-    console.error(`[diskIOWorker] rejected an invalid AI memory snapshot for chat ${chatId}:`, error);
-    return;
-  }
+  assertAiContextSnapshot(chatId, snapshot);
   if (!markAiMemoryDirty(chatId, revision)) return;
   queueAiContextWrite(chatId, snapshot, revision);
   if (!persistImmediately) {

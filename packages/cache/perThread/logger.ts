@@ -1,16 +1,17 @@
-/** owner: perThread。日志转发队列、脱敏凭据快照与主线程日志转投出口（packages/infra/logger.ts）。 */
+/** owner: perThread。日志转发队列、脱敏凭据快照、运行时日志级别阈值与主线程日志转投出口（packages/infra/logger.ts）。 */
 
 import {
+  DEFAULT_LOG_LEVEL,
   LOGGER_FORWARD_BATCH_MAX_MESSAGES,
   LOGGER_FORWARD_MAX_PENDING_MESSAGES,
   LOGGER_FORWARD_MAX_SERIALIZED_BYTES,
 } from "../../consts/logger";
 import { AcknowledgedBatchQueue } from "../../libs/acknowledgedBatchQueue";
-import type { LogMessage } from "../../types/diskIO/messages";
+import type { LogLevel, LogMessage } from "../../types/diskIO/messages";
 import type { LoggerSecretsSnapshot } from "../../types/logger";
 
 /**
- * 业务 Worker 转发给主线程的单批在途日志队列：Worker 内 logger.error 写入，收到主线程 __logBatchAccepted 回执后排空，isolate 销毁后随堆释放、重建后从空队列开始。
+ * 业务 Worker 转发给主线程的单批在途日志队列：Worker 内达到或高于当前 `log_level` 阈值的日志写入，收到主线程 __logBatchAccepted 回执后排空，isolate 销毁后随堆释放、重建后从空队列开始。
  * 容量上限为 LOGGER_FORWARD_MAX_PENDING_MESSAGES 条与 LOGGER_FORWARD_MAX_SERIALIZED_BYTES 字节（单批上限 LOGGER_FORWARD_BATCH_MAX_MESSAGES）；满额时丢弃新日志对象并累加到 forwardedLogDropState。
  */
 export const forwardedLogQueue: AcknowledgedBatchQueue<LogMessage> =
@@ -42,5 +43,13 @@ export const loggerSecretsMemo: {
   current: LoggerSecretsSnapshot | null;
 } = { current: null };
 
-/** 主线程 error 日志转投 Disk I/O 的回调单例：initDiskIO 注入 relayLogMessage，Worker 线程保持为 null；不淘汰，进程重启后从 null 重新安装。 */
+/** 主线程已启用级别日志（`>= log_level`）转投 Disk I/O 的回调单例：initDiskIO 注入 relayLogMessage，Worker 线程保持为 null；容量上限 1（单槽位引用），不淘汰，进程重启后从 null 重新安装。 */
 export const logRelaySink: { current: ((message: LogMessage) => boolean) | null } = { current: null };
+
+/**
+ * 当前线程生效的最低输出与持久化日志级别阈值单例（默认 `DEFAULT_LOG_LEVEL`）：
+ * 主线程在加载 bot 配置后、各业务 Worker 在收到初始化或配置重放消息后通过 `adoptLogLevel` 填充；
+ * 进程或 Worker isolate 销毁时随线程堆清空，重建时恢复默认值并在重放启动快照后重新设置；
+ * 容量上限 1（单槽位标量引用），不淘汰。
+ */
+export const logLevelState: { current: LogLevel } = { current: DEFAULT_LOG_LEVEL };

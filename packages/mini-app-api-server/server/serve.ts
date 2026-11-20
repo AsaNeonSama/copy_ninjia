@@ -1,17 +1,22 @@
 import {
   miniAppActiveConfigHolder,
   miniAppActiveUrlPartsHolder,
-  miniAppAuthSessions,
   miniAppBundledAssetsHolder,
   miniAppBundledAssetsPromiseHolder,
   miniAppPasswordGuardHolder,
   miniAppRejectHtmlHolder,
   miniAppServerHolder,
+  miniAppServiceRestartRunnerHolder,
 } from "../../cache/main/miniApp";
 import { getBotMiniAppConfig } from "../../config/bot";
 import { MINI_APP_MAX_UPLOAD_BODY_BYTES } from "../../consts/miniApp";
 import { logger } from "../../infra/logger";
 import type { BotMiniAppConfig } from "../../types/config";
+import {
+  clearMiniAppRuntimeSigningKeyPair,
+  ensureMiniAppRuntimeSigningKeyPair,
+} from "../auth/handshake";
+import { clearAllMiniAppAuthSessions } from "../auth/session";
 import { resetMiniAppTotpMemoryCache } from "../auth/totpStorage";
 import { jsonResponse } from "../libs/response";
 import { deriveMiniAppPublicUrlParts } from "../libs/routePath";
@@ -48,14 +53,23 @@ export function startMiniAppServer(
     },
   });
   miniAppServerHolder.current = server;
-  logger.log(
-    `Mini App HTTP server listening on http://${config.host}:${server.port} (public URL: ${config.url}).`
-  );
+  miniAppBundledAssetsHolder.current = null;
+  miniAppBundledAssetsPromiseHolder.current = null;
+  clearMiniAppRuntimeSigningKeyPair();
+  void ensureMiniAppRuntimeSigningKeyPair().catch((error: unknown): void => {
+    logger.error("Failed to generate Mini App Ed25519 signing key pair:", error);
+  });
+  logger.info("Mini App HTTP server listening.", {
+    host: config.host,
+    port: server.port,
+    listenUrl: `http://${config.host}:${server.port}`,
+    publicUrl: config.url,
+  });
   return server;
 }
 
 /**
- * 停止 Mini App `Bun.serve` 源站服务并清理会话、按需物化前端产物快照、独立拒绝页模板与预备选择器缓存。
+ * 停止 Mini App `Bun.serve` 源站服务并清理会话、临时密钥、本次启动 Ed25519 签名密钥对、临时 X25519 登录握手、服务重启执行器替身、按需物化前端产物快照、独立拒绝页模板与预备选择器缓存。
  */
 export async function stopMiniAppServer(): Promise<void> {
   const server: ReturnType<typeof Bun.serve> | null = miniAppServerHolder.current;
@@ -65,11 +79,14 @@ export async function stopMiniAppServer(): Promise<void> {
   miniAppBundledAssetsHolder.current = null;
   miniAppBundledAssetsPromiseHolder.current = null;
   miniAppRejectHtmlHolder.current = null;
-  miniAppAuthSessions.clear();
+  clearAllMiniAppAuthSessions();
+  clearMiniAppRuntimeSigningKeyPair();
+  miniAppServiceRestartRunnerHolder.current = null;
   miniAppPasswordGuardHolder.current = null;
   resetMiniAppPickerState();
   resetMiniAppTotpMemoryCache();
   if (server !== null) {
     await server.stop(true);
+    logger.info("Mini App HTTP server stopped.");
   }
 }

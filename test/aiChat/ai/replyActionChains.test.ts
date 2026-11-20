@@ -43,8 +43,8 @@ const menu: readonly StickerPackCandidate[] = [{
 }];
 
 const realTelegram = await import("../../../packages/infra/telegram");
-const realStickers = await import("../../../packages/aiChat/ai/tools/stickers");
-const realProvider = await import("../../../packages/aiChat/provider");
+const realStickers = await import("../../../packages/workers/aiChat/ai/tools/stickers");
+const realProvider = await import("../../../packages/workers/aiChat/provider");
 mock.module("../../../packages/infra/telegram", () => ({
   ...realTelegram,
   sendMessageWithResult: sendMessage,
@@ -53,26 +53,26 @@ mock.module("../../../packages/infra/telegram", () => ({
   sendVoiceWithResult: sendVoice,
   setMessageReaction: reaction,
 }));
-mock.module("../../../packages/aiChat/ai/tools/stickers", () => ({
+mock.module("../../../packages/workers/aiChat/ai/tools/stickers", () => ({
   ...realStickers,
   buildStickerPackMenu: async (): Promise<readonly StickerPackCandidate[]> => menu,
 }));
 mock.module("../../../packages/libs/sleep", () => ({ sleep }));
-mock.module("../../../packages/aiChat/provider", () => ({
+mock.module("../../../packages/workers/aiChat/provider", () => ({
   ...realProvider,
   imageAiProvider: () => ({ name: "gemini", generateImage }),
   ttsAiProvider: () => ({ synthesizeSpeech }),
   textAiProvider: () => ({ createReplySession: (): AiReplySession => session }),
 }));
 
-const { createReplyToolset } = await import("../../../packages/aiChat/ai/tools/replyToolset/orchestrator");
+const { createReplyToolset } = await import("../../../packages/workers/aiChat/ai/tools/replyToolset/orchestrator");
 const { generateReply } = await import("../../../packages/workers/aiChat/replyModel");
 const { resetImageGenerationCache } = await import("../../../packages/cache/workers/aiChat/imageGeneration");
 const { HARD_MAX_ACTIONS_PER_REPLY } = await import("../../../packages/consts/aiChat/tools");
 const { VOICE_FOREGROUND_WAIT_MS } = await import("../../../packages/consts/aiChat/voiceMessage");
 const { TELEGRAM_CAPTION_MAX_CHARS } = await import("../../../packages/consts/telegram");
 const { runTelegramCategorizedRequest } = await import("../../../packages/infra/telegram/outboundGate");
-const { encodeVoiceMessage } = await import("../../../packages/aiChat/ai/voiceEncoding");
+const { encodeVoiceMessage } = await import("../../../packages/workers/aiChat/ai/voiceEncoding");
 const { OGG_OPUS_MIME_TYPE } = await import("../../../packages/consts/audio");
 const { initTelegramOutbound, drainTelegramOutbound, telegramOutboundStats } = await import("../../../packages/infra/telegram/outboundLifecycle");
 
@@ -473,7 +473,7 @@ test("语音回执当场交回；前台窗口到点时链收回录音继续后�
 });
 
 test("后台动作自身 reject 时记英文错误日志，settle 照常结算且不排入投递", async () => {
-  const { createReplyActionChains } = await import("../../../packages/aiChat/ai/tools/replyToolset/actionChains");
+  const { createReplyActionChains } = await import("../../../packages/workers/aiChat/ai/tools/replyToolset/actionChains");
   const { logger } = await import("../../../packages/infra/logger");
   const loggerError = spyOn(logger, "error").mockImplementation((): void => {});
   try {
@@ -482,7 +482,11 @@ test("后台动作自身 reject 时记英文错误日志，settle 照常结算�
     const failure: Error = new Error("background boom");
     chains.defer("send_voice", Promise.reject(failure));
     await chains.settle();
-    expect(loggerError).toHaveBeenCalledWith("AI reply background action failed (chat -1001, tool send_voice):", failure);
+    expect(loggerError).toHaveBeenCalledWith(
+      "AI reply background action failed:",
+      { chatId: -1001, tool: "send_voice" },
+      failure
+    );
     expect(chains.completed()).toBe(0);
     expect(events).toEqual([]);
   } finally {
@@ -719,6 +723,36 @@ test("直接轮：「正在输入」请求交回的第一个动作是生图时�
   expect(events.slice(events.indexOf("photo sent"))).toEqual([
     "photo sent", "idle", "typing", "pause yes", "idle", "caption sent", "idle",
   ]);
+});
+
+test("ordered并行/track：chains.track 登记的异步工作纳入 settle 等待且失败仅记日志不外溢", async () => {
+  const { createReplyActionChains } = await import("../../../packages/workers/aiChat/ai/tools/replyToolset/actionChains");
+  const { logger } = await import("../../../packages/infra/logger");
+  const loggerError = spyOn(logger, "error").mockImplementation((): void => {});
+  try {
+    const ctx = context();
+    const chains = createReplyActionChains(ctx);
+    const pending: PromiseWithResolvers<void> = Promise.withResolvers<void>();
+    chains.track(pending.promise);
+    const failed: Error = new Error("tracked boom");
+    chains.track(Promise.reject(failed));
+
+    let settled: boolean = false;
+    const settling: Promise<void> = chains.settle().then((): void => { settled = true; });
+    await Bun.sleep(0);
+    expect(settled).toBe(false);
+
+    pending.resolve();
+    await settling;
+    expect(settled).toBe(true);
+    expect(loggerError).toHaveBeenCalledWith(
+      "AI reply tracked task failed:",
+      { chatId: -1001 },
+      failed
+    );
+  } finally {
+    loggerError.mockRestore();
+  }
 });
 
 test("有序并行轮请求模型前不切挡：状态只由串行链切换", async () => {

@@ -20,6 +20,7 @@ import {
   WEB_DIGEST_TITLE_MAX_CHARS,
   WEB_DIGEST_URL_MAX_CHARS,
 } from "../consts/webDigest";
+import { parseHttpsUrlWithoutCredentials } from "./httpUrlPolicy";
 import { hasOnlyKeys, isPlainRecord } from "./record";
 import { containsRenderableCommand } from "./renderableCommand";
 import type {
@@ -108,8 +109,7 @@ function requiredUrl(value: unknown, path: string): string {
   if (url.length > WEB_DIGEST_URL_MAX_CHARS || /\s/.test(url)) {
     return reject(path, expected);
   }
-  const parsed: URL | null = URL.parse(url);
-  if (parsed?.protocol !== "https:" || parsed.username.length > 0 || parsed.password.length > 0) {
+  if (parseHttpsUrlWithoutCredentials(url) === null) {
     return reject(path, expected);
   }
   return url;

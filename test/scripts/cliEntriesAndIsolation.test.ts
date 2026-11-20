@@ -68,17 +68,31 @@ describe("scripts CLI 与隔离脚本直测", () => {
     expect(invalidFlag.stderr).toContain("Usage: ./copy-ninjia [--help|--version]");
 
     const isolatedDataRoot: string = makeTempRoot("copy-ninjia-bin-data-");
+    const isolatedEnv: Record<string, string | undefined> = {
+      ...process.env,
+      [RUNTIME_DATA_ROOT_ENV]: isolatedDataRoot,
+      [CONFIG_ROOT_ENV]: join(isolatedDataRoot, "config"),
+    };
     const noConfigRun: CapturedCommandResult = await runCapturedCommand({
       cmd: [Bun.argv[0]!, binaryScript],
       cwd: isolatedDataRoot,
-      env: {
-        ...process.env,
-        [RUNTIME_DATA_ROOT_ENV]: isolatedDataRoot,
-        [CONFIG_ROOT_ENV]: join(isolatedDataRoot, "config"),
-      },
+      env: isolatedEnv,
     });
     expect(noConfigRun.exitCode).toBe(1);
-    expect(noConfigRun.stderr).toContain(`${join(isolatedDataRoot, "config", "dynamic")}: $ must be an existing directory.`);
+    expect(noConfigRun.stderr).toContain(`${join(isolatedDataRoot, "config", "static", "bot.json")}: $ must be a readable valid JSON document.`);
+
+    // 放入 bot.json 但缺少 config/dynamic/：启动在持锁与清扫后进入 assertDeploymentConfigLayout 并拒绝启动。
+    await Bun.write(
+      join(isolatedDataRoot, "config", "static", "bot.json"),
+      JSON.stringify({ bot_token: "123456:cli-isolation-token", super_admin_user_id: 1 })
+    );
+    const missingDynamicRun: CapturedCommandResult = await runCapturedCommand({
+      cmd: [Bun.argv[0]!, binaryScript],
+      cwd: isolatedDataRoot,
+      env: isolatedEnv,
+    });
+    expect(missingDynamicRun.exitCode).toBe(1);
+    expect(missingDynamicRun.stderr).toContain(`${join(isolatedDataRoot, "config", "dynamic")}: $ must be an existing directory.`);
   });
 
   test("checkCoverageMetrics 覆盖格式化、声明缺失失败、当前一致通过与过期差异返回 1", async () => {

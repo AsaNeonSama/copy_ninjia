@@ -76,7 +76,7 @@
   </tr>
   <tr>
     <td><nobr>🖥️ <b>Mini App 控制台</b></nobr></td>
-    <td><code>mini_app</code> 配置、Cloudflare Tunnel 推荐穿透方案、双层认证与 TOTP 绑定</td>
+    <td><code>mini_app</code> 配置、Cloudflare Tunnel 穿透、双层认证与 AES-256-GCM 加密、TOTP 绑定及在线 JSON 配置编辑</td>
     <td align="center"><nobr><a href="10-mini-app.md">📖 10 Mini App 设置与推荐配置</a></nobr></td>
   </tr>
   <tr>
@@ -152,7 +152,7 @@
 10. **[10 Mini App 设置与推荐配置](10-mini-app.md)**
     - `config/static/bot.json` 中 `mini_app` 字段配置与启用条件
     - 使用 Cloudflare Tunnel（`cloudflared`）暴露公网 HTTPS 入口、配置域名路由与注册 systemd 服务的完整步骤
-    - 私聊左下角 `App` 按钮入口、双层安全认证与绑定 Google Authenticator (TOTP) 动态码
+    - 私聊左下角 `App` 按钮入口、双层认证与 256-bit 密钥 AES-256-GCM 传输加密、绑定 Google Authenticator (TOTP) 动态码及在线高亮 JSON 配置编辑
 
 11. **[11 性能基准](11-performance.md)**
     - 基准测试报告：冷启动、高频热路径函数、端到端处理耗时与持久化性能

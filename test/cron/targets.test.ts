@@ -151,4 +151,20 @@ describe("chat_id: [\"all\"] 与 [\"except\", ...] 的发送权限", () => {
       .toEqual({ chatIds: [-3], skipped: 0 });
     expect(getChatMember).toHaveBeenCalledTimes(1);
   });
+
+  test("权限查询途中被停机信号中止时不计入 skipped 并立即停止后续查询", async () => {
+    for (const chatId of [-3, -2, -1]) {
+      chatStates.set(chatId, chatStateOf({ isInitEnabled: true }));
+      members.set(chatId, { status: "creator", user: BOT, is_anonymous: false });
+    }
+    const controller: AbortController = new AbortController();
+    getChatMember.mockImplementationOnce(async (): Promise<ChatMember> => {
+      controller.abort();
+      throw new DOMException("aborted", "AbortError");
+    });
+
+    expect(await resolveCronGroupTargets(schedule([{ type: "send_message", content: "hi" }]), [], controller.signal))
+      .toEqual({ chatIds: [], skipped: 0 });
+    expect(getChatMember).toHaveBeenCalledTimes(1);
+  });
 });

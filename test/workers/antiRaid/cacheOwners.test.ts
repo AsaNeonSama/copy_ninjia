@@ -687,8 +687,11 @@ describe("Lockdown write-ahead runtime", () => {
     expect(lockdownRetriggerCooldowns.has(chatId)).toBeTrue();
     expect(joinWindows.has(chatId)).toBeFalse();
     expect(loggedErrors).toEqual([
-      [`Chat ${chatId} getChat response missing permissions field, skipping anti-raid lockdown`],
-      [expect.stringContaining(`chat ${chatId} was abandoned (preparationFailed)`)],
+      ["Chat getChat response missing permissions field; skipping anti-raid lockdown.", { chatId }],
+      [
+        "Anti-raid lockdown was abandoned; suppressing new lockdown triggers there while keeping per-member join verification unaffected.",
+        { chatId, reason: "preparationFailed", suppressionMinutes: expect.any(Number) },
+      ],
     ]);
 
     // 冷却期内继续刷群不再发公告，也不再读权限。
@@ -718,10 +721,13 @@ describe("Lockdown write-ahead runtime", () => {
     expect(lockdownRetriggerCooldowns.has(chatId)).toBeTrue();
     expect(joinWindows.has(chatId)).toBeFalse();
     expect(loggedErrors).toEqual([
-      ["Error preparing anti-raid lockdown:", failure],
-      [expect.stringContaining(`chat ${chatId} was abandoned (preparationFailed)`)],
+      ["Error preparing anti-raid lockdown:", { chatId }, failure],
+      [
+        "Anti-raid lockdown was abandoned; suppressing new lockdown triggers there while keeping per-member join verification unaffected.",
+        { chatId, reason: "preparationFailed", suppressionMinutes: expect.any(Number) },
+      ],
     ]);
-    expect(loggedErrors[0]?.[1]).toBe(failure);
+    expect(loggedErrors[0]?.[2]).toBe(failure);
   });
 
   test("提交前刷新权限缺失时不写 Telegram，并清除已落盘 applying intent", async () => {
@@ -789,10 +795,17 @@ describe("Lockdown write-ahead runtime", () => {
     expect(sentMessages).toHaveLength(1);
     expect(lockdownRetriggerCooldowns.has(chatId)).toBeTrue();
     expect(loggedErrors).toEqual([
-      ["Error refreshing chat permissions before anti-raid lockdown; abandoning unapplied intent:", failure],
-      [expect.stringContaining(`chat ${chatId} was abandoned (commitPreparationFailed)`)],
+      [
+        "Error refreshing chat permissions before anti-raid lockdown; abandoning unapplied intent:",
+        { chatId },
+        failure,
+      ],
+      [
+        "Anti-raid lockdown was abandoned; suppressing new lockdown triggers there while keeping per-member join verification unaffected.",
+        { chatId, reason: "commitPreparationFailed", suppressionMinutes: expect.any(Number) },
+      ],
     ]);
-    expect(loggedErrors[0]?.[1]).toBe(failure);
+    expect(loggedErrors[0]?.[2]).toBe(failure);
   });
 
   test("重建会继续 applying/restoring，恢复仅合并 invite 字段", async () => {

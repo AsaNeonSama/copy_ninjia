@@ -20,7 +20,7 @@ let tts: AgentTtsCapabilityConfig | undefined;
 /** 非 null 时 agent 配置读取按它抛错（模拟本线程从未收到 agent 快照）。 */
 let configError: Error | null = null;
 
-mock.module("../../../packages/aiChat/openai/client", () => ({ getOpenAiClient }));
+mock.module("../../../packages/workers/aiChat/openai/client", () => ({ getOpenAiClient }));
 mock.module("../../../packages/libs/sleep", () => ({ sleep }));
 mock.module("../../../packages/infra/logger", () => ({ logger: loggerStub({ error: loggerError, warn: loggerWarn }) }));
 mock.module("../../../packages/config/agent", () => ({
@@ -35,7 +35,7 @@ mock.module("../../../packages/config/agent", () => ({
   },
 }));
 
-const { synthesizeOpenAiSpeech } = await import("../../../packages/aiChat/openai/speech");
+const { synthesizeOpenAiSpeech } = await import("../../../packages/workers/aiChat/openai/speech");
 const {
   OPENAI_SPEECH_ERROR_LABEL,
   OPENAI_SPEECH_REQUEST_ATTEMPTS,
@@ -124,7 +124,11 @@ describe("openai 协议（audio/speech）", () => {
     await synthesizeOpenAiSpeech({ text: "b" });
     expect((speechCreate.mock.calls[0]![0] as { instructions: string }).instructions).toBe(tts.style!);
     expect(loggerWarn).toHaveBeenCalledTimes(1);
-    expect(String(loggerWarn.mock.calls[0]![0])).toContain("capability=tts, provider=openai, reason=missing");
+    expect(loggerWarn).toHaveBeenCalledWith("AI token usage unavailable.", {
+      capability: "tts",
+      provider: "openai",
+      reason: "missing",
+    });
   });
 
   test("带朗读语言要求时依次拼在基础风格之后、本句语气之前", async () => {
@@ -138,7 +142,11 @@ describe("openai 协议（audio/speech）", () => {
     tts = openAiTts();
     speechCreate.mockRejectedValueOnce(new Error("503 upstream"));
     await expect(synthesizeOpenAiSpeech({ text: "a" })).resolves.toBeNull();
-    expect(String(loggerError.mock.calls[0]![0])).toContain(OPENAI_SPEECH_ERROR_LABEL);
+    expect(loggerError).toHaveBeenCalledWith(
+      "Error calling speech synthesis API:",
+      { errorLabel: OPENAI_SPEECH_ERROR_LABEL },
+      expect.any(Error)
+    );
 
     loggerError.mockClear();
     await expect(synthesizeOpenAiSpeech({ text: "a", signal: AbortSignal.abort() })).resolves.toBeNull();
@@ -150,7 +158,10 @@ describe("openai 协议（audio/speech）", () => {
     tts = openAiTts();
     speechCreate.mockImplementationOnce(async () => new Response(new Uint8Array(VOICE_SPEECH_MAX_BYTES + 2)));
     await expect(synthesizeOpenAiSpeech({ text: "a" })).resolves.toBeNull();
-    expect(String(loggerError.mock.calls[0]![0])).toContain("audio body exceeds the size limit");
+    expect(loggerError).toHaveBeenCalledWith("Speech synthesis API returned an unusable audio payload.", {
+      errorLabel: OPENAI_SPEECH_ERROR_LABEL,
+      reason: "audio body exceeds the size limit",
+    });
   });
 
   test("agent 配置读取失败时不发请求，记错误日志返回 null", async () => {
@@ -159,14 +170,20 @@ describe("openai 协议（audio/speech）", () => {
     expect(speechCreate).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
     expect(loggerError).toHaveBeenCalledTimes(1);
-    expect(loggerError.mock.calls[0]).toEqual([`Error calling ${OPENAI_SPEECH_ERROR_LABEL}:`, configError]);
+    expect(loggerError.mock.calls[0]).toEqual([
+      "Error calling OpenAI speech synthesis API:",
+      { errorLabel: OPENAI_SPEECH_ERROR_LABEL },
+      configError,
+    ]);
   });
 
   test("tts 未选 OpenAI 协议时不发请求，记错误日志返回 null", async () => {
     tts = parseTtsCapability({ provider: "google", api_key: "k", model: "m", voice: "Leda" }, "fixture.json");
     await expect(synthesizeOpenAiSpeech({ text: "a" })).resolves.toBeNull();
     expect(speechCreate).not.toHaveBeenCalled();
-    expect(String(loggerError.mock.calls[0]![0])).toContain(OPENAI_SPEECH_ERROR_LABEL);
+    expect(loggerError).toHaveBeenCalledWith('Agent capability "tts" is not configured for the OpenAI provider.', {
+      errorLabel: OPENAI_SPEECH_ERROR_LABEL,
+    });
   });
 });
 
@@ -194,7 +211,11 @@ describe("xai 协议（POST /tts，fetch）", () => {
       output_format: { codec: XAI_SPEECH_CODEC, sample_rate: XAI_SPEECH_SAMPLE_RATE, bit_rate: XAI_SPEECH_BIT_RATE },
     });
     expect(speech).toEqual({ bytes: AUDIO, mimeType: MP3_MIME_TYPE });
-    expect(String(loggerWarn.mock.calls[0]![0])).toContain("capability=tts, provider=openai, reason=missing");
+    expect(loggerWarn).toHaveBeenCalledWith("AI token usage unavailable.", {
+      capability: "tts",
+      provider: "openai",
+      reason: "missing",
+    });
   });
 
   test("配置的 base_url 带或不带末尾斜杠都拼成同一个 /tts 端点", async () => {
@@ -223,8 +244,12 @@ describe("xai 协议（POST /tts，fetch）", () => {
     fetchMock.mockImplementation(async () => new Response("slow down", { status: 429 }));
     await expect(synthesizeOpenAiSpeech({ text: "a" })).resolves.toBeNull();
     expect(fetchMock).toHaveBeenCalledTimes(OPENAI_SPEECH_REQUEST_ATTEMPTS);
-    expect(String(loggerError.mock.calls[0]![0])).toContain(XAI_SPEECH_ERROR_LABEL);
-    expect(String(loggerError.mock.calls[0]![1])).toContain("HTTP 429: slow down");
+    expect(loggerError).toHaveBeenCalledWith(
+      "Error calling speech synthesis API:",
+      { errorLabel: XAI_SPEECH_ERROR_LABEL },
+      expect.any(Error)
+    );
+    expect(String(loggerError.mock.calls[0]![2])).toContain("HTTP 429: slow down");
   });
 
   test("其余非 2xx（含未跟随的重定向）不重试，错误日志带状态码与有界响应体", async () => {
@@ -233,13 +258,13 @@ describe("xai 协议（POST /tts，fetch）", () => {
     await expect(synthesizeOpenAiSpeech({ text: "a" })).resolves.toBeNull();
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(sleep).not.toHaveBeenCalled();
-    expect(String(loggerError.mock.calls[0]![1])).toContain('HTTP 400: {"error":"unknown voice"}');
+    expect(String(loggerError.mock.calls[0]![2])).toContain('HTTP 400: {"error":"unknown voice"}');
 
     fetchMock.mockImplementationOnce(async () => new Response("", { status: 302, headers: { location: "https://elsewhere.example/tts" } }));
     await expect(synthesizeOpenAiSpeech({ text: "a" })).resolves.toBeNull();
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(sleep).not.toHaveBeenCalled();
-    expect(String(loggerError.mock.calls[1]![1])).toContain("HTTP 302");
+    expect(String(loggerError.mock.calls[1]![2])).toContain("HTTP 302");
   });
 
   test("调用方取消时不发请求也不记错误；请求中途取消同样静默", async () => {

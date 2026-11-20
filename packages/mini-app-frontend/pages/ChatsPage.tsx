@@ -33,11 +33,8 @@ import { useMiniAppStore } from "../store/app";
 import type { MiniAppUiStoreState } from "../store/app";
 import { createChatsStore } from "../store/chats";
 import type { MiniAppChatsStore, MiniAppChatsStoreState } from "../store/chats";
-import type {
-  MiniAppChatDetail,
-  MiniAppChatSummary,
-  MiniAppLanguage,
-} from "../types/miniApp";
+import type { MiniAppChatDetail, MiniAppChatSummary } from "../types/miniApp/chats";
+import type { MiniAppLanguage } from "../types/miniApp/ui";
 
 /** `BotPermTagGrid` 已授予 Bot 权限标签网格的属性参数（与 `botPermsExpanded` 隔离，按标签数组与翻译字典浅比较跳过重渲染）。 */
 interface BotPermTagGridProps {

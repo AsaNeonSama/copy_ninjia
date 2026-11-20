@@ -308,10 +308,3 @@ export {
   handleGagInlineQuery,
   handleGagMessageIngress,
 } from "./gag/inline";
-export {
-  drainGagRuntime,
-  initGagRuntime,
-  quiesceGagRuntime,
-  resetGagSessions,
-  teardownGagInChat,
-} from "./gag/runtime";

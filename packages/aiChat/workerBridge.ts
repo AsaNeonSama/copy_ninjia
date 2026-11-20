@@ -50,11 +50,17 @@ import type {
 } from "../types/aiChat/protocol";
 import type { HotDeploymentConfigChanges } from "../types/config";
 import { SUPER_ADMIN_USER_ID } from "../config/bot";
+import { getLogLevel } from "../config/logLevel";
 import { getTimeZone } from "../config/time";
 import { botAtmosphere } from "../infra/atmosphere";
-import type { AiMemoryTeardown } from "../types/aiChat/waiters";
+import type { AiMemoryTeardown, MoodResponseEventType } from "../types/aiChat/waiters";
 import type { WorkerRequestOutcome } from "../types/workerRequest";
-import { beginWorkerRequest, failAllWorkerRequests, settleWorkerRequest } from "../libs/workerRequestTable";
+import {
+  beginWorkerRequest,
+  failAllWorkerRequests,
+  settleTaggedWorkerRequest,
+  settleWorkerRequest,
+} from "../libs/workerRequestTable";
 import type { SupervisedWorkerHandle } from "../infra/supervisedWorker";
 import type { WorkerDuplexInbound } from "../types/workerDuplex";
 import type { TelegramWorkerRequest } from "../types/telegramWorker";
@@ -88,7 +94,7 @@ function unwrapWorkerRequestOutcome<T>(outcome: WorkerRequestOutcome<T>): T {
  */
 function failAllAiChatWaiters(moodReason: string, invalidateReason: string): void {
   aiMemoryFlushBarrier.settleAll("failed");
-  failAllWorkerRequests<WorkerRequestOutcome<string>>(moodRequests, { ok: false, error: new Error(moodReason) });
+  failAllWorkerRequests<WorkerRequestOutcome<string>, MoodResponseEventType>(moodRequests, { ok: false, error: new Error(moodReason) });
   failAllWorkerRequests<WorkerRequestOutcome<undefined>>(
     aiChatInvalidateRequests,
     { ok: false, error: new Error(invalidateReason) }
@@ -158,7 +164,16 @@ const { init: initAiChatWorker, post, terminate: terminateAiChatWorker }: Superv
       }
       case "moodQueried":
       case "moodSwitched":
-        settleWorkerRequest(moodRequests, event.requestId, { ok: true, value: event.moodName });
+        settleTaggedWorkerRequest({
+          table: moodRequests,
+          requestId: event.requestId,
+          tag: event.type,
+          result: { ok: true, value: event.moodName },
+          onMismatch: (expected: MoodResponseEventType, actual: MoodResponseEventType): WorkerRequestOutcome<string> => ({
+            ok: false,
+            error: new Error(`AI mood protocol error: expected "${expected}" for request ${event.requestId}, got "${actual}".`),
+          }),
+        });
         break;
       case "voiceSynthesized":
         settleWorkerRequest(voiceSynthesisRequests, event.requestId, event.result);
@@ -230,6 +245,7 @@ export function startAiChatWorker(botInfo: AiBotInfo): void {
   const message: AiInitMessage = {
     type: "init",
     timeZone: getTimeZone(),
+    logLevel: getLogLevel(),
     botInfo,
     superAdminUserId: SUPER_ADMIN_USER_ID,
     atmosphere: botAtmosphere(),
@@ -260,7 +276,7 @@ export function initAiChat(botInfo: AiBotInfo): void {
   const identity: AiBotInfo = { id: botInfo.id, username: botInfo.username, first_name: botInfo.first_name };
   aiChatBotInfo.current = identity;
   if (!isAiChatConfigured()) {
-    logger.log("AI agent configuration is unavailable; the AI chat worker stays down and /ai_chat enable is refused.");
+    logger.info("AI agent configuration is unavailable; the AI chat worker stays down and /ai_chat enable is refused.");
     return;
   }
   startAiChatWorker(identity);
@@ -328,16 +344,17 @@ export async function terminateAiChat(): Promise<void> {
  */
 export async function requestAiMood(requestType: "queryMood" | "switchMood"): Promise<string> {
   const deadlineAt: number = Date.now() + MOOD_REQUEST_TIMEOUT_MS;
-  return unwrapWorkerRequestOutcome(await beginWorkerRequest<WorkerRequestOutcome<string>>({
+  return unwrapWorkerRequestOutcome(await beginWorkerRequest<WorkerRequestOutcome<string>, MoodResponseEventType>({
     table: moodRequests,
     timeoutMs: MOOD_REQUEST_TIMEOUT_MS,
+    expectedTag: requestType === "queryMood" ? "moodQueried" : "moodSwitched",
     post: (requestId: number): boolean => {
       if (post({ type: requestType, requestId, deadlineAt })) return true;
       aiChatWorkerState.available = false;
       return false;
     },
     onPostError: (error: unknown): void => {
-      logger.error(`Failed to post the AI ${requestType} request:`, error);
+      logger.error("Failed to post an AI mood request:", { requestType }, error);
     },
     timedOut: { ok: false, error: new Error(`AI ${requestType} request timed out after ${MOOD_REQUEST_TIMEOUT_MS}ms.`) },
     rejected: { ok: false, error: new Error("AI Worker is unavailable.") },
@@ -387,7 +404,7 @@ export async function invalidateAiChat(chatId: number): Promise<void> {
         return post({ type: "invalidateChat", chatId, requestId });
       },
       onPostError: (error: unknown): void => {
-        logger.error(`Failed to post the AI chat invalidation request for chat ${chatId}:`, error);
+        logger.error("Failed to post the AI chat invalidation request:", { chatId }, error);
       },
       timedOut: {
         ok: false,
@@ -405,10 +422,7 @@ export async function invalidateAiChat(chatId: number): Promise<void> {
   for (let index: number = 0; index < settlements.length; index++) {
     const settlement: PromiseSettledResult<void> = settlements[index]!;
     if (settlement.status === "fulfilled") continue;
-    logger.error(
-      `AI chat ${labels[index]} rejected for chat ${chatId}:`,
-      settlement.reason
-    );
+    logger.error("AI chat invalidation phase rejected:", { chatId, phase: labels[index]! }, settlement.reason);
     failures.push(settlement.reason);
   }
   if (failures.length === 1) throw failures[0];

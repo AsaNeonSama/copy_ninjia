@@ -60,7 +60,8 @@ export function recordEligibleTemporaryAdBypassActivity(
     const temporaryCleared: boolean = clearTemporaryAdBypassActivity(senderId);
     if (!promotion.queued || !temporaryCleared) {
       logger.error(
-        `Failed to queue complete temporary-whitelist promotion for identity ${senderId}; retaining unacknowledged final values for replay.`
+        "Failed to queue complete temporary-whitelist promotion; retaining unacknowledged final values for replay.",
+        { senderId }
       );
     }
   }

@@ -51,7 +51,9 @@ describe("Bot 本机进程状态", () => {
       expect(Number.isFinite(value)).toBeTrue();
       expect(value).toBeGreaterThanOrEqual(0);
     }
-    expect(status.availableCpuCount).toBeGreaterThanOrEqual(1);
+    expect(status.availableCpuCount).toBe(
+      Math.max(1, Math.floor(navigator.hardwareConcurrency))
+    );
     expect(status.memoryLimitBytes).toBeGreaterThan(0);
   });
 

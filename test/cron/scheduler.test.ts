@@ -264,7 +264,11 @@ describe("cron 调度", () => {
       cronConfigCache.current = [task()];
       startCronScheduler();
       await advance(1_050);
-      expect(loggerError).toHaveBeenCalledWith('Cron task "daily" run failed unexpectedly:', expect.any(Error));
+      expect(loggerError).toHaveBeenCalledWith(
+        "Cron task run failed unexpectedly:",
+        { task: "daily" },
+        expect.any(Error)
+      );
       expect(runtime().runs.size).toBe(0);
     } finally {
       loggerError.mockRestore();

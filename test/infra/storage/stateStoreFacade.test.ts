@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { globalTtsUsageState, stateStoreHolder } from "../../../packages/cache/main/storage";
 import { logger } from "../../../packages/infra/logger";
+import { StateStore } from "../../../packages/infra/storage/statePersistence";
 import {
-  StateStore,
   adoptTtsUsage,
   flushStateToDisk,
   loadState,
@@ -58,7 +58,8 @@ describe("全局状态落盘门面", () => {
       await Promise.resolve();
       expect(save).toHaveBeenCalledTimes(1);
       expect(loggedError).toHaveBeenCalledWith(
-        "Failed to persist background global state update (record TTS daily usage):",
+        "Failed to persist background global state update:",
+        { context: "record TTS daily usage" },
         failure
       );
     } finally {

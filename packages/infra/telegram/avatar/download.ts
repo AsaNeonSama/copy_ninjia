@@ -30,20 +30,20 @@ export async function downloadAvatarFile(
     case "ok":
       return download;
     case "missingPath":
-      logger.error(`getFile for target ${targetId}'s avatar returned no file_path`);
+      logger.error("getFile for avatar returned no file_path.", { targetId });
       return { status: "permanent-failure" };
     case "metadataTimeout":
     case "downloadTimeout":
-      logger.error(`Downloading the avatar file of target ${targetId} timed out (${download.status})`);
+      logger.error("Downloading the avatar file timed out.", { targetId, stage: download.status });
       return { status: "transient-failure" };
     case "httpError":
-      logger.error(`Failed to download the avatar file of target ${targetId} (${download.httpStatus})`);
+      logger.error("Failed to download the avatar file.", { targetId, httpStatus: download.httpStatus });
       return { status: "transient-failure" };
     case "tooLarge":
-      logger.error(`Avatar file of target ${targetId} exceeded the download limit (${download.observedBytes} bytes)`);
+      logger.error("Avatar file exceeded the download limit.", { targetId, observedBytes: download.observedBytes });
       return { status: "permanent-failure" };
     case "empty":
-      logger.error(`Avatar file of target ${targetId} downloaded empty`);
+      logger.error("Avatar file downloaded empty.", { targetId });
       return { status: "permanent-failure" };
   }
 }

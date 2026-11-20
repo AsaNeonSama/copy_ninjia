@@ -6,7 +6,7 @@ import { googleServiceAccountKey, translateParentCache, translateRuntime } from 
 import type { GoogleServiceAccountKey } from "../types/config";
 import { TRANSLATE_REQUEST_TIMEOUT_MS } from "../consts/lifecycle";
 import { withTimeout } from "../libs/withTimeout";
-import { assertTimeoutMs, settleWithinBudget, trackInflight } from "../libs/inflight";
+import { assertTimeoutMs, drainTrackedTasks, trackInflight } from "../libs/inflight";
 import type { FlushResult } from "../types/lifecycle";
 
 // Google Cloud Translation - Advanced (v3) 客户端使用启动时发布的凭据快照。
@@ -30,8 +30,9 @@ interface TranslateSdkV3 {
   TranslationServiceClient: new (options: TranslateClientParams) => GoogleTranslate.TranslationServiceClient;
 }
 
-/** 由应用生命周期显式开启；仍不会在没有真实请求时构造 gRPC 客户端。 */
+/** 由应用生命周期显式开启并重建本代翻译取消控制器；仍不会在没有真实请求时构造 gRPC 客户端。 */
 export function initTranslate(): void {
+  translateRuntime.controller = new AbortController();
   translateRuntime.accepting = true;
 }
 
@@ -136,21 +137,17 @@ export function translateText(text: string, language: TranslateLanguage): Promis
 }
 
 /**
- * 等待所有已接收翻译结束；超时只报告，closeTranslate 仍会尝试关闭通道。
+ * 等待所有已接收翻译结束；超时时中止 `translateRuntime.controller` 并返回 `timedOut`，closeTranslate 仍会尝试关闭通道。
  * @param timeoutMs 最大等待毫秒数。
  * @returns 全部在途任务在预算内完成时返回 flushed，否则返回 timedOut。
  */
 export async function drainTranslate(timeoutMs: number): Promise<FlushResult> {
   assertTimeoutMs(timeoutMs, "translate drain timeout");
-  if (translateRuntime.tasks.size === 0) return "flushed";
-  if (timeoutMs === 0) return "timedOut";
-
-  const drained: boolean = await settleWithinBudget(translateRuntime.tasks, timeoutMs);
-  return drained ? "flushed" : "timedOut";
+  return drainTrackedTasks(translateRuntime.tasks, translateRuntime.controller, timeoutMs);
 }
 
 /**
- * 释放 gRPC 客户端与 project parent；重新 init 后会构造全新客户端。
+ * 释放 gRPC 客户端、中止在途翻译信号并清空 project parent；重新 init 后会构造全新客户端与控制器。
  * @param timeoutMs 关闭客户端的最大等待毫秒数，默认 TRANSLATE_REQUEST_TIMEOUT_MS。
  * @returns 关闭成功或无客户端时返回 flushed，关闭异常或超时时返回 failed。
  */
@@ -158,6 +155,11 @@ export async function closeTranslate(timeoutMs: number = TRANSLATE_REQUEST_TIMEO
   assertTimeoutMs(timeoutMs, "translate close timeout");
   translateRuntime.accepting = false;
   translateRuntime.generation += 1;
+  if (!translateRuntime.controller.signal.aborted) {
+    translateRuntime.controller.abort(
+      new DOMException("Google Translation runtime closed.", "AbortError")
+    );
+  }
   const client: GoogleTranslate.TranslationServiceClient | null = translateRuntime.client;
   translateRuntime.client = null;
   translateParentCache.parent = null;

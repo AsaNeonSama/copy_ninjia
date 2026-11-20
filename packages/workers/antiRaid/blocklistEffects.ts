@@ -128,15 +128,16 @@ function applyRemovalOutcome({ chatId, userId, outcome, result }: ApplyRemovalOu
     result.complete = false;
     result.permissionDenied = true;
     logger.error(
-      `Blocklist removal in chat ${chatId} is blocked by missing ban rights; stopping this batch.`
+      "Blocklist removal is blocked by missing ban rights; stopping this batch.",
+      { chatId }
     );
     return false;
   } else if (outcome === "targetIsAdmin") {
     result.targetIsAdmin = true;
     result.settledUserIds.push(userId);
     logger.error(
-      `Blocklisted user ${userId} is an administrator of chat ${chatId} and cannot be banned; ` +
-      "settling this target and continuing with the rest of the batch."
+      "Blocklisted user is an administrator of chat and cannot be banned; settling this target and continuing with the rest of the batch.",
+      { chatId, userId }
     );
   } else {
     result.complete = false;
@@ -174,7 +175,7 @@ async function finishRemovalBatch({
   ) {
     await deleteMessage(chatId, announcementMessageId, telegramApi);
   }
-  if (removed > 0) logger.log(`Removed ${removed} blocklisted member(s) from chat ${chatId}.`);
+  if (removed > 0) logger.info("Removed blocklisted members from chat.", { chatId, removedCount: removed });
 }
 
 /**
@@ -269,14 +270,19 @@ export function handleRemoveBlockedMembers({ msg, publish }: HandleRemoveBlocked
           }
         } catch (error: unknown) {
           logger.error(
-            `Failed to release ad-detect disposal markers for chat ${msg.chatId}:`,
+            "Failed to release ad-detect disposal markers:",
+            { chatId: msg.chatId },
             error
           );
         }
       }
     })
     .catch((error: unknown): void => {
-      logger.error(`Failed to remove blocklisted members from chat ${msg.chatId}:`, error);
+      logger.error(
+        "Failed to remove blocklisted members:",
+        { chatId: msg.chatId },
+        error
+      );
       publish({
         type: "blockedMembersRemoved",
         chatId: msg.chatId,

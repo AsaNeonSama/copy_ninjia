@@ -9,7 +9,7 @@ import type { MiniAppTranslations } from "../i18n";
 import { GlobeSvgIcon, MoonSvgIcon, SunSvgIcon } from "../resource";
 import { useMiniAppStore } from "../store/app";
 import type { MiniAppUiStoreState } from "../store/app";
-import type { MiniAppLanguage, MiniAppThemeMode } from "../types/miniApp";
+import type { MiniAppLanguage, MiniAppThemeMode } from "../types/miniApp/ui";
 import { useDelayedUnmount } from "./animations/useDelayedUnmount";
 import type { DelayedUnmountState } from "./animations/useDelayedUnmount";
 

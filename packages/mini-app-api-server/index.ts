@@ -3,8 +3,8 @@
  */
 
 export {
+  clearAllMiniAppAuthSessions,
   issueMiniAppAuthSession,
-  resolveAndRefreshMiniAppAuthSession,
 } from "./auth/session";
 export { loadMiniAppTotpRecord } from "./auth/totpStorage";
 export { prepareMiniAppPicker } from "./picker/prepare";

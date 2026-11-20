@@ -7,11 +7,15 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import { join } from "node:path";
 import * as serverMemoryConsts from "../../packages/consts/aiChat/memory";
 import * as serverDeleteMessageConsts from "../../packages/consts/deleteMessage";
 import * as serverExhaustiveList from "../../packages/consts/exhaustiveList";
+import * as serverImageGalleryConsts from "../../packages/consts/imageGallery";
 import { WHITELIST_PERMISSION_HELP as teasingWhitelistPermissionHelp } from "../../packages/consts/atmosphere/teasing/whitelist";
 import * as serverMiniAppConsts from "../../packages/consts/miniApp";
+import * as serverMiniAppConfigConsts from "../../packages/consts/miniAppConfig";
+import * as serverMiniAppCryptoConsts from "../../packages/consts/miniAppCrypto";
 import { MINI_APP_FAVICON_PATH, MINI_APP_REJECT_HTML_PATH } from "../../packages/consts/paths";
 import * as serverQaConsts from "../../packages/consts/qa";
 import * as serverTextConsts from "../../packages/consts/text";
@@ -22,18 +26,27 @@ import { errorMessage as serverErrorMessage } from "../../packages/libs/errorMes
 import * as frontendExhaustiveList from "../../packages/mini-app-frontend/consts/exhaustiveList";
 import * as frontendMemoryConsts from "../../packages/mini-app-frontend/consts/memory";
 import * as frontendMiniAppConsts from "../../packages/mini-app-frontend/consts/miniApp";
+import * as frontendMiniAppConfigConsts from "../../packages/mini-app-frontend/consts/miniAppConfig";
+import * as frontendMiniAppCryptoConsts from "../../packages/mini-app-frontend/consts/miniAppCrypto";
 import * as frontendTimeConsts from "../../packages/mini-app-frontend/consts/time";
 import * as frontendWhitelistConsts from "../../packages/mini-app-frontend/consts/whitelist";
 import { getEnTranslations } from "../../packages/mini-app-frontend/i18n/languages/en";
 import { getJaTranslations } from "../../packages/mini-app-frontend/i18n/languages/ja";
 import { getZhTranslations } from "../../packages/mini-app-frontend/i18n/languages/zh";
 import { errorMessage as frontendErrorMessage } from "../../packages/mini-app-frontend/libs/errorMessage";
-import { buildMiniAppGalleryDownloadFileName as buildFrontendDownloadFileName } from "../../packages/mini-app-frontend/libs/formatters";
+import { buildMiniAppEnvelopeAad as buildFrontendEnvelopeAad } from "../../packages/mini-app-frontend/libs/crypto";
+import {
+  buildMiniAppGalleryDownloadFileName as buildFrontendDownloadFileName,
+  sanitizeBidiText as frontendSanitizeBidiText,
+} from "../../packages/mini-app-frontend/libs/formatters";
+import { buildMiniAppHandshakeTranscript as buildFrontendHandshakeTranscript } from "../../packages/mini-app-frontend/libs/handshakeCrypto";
 import type * as FrontendIdentityPolicy from "../../packages/mini-app-frontend/types/identityPolicy";
 import type * as FrontendMiniApp from "../../packages/mini-app-frontend/types/miniApp";
 import type { MiniAppTranslations } from "../../packages/mini-app-frontend/types/miniAppI18n";
 import type * as FrontendMiniAppTotp from "../../packages/mini-app-frontend/types/miniAppTotp";
+import { buildMiniAppEnvelopeAad as buildServerEnvelopeAad } from "../../packages/mini-app-api-server/libs/crypto";
 import { buildMiniAppGalleryDownloadFileName as buildServerDownloadFileName } from "../../packages/mini-app-api-server/libs/downloadFileName";
+import { buildMiniAppHandshakeTranscript as buildServerHandshakeTranscript } from "../../packages/mini-app-api-server/libs/handshakeCrypto";
 import type * as ServerIdentityPolicy from "../../packages/types/identityPolicy";
 import type * as ServerMiniApp from "../../packages/types/miniApp";
 import type * as ServerMiniAppTotp from "../../packages/types/miniAppTotp";
@@ -45,6 +58,8 @@ type Exact<A, B> =
 /** 每一项不一致时 `true satisfies false` 在 typecheck 阶段报错，错误行即不一致的类型。 */
 const contractTypeParity: Readonly<Record<string, true>> = {
   MiniAppAccessDiagnostics: true satisfies Exact<FrontendMiniApp.MiniAppAccessDiagnostics, ServerMiniApp.MiniAppAccessDiagnostics>,
+  MiniAppAuthHandshakeOffer: true satisfies Exact<FrontendMiniApp.MiniAppAuthHandshakeOffer, ServerMiniApp.MiniAppAuthHandshakeOffer>,
+  MiniAppEncryptedLoginRequest: true satisfies Exact<FrontendMiniApp.MiniAppEncryptedLoginRequest, ServerMiniApp.MiniAppEncryptedLoginRequest>,
   MiniAppLoginSuccessResponse: true satisfies Exact<FrontendMiniApp.MiniAppLoginSuccessResponse, ServerMiniApp.MiniAppLoginSuccessResponse>,
   MiniAppAuthPrecheckResponse: true satisfies Exact<FrontendMiniApp.MiniAppAuthPrecheckResponse, ServerMiniApp.MiniAppAuthPrecheckResponse>,
   MiniAppCapabilityDetailItem: true satisfies Exact<FrontendMiniApp.MiniAppCapabilityDetailItem, ServerMiniApp.MiniAppCapabilityDetailItem>,
@@ -87,7 +102,20 @@ const contractTypeParity: Readonly<Record<string, true>> = {
   MiniAppGalleryUploadResult: true satisfies Exact<FrontendMiniApp.MiniAppGalleryUploadResult, ServerMiniApp.MiniAppGalleryUploadResult>,
   MiniAppGalleryDeleteOutcome: true satisfies Exact<FrontendMiniApp.MiniAppGalleryDeleteOutcome, ServerMiniApp.MiniAppGalleryDeleteOutcome>,
   MiniAppGalleryDeleteResult: true satisfies Exact<FrontendMiniApp.MiniAppGalleryDeleteResult, ServerMiniApp.MiniAppGalleryDeleteResult>,
+  MiniAppGalleryDownloadTicketResponse: true satisfies Exact<FrontendMiniApp.MiniAppGalleryDownloadTicketResponse, ServerMiniApp.MiniAppGalleryDownloadTicketResponse>,
   PrepareMiniAppPickerResult: true satisfies Exact<FrontendMiniApp.PrepareMiniAppPickerResult, ServerMiniApp.PrepareMiniAppPickerResult>,
+  MiniAppEncryptedPayload: true satisfies Exact<FrontendMiniApp.MiniAppEncryptedPayload, ServerMiniApp.MiniAppEncryptedPayload>,
+  MiniAppEncryptedEnvelope: true satisfies Exact<FrontendMiniApp.MiniAppEncryptedEnvelope, ServerMiniApp.MiniAppEncryptedEnvelope>,
+  MiniAppConfigScope: true satisfies Exact<FrontendMiniApp.MiniAppConfigScope, ServerMiniApp.MiniAppConfigScope>,
+  MiniAppDynamicConfigFileName: true satisfies Exact<FrontendMiniApp.MiniAppDynamicConfigFileName, ServerMiniApp.MiniAppDynamicConfigFileName>,
+  MiniAppStaticConfigFileName: true satisfies Exact<FrontendMiniApp.MiniAppStaticConfigFileName, ServerMiniApp.MiniAppStaticConfigFileName>,
+  MiniAppConfigFileName: true satisfies Exact<FrontendMiniApp.MiniAppConfigFileName, ServerMiniApp.MiniAppConfigFileName>,
+  MiniAppConfigFileItem: true satisfies Exact<FrontendMiniApp.MiniAppConfigFileItem, ServerMiniApp.MiniAppConfigFileItem>,
+  MiniAppConfigListResponse: true satisfies Exact<FrontendMiniApp.MiniAppConfigListResponse, ServerMiniApp.MiniAppConfigListResponse>,
+  MiniAppConfigFileResponse: true satisfies Exact<FrontendMiniApp.MiniAppConfigFileResponse, ServerMiniApp.MiniAppConfigFileResponse>,
+  MiniAppConfigSaveRequest: true satisfies Exact<FrontendMiniApp.MiniAppConfigSaveRequest, ServerMiniApp.MiniAppConfigSaveRequest>,
+  MiniAppConfigSaveResponse: true satisfies Exact<FrontendMiniApp.MiniAppConfigSaveResponse, ServerMiniApp.MiniAppConfigSaveResponse>,
+  MiniAppConfigRestartResponse: true satisfies Exact<FrontendMiniApp.MiniAppConfigRestartResponse, ServerMiniApp.MiniAppConfigRestartResponse>,
   MiniAppAuthMode: true satisfies Exact<FrontendMiniAppTotp.MiniAppAuthMode, ServerMiniAppTotp.MiniAppAuthMode>,
   MiniAppTotpStatusView: true satisfies Exact<FrontendMiniAppTotp.MiniAppTotpStatusView, ServerMiniAppTotp.MiniAppTotpStatusView>,
   MiniAppTotpSetupResponse: true satisfies Exact<FrontendMiniAppTotp.MiniAppTotpSetupResponse, ServerMiniAppTotp.MiniAppTotpSetupResponse>,
@@ -116,6 +144,13 @@ describe("Mini App 前端副本与服务端定义一致", () => {
     expect(frontendMiniAppConsts.MINI_APP_SESSION_TTL_MS).toBe(serverMiniAppConsts.MINI_APP_SESSION_TTL_MS);
     expect(frontendMiniAppConsts.MINI_APP_TMA_AUTH_PREFIX).toBe(serverMiniAppConsts.MINI_APP_TMA_AUTH_PREFIX);
     expect(frontendMiniAppConsts.MINI_APP_GALLERY_DEFAULT_PAGE_SIZE).toBe(serverMiniAppConsts.MINI_APP_GALLERY_DEFAULT_PAGE_SIZE);
+    const cacheControlMaxAgeMatch: RegExpMatchArray | null =
+      /\bmax-age=(\d+)\b/u.exec(serverMiniAppConsts.MINI_APP_GALLERY_FILE_CACHE_CONTROL);
+    expect(cacheControlMaxAgeMatch).not.toBeNull();
+    expect(frontendMiniAppConsts.MINI_APP_GALLERY_CACHE_TTL_MS).toBe(
+      Number(cacheControlMaxAgeMatch![1]!) * 1_000
+    );
+    expect(frontendMiniAppConsts.RANDOM_IMAGE_MAX_BYTES).toBe(serverImageGalleryConsts.RANDOM_IMAGE_MAX_BYTES);
     expect(frontendMiniAppConsts.MINI_APP_MESSAGES_DEFAULT_PAGE_SIZE).toBe(serverMiniAppConsts.MINI_APP_MESSAGES_DEFAULT_PAGE_SIZE);
     expect(frontendMiniAppConsts.MINI_APP_IDENTITY_DEFAULT_PAGE_SIZE).toBe(serverMiniAppConsts.MINI_APP_IDENTITY_DEFAULT_PAGE_SIZE);
     expect(frontendMiniAppConsts.MINI_APP_BATCH_KICK_MIN_HOURS).toBe(serverMiniAppConsts.MINI_APP_BATCH_KICK_MIN_HOURS);
@@ -134,6 +169,53 @@ describe("Mini App 前端副本与服务端定义一致", () => {
     expect(serverExhaustiveList.exhaustiveList<"a" | "b">()(sampleTuple)).toBe(sampleTuple);
     expect(frontendMemoryConsts.VERBATIM_CONTEXT_MAX).toBe(serverMemoryConsts.VERBATIM_CONTEXT_MAX);
     expect(frontendTimeConsts.MINUTE_MS).toBe(serverTimeConsts.MINUTE_MS);
+    expect(frontendTimeConsts.HOUR_MS).toBe(serverTimeConsts.HOUR_MS);
+    expect(frontendTimeConsts.DAY_MS).toBe(serverTimeConsts.DAY_MS);
+    expect(frontendMiniAppCryptoConsts.MINI_APP_SESSION_KEY_BITS).toBe(serverMiniAppCryptoConsts.MINI_APP_SESSION_KEY_BITS);
+    expect(frontendMiniAppCryptoConsts.MINI_APP_SESSION_KEY_BYTES).toBe(serverMiniAppCryptoConsts.MINI_APP_SESSION_KEY_BYTES);
+    expect(frontendMiniAppCryptoConsts.MINI_APP_AES_GCM_IV_BYTES).toBe(serverMiniAppCryptoConsts.MINI_APP_AES_GCM_IV_BYTES);
+    expect(frontendMiniAppCryptoConsts.MINI_APP_AES_GCM_TAG_BITS).toBe(serverMiniAppCryptoConsts.MINI_APP_AES_GCM_TAG_BITS);
+    expect(frontendMiniAppCryptoConsts.MINI_APP_AES_GCM_TAG_BYTES * 8).toBe(
+      serverMiniAppCryptoConsts.MINI_APP_AES_GCM_TAG_BITS
+    );
+    expect(frontendMiniAppCryptoConsts.MINI_APP_SESSION_KEY_HEADER).toBe(serverMiniAppCryptoConsts.MINI_APP_SESSION_KEY_HEADER);
+    expect(frontendMiniAppCryptoConsts.MINI_APP_INVALID_ENCRYPTED_PAYLOAD_CODE).toBe(serverMiniAppCryptoConsts.MINI_APP_INVALID_ENCRYPTED_PAYLOAD_CODE);
+    expect(frontendMiniAppCryptoConsts.MINI_APP_X25519_ALGORITHM).toBe(serverMiniAppCryptoConsts.MINI_APP_X25519_ALGORITHM);
+    expect(frontendMiniAppCryptoConsts.MINI_APP_ED25519_ALGORITHM).toBe(serverMiniAppCryptoConsts.MINI_APP_ED25519_ALGORITHM);
+    expect(frontendMiniAppCryptoConsts.MINI_APP_HKDF_ALGORITHM).toBe(serverMiniAppCryptoConsts.MINI_APP_HKDF_ALGORITHM);
+    expect(frontendMiniAppCryptoConsts.MINI_APP_HKDF_HASH).toBe(serverMiniAppCryptoConsts.MINI_APP_HKDF_HASH);
+    expect(frontendMiniAppCryptoConsts.MINI_APP_X25519_PUBLIC_KEY_BYTES).toBe(serverMiniAppCryptoConsts.MINI_APP_X25519_PUBLIC_KEY_BYTES);
+    expect(frontendMiniAppCryptoConsts.MINI_APP_ED25519_PUBLIC_KEY_BYTES).toBe(serverMiniAppCryptoConsts.MINI_APP_ED25519_PUBLIC_KEY_BYTES);
+    expect(frontendMiniAppCryptoConsts.MINI_APP_HANDSHAKE_SIGNATURE_DOMAIN).toBe(serverMiniAppCryptoConsts.MINI_APP_HANDSHAKE_SIGNATURE_DOMAIN);
+    expect(frontendMiniAppCryptoConsts.MINI_APP_HANDSHAKE_HKDF_C2S_INFO_PREFIX).toBe(serverMiniAppCryptoConsts.MINI_APP_HANDSHAKE_HKDF_C2S_INFO_PREFIX);
+    expect(frontendMiniAppCryptoConsts.MINI_APP_HANDSHAKE_HKDF_S2C_INFO_PREFIX).toBe(serverMiniAppCryptoConsts.MINI_APP_HANDSHAKE_HKDF_S2C_INFO_PREFIX);
+    expect(frontendMiniAppCryptoConsts.MINI_APP_LOGIN_REQUEST_AAD).toBe(serverMiniAppCryptoConsts.MINI_APP_LOGIN_REQUEST_AAD);
+    expect(frontendMiniAppCryptoConsts.MINI_APP_LOGIN_RESPONSE_AAD).toBe(serverMiniAppCryptoConsts.MINI_APP_LOGIN_RESPONSE_AAD);
+    expect(frontendMiniAppCryptoConsts.MINI_APP_SERVER_SIGNING_PUBLIC_KEY_BASE64).toBe(
+      serverMiniAppCryptoConsts.MINI_APP_SERVER_SIGNING_PUBLIC_KEY_PLACEHOLDER
+    );
+    expect(frontendMiniAppCryptoConsts.MINI_APP_INVALID_HANDSHAKE_CODE).toBe(serverMiniAppCryptoConsts.MINI_APP_INVALID_HANDSHAKE_CODE);
+    expect(frontendMiniAppCryptoConsts.MINI_APP_ENCRYPTED_QUERY_PARAM).toBe(serverMiniAppCryptoConsts.MINI_APP_ENCRYPTED_QUERY_PARAM);
+    expect(frontendMiniAppCryptoConsts.MINI_APP_MAX_ENCRYPTED_QUERY_LENGTH).toBe(serverMiniAppCryptoConsts.MINI_APP_MAX_ENCRYPTED_QUERY_LENGTH);
+    expect(frontendMiniAppCryptoConsts.MINI_APP_DOWNLOAD_TICKET_PARAM).toBe(serverMiniAppCryptoConsts.MINI_APP_DOWNLOAD_TICKET_PARAM);
+    expect(
+      buildFrontendEnvelopeAad("post", "/api/configs/save", "req")
+    ).toEqual(
+      buildServerEnvelopeAad("POST", "/api/configs/save", "req")
+    );
+    expect(
+      buildFrontendEnvelopeAad("GET", "/api/gallery/download-ticket", "res")
+    ).toEqual(
+      buildServerEnvelopeAad("get", "/api/gallery/download-ticket", "res")
+    );
+    expect(frontendMiniAppConfigConsts.MINI_APP_DYNAMIC_CONFIG_FILES).toEqual(serverMiniAppConfigConsts.MINI_APP_DYNAMIC_CONFIG_FILES);
+    expect(frontendMiniAppConfigConsts.MINI_APP_STATIC_CONFIG_FILES).toEqual(serverMiniAppConfigConsts.MINI_APP_STATIC_CONFIG_FILES);
+    expect(frontendMiniAppConfigConsts.MINI_APP_MAX_CONFIG_CONTENT_BYTES).toBe(serverMiniAppConfigConsts.MINI_APP_MAX_CONFIG_CONTENT_BYTES);
+    expect(
+      buildFrontendHandshakeTranscript(" AbCd0123 ", " kExPubKey== ", 1_780_000_000_123)
+    ).toEqual(
+      buildServerHandshakeTranscript(" AbCd0123 ", " kExPubKey== ", 1_780_000_000_123)
+    );
   });
 
   test("前端复制的正则与服务端对应正则的模式和标志一致", () => {
@@ -141,11 +223,39 @@ describe("Mini App 前端副本与服务端定义一致", () => {
       [frontendMiniAppConsts.MINI_APP_SHA256_HEX_PATTERN, serverMiniAppConsts.MINI_APP_SHA256_HEX_PATTERN],
       [frontendMiniAppConsts.MINI_APP_SIGNED_INTEGER_PATTERN, serverMiniAppConsts.MINI_APP_SIGNED_INTEGER_PATTERN],
       [frontendMiniAppConsts.MINI_APP_BIDI_CONTROL_CHARS_PATTERN, serverTextConsts.BIDI_CONTROL_PATTERN],
+      [frontendMiniAppConsts.MINI_APP_BIDI_CONTROL_CHARS_TEST_PATTERN, serverTextConsts.BIDI_CONTROL_TEST_PATTERN],
+      [frontendMiniAppCryptoConsts.MINI_APP_HANDSHAKE_ID_HEX_PATTERN, serverMiniAppCryptoConsts.MINI_APP_HANDSHAKE_ID_HEX_PATTERN],
     ];
     for (const [frontend, server] of pairs) {
       expect(frontend.source).toBe(server.source);
       expect(frontend.flags).toBe(server.flags);
     }
+    expect(frontendMiniAppConsts.MINI_APP_BIDI_CONTROL_CHARS_TEST_PATTERN.source).toBe(
+      frontendMiniAppConsts.MINI_APP_BIDI_CONTROL_CHARS_PATTERN.source
+    );
+    expect(frontendMiniAppConsts.MINI_APP_BIDI_CONTROL_CHARS_TEST_PATTERN.flags).toBe("");
+    expect(serverTextConsts.BIDI_CONTROL_TEST_PATTERN.source).toBe(
+      serverTextConsts.BIDI_CONTROL_PATTERN.source
+    );
+    expect(serverTextConsts.BIDI_CONTROL_TEST_PATTERN.flags).toBe("");
+
+    // 前置非全局检测对全 BMP 逐码元及连续/交错调用均与全局替换逐字等价，且不推进 lastIndex。
+    let mismatches: number = 0;
+    let firstMismatch: string = "";
+    for (let code: number = 0; code <= 0xffff; code += 1) {
+      const sample: string = `a${String.fromCharCode(code)}b`;
+      if (frontendSanitizeBidiText(sample) !== sample.replace(serverTextConsts.BIDI_CONTROL_PATTERN, "")) {
+        mismatches += 1;
+        if (mismatches === 1) firstMismatch = `U+${code.toString(16)}`;
+      }
+    }
+    expect(firstMismatch).toBe("");
+    expect(mismatches).toBe(0);
+    for (let index: number = 0; index < 4; index += 1) {
+      expect(frontendSanitizeBidiText("plain-name")).toBe("plain-name");
+      expect(frontendSanitizeBidiText("\u202EDoro\u200F\u2066!\u2069")).toBe("Doro!");
+    }
+    expect(frontendMiniAppConsts.MINI_APP_BIDI_CONTROL_CHARS_TEST_PATTERN.lastIndex).toBe(0);
   });
 
   test("服务端单页上限等于前端每页档位的最大档，前端缺省页大小落在档位内", () => {
@@ -214,6 +324,7 @@ describe("Mini App 前端副本与服务端定义一致", () => {
     expect(rejectHtml).not.toContain("./main.tsx");
     expect(rejectHtml).not.toContain("id=\"root\"");
     expect(rejectHtml).not.toContain("innerHTML");
+    expect(rejectHtml).not.toContain("localStorage?.getItem");
     expect(rejectHtml).toContain("href=\"./favicon.ico\"");
     expect(rejectHtml).not.toMatch(/<script\b[^>]*\bsrc=/iu);
     expect(rejectHtml).not.toContain("telegram-web-app.js");
@@ -428,7 +539,6 @@ describe("Mini App 前端副本与服务端定义一致", () => {
     }
 
     const validSessionToken: string = "a".repeat(64);
-    const rotatedSessionToken: string = "b".repeat(64);
     const runWithInitData = async (
       options: Readonly<RunRejectWithInitDataOptions>
     ): Promise<RejectInitDataRunResult> => {
@@ -457,7 +567,6 @@ describe("Mini App 前端副本与服务端定义一致", () => {
         sessionStore.set("__telegram__initParams", options.telegramInitParamsRaw);
       }
       if (options.storedSessionRaw !== null) {
-        localStore.set(frontendMiniAppConsts.MINI_APP_SESSION_STORAGE_KEY, options.storedSessionRaw);
         sessionStore.set(frontendMiniAppConsts.MINI_APP_SESSION_STORAGE_KEY, options.storedSessionRaw);
       }
       const localStorageMock: Record<string, unknown> = {
@@ -514,70 +623,72 @@ describe("Mini App 前端副本与服务端定义一致", () => {
         reloaded,
         savedGuardTs,
         storedSessionAfter:
-          localStore.get(frontendMiniAppConsts.MINI_APP_SESSION_STORAGE_KEY) ?? null,
+          sessionStore.get(frontendMiniAppConsts.MINI_APP_SESSION_STORAGE_KEY) ?? null,
         pageHidden: getNode("cf-error-page").hidden,
         pillText: getNode("cf-code-pill-text").textContent,
         reasonText: getNode("cf-policy-reason").textContent,
       };
     };
 
-    let capturedHeaders: Record<string, string> = {};
-    const rotatedExpiresAt: number = Date.now() + 2_600_000;
+    let capturedHeaders: Headers = new Headers();
+    const storedExpiresAt: number = Date.now() + frontendTimeConsts.MINUTE_MS;
     const okRun: RejectInitDataRunResult = await runWithInitData({
       hash: "#tgWebAppData=user%3D1%26hash%3Dabc",
       reloadGuardTs: null,
       storedSessionRaw: JSON.stringify({
         token: validSessionToken,
-        expiresAt: Date.now() + frontendTimeConsts.MINUTE_MS,
+        expiresAt: storedExpiresAt,
       }),
       fetchImpl: async (_url: string, init: RequestInit): Promise<Response> => {
-        capturedHeaders = (init.headers as Record<string, string> | undefined) ?? {};
-        return new Response(JSON.stringify({ ok: true }), {
-          status: 200,
-          headers: {
-            [frontendMiniAppConsts.MINI_APP_SESSION_HEADER]: rotatedSessionToken,
-            [frontendMiniAppConsts.MINI_APP_SESSION_EXPIRES_AT_HEADER]: String(rotatedExpiresAt),
-          },
-        });
+        capturedHeaders = new Headers(init.headers);
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
       },
     });
     expect(okRun.reloaded).toBeTrue();
     expect(okRun.pageHidden).toBeTrue();
     expect(okRun.savedGuardTs).not.toBeNull();
-    expect(capturedHeaders["X-Telegram-Init-Data"]).toBe("user=1&hash=abc");
-    expect(capturedHeaders["X-Mini-App-Session"]).toBe(validSessionToken);
+    expect(capturedHeaders.get(frontendMiniAppConsts.MINI_APP_INIT_DATA_HEADER)).toBe(
+      "user=1&hash=abc"
+    );
+    expect(capturedHeaders.get(frontendMiniAppConsts.MINI_APP_SESSION_HEADER)).toBe(
+      validSessionToken
+    );
     expect(JSON.parse(okRun.storedSessionAfter ?? "{}")).toEqual({
-      token: rotatedSessionToken,
-      expiresAt: rotatedExpiresAt,
+      token: validSessionToken,
+      expiresAt: storedExpiresAt,
     });
 
-    let queryCapturedHeaders: Record<string, string> = {};
+    let queryCapturedHeaders: Headers = new Headers();
     const queryOkRun: RejectInitDataRunResult = await runWithInitData({
       search: "?tgWebAppData=user%3D7%26hash%3Dqry",
       reloadGuardTs: null,
       storedSessionRaw: null,
       fetchImpl: async (_url: string, init: RequestInit): Promise<Response> => {
-        queryCapturedHeaders = (init.headers as Record<string, string> | undefined) ?? {};
+        queryCapturedHeaders = new Headers(init.headers);
         return new Response(JSON.stringify({ ok: true }), { status: 200 });
       },
     });
     expect(queryOkRun.reloaded).toBeTrue();
-    expect(queryCapturedHeaders["X-Telegram-Init-Data"]).toBe("user=7&hash=qry");
-    expect(queryCapturedHeaders["X-Mini-App-Session"]).toBeUndefined();
+    expect(queryCapturedHeaders.get(frontendMiniAppConsts.MINI_APP_INIT_DATA_HEADER)).toBe(
+      "user=7&hash=qry"
+    );
+    expect(queryCapturedHeaders.get(frontendMiniAppConsts.MINI_APP_SESSION_HEADER)).toBeNull();
 
-    let sessionParamsHeaders: Record<string, string> = {};
+    let sessionParamsHeaders: Headers = new Headers();
     const sessionParamsOkRun: RejectInitDataRunResult = await runWithInitData({
       telegramInitParamsRaw: JSON.stringify({ tgWebAppData: "user=9&hash=cached" }),
       reloadGuardTs: null,
       storedSessionRaw: validSessionToken,
       fetchImpl: async (_url: string, init: RequestInit): Promise<Response> => {
-        sessionParamsHeaders = (init.headers as Record<string, string> | undefined) ?? {};
+        sessionParamsHeaders = new Headers(init.headers);
         return new Response(JSON.stringify({ ok: true }), { status: 200 });
       },
     });
     expect(sessionParamsOkRun.reloaded).toBeTrue();
-    expect(sessionParamsHeaders["X-Telegram-Init-Data"]).toBe("user=9&hash=cached");
-    expect(sessionParamsHeaders["X-Mini-App-Session"]).toBeUndefined();
+    expect(sessionParamsHeaders.get(frontendMiniAppConsts.MINI_APP_INIT_DATA_HEADER)).toBe(
+      "user=9&hash=cached"
+    );
+    expect(sessionParamsHeaders.get(frontendMiniAppConsts.MINI_APP_SESSION_HEADER)).toBeNull();
     expect(sessionParamsOkRun.storedSessionAfter).toBeNull();
 
     const loopGuardedRun: RejectInitDataRunResult = await runWithInitData({
@@ -647,6 +758,35 @@ describe("Mini App 前端副本与服务端定义一致", () => {
     const inputs: readonly unknown[] = [new Error("boom"), new TypeError("type"), "text", 42, null, undefined, { reason: "x" }];
     for (const input of inputs) {
       expect(frontendErrorMessage(input)).toBe(serverErrorMessage(input));
+    }
+  });
+
+  test("三语言服务重启提示文案与 install.sh SERVICE_NAME 保持一致", async () => {
+    const installScript: string = await Bun.file(
+      join(import.meta.dir, "../../install.sh")
+    ).text();
+    const serviceNameMatch: RegExpMatchArray | null = installScript.match(
+      /^readonly SERVICE_NAME="([^"]+)"/m
+    );
+    expect(serviceNameMatch).not.toBeNull();
+    const installServiceName: string = serviceNameMatch![1]!;
+    const underscoreServiceName: string = installServiceName.replaceAll("-", "_");
+    const restartFragment: string = `systemctl restart ${installServiceName}`;
+    const dicts: readonly MiniAppTranslations[] = [
+      getZhTranslations(),
+      getEnTranslations(),
+      getJaTranslations(),
+    ];
+
+    for (const dict of dicts) {
+      for (const noticeText of [
+        dict.serverNotice("SERVICE_RESTARTED"),
+        dict.serverNotice("SERVICE_RESTART_FAILED"),
+        dict.configs.confirmRestartAfterSave("bot.json"),
+      ]) {
+        expect(noticeText).toContain(restartFragment);
+        expect(noticeText).not.toContain(underscoreServiceName);
+      }
     }
   });
 });

@@ -6,15 +6,25 @@
 
 import { afterEach, describe, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
+import type { MiniAppAuthSession } from "../../packages/types/miniApp/auth";
+import type {
+  MiniAppEncryptedEnvelope,
+  MiniAppServiceRestartResult,
+} from "../../packages/types/miniApp/configs";
 import {
   buildSuperAdminHeaders,
+  ensureReusableTestSession,
   installMiniAppTestDiskIOMock,
   resetMiniAppTestDiskIOState,
 } from "../helpers/miniAppInitData";
 
 installMiniAppTestDiskIOMock();
 
-const { miniAppActiveUrlPartsHolder, miniAppAuthSessions } = await import(
+const {
+  miniAppActiveUrlPartsHolder,
+  miniAppAuthSessions,
+  miniAppServiceRestartRunnerHolder,
+} = await import(
   "../../packages/cache/main/miniApp"
 );
 const { BOT_TOKEN, SUPER_ADMIN_USER_ID } = await import("../../packages/config/bot");
@@ -22,6 +32,9 @@ const {
   MINI_APP_INIT_DATA_HEADER,
   MINI_APP_SESSION_HEADER,
 } = await import("../../packages/consts/miniApp");
+const { MINI_APP_ENCRYPTED_QUERY_PARAM } = await import(
+  "../../packages/consts/miniAppCrypto"
+);
 const { MINI_APP_TOTP_MEMORY_DIR } = await import("../../packages/consts/paths");
 const {
   createMiniAppBunRoutes,
@@ -32,6 +45,18 @@ const {
 const { attachRefreshedSessionHeaders } = await import(
   "../../packages/mini-app-api-server/auth/session"
 );
+const {
+  buildMiniAppEnvelopeAad,
+  decryptMiniAppText,
+  encryptMiniAppEnvelope,
+  parseMiniAppEncryptedEnvelope,
+} = await import("../../packages/mini-app-api-server/libs/crypto");
+const { normalizeRoutePathname } = await import(
+  "../../packages/mini-app-api-server/libs/routePath"
+);
+const { encryptMiniAppBinary, sealMiniAppQuery } = await import(
+  "../../packages/mini-app-frontend/libs/crypto"
+);
 const { jsonResponse } = await import(
   "../../packages/mini-app-api-server/libs/response"
 );
@@ -41,19 +66,39 @@ interface ExpandedRouteCase {
   readonly routePattern: string;
   readonly method: string;
   readonly samplePath: string;
-  readonly body: string | undefined;
+  readonly rawQuery: string | undefined;
+  readonly plainBody: string | undefined;
+  readonly encryptRequest: boolean;
+  readonly encryptBinaryRequest: boolean;
 }
 
 /**
- * 构造携带当前 `BOT_TOKEN`、`SUPER_ADMIN_USER_ID` 签名与有效密码会话令牌的测试请求头。
+ * 复用或签发当前活跃测试会话并构造超级管理员请求头。
+ * @returns 活跃会话与请求头字典。
+ */
+function superAdminAuth(): {
+  readonly session: Readonly<MiniAppAuthSession>;
+  readonly headers: Record<string, string>;
+} {
+  const session: Readonly<MiniAppAuthSession> = ensureReusableTestSession(
+    issueMiniAppAuthSession
+  );
+  return {
+    session,
+    headers: buildSuperAdminHeaders({
+      botToken: BOT_TOKEN,
+      superAdminUserId: SUPER_ADMIN_USER_ID,
+      sessionToken: session.token,
+    }),
+  };
+}
+
+/**
+ * 构造携带当前 `BOT_TOKEN`、`SUPER_ADMIN_USER_ID` 签名与有效会话令牌的测试请求头。
  * @returns 包含 `X-Telegram-Init-Data` 与 `X-Mini-App-Session` 的请求头。
  */
 function superAdminHeaders(): Record<string, string> {
-  return buildSuperAdminHeaders({
-    botToken: BOT_TOKEN,
-    superAdminUserId: SUPER_ADMIN_USER_ID,
-    sessionToken: issueMiniAppAuthSession().token,
-  });
+  return superAdminAuth().headers;
 }
 
 /**
@@ -74,41 +119,159 @@ function expandRouteCases(
     ) {
       continue;
     }
-    const resolvedBase: string = routePattern
-      .replace(":chatId", "-1001")
-      .replace(":fileName", "a.png");
-    if (resolvedBase.includes(":")) {
+    if (routePattern.includes(":")) {
       throw new Error(`Unhandled route parameter placeholder in ${routePattern}`);
     }
-    const samplePath: string =
+    const rawQuery: string | undefined =
       routePattern === "/api/picker/result"
-        ? `${resolvedBase}?requestId=1`
-        : resolvedBase;
+        ? "requestId=1"
+        : routePattern === "/api/configs/file"
+          ? "scope=dynamic&fileName=mood.json"
+          : routePattern === "/api/chats/detail" || routePattern === "/api/chats/targets"
+            ? "chatId=-1001"
+            : routePattern === "/api/chats/messages"
+              ? "chatId=-1001&page=1&pageSize=10"
+              : routePattern === "/api/gallery/file" || routePattern === "/api/gallery/download"
+                ? "fileName=a.png"
+                : undefined;
     for (const method of Object.keys(entry)) {
-      let body: string | undefined;
-      if (method === "POST") {
+      const encryptBinaryRequest: boolean =
+        routePattern === "/api/gallery/upload" && method === "POST";
+      const encryptRequest: boolean =
+        routePattern.startsWith("/api/") &&
+        routePattern !== "/api/auth/precheck" &&
+        routePattern !== "/api/auth/login" &&
+        routePattern !== "/api/auth/logout";
+      let plainBody: string | undefined;
+      if (method !== "GET" && method !== "HEAD") {
         if (routePattern === "/api/auth/login") {
-          body = JSON.stringify({ password: "test-mini-app-password" });
-        } else if (
-          routePattern !== "/api/totp/setup" &&
-          routePattern !== "/api/totp/delete" &&
-          routePattern !== "/api/gallery/upload"
-        ) {
-          body = "{}";
+          plainBody = JSON.stringify({
+            handshakeId: "0".repeat(32),
+            clientPublicKey: "A".repeat(44),
+            encryptedPayload: { iv: "aa==", payload: "bb==" },
+          });
+        } else if (encryptBinaryRequest) {
+          plainBody = "";
+        } else if (encryptRequest) {
+          plainBody = "{}";
         }
       }
       cases.push({
         routePattern,
         method,
-        samplePath,
-        body,
+        samplePath: routePattern,
+        rawQuery,
+        plainBody,
+        encryptRequest,
+        encryptBinaryRequest,
       });
     }
   }
   return cases;
 }
 
+/**
+ * 为展开后的路由样例构造传输层路径与查询串（加密路由自动将非空查询串封装为 `?e=` 并绑定规范化 `/api/...` AAD）。
+ * @param routeCase 单条展开样例。
+ * @param session 当前活跃会话。
+ * @param basePrefix 可选的子路径前缀（如 `"/sub"`，默认空字符串）。
+ * @returns 带可选加密或明文查询串的请求路径。
+ */
+async function buildWirePath(
+  routeCase: Readonly<ExpandedRouteCase>,
+  session: Readonly<MiniAppAuthSession>,
+  basePrefix: string = ""
+): Promise<string> {
+  const pathPart: string = `${basePrefix}${routeCase.samplePath}`;
+  if (routeCase.rawQuery === undefined) {
+    return pathPart;
+  }
+  if (!routeCase.encryptRequest) {
+    return `${pathPart}?${routeCase.rawQuery}`;
+  }
+  const sealed: string = await sealMiniAppQuery(
+    await session.cryptoKey,
+    routeCase.rawQuery,
+    `${routeCase.method} ${routeCase.samplePath}`
+  );
+  return `${pathPart}?${MINI_APP_ENCRYPTED_QUERY_PARAM}=${encodeURIComponent(sealed)}`;
+}
+
+/**
+ * 为展开后的路由样例构造传输层请求体（加密路由自动封装为 AES-256-GCM 信封或二进制上传帧）。
+ * @param routeCase 单条展开样例。
+ * @param session 当前活跃会话。
+ * @returns 传输层请求体（字符串或加密二进制帧）或 `undefined`。
+ */
+async function buildWireBody(
+  routeCase: Readonly<ExpandedRouteCase>,
+  session: Readonly<MiniAppAuthSession>
+): Promise<string | Uint8Array<ArrayBuffer> | undefined> {
+  if (routeCase.plainBody === undefined) {
+    return undefined;
+  }
+  if (!routeCase.encryptRequest) {
+    return routeCase.plainBody;
+  }
+  if (routeCase.encryptBinaryRequest) {
+    return encryptMiniAppBinary(
+      await session.cryptoKey,
+      new Uint8Array(0),
+      buildMiniAppEnvelopeAad(routeCase.method, routeCase.samplePath, "req")
+    );
+  }
+  const envelope: Readonly<MiniAppEncryptedEnvelope> =
+    await encryptMiniAppEnvelope(
+      await session.cryptoKey,
+      routeCase.plainBody,
+      buildMiniAppEnvelopeAad(routeCase.method, routeCase.samplePath, "req")
+    );
+  return JSON.stringify(envelope);
+}
+
+/** `readPossiblyEncryptedJson` 读取或解密响应体的入参。 */
+interface ReadPossiblyEncryptedJsonOptions {
+  readonly response: Response;
+  readonly session: Readonly<MiniAppAuthSession>;
+  readonly method: string;
+  readonly rawPath: string;
+}
+
+/**
+ * 解析 HTTP JSON 响应体；若外层是加密传输信封则先使用会话密钥及 `:res` AAD 解密再反序列化。
+ * @param options 响应、会话、请求方法与原始请求路径（自动剥离 `/sub` 前缀绑定 AAD）。
+ * @returns 反序列化后的 JSON 值。
+ */
+async function readPossiblyEncryptedJson({
+  response,
+  session,
+  method,
+  rawPath,
+}: Readonly<ReadPossiblyEncryptedJsonOptions>): Promise<unknown> {
+  const parsed: unknown = await response.json();
+  const envelope: Readonly<MiniAppEncryptedEnvelope> | null =
+    parseMiniAppEncryptedEnvelope(parsed);
+  if (envelope === null) {
+    return parsed;
+  }
+  const canonicalPath: string = normalizeRoutePathname(rawPath).routePath;
+  const plain: string | null = await decryptMiniAppText({
+    cryptoKey: await session.cryptoKey,
+    encrypted: envelope,
+    additionalData: buildMiniAppEnvelopeAad(method, canonicalPath, "res"),
+  });
+  expect(plain).not.toBeNull();
+  return JSON.parse(plain!);
+}
+
+async function stubServiceRestartRunner(): Promise<
+  Readonly<MiniAppServiceRestartResult>
+> {
+  return { ok: true };
+}
+
 afterEach(async (): Promise<void> => {
+  miniAppServiceRestartRunnerHolder.current = null;
   await stopMiniAppServer();
   resetMiniAppTestDiskIOState();
   rmSync(MINI_APP_TOTP_MEMORY_DIR, { recursive: true, force: true });
@@ -124,25 +287,29 @@ describe("Mini App 原生路由表子路径一致性与兜底分发", () => {
       password: "test-mini-app-password",
     });
     expect(rootServer).not.toBeNull();
+    miniAppServiceRestartRunnerHolder.current = stubServiceRestartRunner;
     expect(miniAppActiveUrlPartsHolder.current).toEqual({
       basePath: "/",
       host: "miniapp.example.com",
+      origin: "https://miniapp.example.com",
     });
     const rootBase: string = `http://127.0.0.1:${rootServer!.port}`;
     const rootRoutes: Bun.Serve.Routes<undefined, string> = createMiniAppBunRoutes();
     expect("/_bundle" in rootRoutes).toBeFalse();
     const cases: readonly Readonly<ExpandedRouteCase>[] = expandRouteCases(rootRoutes);
-    expect(cases.length).toBeGreaterThanOrEqual(35);
+    expect(cases.length).toBeGreaterThanOrEqual(40);
 
     const rootOutcomes = new Map<
       string,
       { readonly status: number; readonly contentType: string | null }
     >();
     for (const routeCase of cases) {
-      const res: Response = await fetch(`${rootBase}${routeCase.samplePath}`, {
+      const auth = superAdminAuth();
+      const wirePath: string = await buildWirePath(routeCase, auth.session);
+      const res: Response = await fetch(`${rootBase}${wirePath}`, {
         method: routeCase.method,
-        headers: superAdminHeaders(),
-        body: routeCase.body,
+        headers: auth.headers,
+        body: await buildWireBody(routeCase, auth.session),
       });
       rootOutcomes.set(`${routeCase.method} ${routeCase.samplePath}`, {
         status: res.status,
@@ -161,9 +328,11 @@ describe("Mini App 原生路由表子路径一致性与兜底分发", () => {
       password: "test-mini-app-password",
     });
     expect(subServer).not.toBeNull();
+    miniAppServiceRestartRunnerHolder.current = stubServiceRestartRunner;
     expect(miniAppActiveUrlPartsHolder.current).toEqual({
       basePath: "/sub",
       host: "miniapp.example.com",
+      origin: "https://miniapp.example.com",
     });
     const subBase: string = `http://127.0.0.1:${subServer!.port}`;
     const subRoutes: Bun.Serve.Routes<undefined, string> = createMiniAppBunRoutes();
@@ -178,17 +347,27 @@ describe("Mini App 原生路由表子路径一致性与兜底分发", () => {
     for (const routeCase of cases) {
       const key: string = `${routeCase.method} ${routeCase.samplePath}`;
       const expected = rootOutcomes.get(key)!;
-      const prefixedPath: string = `/sub${routeCase.samplePath}`;
 
-      const prefixedRes: Response = await fetch(`${subBase}${prefixedPath}`, {
+      const prefixedAuth = superAdminAuth();
+      const prefixedWirePath: string = await buildWirePath(
+        routeCase,
+        prefixedAuth.session,
+        "/sub"
+      );
+      const prefixedRes: Response = await fetch(`${subBase}${prefixedWirePath}`, {
         method: routeCase.method,
-        headers: superAdminHeaders(),
-        body: routeCase.body,
+        headers: prefixedAuth.headers,
+        body: await buildWireBody(routeCase, prefixedAuth.session),
       });
-      const strippedRes: Response = await fetch(`${subBase}${routeCase.samplePath}`, {
+      const strippedAuth = superAdminAuth();
+      const strippedWirePath: string = await buildWirePath(
+        routeCase,
+        strippedAuth.session
+      );
+      const strippedRes: Response = await fetch(`${subBase}${strippedWirePath}`, {
         method: routeCase.method,
-        headers: superAdminHeaders(),
-        body: routeCase.body,
+        headers: strippedAuth.headers,
+        body: await buildWireBody(routeCase, strippedAuth.session),
       });
       expect(`${key} prefixed:${prefixedRes.status}`).toBe(`${key} prefixed:${expected.status}`);
       expect(`${key} stripped:${strippedRes.status}`).toBe(`${key} stripped:${expected.status}`);
@@ -207,13 +386,14 @@ describe("Mini App 原生路由表子路径一致性与兜底分发", () => {
       password: "test-mini-app-password",
     });
     expect(server).not.toBeNull();
+    miniAppServiceRestartRunnerHolder.current = stubServiceRestartRunner;
     const base: string = `http://127.0.0.1:${server!.port}`;
 
     const crossSitePaths: readonly string[] = [
       "/sub/api/auth/precheck",
       "/sub/api/status",
-      "/sub/api/gallery/file/a.png",
-      "/sub/api/gallery/download/a.png",
+      "/sub/api/gallery/file",
+      "/sub/api/gallery/download",
     ];
     for (const path of crossSitePaths) {
       const res: Response = await fetch(`${base}${path}`, {
@@ -235,31 +415,48 @@ describe("Mini App 原生路由表子路径一致性与兜底分发", () => {
       ["/sub/api/unknown", "API route not found"],
     ];
     for (const [path, error] of notFoundCases) {
+      const auth = superAdminAuth();
       const res: Response = await fetch(`${base}${path}`, {
-        headers: superAdminHeaders(),
+        headers: auth.headers,
       });
       expect(`${path} ${res.status}`).toBe(`${path} 404`);
-      expect(await res.json()).toEqual({ error });
+      expect(await readPossiblyEncryptedJson({ response: res, session: auth.session, method: "GET", rawPath: path })).toEqual({ error });
     }
 
     // 方法不匹配 → 先鉴权（未认证 401）后 404（已认证 404）。
     const methodMismatchCases: readonly (readonly [string, string, string])[] = [
       ["DELETE", "/sub/api/status", "API route not found"],
       ["POST", "/sub/api/chats", "API route not found"],
-      ["POST", "/sub/api/gallery/file/a.png", "Resource not found"],
-      ["POST", "/sub/api/gallery/download/a.png", "API route not found"],
+      ["POST", "/sub/api/gallery/file", "API route not found"],
+      ["DELETE", "/sub/api/gallery/file", "API route not found"],
+      ["POST", "/sub/api/gallery/download", "API route not found"],
     ];
     for (const [method, path, expectedError] of methodMismatchCases) {
       const unauthRes: Response = await fetch(`${base}${path}`, { method });
       expect(`${method} ${path} unauth:${unauthRes.status}`).toBe(`${method} ${path} unauth:401`);
       expect(((await unauthRes.json()) as { readonly code: string }).code).toBe("MISSING_INIT_DATA");
 
+      const auth = superAdminAuth();
+      const canonicalPath: string = normalizeRoutePathname(path).routePath;
+      const body: string | undefined =
+        method !== "GET" && method !== "HEAD"
+          ? JSON.stringify(
+            await encryptMiniAppEnvelope(
+              await auth.session.cryptoKey,
+              "{}",
+              buildMiniAppEnvelopeAad(method, canonicalPath, "req")
+            )
+          )
+          : undefined;
       const authRes: Response = await fetch(`${base}${path}`, {
         method,
-        headers: superAdminHeaders(),
+        headers: auth.headers,
+        body,
       });
       expect(`${method} ${path} auth:${authRes.status}`).toBe(`${method} ${path} auth:404`);
-      expect(await authRes.json()).toEqual({ error: expectedError });
+      expect(await readPossiblyEncryptedJson({ response: authRes, session: auth.session, method, rawPath: path })).toEqual({
+        error: expectedError,
+      });
     }
 
     const headers: Record<string, string> = superAdminHeaders();
@@ -294,15 +491,11 @@ describe("Mini App 原生路由表子路径一致性与兜底分发", () => {
     });
     expect(sameOriginRes.status).toBe(200);
 
+    const sampleSession: Readonly<MiniAppAuthSession> = issueMiniAppAuthSession(1_000);
     const firstResponse: Response = jsonResponse({ ok: true });
     const secondResponse: Response = jsonResponse({ ok: true });
-    attachRefreshedSessionHeaders(firstResponse, {
-      token: "a".repeat(64),
-      createdAt: 1_000,
-      expiresAt: 2_000,
-      previousToken: undefined,
-    });
-    expect(firstResponse.headers.get(MINI_APP_SESSION_HEADER)).toBe("a".repeat(64));
+    attachRefreshedSessionHeaders(firstResponse, sampleSession);
+    expect(firstResponse.headers.get(MINI_APP_SESSION_HEADER)).toBe(sampleSession.token);
     expect(secondResponse.headers.get(MINI_APP_SESSION_HEADER)).toBeNull();
   });
 });

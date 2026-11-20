@@ -11,19 +11,23 @@ import { setMiniAppBlocklistMembership } from "../../packages/mini-app-frontend/
 import { triggerMiniAppChatBatchKick } from "../../packages/mini-app-frontend/api/chatBatchKick";
 import { fetchMiniAppChatDetail } from "../../packages/mini-app-frontend/api/chatDetail";
 import { toggleMiniAppChatFeature } from "../../packages/mini-app-frontend/api/chatFeature";
+import { fetchMiniAppChatMessages } from "../../packages/mini-app-frontend/api/chatMessages";
 import {
   fetchMiniAppChatTargets,
   mutateMiniAppChatTargets,
 } from "../../packages/mini-app-frontend/api/chatTargets";
 import { fetchMiniAppChats } from "../../packages/mini-app-frontend/api/chats";
 import { deleteMiniAppGalleryImageByName } from "../../packages/mini-app-frontend/api/galleryDelete";
-import { buildMiniAppGalleryDownloadUrl } from "../../packages/mini-app-frontend/api/galleryDownload";
-import { buildMiniAppGalleryImageUrl } from "../../packages/mini-app-frontend/api/galleryFile";
+import { fetchMiniAppGalleryImageObjectUrl } from "../../packages/mini-app-frontend/api/galleryFile";
 import { uploadMiniAppGalleryImageBytes } from "../../packages/mini-app-frontend/api/galleryUpload";
 import { updateMiniAppWhitelistPermission } from "../../packages/mini-app-frontend/api/permission";
 import { requestMiniAppPreparedPicker } from "../../packages/mini-app-frontend/api/pickerPrepare";
 import { pollMiniAppPickerResult } from "../../packages/mini-app-frontend/api/pickerResult";
-import { miniAppFetchJson } from "../../packages/mini-app-frontend/api/request";
+import {
+  miniAppFetchJson,
+  prepareEncryptedMiniAppQueryRequest,
+} from "../../packages/mini-app-frontend/api/request";
+import type { PreparedEncryptedMiniAppQueryRequest } from "../../packages/mini-app-frontend/api/request";
 import { deleteMiniAppTotp } from "../../packages/mini-app-frontend/api/totpDelete";
 import { enableMiniAppTotp } from "../../packages/mini-app-frontend/api/totpEnable";
 import { setupMiniAppTotp } from "../../packages/mini-app-frontend/api/totpSetup";
@@ -46,6 +50,10 @@ import { Toast } from "../../packages/mini-app-frontend/components/Toast";
 import { AuthGatePage } from "../../packages/mini-app-frontend/pages/AuthGatePage";
 import { VERBATIM_CONTEXT_MAX } from "../../packages/mini-app-frontend/consts/memory";
 import {
+  MINI_APP_INVALID_ENCRYPTED_PAYLOAD_CODE,
+  MINI_APP_INVALID_HANDSHAKE_CODE,
+} from "../../packages/mini-app-frontend/consts/miniAppCrypto";
+import {
   CHAT_QA_ANSWER_MAX_CHARS,
   CHAT_QA_MAX_PER_CHAT,
   CHAT_QA_QUESTION_MAX_CHARS,
@@ -62,6 +70,7 @@ import {
   MINI_APP_MIN_LOADING_MS,
   MINI_APP_SESSION_EXPIRES_AT_HEADER,
   MINI_APP_SESSION_HEADER,
+  MINI_APP_SESSION_STORAGE_KEY,
   MINI_APP_TAB_KEYS,
 } from "../../packages/mini-app-frontend/consts/miniApp";
 import { WHITELIST_PERMISSION_KEYS } from "../../packages/mini-app-frontend/consts/whitelist";
@@ -72,14 +81,13 @@ import {
 } from "../../packages/mini-app-frontend/i18n";
 import { useComponentStore } from "../../packages/mini-app-frontend/libs/componentStore";
 import {
-  clearMiniAppAssetToken,
   clearMiniAppSessionToken,
-  readMiniAppAssetToken,
+  hasMiniAppSessionCryptoKey,
   readMiniAppSessionExpiresAt,
   readMiniAppSessionToken,
-  setMiniAppAssetToken,
-  setMiniAppSessionToken,
 } from "../../packages/mini-app-frontend/libs/credentials";
+import { unsealMiniAppQuery } from "../../packages/mini-app-api-server/libs/crypto";
+import { importMiniAppAesGcmKey } from "../../packages/mini-app-frontend/libs/crypto";
 import { areCapabilityStatusEqual } from "../../packages/mini-app-frontend/libs/formatters";
 import { waitMinimumLoadingDuration } from "../../packages/mini-app-frontend/libs/loading";
 import { getTelegramWebApp, readMiniAppInitData } from "../../packages/mini-app-frontend/libs/telegram";
@@ -91,17 +99,26 @@ import {
 import { applyMiniAppThemeToDocument, resetMiniAppStoreForTest, useMiniAppStore } from "../../packages/mini-app-frontend/store/app";
 import { createMessagesStore } from "../../packages/mini-app-frontend/store/messages";
 import type { MiniAppMessagesStoreState } from "../../packages/mini-app-frontend/store/messages";
+import type { MiniAppLanguage } from "../../packages/mini-app-frontend/types/miniApp";
+import {
+  createInMemoryIdbFactory,
+  seedTestMiniAppSession,
+  TEST_SESSION_KEY,
+  wrapEncryptedTestFetch,
+} from "./helpers/encryptedFetchMock";
 
 /** 一次被记录的请求。 */
 interface RecordedRequest {
   readonly key: string;
   readonly body: string | null;
+  readonly bytes: Uint8Array | null;
   readonly headers: Readonly<Record<string, string>>;
 }
 
 const requests: RecordedRequest[] = [];
 const responses: Map<string, () => Response> = new Map<string, () => Response>();
 const originalFetch: typeof fetch = globalThis.fetch;
+const originalIndexedDb: unknown = (globalThis as { indexedDB?: unknown }).indexedDB;
 const initialWindowDescriptor: PropertyDescriptor | undefined =
   Object.getOwnPropertyDescriptor(globalThis, "window");
 const session: string = "e".repeat(64);
@@ -109,22 +126,28 @@ const session: string = "e".repeat(64);
 beforeEach((): void => {
   requests.length = 0;
   responses.clear();
+  (globalThis as { indexedDB?: unknown }).indexedDB = createInMemoryIdbFactory();
   (globalThis as { Telegram?: unknown }).Telegram = { WebApp: { initData: "signed-init-data" } };
-  setMiniAppSessionToken(session, Date.now() + 60_000);
-  globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: RequestInit): Promise<Response> => {
-    const url: URL = new URL(String(input), "http://mini.test/");
+  seedTestMiniAppSession(session, Date.now() + 60_000);
+  globalThis.fetch = wrapEncryptedTestFetch((url: URL, init?: RequestInit): Response => {
     const key: string = `${(init?.method ?? "GET").toUpperCase()} ${url.pathname}${url.search}`;
     requests.push({
       key,
       body: typeof init?.body === "string" ? init.body : null,
+      bytes: init?.body instanceof Uint8Array ? new Uint8Array(init.body) : null,
       headers: (init?.headers ?? {}) as Record<string, string>,
     });
     return responses.get(key)?.() ?? Response.json({ ok: true, result: null, items: [], detail: null });
-  }) as typeof fetch;
+  });
 });
 
 afterEach((): void => {
   globalThis.fetch = originalFetch;
+  if (originalIndexedDb === undefined) {
+    Reflect.deleteProperty(globalThis, "indexedDB");
+  } else {
+    (globalThis as { indexedDB?: unknown }).indexedDB = originalIndexedDb;
+  }
   if (initialWindowDescriptor !== undefined) {
     Object.defineProperty(globalThis, "window", initialWindowDescriptor);
   } else {
@@ -133,13 +156,13 @@ afterEach((): void => {
   Reflect.deleteProperty(globalThis, "Telegram");
   Reflect.deleteProperty(globalThis, "document");
   clearMiniAppSessionToken();
-  clearMiniAppAssetToken();
 });
 
 describe("前端接口文件与纯函数辅助库", () => {
   test("每个接口按约定的方法、路径与 JSON 请求体发出，并附带 initData 与会话令牌", async () => {
     await fetchMiniAppChats();
     await fetchMiniAppChatDetail(-100);
+    await fetchMiniAppChatMessages(-100, 2, 15);
     await fetchMiniAppChatTargets(-100);
     await mutateMiniAppChatTargets(-100, { action: "setQa", q: "hi", a: "yo" });
     await toggleMiniAppChatFeature(-100, "aiChat", true);
@@ -160,11 +183,12 @@ describe("前端接口文件与纯函数辅助库", () => {
     await deleteMiniAppTotp();
     expect(requests.map((request: RecordedRequest): string => `${request.key} ${request.body ?? ""}`.trim())).toEqual([
       "GET /api/chats",
-      "GET /api/chats/-100",
-      "GET /api/chats/-100/targets",
-      'POST /api/chats/-100/targets {"action":"setQa","q":"hi","a":"yo"}',
-      'POST /api/chats/-100/feature {"feature":"aiChat","enabled":true}',
-      'POST /api/chats/-100/batch-kick {"hours":6}',
+      "GET /api/chats/detail?chatId=-100",
+      "GET /api/chats/messages?chatId=-100&page=2&pageSize=15",
+      "GET /api/chats/targets?chatId=-100",
+      'POST /api/chats/targets {"chatId":-100,"action":"setQa","q":"hi","a":"yo"}',
+      'POST /api/chats/feature {"chatId":-100,"feature":"aiChat","enabled":true}',
+      'POST /api/chats/batch-kick {"chatId":-100,"hours":6}',
       "GET /api/identities/whitelist?page=2&pageSize=15&query=doro",
       'POST /api/identities/whitelist {"id":7,"enabled":true}',
       "GET /api/identities/blocklist?page=1&pageSize=10",
@@ -173,11 +197,11 @@ describe("前端接口文件与纯函数辅助库", () => {
       `POST /api/identities/permission ${JSON.stringify({ id: 7, key: permissionKey, value: false })}`,
       'POST /api/picker/prepare {"targetList":"blocklist","subjectKind":"channel"}',
       "GET /api/picker/result?requestId=3",
-      "DELETE /api/gallery/file/a%20b.png",
+      'POST /api/gallery/delete {"fileName":"a b.png"}',
       "GET /api/totp",
-      "POST /api/totp/setup",
+      "POST /api/totp/setup {}",
       'POST /api/totp/enable {"code":"123456"}',
-      "DELETE /api/totp",
+      "DELETE /api/totp {}",
     ]);
     for (const request of requests) {
       expect(request.headers[MINI_APP_INIT_DATA_HEADER]).toBe("signed-init-data");
@@ -196,10 +220,11 @@ describe("前端接口文件与纯函数辅助库", () => {
     expect(readMiniAppSessionToken()).toBe("");
   });
 
-  test("图片上传以原始字节提交，回执缺失时按 HTTP 状态报错或返回失败结果", async () => {
+  test("图片上传经会话密钥加密二进制帧提交，回执缺失时按 HTTP 状态报错或返回失败结果", async () => {
     responses.set("POST /api/gallery/upload", (): Response => Response.json({ ok: true, outcome: "added", message: "ok" }));
     expect((await uploadMiniAppGalleryImageBytes(new Uint8Array([1, 2]))).outcome).toBe("added");
     expect(requests[0]?.headers["Content-Type"]).toBe("application/octet-stream");
+    expect(requests[0]?.bytes).toEqual(new Uint8Array([1, 2]));
     responses.set("POST /api/gallery/upload", (): Response => new Response("x", { status: 413 }));
     await expect(uploadMiniAppGalleryImageBytes(new Uint8Array([1]))).rejects.toThrow("HTTP 413");
     responses.set("POST /api/gallery/upload", (): Response => Response.json({}));
@@ -267,7 +292,6 @@ describe("前端接口文件与纯函数辅助库", () => {
   test("UI 格式化与辅助纯函数覆盖全枚举分支", async () => {
     (globalThis as { Telegram?: unknown }).Telegram = undefined;
     clearMiniAppSessionToken();
-    clearMiniAppAssetToken();
 
     const baseCap = {
       key: "agent",
@@ -292,6 +316,21 @@ describe("前端接口文件与纯函数辅助库", () => {
       })
     ).toBeFalse();
 
+    const expectedSearchPlaceholders: Readonly<Record<MiniAppLanguage, string>> = {
+      zh: "写清楚，杂鱼",
+      en: "Write clearly, Zaako",
+      ja: "はっきり書きなさい",
+    };
+    const expectedNumericIdPlaceholders: Readonly<Record<MiniAppLanguage, string>> = {
+      zh: "快写，杂鱼",
+      en: "Write fast, Zaako",
+      ja: "早く書きなさい、雑魚",
+    };
+    const expectedConfigSaveButtons: Readonly<Record<MiniAppLanguage, string>> = {
+      zh: "保存",
+      en: "Save",
+      ja: "保存",
+    };
     for (const lang of MINI_APP_LANGUAGES) {
       const dict = getMiniAppTranslations(lang);
       expect(dict.languageLabel.length).toBeGreaterThan(0);
@@ -428,8 +467,31 @@ describe("前端接口文件与纯函数辅助库", () => {
       expect(dict.chats.confirmRemoveTranslateTarget("Bob", 7002)).toContain("7002");
       expect(dict.identities.whitelistTab.length).toBeGreaterThan(0);
       expect(dict.identities.blocklistTab.length).toBeGreaterThan(0);
-      expect(dict.identities.searchPlaceholder).toBe("id/name");
+      const expectedSearchPlaceholder: string = expectedSearchPlaceholders[lang];
+      const expectedNumericIdPlaceholder: string = expectedNumericIdPlaceholders[lang];
+      expect(dict.identities.searchPlaceholder.length).toBeGreaterThan(0);
+      expect(dict.identities.searchPlaceholder).toBe(expectedSearchPlaceholder);
+      if (lang === "ja") {
+        expect(dict.identities.searchPlaceholder).not.toContain("雑魚");
+      } else if (lang === "zh") {
+        expect(dict.identities.searchPlaceholder).toContain("杂鱼");
+      } else {
+        expect(dict.identities.searchPlaceholder).toContain("Zaako");
+      }
+      expect(dict.identities.idInputPlaceholder.length).toBeGreaterThan(0);
+      expect(dict.identities.idInputPlaceholder).toBe(expectedNumericIdPlaceholder);
+      expect(dict.chats.deleteTargetInputPlaceholder.length).toBeGreaterThan(0);
+      expect(dict.chats.deleteTargetInputPlaceholder).toBe(expectedNumericIdPlaceholder);
+      expect(dict.chats.translateTargetInputPlaceholder.length).toBeGreaterThan(0);
+      expect(dict.chats.translateTargetInputPlaceholder).toBe(expectedNumericIdPlaceholder);
+      expect(dict.configs.saveButton).toBe(expectedConfigSaveButtons[lang]);
+      expect(dict.chats.deleteTargetEmptyHint.length).toBeGreaterThan(0);
+      expect(dict.chats.deleteTargetEmptyHint).not.toContain("@username");
+      expect(dict.serverNotice("TARGET_REQUIRED")).not.toContain("@username");
+      expect(dict.serverNotice("TARGET_INVALID")).not.toContain("@username");
+      expect(dict.serverNotice("TARGET_USERNAME_NOT_FOUND")).toBe("TARGET_USERNAME_NOT_FOUND");
       expect(dict.gallery.sectionTitle.length).toBeGreaterThan(0);
+      expect(dict.gallery.directoryMissingText("/d").length).toBeGreaterThan(0);
       expect(dict.gallery.downloadButton.length).toBeGreaterThan(0);
       expect(dict.gallery.downloadingButton.length).toBeGreaterThan(0);
       expect(dict.gallery.downloadedToast("abc.png").length).toBeGreaterThan(0);
@@ -524,7 +586,6 @@ describe("前端接口文件与纯函数辅助库", () => {
         "QA_STORAGE_FAILED",
         "TARGET_REQUIRED",
         "TARGET_INVALID",
-        "TARGET_USERNAME_NOT_FOUND",
         "TARGET_SELF_FORBIDDEN",
         "TARGET_CURRENT_CHAT_FORBIDDEN",
         "DELETE_TARGET_SUPER_ADMIN_FORBIDDEN",
@@ -544,33 +605,52 @@ describe("前端接口文件与纯函数辅助库", () => {
         "TRANSLATE_TARGET_REMOVED",
         "TRANSLATE_TARGET_NOT_FOUND",
         "INVALID_CHAT_TARGETS_PARAMS",
-        "UNKNOWN_CUSTOM_CODE",
+        "MALFORMED_INIT_DATA",
+        "MISSING_HASH",
+        "MISSING_USER",
+        "CHAT_NOT_SUPERGROUP",
+        "CHAT_KIND_UNAVAILABLE",
+        "TARGET_NOT_IN_CHAT",
+        MINI_APP_INVALID_ENCRYPTED_PAYLOAD_CODE,
+        MINI_APP_INVALID_HANDSHAKE_CODE,
+        "INVALID_CONFIG_TARGET",
+        "INVALID_JSON_SYNTAX",
+        "CONFIG_VALIDATION_FAILED",
+        "CONFIG_SAVED",
+        "SERVICE_RESTARTED",
+        "SERVICE_RESTART_FAILED",
       ];
+      const noticeParams = {
+        id: 77001,
+        mood: "傲娇",
+        feature: "aiChat" as const,
+        configFile: "ai_chat.json",
+        errorDetail: "detail",
+        key: WHITELIST_PERMISSION_KEYS[0],
+        value: true,
+        targetList: "whitelist" as const,
+        addedCount: 2,
+        skippedCount: 1,
+        duplicateCount: 1,
+        affectedChats: 1,
+        totalChats: 2,
+        hours: 6,
+        recordCount: 15,
+        persisted: false,
+        fileName: "abc.png",
+        width: 12000,
+        height: 100,
+        remainingAttempts: 2,
+        remainingMinutes: 29,
+      };
       for (const code of serverCodes) {
-        const noticeText: string = dict.serverNotice(code, {
-          id: 77001,
-          mood: "傲娇",
-          feature: "aiChat",
-          configFile: "ai_chat.json",
-          key: WHITELIST_PERMISSION_KEYS[0],
-          value: true,
-          targetList: "whitelist",
-          addedCount: 2,
-          skippedCount: 1,
-          duplicateCount: 1,
-          affectedChats: 1,
-          totalChats: 2,
-          hours: 6,
-          recordCount: 15,
-          persisted: false,
-          fileName: "abc.png",
-          width: 12000,
-          height: 100,
-          remainingAttempts: 2,
-          remainingMinutes: 29,
-        });
+        const noticeText: string = dict.serverNotice(code, noticeParams);
         expect(noticeText.length).toBeGreaterThan(0);
+        expect(noticeText).not.toBe(code);
       }
+      expect(dict.serverNotice("UNKNOWN_CUSTOM_CODE", noticeParams)).toBe(
+        "UNKNOWN_CUSTOM_CODE"
+      );
       expect(dict.serverNotice("INVALID_TOTP_CODE").length).toBeGreaterThan(0);
       expect(dict.serverNotice("MOOD_SWITCHED").length).toBeGreaterThan(0);
       expect(
@@ -580,6 +660,14 @@ describe("前端接口文件与纯函数辅助库", () => {
         }).length
       ).toBeGreaterThan(0);
     }
+    expect(
+      new Set(
+        MINI_APP_LANGUAGES.map(
+          (lang: MiniAppLanguage): string =>
+            getMiniAppTranslations(lang).identities.searchPlaceholder
+        )
+      ).size
+    ).toBe(MINI_APP_LANGUAGES.length);
 
     expect(MINI_APP_LANGUAGES).toContain(detectBrowserDefaultLanguage());
     expect(MINI_APP_LANGUAGES).toContain(detectInitialMiniAppLanguage());
@@ -755,6 +843,7 @@ describe("前端接口文件与纯函数辅助库", () => {
 
     expect(getTelegramWebApp()).toBeUndefined();
     expect(readMiniAppInitData()).toBe("");
+    seedTestMiniAppSession(session, Date.now() + 60_000);
     const refreshedSession: string = "f".repeat(64);
     const refreshedExp: number = Date.now() + 180_000;
     responses.set("GET /api/status", (): Response =>
@@ -769,47 +858,134 @@ describe("前端接口文件与纯函数辅助库", () => {
     );
     await miniAppFetchJson("/api/status");
     expect(readMiniAppSessionToken()).toBe(refreshedSession);
+    expect(hasMiniAppSessionCryptoKey()).toBeTrue();
     expect(readMiniAppSessionExpiresAt()).toBe(refreshedExp);
     await waitMinimumLoadingDuration(Date.now() - MINI_APP_MIN_LOADING_MS - 10);
     const minWaitStart: number = Date.now();
     await waitMinimumLoadingDuration(minWaitStart, 20);
     expect(Date.now() - minWaitStart).toBeGreaterThanOrEqual(15);
-    expect(buildMiniAppGalleryImageUrl("abc.jpg")).toBe("./api/gallery/file/abc.jpg");
-    expect(readMiniAppAssetToken()).toBe("");
-    setMiniAppAssetToken("b".repeat(64));
-    expect(readMiniAppAssetToken()).toBe("b".repeat(64));
-    expect(buildMiniAppGalleryImageUrl("abc.jpg")).toBe(
-      `./api/gallery/file/abc.jpg?token=${"b".repeat(64)}`
+    requests.length = 0;
+    responses.set("GET /api/gallery/file?fileName=abc.jpg", (): Response =>
+      new Response(new Uint8Array([0x89, 0x50, 0x4e, 0x47]), {
+        status: 200,
+        headers: {
+          "Content-Type": "image/png",
+          [MINI_APP_SESSION_HEADER]: refreshedSession,
+          [MINI_APP_SESSION_EXPIRES_AT_HEADER]: String(refreshedExp + 30_000),
+        },
+      })
     );
-    const storageMap: Map<string, string> = new Map<string, string>();
-    const prevLocalStorage = (globalThis as { localStorage?: unknown }).localStorage;
-    (globalThis as { localStorage?: unknown }).localStorage = {
-      getItem: (key: string): string | null => storageMap.get(key) ?? null,
+    const previewBlobUrl: string = await fetchMiniAppGalleryImageObjectUrl("abc.jpg");
+    expect(previewBlobUrl).toStartWith("blob:");
+    expect(requests.at(-1)?.key).toBe("GET /api/gallery/file?fileName=abc.jpg");
+    expect(requests.at(-1)?.headers[MINI_APP_SESSION_HEADER]).toBe(refreshedSession);
+    expect(readMiniAppSessionExpiresAt()).toBe(refreshedExp + 30_000);
+    URL.revokeObjectURL(previewBlobUrl);
+
+    responses.set("GET /api/gallery/file?fileName=missing.jpg", (): Response =>
+      Response.json({ error: "IMAGE_NOT_FOUND" }, { status: 404 })
+    );
+    await expect(fetchMiniAppGalleryImageObjectUrl("missing.jpg")).rejects.toThrow("IMAGE_NOT_FOUND");
+
+    responses.set("GET /api/gallery/file?fileName=expired.jpg", (): Response =>
+      Response.json({ code: "PASSWORD_REQUIRED", error: "expired" }, { status: 401 })
+    );
+    await expect(fetchMiniAppGalleryImageObjectUrl("expired.jpg")).rejects.toThrow(
+      "[PASSWORD_REQUIRED] expired"
+    );
+    expect(readMiniAppSessionToken()).toBe("");
+    seedTestMiniAppSession(session, Date.now() + 60_000);
+    const sessionKeyObj: CryptoKey = await importMiniAppAesGcmKey(TEST_SESSION_KEY);
+    const prepared: PreparedEncryptedMiniAppQueryRequest =
+      await prepareEncryptedMiniAppQueryRequest(
+        "./api/gallery/download",
+        `fileName=${encodeURIComponent("a b&c.png")}`,
+        "GET"
+      );
+    const preparedUrl: URL = new URL(prepared.outboundPath, "https://mini.test/");
+    expect(preparedUrl.pathname).toBe("/api/gallery/download");
+    expect([...preparedUrl.searchParams.keys()]).toEqual(["e"]);
+    const unsealedSpecialQuery: string | null = await unsealMiniAppQuery(
+      sessionKeyObj,
+      preparedUrl.searchParams.get("e")!,
+      "GET /api/gallery/download"
+    );
+    expect(unsealedSpecialQuery).not.toBeNull();
+    expect(new URLSearchParams(unsealedSpecialQuery!).get("fileName")).toBe("a b&c.png");
+
+    const sessionStoreMap: Map<string, string> = new Map<string, string>();
+    const prevSessionStorage = (globalThis as { sessionStorage?: unknown }).sessionStorage;
+    (globalThis as { sessionStorage?: unknown }).sessionStorage = {
+      getItem: (key: string): string | null => sessionStoreMap.get(key) ?? null,
       setItem: (key: string, val: string): void => {
-        storageMap.set(key, val);
+        sessionStoreMap.set(key, val);
       },
       removeItem: (key: string): void => {
-        storageMap.delete(key);
+        sessionStoreMap.delete(key);
       },
     };
-    const futureExp: number = Date.now() + 60_000;
-    setMiniAppSessionToken("a".repeat(64), futureExp);
-    expect(buildMiniAppGalleryDownloadUrl("abc.jpg")).toBe(
-      `./api/gallery/download/abc.jpg?token=${"b".repeat(64)}&session=${"a".repeat(64)}`
-    );
-    clearMiniAppAssetToken();
-    expect(readMiniAppAssetToken()).toBe("");
-    (globalThis as { __copyNinjaSessionToken?: string }).__copyNinjaSessionToken = undefined;
-    (globalThis as { __copyNinjaSessionExpiresAt?: number }).__copyNinjaSessionExpiresAt = undefined;
-    expect(readMiniAppSessionToken()).toBe("a".repeat(64));
-    expect(readMiniAppSessionExpiresAt()).toBe(futureExp);
-    expect(readMiniAppAssetToken()).toBe("b".repeat(64));
-    setMiniAppSessionToken("c".repeat(64), Date.now() - 1_000);
-    expect(readMiniAppSessionToken()).toBe("");
-    expect(readMiniAppSessionExpiresAt()).toBe(0);
-    clearMiniAppAssetToken();
-    clearMiniAppSessionToken();
-    expect(readMiniAppSessionToken()).toBe("");
-    (globalThis as { localStorage?: unknown }).localStorage = prevLocalStorage;
+    try {
+      const futureExp: number = Date.now() + 60_000;
+      seedTestMiniAppSession("a".repeat(64), futureExp);
+      expect(readMiniAppSessionToken()).toBe("a".repeat(64));
+      expect(readMiniAppSessionExpiresAt()).toBe(futureExp);
+      expect(sessionStoreMap.get(MINI_APP_SESSION_STORAGE_KEY)).toBe(
+        JSON.stringify({ token: "a".repeat(64), expiresAt: futureExp })
+      );
+
+      seedTestMiniAppSession("c".repeat(64), Date.now() - 1_000);
+      expect(readMiniAppSessionToken()).toBe("");
+      expect(readMiniAppSessionExpiresAt()).toBe(0);
+      clearMiniAppSessionToken();
+      expect(readMiniAppSessionToken()).toBe("");
+    } finally {
+      (globalThis as { sessionStorage?: unknown }).sessionStorage = prevSessionStorage;
+    }
+  });
+
+  test("fetchMiniAppGalleryImageObjectUrl 在查询加密前或加密期间收到中止信号时拒绝为 AbortError 且不派发 fetch", async () => {
+    let fetchCallCount: number = 0;
+    const encryptedFetch: typeof fetch = globalThis.fetch;
+    globalThis.fetch = (async (
+      input: Parameters<typeof fetch>[0],
+      init?: RequestInit
+    ): Promise<Response> => {
+      fetchCallCount += 1;
+      return await encryptedFetch(input, init);
+    }) as typeof fetch;
+
+    const expectAbortedWithoutFetch = async (
+      run: () => Promise<string>
+    ): Promise<void> => {
+      let capturedError: unknown = null;
+      try {
+        await run();
+      } catch (error: unknown) {
+        capturedError = error;
+      }
+      expect(
+        capturedError instanceof DOMException && capturedError.name === "AbortError"
+      ).toBeTrue();
+      expect(fetchCallCount).toBe(0);
+      expect(requests).toHaveLength(0);
+    };
+
+    try {
+      const preAborted: AbortController = new AbortController();
+      preAborted.abort();
+      await expectAbortedWithoutFetch((): Promise<string> =>
+        fetchMiniAppGalleryImageObjectUrl("pre-aborted.png", preAborted.signal)
+      );
+
+      const inFlightController: AbortController = new AbortController();
+      const pending: Promise<string> = fetchMiniAppGalleryImageObjectUrl(
+        "during-prepare.png",
+        inFlightController.signal
+      );
+      inFlightController.abort();
+      await expectAbortedWithoutFetch((): Promise<string> => pending);
+    } finally {
+      globalThis.fetch = encryptedFetch;
+    }
   });
 });

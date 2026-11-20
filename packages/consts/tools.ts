@@ -1,4 +1,4 @@
-/** function calling 工具集合的工具名、静态查询工具声明与调参常量；执行侧见 packages/aiChat/ai/tools/。 */
+/** function calling 工具集合的工具名、静态查询工具声明与调参常量；执行侧见 packages/workers/aiChat/ai/tools/。 */
 
 import type { AiToolDefinition } from "../types/aiChat/provider";
 
@@ -6,10 +6,10 @@ import type { AiToolDefinition } from "../types/aiChat/provider";
 export const GET_TOKYO_WEATHER_TOOL: string = "get_tokyo_weather";
 
 /**
- * AI 回复流水线的静态查询工具声明：无入参、无副作用，由 aiChat/ai/tools/index.ts 的
- * callTool 分发；aiChat/ai/tools/replyToolset/orchestrator.ts 每轮把已挂载的查询排在
+ * AI 回复流水线的静态查询工具声明：无入参、无副作用，由 workers/aiChat/ai/tools/index.ts 的
+ * callTool 分发；workers/aiChat/ai/tools/replyToolset/orchestrator.ts 每轮把已挂载的查询排在
  * 行动工具之前，东京天气仅在启动时区为 TOKYO_TIME_ZONE 时挂载。元素字段只读，调用方不得改写。
- * 所属模块：aiChat/ai/tools/。
+ * 所属模块：workers/aiChat/ai/tools/。
  */
 export const TOOL_DECLARATIONS: readonly AiToolDefinition[] = [
   {
@@ -24,9 +24,9 @@ export const WEB_SEARCH_TOOL: string = "web_search";
 
 /**
  * web_search 函数工具的声明：只在部署配置了 `web_search` 能力时挂进回复工具集，挂了则
- * text 模型不挂内建检索（见 aiChat/ai/tools/replyToolset/orchestrator.ts）。执行在 AI Worker 本地
- * （aiChat/ai/tools/webSearch.ts），由 workers/aiChat/replyModel.ts 异步分发。元素字段只读，
- * 调用方不得改写。所属模块：aiChat/ai/tools/。
+ * text 模型不挂内建检索（见 workers/aiChat/ai/tools/replyToolset/orchestrator.ts）。执行在 AI Worker 本地
+ * （workers/aiChat/ai/tools/webSearch.ts），由 workers/aiChat/replyModel.ts 异步分发。元素字段只读，
+ * 调用方不得改写。所属模块：workers/aiChat/ai/tools/。
  */
 export const WEB_SEARCH_TOOL_DECLARATION: Readonly<AiToolDefinition> = {
   name: WEB_SEARCH_TOOL,
@@ -40,19 +40,19 @@ export const WEB_SEARCH_TOOL_DECLARATION: Readonly<AiToolDefinition> = {
   },
 };
 
-/** send_sticker 工具名常量（见 aiChat/ai/tools/stickers.ts）。这个工具不在静态清单
- *  里：可选贴纸清单随白名单目录变化，由 aiChat/ai/tools/replyToolset/ 按次回复动态组装进工具集。 */
+/** send_sticker 工具名常量（见 workers/aiChat/ai/tools/stickers.ts）。这个工具不在静态清单
+ *  里：可选贴纸清单随白名单目录变化，由 workers/aiChat/ai/tools/replyToolset/ 按次回复动态组装进工具集。 */
 export const SEND_STICKER_TOOL: string = "send_sticker";
 
-/** view_sticker_pack 工具名常量（见 aiChat/ai/tools/stickers.ts）：两层贴纸选择的第一层，
+/** view_sticker_pack 工具名常量（见 workers/aiChat/ai/tools/stickers.ts）：两层贴纸选择的第一层，
  *  按整包简介挑包、查看包内贴纸清单，之后才能用 send_sticker 发送。 */
 export const VIEW_STICKER_PACK_TOOL: string = "view_sticker_pack";
 
-/** send_message 工具名常量（见 aiChat/ai/tools/replyToolset/sendMessage.ts）：模型往群里发一条文字
+/** send_message 工具名常量（见 workers/aiChat/ai/tools/replyToolset/sendMessage.ts）：模型往群里发一条文字
  *  消息的工具；发几条、什么顺序由模型决定。 */
 export const SEND_MESSAGE_TOOL: string = "send_message";
 
-/** add_reaction 工具名常量（见 aiChat/ai/tools/replyToolset/reaction.ts）：给触发消息扣一个标准
+/** add_reaction 工具名常量（见 workers/aiChat/ai/tools/replyToolset/reaction.ts）：给触发消息扣一个标准
  *  emoji 反应。 */
 export const ADD_REACTION_TOOL: string = "add_reaction";
 
@@ -64,15 +64,15 @@ export const GENERATE_IMAGE_TOOL: string = "generate_image";
  * 发送到当前群。
  *
  * 只在 `agent.tts` 已配置且所选实现具备语音合成能力时进本轮工具集（见
- * aiChat/ai/tools/replyToolset/orchestrator.ts）；调用与否由模型按工具说明判断，
- * 见 aiChat/ai/tools/replyToolset/voiceMessage.ts。
+ * workers/aiChat/ai/tools/replyToolset/orchestrator.ts）；调用与否由模型按工具说明判断，
+ * 见 workers/aiChat/ai/tools/replyToolset/voiceMessage.ts。
  */
 export const SEND_VOICE_TOOL: string = "send_voice";
 
 /**
  * group_qa_query 工具名：列出本群已登记的问答**问题清单**。
  *
- * 每轮恒挂（见 aiChat/ai/tools/replyToolset/groupQa.ts）；本群有没有登记问答写在本轮工具状态里，
+ * 每轮恒挂（见 workers/aiChat/ai/tools/replyToolset/groupQa.ts）；本群有没有登记问答写在本轮工具状态里，
  * 没有登记时执行器返回空清单。它是纯查询、不计入动作预算：模型先看清单，
  * 判断当前这句话是不是在问其中之一。
  * 字面一致的提问由主干直答短路（见 auto/message/qaDirectAnswer.ts），不进入模型；
@@ -91,7 +91,7 @@ export const GROUP_QA_ANSWER_TOOL: string = "group_qa_answer";
 /**
  * abuse_mark 工具名：当前触发用户反复要求生成不被允许或被模型讨厌的内容时，标记该用户在
  * ABUSE_MARK_DURATION_MS 内不再处理其消息，并发出对应风格提示后立即结束本轮回复（见
- * aiChat/ai/tools/replyToolset/abuseMark.ts）。
+ * workers/aiChat/ai/tools/replyToolset/abuseMark.ts）。
  */
 export const ABUSE_MARK_TOOL: string = "abuse_mark";
 
@@ -112,7 +112,7 @@ export const ACTION_TOOL_NAMES: readonly string[] = [
 
 /**
  * send_voice 在模型可见的每日额度（`agent.tts` 的 `daily_limit - daily_reserve_quota`）用尽时返回的错误文案：工具调用时
- * 已登记数加在途预留达到上限、预留被拒（见 aiChat/ai/tools/replyToolset/voiceMessage.ts）。
+ * 已登记数加在途预留达到上限、预留被拒（见 workers/aiChat/ai/tools/replyToolset/voiceMessage.ts）。
  * 同时要求模型不在群里提起语音、额度或这次失败。
  */
 export const SEND_VOICE_DAILY_LIMIT_TOOL_ERROR: string =
@@ -122,7 +122,7 @@ export const SEND_VOICE_DAILY_LIMIT_TOOL_ERROR: string =
 /**
  * 本轮回复已被 /ai_chat disable 作废时，所有动作工具统一返回的错误文案。
  * 每个执行器在自己的每个 await 边界前后都要检查一次代数，因此这条文案在
- * aiChat/ai/tools/ 下出现多处；它是喂给模型的协议文本，必须逐字一致，只在这里定义。
+ * workers/aiChat/ai/tools/ 下出现多处；它是喂给模型的协议文本，必须逐字一致，只在这里定义。
  */
 export const REPLY_INVALIDATED_TOOL_ERROR: string = "Reply invalidated because AI chat was disabled";
 

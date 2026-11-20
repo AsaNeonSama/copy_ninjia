@@ -7,8 +7,12 @@ import { BLOCKLIST_SWEEP_PAGE_SIZE } from "../../packages/consts/identityStorage
 import {
   MINI_APP_INIT_DATA_HEADER,
   MINI_APP_SESSION_HEADER,
+  MINI_APP_SESSION_MAX,
   MINI_APP_WEB_APP_DATA_SECRET_SEED,
 } from "../../packages/consts/miniApp";
+import { MINI_APP_SESSION_ROTATE_AT_SEEN_IVS } from "../../packages/consts/miniAppCrypto";
+import { miniAppAuthSessions } from "../../packages/cache/main/miniApp";
+import type { MiniAppAuthSession } from "../../packages/types/miniApp/auth";
 import type {
   AiMemoryDeletedPersistedReply,
   DiskBusinessMessage,
@@ -296,4 +300,32 @@ export function buildSuperAdminHeaders({
     [MINI_APP_SESSION_HEADER]: sessionToken,
     ...(contentType === undefined ? {} : { "Content-Type": contentType }),
   };
+}
+
+/**
+ * 在常规路由测试中复用当前时刻仍在刷新时间与 IV 水位阈值内、未过期且无待确认旧令牌的活跃测试会话；
+ * 若当前尚无此类会话则签发新会话（当已有 5 条满额旧测试会话时先清空后再签发）。
+ * @param issueSession 签发新会话的函数（`issueMiniAppAuthSession`）。
+ * @returns 可复用的未过期测试会话记录。
+ */
+export function ensureReusableTestSession(
+  issueSession: (nowMs?: number) => Readonly<MiniAppAuthSession>
+): Readonly<MiniAppAuthSession> {
+  const nowMs: number = Date.now();
+  for (const session of miniAppAuthSessions.values()) {
+    if (
+      session.expiresAt > nowMs &&
+      session.absoluteExpiresAt > nowMs &&
+      nowMs >= session.createdAt &&
+      nowMs < session.nextRefreshAt &&
+      session.seenRequestIvs.size < MINI_APP_SESSION_ROTATE_AT_SEEN_IVS &&
+      session.previousToken === undefined
+    ) {
+      return session;
+    }
+  }
+  if (miniAppAuthSessions.size >= MINI_APP_SESSION_MAX) {
+    miniAppAuthSessions.clear();
+  }
+  return issueSession(nowMs);
 }

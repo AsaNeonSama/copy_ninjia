@@ -8,8 +8,8 @@
 import type { Message } from "grammy/types";
 import {
   buildTieredVerbatimTranscript,
-} from "../../../packages/aiChat/ai/utils/chatTranscript";
-import type { TieredTranscriptOptions } from "../../../packages/aiChat/ai/utils/chatTranscript";
+} from "../../../packages/workers/aiChat/ai/utils/chatTranscript";
+import type { TieredTranscriptOptions } from "../../../packages/workers/aiChat/ai/utils/chatTranscript";
 import { resolveMentionFacts, resolveReplyReference } from "../../../packages/auto/message/facts";
 import type { BufferedMessage } from "../../../packages/types/aiChat/memory";
 import type { AiRecordContext } from "../../../packages/types/aiChat/protocol";

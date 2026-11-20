@@ -1,12 +1,19 @@
 import { adoptTimeZone, getTimeZone } from "../../../packages/config/time";
+import { adoptLogLevel, getLogLevel } from "../../../packages/config/logLevel";
 import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { loggerStub } from "../../helpers/loggerMock";
 import { TOKYO_TIME_ZONE } from "../../../packages/consts/time";
 import type { AiChatWorkerMessage } from "../../../packages/types/aiChat/protocol";
 import type { AgentDeploymentConfig } from "../../../packages/types/config";
+import type { LogLevel } from "../../../packages/types/diskIO/messages";
+import type { AiWorkerJobFailure } from "../../../packages/types/aiChat/workerJob";
 
 const INITIAL_TIME_ZONE: string = getTimeZone();
-afterEach((): void => { adoptTimeZone(INITIAL_TIME_ZONE); });
+const INITIAL_LOG_LEVEL: LogLevel = getLogLevel();
+afterEach((): void => {
+  adoptTimeZone(INITIAL_TIME_ZONE);
+  adoptLogLevel(INITIAL_LOG_LEVEL);
+});
 
 const originalSelfDescriptor: PropertyDescriptor | undefined = Object.getOwnPropertyDescriptor(globalThis, "self");
 const postMessage = mock((..._args: unknown[]): void => {});
@@ -32,7 +39,7 @@ function hydrateStickerCatalogsStub(_catalogs: unknown): void {
 const hydrateStickerCatalogs = mock(hydrateStickerCatalogsStub);
 const pruneStickerCatalogs = mock((_packs: readonly string[]): void => { calls.push("pruneCatalogs"); });
 const pruneStickerSets = mock((_packs: readonly string[]): void => { calls.push("pruneSets"); });
-mock.module("../../../packages/aiChat/ai/stickers/sets", () => ({ pruneStickerSets }));
+mock.module("../../../packages/workers/aiChat/ai/stickers/sets", () => ({ pruneStickerSets }));
 const getStickerConfig = mock(() => ({ packs: ["pack"] }));
 const adoptStickerConfig = mock((_config: unknown): void => {});
 const startWeatherRefreshLoop = mock((): void => { calls.push("weather"); });
@@ -64,7 +71,7 @@ const switchMood = mock(() => ({ name: "开心", weight: 1, instruction: "" }));
 const refreshMood = mock((): void => {});
 const loggerError = mock((..._args: unknown[]): void => {});
 
-mock.module("../../../packages/aiChat/ai/stickers/catalog", () => ({
+mock.module("../../../packages/workers/aiChat/ai/stickers/catalog", () => ({
   ensureStickerCatalogs,
   drainStickerCatalogTasks,
   flushDirtyStickerCatalogs,
@@ -76,7 +83,7 @@ mock.module("../../../packages/config/stickers", () => ({
   adoptStickerConfig,
   getStickerConfig,
 }));
-mock.module("../../../packages/aiChat/ai/weather", () => ({ startWeatherRefreshLoop, stopWeatherRefreshLoop }));
+mock.module("../../../packages/workers/aiChat/ai/weather", () => ({ startWeatherRefreshLoop, stopWeatherRefreshLoop }));
 mock.module("../../../packages/cache/workers/aiChat/replies", () => ({ sweepAiChatReplyCache }));
 mock.module("../../../packages/cache/workers/aiChat/imageGeneration", () => ({ sweepImageGenerationCache }));
 mock.module("../../../packages/workers/aiChat/rollingMemory", () => ({
@@ -101,20 +108,14 @@ mock.module("../../../packages/infra/telegram", () => ({ initTelegramClients }))
 const handleSynthesizeVoice = mock((..._args: unknown[]): void => { calls.push("synthesizeVoice"); });
 const handleCancelVoiceSynthesis = mock((..._args: unknown[]): void => { calls.push("cancelVoiceSynthesis"); });
 mock.module("../../../packages/workers/aiChat/voiceSynthesis", () => ({ handleCancelVoiceSynthesis, handleSynthesizeVoice }));
-mock.module("../../../packages/aiChat/ai/mood", () => ({ currentMood, refreshMood, switchMood }));
+mock.module("../../../packages/workers/aiChat/ai/mood", () => ({ currentMood, refreshMood, switchMood }));
 mock.module("../../../packages/infra/logger", () => ({
   acceptForwardedLogBatch: (): boolean => false,
   logger: loggerStub({ error: loggerError }),
 }));
-const probeGeminiContextCache = mock((..._args: unknown[]): void => {});
-const realGeminiContextCache = await import("../../../packages/infra/geminiContextCache");
-mock.module("../../../packages/infra/geminiContextCache", () => ({
-  ...realGeminiContextCache,
-  probeGeminiContextCache,
-}));
 
 const worker = await import("../../../packages/workers/aiChatWorker");
-const { TEXT_GEMINI_CONTEXT_CACHE_SCOPE } = await import("../../../packages/aiChat/gemini/contextCache");
+const { runAiWorkerJob } = await import("../../../packages/workers/aiChat/workerJob");
 const { botInfoState, superAdminUserIdState, atmosphereState } = await import("../../../packages/cache/workers/aiChat/identity");
 const { stickerMenuRevision } = await import("../../../packages/cache/workers/aiChat/stickers/menu");
 const { agentDeploymentConfigCache, personaCache, voiceToolPromptCache } = await import("../../../packages/cache/perThread/config");
@@ -166,7 +167,6 @@ beforeEach(() => {
     switchMood,
     refreshMood,
     loggerError,
-    probeGeminiContextCache,
   ]) mocked.mockClear();
   hydrateStickerCatalogs.mockReset();
   hydrateStickerCatalogs.mockImplementation(hydrateStickerCatalogsStub);
@@ -191,6 +191,7 @@ describe("AI Chat Worker lifecycle", () => {
     atmosphere: "plain",
     type: "init",
     timeZone: "UTC",
+    logLevel: "operation",
     botInfo: { id: 99, first_name: "Ninja", username: "ninja_bot" },
     superAdminUserId: 1,
     agent: injectedAgentConfig,
@@ -217,7 +218,7 @@ describe("AI Chat Worker lifecycle", () => {
     worker.handleAiChatWorkerMessage({ ...INIT_MESSAGE, timeZone: "UTC" });
   });
 
-  test("init 接管身份、时区、人设与主线程投来的配置快照，探测 Google 显式缓存支持度并按贴纸白名单补目录", async () => {
+  test("init 接管身份、时区、人设与主线程投来的配置快照并按贴纸白名单补目录", async () => {
     await routeAfterInit([]);
 
     expect(botInfoState.current?.id).toBe(99);
@@ -229,8 +230,6 @@ describe("AI Chat Worker lifecycle", () => {
     expect(voiceToolPromptCache.current).toBe("测试语音说明");
     // 配置快照进 holder，且是主线程投来的那一个对象本身。
     expect(agentDeploymentConfigCache.current).toBe(injectedAgentConfig);
-    expect(probeGeminiContextCache).toHaveBeenCalledTimes(1);
-    expect(probeGeminiContextCache).toHaveBeenCalledWith(TEXT_GEMINI_CONTEXT_CACHE_SCOPE);
     expect(ensureStickerCatalogs).toHaveBeenCalledWith(["pack"]);
   });
 
@@ -364,8 +363,11 @@ describe("AI Chat Worker lifecycle", () => {
   });
 
   test("configReload 只替换变化的领域并失效各自的派生状态", () => {
-    worker.handleAiChatWorkerMessage({ atmosphere: "plain",
-      type: "init", timeZone: getTimeZone(),
+    worker.handleAiChatWorkerMessage({
+      atmosphere: "plain",
+      type: "init",
+      timeZone: getTimeZone(),
+      logLevel: "warn",
       botInfo: { id: 99, first_name: "Ninja", username: "ninja_bot" },
       superAdminUserId: 1,
       agent: injectedAgentConfig,
@@ -374,6 +376,7 @@ describe("AI Chat Worker lifecycle", () => {
       persona: "测试人设",
       voiceToolPrompt: null,
     });
+    expect(getLogLevel()).toBe("warn");
     ensureStickerCatalogs.mockClear();
     pruneStickerCatalogs.mockClear();
     adoptStickerConfig.mockClear();
@@ -476,6 +479,44 @@ describe("AI Chat Worker lifecycle", () => {
     expect(postMessage).toHaveBeenCalledWith({ type: "memoryFlushed", flushId: 9 });
   });
 
+  test("flushMemory 等在途 runAiWorkerJob 结算（含退款收尾）后才回执 memoryFlushed", async () => {
+    const jobs = new Map<number, AbortController>();
+    const finishRefund: PromiseWithResolvers<void> = Promise.withResolvers<void>();
+    const published: string[] = [];
+    runAiWorkerJob<string>({
+      jobs,
+      requestId: 77,
+      run: async (): Promise<string> => {
+        await finishRefund.promise;
+        postMessage({ type: "ttsUsage", usage: { date: "2026-11-19", agentCount: 0, reserveCount: 0 } });
+        published.push("refund");
+        return "done";
+      },
+      publish: (result: string | AiWorkerJobFailure): void => {
+        postMessage({ type: "voiceSynthesized", requestId: 77, result });
+        published.push("result");
+      },
+    });
+
+    worker.handleAiChatWorkerMessage({ type: "flushMemory", flushId: 11 });
+    await Bun.sleep(0);
+    expect(postMessage).not.toHaveBeenCalledWith({ type: "memoryFlushed", flushId: 11 });
+
+    finishRefund.resolve();
+    await Bun.sleep(0);
+    expect(published).toEqual(["refund", "result"]);
+    expect(postMessage).toHaveBeenCalledWith({ type: "ttsUsage", usage: { date: "2026-11-19", agentCount: 0, reserveCount: 0 } });
+    expect(postMessage).toHaveBeenCalledWith({ type: "memoryFlushed", flushId: 11 });
+    const flushedIndex: number = postMessage.mock.calls.findIndex(
+      (call: unknown[]): boolean => (call[0] as { type?: string }).type === "memoryFlushed"
+    );
+    const refundIndex: number = postMessage.mock.calls.findIndex(
+      (call: unknown[]): boolean => (call[0] as { type?: string }).type === "ttsUsage"
+    );
+    expect(refundIndex).toBeGreaterThanOrEqual(0);
+    expect(refundIndex).toBeLessThan(flushedIndex);
+  });
+
   test("flush 阶段单项拒绝仍等待另一项结算，并按阶段名留下聚合诊断", async () => {
     const failure: Error = new Error("reply drain failed");
     let releaseCatalogs: (() => void) | undefined;
@@ -493,10 +534,11 @@ describe("AI Chat Worker lifecycle", () => {
     releaseCatalogs!();
     await Bun.sleep(0);
     expect(loggerError).toHaveBeenCalledWith(
-      "AI Worker flush 10 rejected before acknowledgement:",
+      "AI Worker flush rejected before acknowledgement:",
+      { flushId: 10 },
       expect.any(AggregateError)
     );
-    const aggregate: AggregateError = loggerError.mock.calls[0]?.[1] as AggregateError;
+    const aggregate: AggregateError = loggerError.mock.calls[0]?.[2] as AggregateError;
     expect((aggregate.errors[0] as Error).message).toContain("reply generation");
     expect(flushDirtyMemories).not.toHaveBeenCalled();
     expect(postMessage).not.toHaveBeenCalledWith({ type: "memoryFlushed", flushId: 10 });

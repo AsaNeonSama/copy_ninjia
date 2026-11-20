@@ -257,7 +257,8 @@ export function queueChatStateWrite(chatId: number): number {
   unacknowledgedChatStateBytes.current = bytes;
   if (!postWithTransport(message)) {
     logger.error(
-      `Failed to queue chat state ${chatId}; retaining revision ${revision} for replay.`
+      "Failed to queue chat state write; retaining revision for replay.",
+      { chatId, revision }
     );
   }
   return revision;
@@ -297,7 +298,7 @@ export function saveChatStateInBackground(chatId: number, context: string): void
   try {
     queueChatStateWrite(chatId);
   } catch (error: unknown) {
-    logger.error(`Failed to persist background chat state update (${context}):`, error);
+    logger.error("Failed to persist background chat state update:", { chatId, context }, error);
   }
 }
 

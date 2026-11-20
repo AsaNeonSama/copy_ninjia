@@ -136,7 +136,10 @@ describe("429 退避留痕", () => {
       }
       expect(telegramOutboundGateState.retryPendingCount).toBe(2);
       expect(warn).toHaveBeenCalledTimes(1);
-      expect(warn).toHaveBeenCalledWith("Telegram query requests hit 429; backing off for 60000 ms.");
+      expect(warn).toHaveBeenCalledWith(
+        "Telegram requests hit 429; backing off.",
+        { category: "query", retryAfterMs: 60_000 }
+      );
       await expect(drainTelegramOutbound(0)).resolves.toBe("timedOut");
       await outcomes;
     } finally {

@@ -13,14 +13,15 @@ import {
 import {
   LOGGER_FORWARD_BATCH_MAX_MESSAGES,
   LOGGER_FORWARD_MAX_PENDING_MESSAGES,
+  LOG_LEVELS,
 } from "../../packages/consts/logger";
-import type { ForwardedLogBatch, LogMessage } from "../../packages/types/diskIO";
+import type { ForwardedLogBatch, LogLevel, LogMessage } from "../../packages/types/diskIO";
 
 /**
- * 业务 Worker -> 主线程的 error 日志转发协议。
+ * 业务 Worker -> 主线程的日志转发协议。
  *
  * 本文件直接覆盖日志转发通道的函数与「日志系统被压垮时不拖住 Worker」的边界：
- * 单批在途、双硬顶、溢出只累计标量、排空后补一条汇总。
+ * 单批在途、双硬顶、溢出只累计标量、排空后补一条汇总，并验证 Worker 线程阈值过滤后全级别转发。
  */
 
 /** 收集出口收到的批次；可切换成同步拒绝，模拟 postMessage 抛出。 */
@@ -41,8 +42,8 @@ function createSink(): {
   };
 }
 
-function logMessage(text: string, timestamp: number = 1_000): LogMessage {
-  return { timestamp, level: "error", args: [text] };
+function logMessage(text: string, timestamp: number = 1_000, level: LogLevel = "error"): LogMessage {
+  return { timestamp, level, args: [text] };
 }
 
 /** 取出批次里的第一条参数文本，供断言汇总内容。 */
@@ -56,7 +57,7 @@ beforeEach((): void => {
   forwardedLogDropState.current.droppedSerializedBytes = 0;
 });
 
-describe("Worker 侧 error 日志转发通道", () => {
+describe("Worker 侧日志转发通道", () => {
   test("一条 error 立即成批发出，并在 ACK 前不再发第二批", () => {
     const { sink, batches } = createSink();
 
@@ -119,6 +120,7 @@ describe("Worker 侧 error 日志转发通道", () => {
     expect(forwardedLogDropState.current.droppedMessages).toBeGreaterThan(0);
     expect(forwardedLogDropState.current.droppedSerializedBytes).toBeGreaterThan(0);
     const dropped: number = forwardedLogDropState.current.droppedMessages;
+    const droppedBytes: number = forwardedLogDropState.current.droppedSerializedBytes;
 
     // 逐批 ACK 排空；队列一有余量，汇总补进去且计数清零。
     let guard: number = 0;
@@ -131,13 +133,18 @@ describe("Worker 侧 error 日志转发通道", () => {
     expect(forwardedLogDropState.current.droppedMessages).toBe(0);
     expect(forwardedLogDropState.current.droppedSerializedBytes).toBe(0);
 
-    const summaries: string[] = batches.flatMap((batch: ForwardedLogBatch): string[] =>
-      batch.__logBatch.messages
-        .map((message: LogMessage): string => String(message.args[0]))
-        .filter((text: string): boolean => text.startsWith("[logger] dropped "))
+    const summaries: LogMessage[] = batches.flatMap((batch: ForwardedLogBatch): LogMessage[] =>
+      batch.__logBatch.messages.filter(
+        (message: LogMessage): boolean =>
+          message.args[0] === "[logger] Dropped Worker logs after the forwarding queue reached its hard limits."
+      )
     );
     expect(summaries).toHaveLength(1);
-    expect(summaries[0]).toContain(`dropped ${dropped} Worker error log(s)`);
+    expect(summaries[0]!.level).toBe("error");
+    expect(summaries[0]!.args).toEqual([
+      "[logger] Dropped Worker logs after the forwarding queue reached its hard limits.",
+      { droppedMessages: dropped, droppedSerializedBytes: droppedBytes },
+    ]);
   });
 
   test("汇总入不了队时不清零：计数必须留到真的补发成功那一次", () => {
@@ -202,5 +209,93 @@ describe("Worker 侧 error 日志转发通道", () => {
     const { sink, batches } = createSink();
     expect(pumpForwardedLogs(sink)).toBeTrue();
     expect(batches).toHaveLength(0);
+  });
+
+  test("LOG_LEVELS 四种级别均可进入转发队列并在 ACK 后逐批保留原始 level", () => {
+    const { sink, batches } = createSink();
+    for (const [index, level] of LOG_LEVELS.entries()) {
+      forwardWorkerLog(logMessage(`msg-${level}`, 1_000 + index, level), sink);
+    }
+    expect(batches).toHaveLength(1);
+    expect(batches[0]!.__logBatch.messages.map((m: LogMessage): LogLevel => m.level)).toEqual(LOG_LEVELS.slice(0, 1));
+
+    const firstAcked: boolean = acceptForwardedLogBatch({ __logBatchAccepted: batches[0]!.__logBatch.batchId }, sink);
+    expect(firstAcked).toBeTrue();
+    expect(batches).toHaveLength(2);
+    expect(batches[1]!.__logBatch.messages.map((m: LogMessage): LogLevel => m.level)).toEqual(LOG_LEVELS.slice(1));
+  });
+
+  test("真实 Worker 线程按 logLevelState 阈值过滤并携带 level 转发到主线程", async () => {
+    const loggerModuleUrl: string = import.meta.resolve("../../packages/infra/logger.ts");
+    const logLevelModuleUrl: string = import.meta.resolve("../../packages/config/logLevel.ts");
+    const forwardingModuleUrl: string = import.meta.resolve("../../packages/infra/logger/forwarding.ts");
+    const workerScript: string = `
+      import { logger } from ${JSON.stringify(loggerModuleUrl)};
+      import { adoptLogLevel } from ${JSON.stringify(logLevelModuleUrl)};
+      import { acceptForwardedLogBatch } from ${JSON.stringify(forwardingModuleUrl)};
+      const noop = () => {};
+      console.info = noop;
+      console.warn = noop;
+      console.error = noop;
+      const sink = (batch) => self.postMessage(batch);
+      self.onmessage = (event) => {
+        if (acceptForwardedLogBatch(event.data, sink)) return;
+        const payload = event.data;
+        if (payload && payload.type === "emit") {
+          adoptLogLevel(payload.threshold);
+          logger.info("w-info");
+          logger.operation("w-operation");
+          logger.warn("w-warn");
+          logger.error("w-error");
+        }
+      };
+    `;
+    const workerUrl: string = URL.createObjectURL(new Blob([workerScript], { type: "application/typescript" }));
+    const worker = new Worker(workerUrl);
+
+    function collectRun(threshold: LogLevel, expectedCount: number): Promise<LogMessage[]> {
+      return new Promise((resolve, reject): void => {
+        const collected: LogMessage[] = [];
+        const timer: ReturnType<typeof setTimeout> = setTimeout((): void => {
+          reject(new Error(`Timed out waiting for ${expectedCount} forwarded worker logs at threshold=${threshold}`));
+        }, 5_000);
+        worker.onmessage = (event: MessageEvent<unknown>): void => {
+          const data: unknown = event.data;
+          if (typeof data !== "object" || data === null || !("__logBatch" in data)) return;
+          const batch = data as ForwardedLogBatch;
+          collected.push(...batch.__logBatch.messages);
+          worker.postMessage({ __logBatchAccepted: batch.__logBatch.batchId });
+          if (collected.length >= expectedCount) {
+            clearTimeout(timer);
+            resolve(collected);
+          }
+        };
+        worker.onerror = (event: ErrorEvent): void => {
+          clearTimeout(timer);
+          reject(event.error ?? new Error(event.message));
+        };
+        worker.postMessage({ type: "emit", threshold });
+      });
+    }
+
+    try {
+      const underOperation: LogMessage[] = await collectRun("operation", 3);
+      expect(underOperation.map((m: LogMessage): [LogLevel, string] => [m.level, String(m.args[0])])).toEqual([
+        ["operation", "w-operation"],
+        ["warn", "w-warn"],
+        ["error", "w-error"],
+      ]);
+
+      const underInfo: LogMessage[] = await collectRun("info", 4);
+      expect(underInfo.map((m: LogMessage): [LogLevel, string] => [m.level, String(m.args[0])])).toEqual([
+        ["info", "w-info"],
+        ["operation", "w-operation"],
+        ["warn", "w-warn"],
+        ["error", "w-error"],
+      ]);
+    } finally {
+      await worker.terminate();
+      URL.revokeObjectURL(workerUrl);
+    }
   });
 });

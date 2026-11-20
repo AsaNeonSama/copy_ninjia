@@ -49,7 +49,10 @@ test("用量诊断被拒收时按能力与供应商只告警一次", () => {
     handleAntiRaidWorkerEvent(event, (): void => {});
     handleAntiRaidWorkerEvent(event, (): void => {});
     expect(warning).toHaveBeenCalledTimes(1);
-    expect(warning).toHaveBeenCalledWith("AI token usage unavailable: capability=ad_detect, provider=google, reason=transport.");
+    expect(warning).toHaveBeenCalledWith(
+      "AI token usage unavailable.",
+      { capability: "ad_detect", provider: "google", reason: "transport" }
+    );
   } finally {
     warning.mockRestore();
   }

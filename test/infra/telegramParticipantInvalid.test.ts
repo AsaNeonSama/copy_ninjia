@@ -21,7 +21,7 @@ mock.module("../../packages/infra/selfSentTracker", () => ({
   endSelfSentSend: (): void => {},
 }));
 
-const actions = await import("../../packages/infra/telegram/actions");
+const actions = await import("../../packages/infra/telegram/actions/moderation");
 const membership = await import("../../packages/infra/telegram/actions/membership");
 
 beforeEach(() => {

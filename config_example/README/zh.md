@@ -17,7 +17,7 @@ done
 ```
 
 > [!CAUTION]
-> 不要使用会覆盖已有文件的复制命令，也不要把 `config_example/` 当作部署配置的备份。`config/` 包含凭据，建议仅开放服务账号读取权限。
+> 不要使用会覆盖已有文件的复制命令，也不要把 `config_example/` 当作部署配置的备份。`config/` 包含凭据，默认建议仅开放服务账号读取权限；仅在启用 Mini App「配置编辑」在线保存时，按需为服务账号开放 `config/dynamic/` 和/或 `config/static/` 的写入与原子替换权限（新建可选文件默认 `0600`）。
 
 `config/` 严格按生效机制实施三级目录白名单（`config/` 顶层仅允许 `static/` 与 `dynamic/` 两个子目录）：
 - `config/static/`：仅允许 `bot.json`、`g-auth.json`，修改后**必须重启服务**生效。
@@ -45,7 +45,7 @@ done
   <tr>
     <td><code>static/bot.json</code></td>
     <td><nobr>静态（需重启）</nobr></td>
-    <td>Telegram Bot Token、唯一超级管理员、默认语气、时区与可选 Mini App 控制台</td>
+    <td>Telegram Bot Token、唯一超级管理员、日志级别、默认语气、时区与可选 Mini App 控制台</td>
     <td><b>拒绝启动（致命错误）</b></td>
   </tr>
   <tr>
@@ -130,6 +130,7 @@ done
   "super_admin_user_id": 987654321,
   "atmosphere": "mesugaki",
   "time_zone": "Asia/Tokyo",
+  "log_level": "operation",
   "mini_app": {
     "url": "https://miniapp.example.com",
     "port": 3000,
@@ -147,11 +148,12 @@ done
 | `super_admin_user_id` | `number` | **必填** | 正安全整数（`> 0`） | 唯一超级管理员的 Telegram 用户数字 ID（非用户名），天生拥有全部可授予权限，无需写入数据库 |
 | `atmosphere` | `string` | 可选 | `"mesugaki"` 或 `"normal"`；首尾空白去掉后严格校验，缺省按是否配置自定义人设选择 | 机器人系统通知与命令回执的语气风格；显式配置优先（`mesugaki` 雌小鬼，`normal` 普通）。未配置时，存在 `prompt/persona.md` 使用普通风格，否则使用雌小鬼风格；不改变 AI 人设 |
 | `time_zone` | `string` | 可选 | IANA 时区名，缺省 `DEFAULT_BOT_TIME_ZONE`；首尾空白去掉后严格校验 | 默认日历时区：运势、日志、广告累计、AI 时间、每日维护与未指定时区的 cron 共用；仅为 `TOKYO_TIME_ZONE`（含缺省）时注册东京天气工具；非法值拒绝启动。数据根建库时绑定该时区，之后更换会被启动拒绝，见 [07 运维与排障](../../docs/cn/07-operations.md#日历时区) |
-| `mini_app` | `object` | 可选 | 严格对象，仅允许 `url`、`port`、`host`、`password` 四个字段；缺省时不启动本地 HTTP 服务、不注册路由，也不挂载私聊 `MenuButtonWebApp`；手工从 `config_example/` 复制配置且不使用 Mini App 时须删除该节，或将 `password` 替换为真实密码（占位密码拒绝启动） | SuperAdmin 专属 Telegram Mini App 管理面板（Dashboard）配置，完整设置方法与 Cloudflare Tunnel 推荐配置见 [10 Mini App 设置与推荐配置](../../docs/cn/10-mini-app.md) |
+| `log_level` | `string` | 可选 | `LOG_LEVELS` 之一（`"info"`、`"operation"`、`"warn"`、`"error"`），缺省默认 `DEFAULT_LOG_LEVEL`（`"operation"`）；存在时首尾空白去掉后严格校验，非法值拒绝启动 | 统一日志控制台输出与 `logs/<YYYY-MM-DD>.json` 落盘的最低严重度阈值（`info` < `operation` < `warn` < `error`）：`info` 含以下全部与必要内部代码行为记录；`operation` 记录 Telegram `/` 命令、`/wed` 回调、`/qa set` 表单、Mini App 登录/登出及改动操作（含 `warn`/`error`）；`warn` 含警告与错误；`error` 仅记录错误。`info`/`operation`/`warn` 级别日志会在主线程按 32 条批上限或 30 秒间隔缓冲落盘，`error` 日志立即落盘 |
+| `mini_app` | `object` | 可选 | 严格对象，仅允许包含 `url`、`port`、`host`、`password` 四个字段（`url`、`port`、`password` 必填，`host` 可选并缺省 `MINI_APP_DEFAULT_HOST`）；缺省时不启动本地 HTTP 服务、不注册路由，也不挂载私聊 `MenuButtonWebApp`；手工从 `config_example/` 复制配置且不使用 Mini App 时须删除该节，或将 `password` 替换为真实密码（占位密码或遗留签名密钥字段拒绝启动） | SuperAdmin 专属 Telegram Mini App 管理面板（Dashboard）配置，完整设置方法与 Cloudflare Tunnel 推荐配置见 [10 Mini App 设置与推荐配置](../../docs/cn/10-mini-app.md) |
 | `mini_app.url` | `string` | `mini_app` 存在时**必填** | 合法的 `https://` URL；支持配置子路径前缀（如 `https://example.com/sub`），兼容保留或剥离路径前缀的反向代理 | Telegram 客户端加载 WebApp 的公网 HTTPS 入口地址 |
 | `mini_app.port` | `number` | `mini_app` 存在时**必填** | `MINI_APP_PORT_MIN`–`MINI_APP_PORT_MAX`（`1`–`65535`）的安全整数，示例配置为 `3000` | 本地 `Bun.serve` HTTP 监听端口 |
 | `mini_app.host` | `string` | 可选 | 非空字符串，缺省 `MINI_APP_DEFAULT_HOST`（`"127.0.0.1"`） | 本地 `Bun.serve` HTTP 监听地址 |
-| `mini_app.password` | `string` | `mini_app` 存在时**必填** | 非空字符串、至少包含 6 位数字（`0-9`），且不得保留占位值 `MINI_APP_PASSWORD_PLACEHOLDER`；缺省或非法时拒绝启动 | Mini App 首屏访问密码（`initData` 与单次会话有效期均为 45 分钟；连续输错 3 次锁定超级管理员 ID 30 分钟；在控制台绑定 Google Authenticator TOTP 后首屏改为校验 6 位动态码，解绑后恢复密码登录） |
+| `mini_app.password` | `string` | `mini_app` 存在时**必填** | 非空字符串、至少包含 6 位数字（`0-9`），且不得保留占位值 `MINI_APP_PASSWORD_PLACEHOLDER`；缺省或非法时拒绝启动 | Mini App 首屏访问密码（`initData` 与单次会话基础有效期均为 45 分钟，每次在 5 秒～5 分钟随机冷却后由请求触发滑动续期与密钥轮换，最长 `MINI_APP_SESSION_MAX_LIFETIME_MS` 即 2 小时，最多允许 `MINI_APP_SESSION_MAX` 即 5 个未过期活跃会话与 256-bit 临时密钥；连续输错 3 次锁定超级管理员 ID 30 分钟；在控制台绑定 Google Authenticator TOTP 后首屏改为校验 6 位动态码，解绑后恢复密码登录） |
 
 ---
 
@@ -496,7 +498,7 @@ done
 | `kick`，`block_scope: "global"` | 写入永久黑名单（与 `/block` 同一份名单），并在全部受管群封禁 | 同左 |
 
 - 禁言、只踢不封与本群封禁只作用于触发群，不写入持久化 outbox：停机排空超时或进程重启时，尚未完成的请求直接放弃；请求未成功时播报提示管理员检查机器人权限。
-- 本群封禁不在机器人的永久黑名单里，`/unblock` 解不开，需在 Telegram 群管理界面解除；永久禁言用 `/unmute` 解除。
+- 本群封禁不在机器人的永久黑名单里，`/block <目标> disable` 解不开，需在 Telegram 群管理界面解除；永久禁言用 `/unmute` 解除。
 - 只踢不封前先确认目标仍在群；群类型未知或成员状态无法确认时不发移出请求。
 - 处罚设置随热重载生效，每次处置都读取当前设置；文件被删除时，尚在处理的命中只删除消息、不再处罚。
 
@@ -511,7 +513,7 @@ done
 | `punishment.kick` | `object` | 与 `mute` 二选一 | 只允许 `block`、`block_scope` 两个键 | 移出设置 |
 | `punishment.kick.block` | `boolean` | **必填** | — | `false` 为只踢不封，`true` 时按 `block_scope` 封禁 |
 | `punishment.kick.block_scope` | `string` | `block` 为 `true` 时必填，为 `false` 时必须缺省 | 去掉首尾空白后只能是 `"chat"` 或 `"global"`（`AD_BLOCK_SCOPES`） | `"chat"` 只在触发群封禁；`"global"` 写入永久黑名单并在全部受管群封禁 |
-| `samples` | `string[]` | **必填** | 数组长度 `0 ～ MAX_CONFIGURED_AD_SAMPLES`，元素互不重复 | 广告正例文本样本数组。每条样本的连续空白压成单个空格并去掉首尾空白后必须非空且长度 `≤ AD_SAMPLE_MAX_CHARS` 个字符，判重按该规范化结果。使用 `provider: "google"` 时，系统会自动将这些样本构建为 Gemini 显式上下文缓存，剩余存活时长低于 `GEMINI_CONTEXT_CACHE_RENEW_BEFORE_MS` 时后台续期 |
+| `samples` | `string[]` | **必填** | 数组长度 `0 ～ MAX_CONFIGURED_AD_SAMPLES`，元素互不重复 | 广告正例文本样本数组。每条样本的连续空白压成单个空格并去掉首尾空白后必须非空且长度 `≤ AD_SAMPLE_MAX_CHARS` 个字符，判重按该规范化结果 |
 | `sticker_black_list` | `string[]` | **必填** | 数组长度 `0 ～ MAX_CONFIGURED_AD_BLACKLIST_PACKS`，元素去掉首尾空白后符合 `STICKER_PACK_NAME_PATTERN` 且互不重复 | 贴纸包 short name 黑名单（即 `https://t.me/addstickers/<short_name>` 末尾段）。非豁免发送者发送所属贴纸包命中该列表的贴纸时，直接跳过后续检测并按 `punishment` 处罚 |
 | `emoji_black_list` | `string[]` | **必填** | 数组长度 `0 ～ MAX_CONFIGURED_AD_BLACKLIST_PACKS`，元素去掉首尾空白后符合 `STICKER_PACK_NAME_PATTERN` 且互不重复 | 自定义表情包 short name 黑名单（即 `https://t.me/addemoji/<short_name>` 末尾段）。非豁免发送者消息含 `custom_emoji` 实体时，经主线程统一 Telegram 出站查询所属表情包，命中该列表时直接跳过 AI 检测并按 `punishment` 处罚 |
 
@@ -535,7 +537,7 @@ done
 | `project_id` | `string` | 可选 | 非空字符串 | GCP 项目 ID |
 | `private_key_id` | `string` | 可选 | 非空字符串 | 私钥 ID 标识 |
 | `quota_project_id`、`universe_domain` | `string` | 可选 | 非空字符串 | 配额项目与 universe 域名 |
-| 其他字段 | 任意 | 可选 | 不做校验，原样保留 | `client_id`、`auth_uri`、`token_uri` 等标准字段由 Google SDK 消费 |
+| 其他字段 | 任意 | 可选 | 启动与 Mini App `/api/configs/save` 共用 `parseGoogleServiceAccountKey` 校验；`private_key_id`、`project_id`、`quota_project_id`、`universe_domain` 存在时须为去空白后非空字符串，其余字段不做校验并原样保留 | `client_id`、`auth_uri`、`token_uri` 等标准字段由 Google SDK 消费 |
 
 ---
 

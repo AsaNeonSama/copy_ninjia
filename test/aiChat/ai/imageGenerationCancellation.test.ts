@@ -11,17 +11,17 @@ const downloadTelegramVisionImage = mock(async (): Promise<null> => null);
 const generateImage = mock(async (): Promise<null> => null);
 const sendPhotoWithResult = mock(async (): Promise<undefined> => undefined);
 const realTelegram = await import("../../../packages/infra/telegram");
-const realProvider = await import("../../../packages/aiChat/provider");
-mock.module("../../../packages/aiChat/ai/telegramImage", () => ({ downloadTelegramVisionImage }));
-mock.module("../../../packages/aiChat/provider", () => ({
+const realProvider = await import("../../../packages/workers/aiChat/provider");
+mock.module("../../../packages/workers/aiChat/ai/telegramImage", () => ({ downloadTelegramVisionImage }));
+mock.module("../../../packages/workers/aiChat/provider", () => ({
   ...realProvider,
   imageAiProvider: () => ({ name: "gemini", generateImage }),
 }));
 mock.module("../../../packages/infra/telegram", () => ({ ...realTelegram, sendPhotoWithResult }));
 
-const { createGenerateImageExecutor } = await import("../../../packages/aiChat/ai/tools/replyToolset/imageGeneration");
-const { createRoundMessageState } = await import("../../../packages/aiChat/ai/tools/replyToolset/messageState");
-const { createReplyActionChains } = await import("../../../packages/aiChat/ai/tools/replyToolset/actionChains");
+const { createGenerateImageExecutor } = await import("../../../packages/workers/aiChat/ai/tools/replyToolset/imageGeneration");
+const { createRoundMessageState } = await import("../../../packages/workers/aiChat/ai/tools/replyToolset/messageState");
+const { createReplyActionChains } = await import("../../../packages/workers/aiChat/ai/tools/replyToolset/actionChains");
 
 test("满载媒体队列中的参考生图取消后立即排空动作链并释放冷却占位", async (): Promise<void> => {
   resetImageGenerationCache();

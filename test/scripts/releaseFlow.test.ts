@@ -217,7 +217,8 @@ describe("发布资产与谱系", (): void => {
   );
   test("拒绝损坏校验和和声明后缺失的平台", async (): Promise<void> => {
     const { root } = await fixture();
-    await expect(verifiedAssets(root, ["linux-x64", "linux-arm64"])).rejects.toThrow();
+    await expect(verifiedAssets(root, ["linux-x64", "linux-arm64"]))
+      .rejects.toThrow(/ENOENT.*copy-ninjia-linux-arm64\.tar\.gz/);
     await Bun.write(join(root, "copy-ninjia-linux-x64.tar.gz.sha256"), "bad checksum\n");
     await expect(verifiedAssets(root)).rejects.toThrow("SHA-256 mismatch");
   });
@@ -280,15 +281,21 @@ describe("Release 草稿发布事务", (): void => {
     await expect(publishRelease({ version: VERSION, notesPath: notes, assets, command })).rejects.toThrow("annotated release tag");
     expect(fake.calls.some((call) => call.startsWith("gh "))).toBe(false);
   });
-  test.each([
-    { corrupt: true }, { failUpload: true }, { movedMaster: true }, { apiFailure: true },
-    { newestVersion: "13.0.0" }, { existing: true, wrongNotes: true }, { existing: true, corrupt: true },
-    { existing: true, published: true, missingPublishedAssets: true },
-  ])("失败时不公开、不覆盖资产、不同步 dev：%j", async (options): Promise<void> => {
+  test.each<[Parameters<typeof github>[1], string]>([
+    [{ corrupt: true }, "downloaded Release asset differs from the validated local file."],
+    [{ failUpload: true }, "Release command failed: gh release upload"],
+    [{ movedMaster: true }, "Push master and its annotated tag separately before publishing; remote references must match."],
+    [{ apiFailure: true }, "Cannot read GitHub Release state."],
+    [{ newestVersion: "13.0.0" }, "Release version must be newer than GitHub Latest."],
+    [{ existing: true, wrongNotes: true }, "Release must match the selected tag and notes and must not be a prerelease."],
+    [{ existing: true, corrupt: true }, "downloaded Release asset differs from the validated local file."],
+    [{ existing: true, published: true, missingPublishedAssets: true }, "Published Release is missing required assets; refusing to modify it."],
+  ])("失败时不公开、不覆盖资产、不同步 dev：%j", async (options, expectedMessage: string): Promise<void> => {
     const { root, notes } = await fixture();
     const assets: readonly ReleaseAsset[] = await verifiedAssets(root);
     const fake = github(assets, options);
-    await expect(publishRelease({ version: VERSION, notesPath: notes, assets, command: fake.command })).rejects.toThrow();
+    await expect(publishRelease({ version: VERSION, notesPath: notes, assets, command: fake.command }))
+      .rejects.toThrow(expectedMessage);
     expect(fake.calls.some((call) => call.startsWith("gh release edit"))).toBe(false);
     expect(fake.calls.some((call) => call.includes("--clobber") || call.startsWith("git push") || call.startsWith("git reset"))).toBe(false);
   });
@@ -296,7 +303,8 @@ describe("Release 草稿发布事务", (): void => {
     const { root, notes } = await fixture();
     const assets: readonly ReleaseAsset[] = await verifiedAssets(root);
     const fake = github(assets, { failEdit: true });
-    await expect(publishRelease({ version: VERSION, notesPath: notes, assets, command: fake.command })).rejects.toThrow();
+    await expect(publishRelease({ version: VERSION, notesPath: notes, assets, command: fake.command }))
+      .rejects.toThrow("Release command failed: gh release edit");
     expect(fake.state.release?.draft).toBe(true);
     expect(fake.state.release?.assets).toHaveLength(2);
   });

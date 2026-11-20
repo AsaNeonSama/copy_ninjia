@@ -14,7 +14,7 @@ import {
   openAiFinishDetails,
   responseOutputText,
   responseRefusal,
-} from "../../../packages/aiChat/openai/response";
+} from "../../../packages/workers/aiChat/openai/response";
 import { EMPTY_FUNCTION_CALLS } from "../../../packages/consts/aiChat/tools";
 import { AI_FINISH_DETAILS_MAX_CHARS } from "../../../packages/consts/aiChat/provider";
 import { SEND_MESSAGE_TOOL } from "../../../packages/consts/tools";
@@ -72,23 +72,23 @@ describe("异常产出诊断", () => {
     expect(openAiFinishDetails(response({ output: [{ type: "message", content: [] }] }))).toBeUndefined();
   });
 
-  test("incomplete 时拒答说明与具体原因一起保留", () => {
+  test("incomplete 时仅返回状态名并继续保留拒答详情", () => {
     const filtered: OpenAI.Responses.Response = response({
       status: "incomplete",
       incomplete_details: { reason: "content_filter" },
       output: [{ type: "message", content: [{ type: "refusal", refusal: "filtered" }] }],
     });
-    expect(abnormalResponseDiagnostic(filtered)).toBe("status=incomplete, reason=content_filter");
+    expect(abnormalResponseDiagnostic(filtered)).toBe("incomplete");
     expect(normalizedFinishReason(filtered)).toBe("incomplete:content_filter");
     expect(openAiFinishDetails(filtered)).toBe(JSON.stringify({ refusal: "filtered" }));
   });
 
-  test("状态不是 completed 时附上具体原因", () => {
+  test("状态不是 completed 时返回对应状态名", () => {
     expect(abnormalResponseDiagnostic(response({
       status: "incomplete",
       incomplete_details: { reason: "max_output_tokens" },
-    }))).toBe("status=incomplete, reason=max_output_tokens");
-    expect(abnormalResponseDiagnostic(response({ status: "failed" }))).toBe("status=failed");
+    }))).toBe("incomplete");
+    expect(abnormalResponseDiagnostic(response({ status: "failed" }))).toBe("failed");
   });
 
   test("完全没有 output item 与「模型没产出」不可区分，必须点名", () => {

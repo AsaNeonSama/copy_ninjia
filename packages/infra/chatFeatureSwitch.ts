@@ -74,8 +74,8 @@ export async function applyChatFeatureSwitch({
     } catch (error: unknown) {
       teardownFailed = true;
       logger.error(
-        `Failed to tear down the ${runtimeLabel} of chat ${chatId}; ` +
-        "the switch is already persisted as disabled:",
+        "Failed to tear down chat feature runtime; the switch is already persisted as disabled:",
+        { chatId, feature, runtimeLabel },
         error
       );
     }

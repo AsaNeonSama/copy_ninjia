@@ -7,12 +7,12 @@ import {
 import { runTelegramCategorizedRequest } from "../outboundGate";
 import { discardResponseBody, readBoundedResponseBytes, readBoundedResponseText } from "../../../libs/boundedResponse";
 import type { BoundedResponseResult } from "../../../libs/boundedResponse";
-import { parseAllowedHttpsUrl } from "../../../libs/httpUrlPolicy";
+import { parseAllowedHttpsUrl, parseHttpsUrlWithoutCredentials } from "../../../libs/httpUrlPolicy";
 import { stripLeadingAtSigns } from "../../../libs/text";
 import { logger } from "../../logger";
 import { signalWithTimeout } from "../../../libs/abortSignal";
-import { sniffImageFormat } from "../../image";
-import type { SniffedImageFormat } from "../../image";
+import { sniffImageFormat } from "../../../libs/imageFormat";
+import type { SniffedImageFormat } from "../../../libs/imageFormat";
 
 /** 公开主页 HTML 扫描出的单个起始标签名称与属性映射。 */
 interface ParsedHtmlTag {
@@ -111,9 +111,7 @@ function parseRelevantHtmlTags(html: string): ParsedHtmlTag[] {
  */
 function parseHttpsUrl(value: string | undefined): URL | undefined {
   if (!value) return undefined;
-  const url: URL | null = URL.parse(value.trim());
-  if (url?.protocol !== "https:" || url.username || url.password) return undefined;
-  return url;
+  return parseHttpsUrlWithoutCredentials(value.trim()) ?? undefined;
 }
 
 /**
@@ -281,18 +279,18 @@ export async function fetchAvatarFromWebProfile(username: string, signal?: Abort
     });
     if (!pageRes.ok) {
       void discardResponseBody(pageRes);
-      logger.error(`Failed to fetch telegram.me profile page for @${username}: ${pageRes.status}`);
+      logger.error("Failed to fetch telegram.me profile page.", { username, status: pageRes.status });
       return null;
     }
     const html: string | null = await readBoundedResponseText(pageRes, PUBLIC_PROFILE_PAGE_MAX_DOWNLOAD_BYTES);
     if (html === null) {
-      logger.error(`telegram.me profile page for @${username} exceeded the download limit`);
+      logger.error("telegram.me profile page exceeded the download limit.", { username });
       return null;
     }
 
     const photoUrl: string | undefined = extractAvatarUrlFromProfileHtml(html, username);
     if (!photoUrl) {
-      logger.warn(`No profile photo found on t.me page for @${username}`);
+      logger.warn("No profile photo found on t.me page.", { username });
       return null;
     }
 
@@ -307,24 +305,34 @@ export async function fetchAvatarFromWebProfile(username: string, signal?: Abort
     });
     if (!imgRes.ok) {
       void discardResponseBody(imgRes);
-      logger.error(`Failed to download avatar from ${photoUrl}: ${imgRes.status}`);
+      logger.error("Failed to download avatar from t.me profile page.", {
+        username,
+        photoUrl,
+        status: imgRes.status,
+      });
       return null;
     }
     const download: BoundedResponseResult = await readBoundedResponseBytes(imgRes, AVATAR_MAX_DOWNLOAD_BYTES);
     if (!download.ok) {
-      logger.error(`Avatar for @${username} exceeded the download limit (${download.observedBytes} bytes)`);
+      logger.error("Avatar from t.me profile page exceeded the download limit.", {
+        username,
+        observedBytes: download.observedBytes,
+      });
       return null;
     }
     // 只把可识别的 JPEG/PNG 交给 setMyProfilePhoto；空响应体（零长 buffer）同样在这里被挡下。
     const format: SniffedImageFormat = sniffImageFormat(download.bytes);
     if (format !== "jpeg" && format !== "png") {
-      logger.error(`Avatar for @${username} is not a JPEG or PNG image (${download.bytes.byteLength} bytes)`);
+      logger.error("Avatar from t.me profile page is not a JPEG or PNG image.", {
+        username,
+        bytes: download.bytes.byteLength,
+      });
       return null;
     }
     return download.bytes;
   } catch (error: unknown) {
     if (signal?.aborted) return null;
-    logger.error(`Error scraping t.me profile photo for @${username}:`, error);
+    logger.error("Error scraping t.me profile photo:", { username }, error);
     return null;
   }
 }

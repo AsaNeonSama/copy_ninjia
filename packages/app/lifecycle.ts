@@ -27,7 +27,6 @@ import {
   classifyShutdown,
   createOwnerSettler,
   flushAllToDisk,
-  formatShutdownResults,
   runShutdownOwners,
 } from "./lifecycle/shutdown";
 import {
@@ -105,7 +104,7 @@ export class ApplicationLifecycle {
    */
   private stopOnSignal(signal: ShutdownSignal): void {
     if (!this.stopRequested) {
-      this.dependencies.logger.log(`Received ${signal}; beginning graceful shutdown.`);
+      this.dependencies.logger.info("Beginning graceful shutdown.", { signal });
     }
     this.stopForShutdown("Error stopping runner:");
   }
@@ -154,8 +153,9 @@ export class ApplicationLifecycle {
     this.dependencies.initDeferredCommandRuntime();
     this.flags.translateInitialized = true;
 
-    // 配置文件和持久化状态在启动边界按不可信部署输入严格校验。
+    // 配置文件和持久化状态在启动边界按不可信部署输入严格校验（先持锁并清扫配置残留，再校验目录布局）。
     await this.dependencies.cleanupOrphanedTempFiles();
+    await this.dependencies.assertDeploymentConfigLayout();
     await this.dependencies.loadState();
     await this.dependencies.validateExistingDeploymentInputs();
     await this.dependencies.prepareRandomImageDirectory();
@@ -206,11 +206,11 @@ export class ApplicationLifecycle {
     // 开始拉取新 update 前，对已初始化且确证具备管理员权限的群执行首轮黑名单补扫。
     await this.dependencies.sweepManagedBlocklistChats();
 
-    this.dependencies.logger.log(
-      `Bot started as @${this.dependencies.bot.botInfo.username}. ` +
-      `Restored state for ${this.dependencies.getChatStateCache().size} chat(s)` +
-      (restoredCopiedUser ? `, currently copying ${restoredCopiedUser.id}.` : ".")
-    );
+    this.dependencies.logger.info("Bot started.", {
+      username: `@${this.dependencies.bot.botInfo.username}`,
+      restoredChats: this.dependencies.getChatStateCache().size,
+      ...(restoredCopiedUser ? { copiedUserId: restoredCopiedUser.id } : {}),
+    });
 
     this.runner = this.dependencies.runAcknowledgedUpdateBatches(
       this.dependencies.bot,
@@ -344,7 +344,7 @@ export class ApplicationLifecycle {
       const outcome: ShutdownOutcome = classifyShutdown(results);
       if (outcome !== "clean") {
         process.exitCode = 1;
-        this.dependencies.logger.error(`Shutdown drain/flush results: ${formatShutdownResults(results)}.`);
+        this.dependencies.logger.error("Shutdown drain/flush results:", results);
       }
       if (!this.lockAcquired) return;
       if (outcome === "unsettled") {
@@ -370,6 +370,9 @@ export class ApplicationLifecycle {
         return;
       }
       this.lockAcquired = false;
+      if (outcome === "clean") {
+        this.dependencies.logger.info("Graceful shutdown completed.");
+      }
     })();
     return this.disposePromise;
   }
@@ -440,7 +443,8 @@ export class ApplicationLifecycle {
     if (reusesActiveDisposal) {
       hardDeadlineTimer = setTimeout((): void => {
         this.dependencies.logger.error(
-          `Emergency shutdown exceeded the ${EMERGENCY_REUSED_DISPOSE_DEADLINE_MS}ms hard deadline; forcing exit.`
+          "Emergency shutdown exceeded hard deadline; forcing exit.",
+          { deadlineMs: EMERGENCY_REUSED_DISPOSE_DEADLINE_MS }
         );
         exitWithFailure();
       }, EMERGENCY_REUSED_DISPOSE_DEADLINE_MS);

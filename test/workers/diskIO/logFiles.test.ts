@@ -7,9 +7,14 @@ import {
   loggerReopenState,
   resetLogCache,
 } from "../../../packages/cache/workers/diskIO/logs";
+import { logRelaySink } from "../../../packages/cache/perThread/logger";
+import { adoptLogLevel, getLogLevel } from "../../../packages/config/logLevel";
 import { LOG_REOPEN_RETRY_MS } from "../../../packages/consts/diskIO/appendOnly";
+import { LOG_LEVELS } from "../../../packages/consts/logger";
 import { LOGS_DIR, TMP_FILE_SUFFIX } from "../../../packages/consts/paths";
+import { logger } from "../../../packages/infra/logger";
 import { getDateKey } from "../../../packages/libs/time";
+import { queueDiskIOWorkerMessage } from "../../../packages/workers/diskIOWorker";
 import {
   adoptLogFiles,
   flushLogBuffer,
@@ -19,7 +24,8 @@ import {
   maintainLogRetention,
 } from "../../../packages/workers/diskIO/logFiles";
 import { serializeDayFileEntry } from "../../../packages/workers/diskIO/appendOnlyDayFile";
-import type { LogEnvelope } from "../../../packages/types/diskIO/messages";
+import type { LogEnvelope, LogLevel, LogMessage } from "../../../packages/types/diskIO/messages";
+import type { DiskIOReply } from "../../../packages/types/diskIO/replies";
 
 /**
  * 单领域恢复的测试编排：按生产 handleDiskIOStartupLoad 的顺序跑
@@ -140,7 +146,7 @@ describe("diskIO/logFiles 启动恢复", () => {
     expect(records[0]).toEqual({
       level: "error",
       message: "request failed retrying",
-      args: ["request failed", { code: 503 }, "retrying"],
+      args: [{ code: 503 }],
     });
   });
 
@@ -267,5 +273,99 @@ describe("diskIO/logFiles 启动恢复", () => {
     }
     expect(loggerReopenState.retryAt).toBe(0);
     expect(Object.keys(JSON.parse(await Bun.file(todayPath).text()) as Record<string, unknown>)).toEqual(["b"]);
+  });
+
+  test("日志恢复校验接受全部四种 LOG_LEVELS，并拒绝未知 level 枚举", async () => {
+    const today: string = getDateKey();
+    const todayPath: string = join(LOGS_DIR, `${today}.json`);
+    const validEntries: Record<string, { level: LogLevel; message: string }> = Object.fromEntries(
+      LOG_LEVELS.map((level: LogLevel, index: number): [string, { level: LogLevel; message: string }] => [
+        `entry_${index}`,
+        { level, message: `ok-${level}` },
+      ])
+    );
+    await Bun.write(todayPath, JSON.stringify(validEntries));
+
+    await initLogFiles();
+    expect(loggerFileState.current?.day).toBe(today);
+    expect(Object.keys(JSON.parse(await Bun.file(todayPath).text()) as Record<string, unknown>)).toEqual(
+      Object.keys(validEntries)
+    );
+
+    resetLogCache();
+    await Bun.write(todayPath, JSON.stringify({ invalid_entry: { level: "debug", message: "bad-level" } }));
+    await expect(inspectLogFiles()).rejects.toThrow("entry[0] must be a log record");
+  });
+
+  test("端到端按四个 log_level 阈值过滤后经 logRelaySink 与 Disk I/O 落盘写入对应级别记录", async () => {
+    const previousLogLevel: LogLevel = getLogLevel();
+    const previousRelaySink: typeof logRelaySink.current = logRelaySink.current;
+    const workerGlobal = globalThis as typeof globalThis & { postMessage?: (message: unknown) => void };
+    const originalPostMessage: ((message: unknown) => void) | undefined = workerGlobal.postMessage;
+    const replies: DiskIOReply[] = [];
+    const consoleSpies = {
+      info: spyOn(console, "info").mockImplementation((): void => {}),
+      warn: spyOn(console, "warn").mockImplementation((): void => {}),
+      error: spyOn(console, "error").mockImplementation((): void => {}),
+    };
+    workerGlobal.postMessage = (message: unknown): void => {
+      replies.push(message as DiskIOReply);
+    };
+
+    try {
+      for (const [thresholdIndex, threshold] of LOG_LEVELS.entries()) {
+        resetLogCache();
+        rmSync(LOGS_DIR, { recursive: true, force: true });
+        mkdirSync(LOGS_DIR, { recursive: true });
+        await initLogFiles();
+
+        const capturedLogs: LogEnvelope[] = [];
+        logRelaySink.current = (message: LogMessage): boolean => {
+          capturedLogs.push({ type: "log", id: crypto.randomUUID(), ...message });
+          return true;
+        };
+
+        adoptLogLevel(threshold);
+        for (const level of LOG_LEVELS) {
+          logger[level](`e2e-${threshold}-${level}`);
+        }
+
+        const expectedLevels: readonly LogLevel[] = LOG_LEVELS.slice(thresholdIndex);
+        expect(capturedLogs).toHaveLength(expectedLevels.length);
+        const batchId: number = thresholdIndex + 1;
+        await queueDiskIOWorkerMessage({
+          type: "diagnosticBatch",
+          batchId,
+          messages: capturedLogs,
+        });
+        expect(replies.at(-1)).toEqual({ type: "diagnosticBatchAccepted", batchId });
+
+        const day: string = getDateKey(capturedLogs[0]!.timestamp);
+        const parsed = JSON.parse(await Bun.file(join(LOGS_DIR, `${day}.json`)).text()) as Record<
+          string,
+          { readonly level: LogLevel; readonly message: string }
+        >;
+        const onDisk: [LogLevel, string][] = Object.values(parsed).map(
+          (record: { readonly level: LogLevel; readonly message: string }): [LogLevel, string] => [
+            record.level,
+            record.message,
+          ]
+        );
+        expect(onDisk).toEqual(
+          expectedLevels.map((level: LogLevel): [LogLevel, string] => [level, `e2e-${threshold}-${level}`])
+        );
+      }
+    } finally {
+      adoptLogLevel(previousLogLevel);
+      logRelaySink.current = previousRelaySink;
+      if (originalPostMessage === undefined) {
+        Reflect.deleteProperty(globalThis, "postMessage");
+      } else {
+        workerGlobal.postMessage = originalPostMessage;
+      }
+      consoleSpies.info.mockRestore();
+      consoleSpies.warn.mockRestore();
+      consoleSpies.error.mockRestore();
+    }
   });
 });

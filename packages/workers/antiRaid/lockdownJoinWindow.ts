@@ -109,9 +109,8 @@ export function beginLockdownRetriggerCooldown(
 ): void {
   suppressJoinWindowRetrigger(chatId, durationMs);
   logger.error(
-    `Anti-raid lockdown for chat ${chatId} was abandoned (${reason}); ` +
-    `suppressing new lockdown triggers there for ${durationMs / MINUTE_MS} minutes. ` +
-    "Per-member join verification is unaffected."
+    "Anti-raid lockdown was abandoned; suppressing new lockdown triggers there while keeping per-member join verification unaffected.",
+    { chatId, reason, suppressionMinutes: durationMs / MINUTE_MS }
   );
 }
 

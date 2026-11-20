@@ -2,6 +2,7 @@ import { requestAiMood } from "../../aiChat";
 import { aiChatWorkerState } from "../../cache/main/aiChat";
 import { defaultMoodConfigCache } from "../../cache/perThread/config";
 import { aiChatConfigReadiness } from "../../config/readiness";
+import { logger } from "../../infra/logger";
 import type {
   MiniAppMoodMutationResult,
   MiniAppMoodView,
@@ -42,7 +43,8 @@ export async function handleGetMoodRoute(): Promise<Response> {
       currentMood: moodName,
     };
     return jsonResponse(body);
-  } catch (_error: unknown) {
+  } catch (error: unknown) {
+    logger.error("[MiniApp] Failed to query AI mood:", error);
     const failedBody: Readonly<MiniAppMoodView> = {
       ok: false,
       available: false,
@@ -61,6 +63,7 @@ export async function handlePostMoodSwitchRoute(): Promise<Response> {
     !aiChatConfigReadiness().ok ||
     defaultMoodConfigCache.current === null
   ) {
+    logger.operation("[MiniApp] mood.switch", { ok: false, currentMood: null });
     const brokenBody: Readonly<MiniAppMoodMutationResult> = {
       ok: false,
       available: false,
@@ -71,6 +74,7 @@ export async function handlePostMoodSwitchRoute(): Promise<Response> {
   }
   try {
     const moodName: string = await requestAiMood("switchMood");
+    logger.operation("[MiniApp] mood.switch", { ok: true, currentMood: moodName });
     const okBody: Readonly<MiniAppMoodMutationResult> = {
       ok: true,
       available: true,
@@ -78,7 +82,9 @@ export async function handlePostMoodSwitchRoute(): Promise<Response> {
       message: "MOOD_SWITCHED",
     };
     return jsonResponse(okBody);
-  } catch (_error: unknown) {
+  } catch (error: unknown) {
+    logger.error("[MiniApp] Failed to switch AI mood:", error);
+    logger.operation("[MiniApp] mood.switch", { ok: false, currentMood: null });
     const failBody: Readonly<MiniAppMoodMutationResult> = {
       ok: false,
       available: false,

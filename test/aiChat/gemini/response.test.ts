@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { ToolType } from "@google/genai";
 import type { GenerateContentResponse } from "@google/genai";
-import { countGoogleSearchCalls, responseText } from "../../../packages/aiChat/gemini/response";
+import { countGoogleSearchCalls, responseText } from "../../../packages/aiProviders/gemini/response";
 import { geminiResponse } from "../../helpers/geminiResponse";
 
 /** 覆盖 SDK getter 与本地实现全部取值分支的响应：thought part 不计入正文，

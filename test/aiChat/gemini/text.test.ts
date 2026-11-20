@@ -14,9 +14,9 @@ import { VOICE_TRANSCRIPTION_ERROR_LABEL } from "../../../packages/consts/aiChat
 
 const requestGeminiTextResult = mock(async (..._args: unknown[]): Promise<AiTextResult> => ({ ok: true, text: "ok" }));
 
-mock.module("../../../packages/aiChat/gemini/client", () => ({ requestGeminiTextResult }));
+mock.module("../../../packages/workers/aiChat/gemini/client", () => ({ requestGeminiTextResult }));
 
-const { describeGeminiVision, generateGeminiJson, generateGeminiText, transcribeGeminiVoice } = await import("../../../packages/aiChat/gemini/text");
+const { describeGeminiVision, generateGeminiJson, generateGeminiText, transcribeGeminiVoice } = await import("../../../packages/workers/aiChat/gemini/text");
 const {
   GEMINI_JSON_MAX_TOKENS,
   GEMINI_CHAT_SUMMARY_MAX_TOKENS,

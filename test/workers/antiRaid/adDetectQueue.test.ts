@@ -294,7 +294,7 @@ describe("广告判定队列：排队、调度与位置所有权", () => {
 
     await runAdDetectBatch(1_000);
 
-    expect(errorLogs.some((line: string): boolean => line.includes("failed to classify sender 7 in chat -1001"))).toBeTrue();
+    expect(errorLogs.some((line: string): boolean => line.includes("Ad detection failed to classify sender:"))).toBeTrue();
     // 与「模型抽风、响应形状不对」同一档：本次记成已检，不重试。
     expect(pendingAdBundle(-1001, 7)?.checkedSeq).toBe(1);
     // in-flight 标记照常释放。

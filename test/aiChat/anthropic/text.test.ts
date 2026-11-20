@@ -9,9 +9,9 @@ import type { AiTextResult } from "../../../packages/types/aiChat/provider";
 import { getAgentDeploymentConfig } from "../../../packages/config/agent";
 
 const requestAnthropicTextResult = mock(async (..._args: unknown[]): Promise<AiTextResult> => ({ ok: true, text: "ok" }));
-mock.module("../../../packages/aiChat/anthropic/client", () => ({ requestAnthropicTextResult }));
+mock.module("../../../packages/workers/aiChat/anthropic/client", () => ({ requestAnthropicTextResult }));
 
-const { describeAnthropicVision, generateAnthropicJson, generateAnthropicText } = await import("../../../packages/aiChat/anthropic/text");
+const { describeAnthropicVision, generateAnthropicJson, generateAnthropicText } = await import("../../../packages/workers/aiChat/anthropic/text");
 const {
   ANTHROPIC_CHAT_SUMMARY_MAX_TOKENS,
   ANTHROPIC_JSON_MAX_TOKENS,

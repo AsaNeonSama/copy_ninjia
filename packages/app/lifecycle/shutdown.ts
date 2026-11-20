@@ -26,7 +26,7 @@ export function createOwnerSettler(logger: ApplicationLifecycleDependencies["log
     try {
       return await run();
     } catch (error: unknown) {
-      logger.error(`Shutdown owner ${owner} threw during disposal:`, error);
+      logger.error("Shutdown owner threw during disposal:", { owner }, error);
       return onFailure;
     }
   }
@@ -403,27 +403,6 @@ export function classifyShutdown(results: ShutdownResults): ShutdownOutcome {
   return results.offsetConfirmed ? "clean" : "offsetWithheld";
 }
 
-/**
- * 各 owner 排空结果的诊断片段，字段顺序固定；停机结果与确认 offset 前的结果共用。
- * @param results 各排空 owner 的结算结果。
- * @returns 按固定字段顺序拼装的单行英文诊断片段。
- */
-function formatOwnerDrainResults(results: OwnerDrainResults): string {
-  return `avatar=${results.avatar}, translate=${results.translate}, gag=${results.gag}, wed=${results.wed}, ` +
-    `antiRaid=${results.antiRaid}, ai=${results.ai}, telegram=${results.telegram}, disk=${results.disk}`;
-}
-
-/**
- * 停机结果的单行诊断文案（英文，见 AGENTS.md 日志约定）。
- * @param results 本次停机汇总的各阶段结算结果。
- * @returns 包含全部停机阶段状态的单行英文诊断字符串。
- */
-export function formatShutdownResults(results: ShutdownResults): string {
-  return `runner=${results.runnerDrained}, maintenance=${results.maintenanceSettled}, ` +
-    `offset=${results.offsetConfirmed}, ${formatOwnerDrainResults(results)}, ` +
-    `terminate=${results.terminate}, state=${results.state}`;
-}
-
 /** 确认最终 Telegram offset 前执行全量排空与落盘的上下文参数。 */
 export interface FlushAllToDiskParams {
   /** 应用生命周期依赖集合。 */
@@ -473,8 +452,8 @@ export async function flushAllToDisk({
   if (unsettled) {
     process.exitCode = 1;
     dependencies.logger.error(
-      `Pre-confirmation drain/flush results: ${formatOwnerDrainResults(results)}, state=${state}; ` +
-      "the final Telegram update offset will not be confirmed."
+      "Pre-confirmation drain/flush did not settle; the final Telegram update offset will not be confirmed.",
+      { ...results, state }
     );
     return false;
   }

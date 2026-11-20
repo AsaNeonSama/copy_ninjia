@@ -138,8 +138,8 @@ Model capabilities are factored into narrow single-responsibility interfaces (`A
 ## Adding an AI Tool
 
 1. **Declare the tool name**: Add the constant in [`packages/consts/tools.ts`](../../packages/consts/tools.ts), and add tools with visible group side effects (sending messages, images, stickers, reactions, or voice) to `ACTION_TOOL_NAMES`.
-2. **Define the schema**: Register read-only query tools in `TOOL_DECLARATIONS`; for reply action tools, add a definition builder under `packages/aiChat/ai/tools/replyToolset/`. Vendor adapters convert neutral `AiToolDefinition` schemas into OpenAI, Gemini, and Anthropic formats.
-3. **Implement execution**: Place the tool logic under `packages/aiChat/ai/tools/`, delegating any Telegram API calls to the main thread over Worker IPC.
+2. **Define the schema**: Register read-only query tools in `TOOL_DECLARATIONS`; for reply action tools, add a definition builder under `packages/workers/aiChat/ai/tools/replyToolset/`. Vendor adapters convert neutral `AiToolDefinition` schemas into OpenAI, Gemini, and Anthropic formats.
+3. **Implement execution**: Place the tool logic under `packages/workers/aiChat/ai/tools/`, delegating any Telegram API calls to the main thread over Worker IPC.
 4. **Wire dispatch**: Connect query tools to `callTool` in `tools/index.ts`, and connect reply action tools to the assembler and `execute` dispatcher in `replyToolset/orchestrator.ts`.
 5. **Enforce action budgets**: Count visible side-effect tools against the per-reply action budget (hard-capped at execution time by `HARD_MAX_ACTIONS_PER_REPLY`), adding dedicated per-turn caps only where domain quotas require them (`MAX_STICKERS_PER_REPLY`, `MAX_GENERATED_IMAGES_PER_REPLY`, `MAX_VOICES_PER_REPLY`).
 6. **Document prompt rules**: Add tool guidance under `packages/consts/aiChat/prompts/`, reusing `transcript.ts` formatting whenever message history is referenced.

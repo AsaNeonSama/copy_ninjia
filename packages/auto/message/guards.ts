@@ -1,7 +1,7 @@
 import type { Message } from "grammy/types";
 import { recordChatMessage } from "../../aiChat";
 import { isAiChatActiveIn } from "../../aiChat/availability";
-import { buildSelfRecordMessage } from "../../aiChat/ai/utils/selfRecord";
+import { buildSelfRecordMessage } from "../../aiChat/selfRecord";
 import { hasGagInlineMarker } from "../../commands/gag/identity";
 import { activeCopyTargetIdIn } from "../../infra/storage/stateStore";
 import { stripLuckReceipt } from "../../libs/luckReceipt";

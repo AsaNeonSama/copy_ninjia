@@ -17,8 +17,8 @@ const loggerWarn = mock((..._args: unknown[]): void => {});
 const loggerError = mock((..._args: unknown[]): void => {});
 mock.module("../../../packages/infra/logger", () => ({ logger: loggerStub({ warn: loggerWarn, error: loggerError }) }));
 
-const { requestAnthropicTextResult } = await import("../../../packages/aiChat/anthropic/client");
-const { createAnthropicReplySession } = await import("../../../packages/aiChat/anthropic/replySession");
+const { requestAnthropicTextResult } = await import("../../../packages/workers/aiChat/anthropic/client");
+const { createAnthropicReplySession } = await import("../../../packages/workers/aiChat/anthropic/replySession");
 const { anthropicClientCache } = await import("../../../packages/cache/workers/aiChat/anthropic");
 const { adoptAgentDeploymentConfig, getAgentDeploymentConfig } = await import("../../../packages/config/agent");
 const { installAiCacheUsageSink } = await import("../../../packages/infra/aiCacheUsage");
@@ -152,10 +152,13 @@ describe("没有 fallback_model", () => {
     expect(captured).toHaveLength(1);
     expect(captured[0]!.path).toBe("/v1/messages");
     expect(captured[0]!.beta).toBeNull();
-    expect(loggerError).toHaveBeenCalledWith(
-      `Test summary returned an unusable response: model=${PRIMARY}, stop_reason=refusal, ` +
-      `details=${JSON.stringify(REFUSAL_DETAILS)} (hasPartialText=false).`
-    );
+    expect(loggerError).toHaveBeenCalledWith("Anthropic API returned an unusable response.", {
+      errorLabel: "Test summary",
+      model: PRIMARY,
+      stopReason: "refusal",
+      stopDetails: JSON.stringify(REFUSAL_DETAILS),
+      hasPartialText: false,
+    });
   });
 });
 
@@ -175,8 +178,13 @@ describe("配置了 fallback_model", () => {
     expect(reported).toHaveLength(1);
     expect(reported[0]).toMatchObject({ capability: "summary", provider: "anthropic", model: FALLBACK });
     expect(loggerWarn).toHaveBeenCalledTimes(1);
-    expect(String(loggerWarn.mock.calls[0]?.[0])).toStartWith(`Test summary fell back after a refusal: from=${PRIMARY}, to=${FALLBACK}, trigger=`);
-    expect(String(loggerWarn.mock.calls[0]?.[0])).toEndWith(`, fallback_credit=${JSON.stringify({ status: { type: "redeemed" } })}.`);
+    expect(loggerWarn).toHaveBeenCalledWith("Anthropic request fell back after a refusal.", {
+      errorLabel: "Test summary",
+      from: PRIMARY,
+      to: FALLBACK,
+      trigger: expect.any(String),
+      fallbackCredit: JSON.stringify({ status: { type: "redeemed" } }),
+    });
     expect(loggerError).not.toHaveBeenCalled();
   });
 
@@ -192,13 +200,20 @@ describe("配置了 fallback_model", () => {
     replies.push("refusal", "refusal");
     expect(await summarize()).toEqual({ ok: false, retryable: false, refused: true });
     expect(captured).toHaveLength(2);
-    expect(loggerWarn).toHaveBeenCalledWith(
-      `Test summary fell back after a refusal: from=${PRIMARY}, to=${FALLBACK}; the fallback model returned stop_reason=refusal.`
-    );
-    const unusable: string = String(loggerError.mock.calls[0]?.[0]);
-    expect(unusable).toContain(`model=${FALLBACK}, stop_reason=refusal`);
-    expect(unusable).toContain(`details=${JSON.stringify({ ...REFUSAL_DETAILS, fallback_has_prefill_claim: false })}`);
-    expect(unusable).not.toContain(CREDIT_TOKEN);
+    expect(loggerWarn).toHaveBeenCalledWith("Anthropic request fell back after a refusal.", {
+      errorLabel: "Test summary",
+      from: PRIMARY,
+      to: FALLBACK,
+      stopReason: "refusal",
+    });
+    expect(loggerError).toHaveBeenCalledWith("Anthropic API returned an unusable response.", {
+      errorLabel: "Test summary",
+      model: FALLBACK,
+      stopReason: "refusal",
+      stopDetails: JSON.stringify({ ...REFUSAL_DETAILS, fallback_has_prefill_claim: false }),
+      hasPartialText: false,
+    });
+    expect(JSON.stringify(loggerError.mock.calls[0])).not.toContain(CREDIT_TOKEN);
   });
 
   test("回退请求失败时记改道 warn 与请求错误，按请求失败交回", async () => {
@@ -206,9 +221,11 @@ describe("配置了 fallback_model", () => {
     replies.push("refusal", "bad-request");
     expect(await summarize()).toEqual({ ok: false, retryable: false });
     expect(captured).toHaveLength(2);
-    expect(loggerWarn).toHaveBeenCalledWith(
-      `Test summary fell back after a refusal: from=${PRIMARY}, to=${FALLBACK}; the fallback request did not complete.`
-    );
+    expect(loggerWarn).toHaveBeenCalledWith("Anthropic request fell back after a refusal; fallback request did not complete.", {
+      errorLabel: "Test summary",
+      from: PRIMARY,
+      to: FALLBACK,
+    });
     expect(loggerError).toHaveBeenCalledTimes(1);
   });
 
@@ -224,12 +241,12 @@ describe("配置了 fallback_model", () => {
     adoptAgentDeploymentConfig({ ...PRELOADED, text: capability(FALLBACK) });
     const request: AiReplyTurnRequest = { systemPrompt: "系统提示词", functions: [], webSearchEnabled: false, grounded: false };
     replies.push("refusal", "tool", "text", "text");
-    const session: AiReplySession = createAnthropicReplySession({ chatId: -1001, stableBlocks: ["记忆"], volatileBlocks: ["转录"] });
+    const session: AiReplySession = createAnthropicReplySession({ stableBlocks: ["记忆"], volatileBlocks: ["转录"] });
     const first: AiReplyTurn = await session.request(request);
     expect(first).toMatchObject({ ok: true, functionCalls: [{ id: "tu_1", name: "send_message" }] });
     expect(session.appendToolOutputs([{ call: first.functionCalls[0]!, responseJson: "{}" }])).toBeTrue();
     expect(await session.request(request)).toMatchObject({ ok: true, text: `${FALLBACK} 正文` });
-    expect(await createAnthropicReplySession({ chatId: -1001, stableBlocks: ["记忆"], volatileBlocks: ["转录"] }).request(request))
+    expect(await createAnthropicReplySession({ stableBlocks: ["记忆"], volatileBlocks: ["转录"] }).request(request))
       .toMatchObject({ ok: true, text: `${PRIMARY} 正文` });
 
     expect(captured.map((entry: CapturedRequest): string => entry.body.model)).toEqual([PRIMARY, FALLBACK, FALLBACK, PRIMARY]);

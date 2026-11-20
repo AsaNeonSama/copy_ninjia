@@ -8,6 +8,8 @@
 import { validateGoogleServiceAccountKey } from "./googleAuth";
 import { googleServiceAccountKey } from "../cache/main/translate";
 import { lstat } from "node:fs/promises";
+import type { Stats } from "node:fs";
+import { dirname } from "node:path";
 import { ensureAdDetectConfig } from "./adDetectConfig";
 import { ensureAssetConfig } from "./assets";
 import { ensureMoodConfig } from "./mood";
@@ -187,16 +189,49 @@ export async function deploymentInputExists(path: string): Promise<boolean> {
 }
 
 /**
+ * 核验提示词目录（如 `prompt/`）：真正不存在（`ENOENT`）按缺省处理；
+ * 存在时必须可解析为一个目录（指向真实目录的符号链接放行，悬空软链接、符号链接环或普通文件按非法输入拒绝启动）。
+ * @param directoryPath 待核验的提示词父目录路径。
+ * @returns 目录存在且合法时返回 `true`，真正不存在时返回 `false`。
+ */
+async function promptDirectoryExists(directoryPath: string): Promise<boolean> {
+  let linkStat: Stats;
+  try {
+    linkStat = await lstat(directoryPath);
+  } catch (error: unknown) {
+    if (isErrno(error, "ENOENT")) return false;
+    return invalidInput(directoryPath, "$", "an existing directory");
+  }
+  if (linkStat.isSymbolicLink()) {
+    try {
+      if ((await Bun.file(directoryPath).stat()).isDirectory()) return true;
+    } catch (_error: unknown) {
+      return invalidInput(directoryPath, "$", "an existing directory");
+    }
+    return invalidInput(directoryPath, "$", "an existing directory");
+  }
+  if (!linkStat.isDirectory()) return invalidInput(directoryPath, "$", "an existing directory");
+  return true;
+}
+
+/**
  * 启动总闸一次性接管 AI 人设、`send_voice` 工具说明与群通知风格（运行期不热重载；已初始化时直接返回）：
+ * - 先核验 `prompt/` 目录状态：`ENOENT` 视为全部提示词缺省，若为悬空软链接或非目录则拒绝启动；
  * - `prompt/persona.md` 存在时严格读取正文，缺省时使用内置默认人设；
  * - `prompt/voice_tool.md` 存在时严格读取正文（无论是否启用 `agent.tts` 均校验），缺省时置为 `null`（运行期按 `agent.tts.bot_language` 使用内置说明）；
  * - 群通知风格优先采用 `bot.json` 的显式 `atmosphere`，缺省时自定义人设对应普通文案（`"plain"`），内置人设对应默认风格。
  */
 async function ensurePromptFiles(): Promise<void> {
   if (botAtmosphereState.current !== null) return;
-  const hasCustomPersona: boolean = await deploymentInputExists(PERSONA_PATH);
+  const personaDir: string = dirname(PERSONA_PATH);
+  const voiceToolDir: string = dirname(VOICE_TOOL_PROMPT_PATH);
+  const hasPersonaDir: boolean = await promptDirectoryExists(personaDir);
+  const hasVoiceToolDir: boolean = voiceToolDir === personaDir
+    ? hasPersonaDir
+    : await promptDirectoryExists(voiceToolDir);
+  const hasCustomPersona: boolean = hasPersonaDir && await deploymentInputExists(PERSONA_PATH);
   const persona: string = hasCustomPersona ? await loadPromptFile(PERSONA_PATH) : DEFAULT_AI_PERSONA;
-  const voiceToolPrompt: string | null = await deploymentInputExists(VOICE_TOOL_PROMPT_PATH)
+  const voiceToolPrompt: string | null = hasVoiceToolDir && await deploymentInputExists(VOICE_TOOL_PROMPT_PATH)
     ? await loadPromptFile(VOICE_TOOL_PROMPT_PATH)
     : null;
   const atmosphere: BotAtmosphere | undefined = getBotConfig().atmosphere;

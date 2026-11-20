@@ -163,7 +163,7 @@ test("已有数据库绑定的时区与 bot.json 不一致时安装器在注册�
   const fixture: InstallerFixture = await createFixture(true);
   mkdirSync(join(fixture.configRoot, STATIC_CONFIG_DIR_NAME), { recursive: true });
   await writeText(join(fixture.configRoot, STATIC_CONFIG_DIR_NAME, "bot.json"), JSON.stringify({
-    bot_token: "123456789:existing_test_token", super_admin_user_id: 123456789, time_zone: "UTC",
+    bot_token: "123456789:existing_test_token", super_admin_user_id: 123456789, time_zone: "UTC", log_level: "operation",
   }), 0o600);
   const path: string = join(fixture.runtimeRoot, "database/storage.sqlite");
   mkdirSync(dirname(path), { mode: 0o770 });
@@ -193,16 +193,20 @@ test("17.2.1 格式 mock 备份经源码冷迁移、安装与真实启动保留 
     { prompt: "是否重新填写？", reply: "n" }, systemdPrompt(),
   ]);
   expect(result.exitCode, result.output).toBe(0);
-  expect(result.output).toContain("配置校验通过");
-  expect(result.output).toContain("Bot started as @installation_test_bot");
-  expect(result.output).toContain("Restored state for 1 chat(s), currently copying 42.");
-  expect(result.output).toContain("INSTALL_API getUpdates");
-  expect(result.output).toContain("Received SIGTERM; beginning graceful shutdown.");
-  expect(result.output).toContain('INSTALL_WORKERS ["aiChatWorker.ts","antiRaidWorker.ts","diskIOWorker.ts"]');
-  expect(result.output).not.toContain("INSTALL_NETWORK_BLOCKED");
-  expect(result.output).not.toContain("Unhandled error");
-  expect(result.output).not.toContain("Shutdown drain/flush results:");
-  expect(result.output).not.toContain("/translate 翻译不可用");
+  const plainOutput: string = Bun.stripANSI(result.output);
+  expect(plainOutput).toContain("配置校验通过");
+  expect(plainOutput).toContain("[INFO] Bot started.");
+  expect(plainOutput).toContain('username: "@installation_test_bot"');
+  expect(plainOutput).toContain("restoredChats: 1");
+  expect(plainOutput).toContain("copiedUserId: 42");
+  expect(plainOutput).toContain("INSTALL_API getUpdates");
+  expect(plainOutput).toContain("[INFO] Beginning graceful shutdown.");
+  expect(plainOutput).toContain('signal: "SIGTERM"');
+  expect(plainOutput).toContain('INSTALL_WORKERS ["aiChatWorker.ts","antiRaidWorker.ts","diskIOWorker.ts"]');
+  expect(plainOutput).not.toContain("INSTALL_NETWORK_BLOCKED");
+  expect(plainOutput).not.toContain("Unhandled error");
+  expect(plainOutput).not.toContain("Shutdown drain/flush results:");
+  expect(plainOutput).not.toContain("/translate 翻译不可用");
   expect(await Bun.file(fixture.outboundLog).text()).not.toContain(":blocked");
   expect(await Bun.file(join(fixture.runtimeRoot, "bot.lock")).exists()).toBeFalse();
   expect(await Bun.file(join(fixture.runtimeRoot, "memory/wed/-1001.json")).json()).toEqual(migrated.wedMembers);

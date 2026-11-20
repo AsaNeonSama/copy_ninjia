@@ -1,8 +1,7 @@
 /**
- * Gemini 实现包（packages/aiChat/gemini/）独占的常量：请求超时与 SDK 重试次数、
- * 采样温度与输出 token 上限、生图分辨率、内容过滤与工具配置、语音合成参数、日志调用名，
- * 以及回复共用显式缓存（text scope）的前缀、槽数、日志名与首轮触发间隔。
- * 所属模块：packages/aiChat/gemini/。
+ * Gemini 实现包（packages/workers/aiChat/gemini/）独占的常量：请求超时与 SDK 重试次数、
+ * 采样温度与输出 token 上限、生图分辨率、内容过滤与工具配置、语音合成参数与日志调用名。
+ * 所属模块：packages/workers/aiChat/gemini/。
  */
 
 import { HarmBlockThreshold, HarmCategory } from "@google/genai";
@@ -12,7 +11,7 @@ import type { AgentCapability } from "../../types/config";
 /** 生图请求固定的分辨率档位。 */
 export const GEMINI_IMAGE_SIZE: string = "1K";
 
-/** `base_url` 缺省时传给 Google GenAI SDK 的官方默认端点根地址（与 SDK 内置缺省逐字相同，保留末尾斜杠）。所属模块：aiChat/gemini/client.ts、workers/antiRaid/adDetect/ai/google.ts。 */
+/** `base_url` 缺省时传给 Google GenAI SDK 的官方默认端点根地址（与 SDK 内置缺省逐字相同，保留末尾斜杠）。所属模块：workers/aiChat/gemini/client.ts、workers/antiRaid/adDetect/ai/google.ts。 */
 export const GEMINI_API_BASE_URL: string = "https://generativelanguage.googleapis.com/";
 
 /**
@@ -41,11 +40,11 @@ export const GEMINI_MEDIA_DESCRIPTION_MAX_TOKENS: number = 8_192;
  * 单次语音转写请求的输出 token 上限，高于媒体描述档。
  */
 export const GEMINI_VOICE_TRANSCRIPTION_MAX_TOKENS: number = 16_384;
-/** text 能力结构化 JSON 生成（aiChat/gemini/text.ts 的 generateGeminiJson）的输出 token 上限（含思考 token）。 */
+/** text 能力结构化 JSON 生成（workers/aiChat/gemini/text.ts 的 generateGeminiJson）的输出 token 上限（含思考 token）。 */
 export const GEMINI_JSON_MAX_TOKENS: number = 16_384;
-/** 联网检索执行器（aiChat/gemini/search.ts）单次请求的输出 token 上限（含思考 token）。 */
+/** 联网检索执行器（workers/aiChat/gemini/search.ts）单次请求的输出 token 上限（含思考 token）。 */
 export const GEMINI_WEB_SEARCH_MAX_TOKENS: number = 16_384;
-/** 联网检索执行器在错误日志里的调用名。所属模块：aiChat/gemini/search.ts。 */
+/** 联网检索执行器在错误日志里的调用名。所属模块：workers/aiChat/gemini/search.ts。 */
 export const GEMINI_WEB_SEARCH_ERROR_LABEL: string = "Gemini web search";
 
 /** 回复往返在错误日志里的调用名，用于区分是哪条流水线出的错。 */
@@ -57,7 +56,7 @@ export const GEMINI_SPEECH_ERROR_LABEL: string = "Gemini speech synthesis API";
 
 /**
  * 单次语音合成请求的总超时。语音合成走 Interactions API，SDK 只继承构造期的
- * `httpOptions.timeout`，因此这一档在每次调用时显式传入（见 aiChat/gemini/speech.ts）。
+ * `httpOptions.timeout`，因此这一档在每次调用时显式传入（见 workers/aiChat/gemini/speech.ts）。
  */
 export const GEMINI_SPEECH_REQUEST_TIMEOUT_MS: number = 60_000;
 
@@ -69,8 +68,8 @@ export const GEMINI_SPEECH_TEMPERATURE: number = 1;
 
 /**
  * 按能力取 SDK 每次尝试的超时上限，requestGeminiResult 同时以它作整次调用的 deadline。
- * 语音合成由 aiChat/gemini/speech.ts 在每次调用上另行覆盖（GEMINI_SPEECH_REQUEST_TIMEOUT_MS）。
- * 所属模块：aiChat/gemini/client.ts。
+ * 语音合成由 workers/aiChat/gemini/speech.ts 在每次调用上另行覆盖（GEMINI_SPEECH_REQUEST_TIMEOUT_MS）。
+ * 所属模块：workers/aiChat/gemini/client.ts。
  */
 export const GEMINI_REQUEST_TIMEOUTS_MS: Readonly<Record<AgentCapability, number>> = {
   text: 180_000,
@@ -99,33 +98,8 @@ export const GEMINI_SAFETY_SETTINGS: readonly Readonly<SafetySetting>[] = [
 
 /**
  * 服务端检索工具与函数调用混用时必须携带的 toolConfig
- * （`tool_config.include_server_side_tool_invocations`）；它与 googleSearch
- * 同进同出，由每次完整请求直接填进 config。
+ * （`tool_config.include_server_side_tool_invocations`）；开启检索时直接填进请求 config（所属模块：workers/aiChat/gemini/replySession.ts）。
  */
 export const GEMINI_SERVER_TOOL_CONFIG: Readonly<{ includeServerSideToolInvocations: true }> = {
   includeServerSideToolInvocations: true,
 };
-
-/**
- * 本群上一次成功的回复 generateContent 发出后，下一轮首轮请求仍走完整结构、由隐式前缀缓存
- * 命中的最长时间（毫秒，按 performance.now() 计）。距该发出时刻不超过此时长（含相等）时不引用
- * 显式缓存；超过此时长或本群还没有成功请求时才引用。本轮后续请求不看这个间隔。
- * 所属模块：aiChat/gemini/replySession.ts 与 cache/workers/aiChat/geminiContextCache.ts。
- */
-export const GEMINI_REPLY_EXPLICIT_CACHE_IDLE_MS: number = 30_000;
-
-/**
- * 回复共用显式缓存（text scope）的 displayName 前缀，后接「分槽指纹:内容指纹」两段
- * 指纹（形态见 consts/geminiContextCache.ts 的 GEMINI_CONTEXT_CACHE_KEY_PATTERN）。
- * 启动扫描只接管或清理带这个前缀的条目。所属模块：aiChat/gemini/contextCache.ts。
- */
-export const GEMINI_TEXT_CACHE_DISPLAY_NAME_PREFIX: string = "copy-ninjia:text:";
-
-/**
- * 回复共用显式缓存同时登记的分槽上限。一个槽对应一份系统提示词；启动扫描接管的其它槽
- * 超出时按最久未用删除。所属模块：aiChat/gemini/contextCache.ts。
- */
-export const GEMINI_TEXT_CACHE_MAX_SLOTS: number = 1;
-
-/** 回复共用显式缓存的创建、续期、删除与扫描在日志里的调用名。所属模块：aiChat/gemini/contextCache.ts。 */
-export const GEMINI_TEXT_CACHE_ERROR_LABEL: string = "Gemini context cache API";

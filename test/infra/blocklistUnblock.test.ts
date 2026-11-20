@@ -62,8 +62,10 @@ const {
 const {
   hasAnyBlockedIdentity,
   queueBlocklistDeletion,
-  requeueUnacknowledgedIdentityWrite,
 } = await import("../../packages/infra/identityStorage");
+const {
+  requeueUnacknowledgedIdentityWrite,
+} = await import("../../packages/infra/identityStorage/write");
 
 beforeEach(() => {
   diskMessages.length = 0;

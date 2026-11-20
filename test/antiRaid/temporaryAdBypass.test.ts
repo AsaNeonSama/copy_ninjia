@@ -159,7 +159,10 @@ describe("临时广告免检发言入口", () => {
     expect(promotions.map((promotion: { readonly id: number }): number => promotion.id)).toEqual([promotedId]);
     expect(temporaryIds.has(promotedId)).toBeFalse();
     expect(loggerError).toHaveBeenCalledTimes(1);
-    expect(loggerError.mock.calls[0]).toEqual([expect.stringContaining(String(promotedId))]);
+    expect(loggerError.mock.calls[0]).toEqual([
+      "Failed to queue complete temporary-whitelist promotion; retaining unacknowledged final values for replay.",
+      { senderId: promotedId },
+    ]);
   });
 
   test("达标发言晋升抛错时，同日后续发言仍重试晋升", () => {

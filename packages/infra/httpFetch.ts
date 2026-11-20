@@ -52,7 +52,7 @@ export async function fetchJsonWithTimeout({
     policy: { allowedOrigins: JSON_API_ALLOWED_ORIGINS },
   });
   if (requestUrl === null) {
-    logger.error(`${errorLabel} request URL is not in the configured allowlist.`);
+    logger.error("JSON API request URL is not in the configured allowlist.", { api: errorLabel });
     return null;
   }
   const callerSignal: AbortSignal | undefined = init.signal ?? undefined;
@@ -67,17 +67,25 @@ export async function fetchJsonWithTimeout({
     const body: BoundedResponseResult = await readBoundedResponseBytes(response, JSON_API_MAX_RESPONSE_BYTES);
     signal.throwIfAborted();
     if (!body.ok) {
-      logger.error(`${errorLabel} response exceeded ${JSON_API_MAX_RESPONSE_BYTES} bytes (observed ${body.observedBytes}).`);
+      logger.error("JSON API response exceeded size limit.", {
+        api: errorLabel,
+        maxBytes: JSON_API_MAX_RESPONSE_BYTES,
+        observedBytes: body.observedBytes,
+      });
       return null;
     }
     const text: string = UTF8_DECODER.decode(body.bytes);
     if (!response.ok) {
-      logger.error(`${errorLabel} error: ${response.status} ${boundedErrorPreview(text)}`);
+      logger.error("JSON API returned error response.", {
+        api: errorLabel,
+        status: response.status,
+        preview: boundedErrorPreview(text),
+      });
       return null;
     }
     return JSON.parse(text) as unknown;
   } catch (error: unknown) {
-    if (callerSignal?.aborted !== true) logger.error(`Error calling ${errorLabel}:`, error);
+    if (callerSignal?.aborted !== true) logger.error("JSON API call failed:", { api: errorLabel }, error);
     return null;
   }
 }

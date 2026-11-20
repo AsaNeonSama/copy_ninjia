@@ -571,7 +571,8 @@ describe("diskIO/luckFiles：追加持续失败的停摆诊断", () => {
     expect(await flushLuckAppends()).toBeTrue();
     breakDayFile("2026-07-17");
 
-    await expect(switchLuckDay("2026-07-17", true)).rejects.toThrow();
+    await expect(switchLuckDay("2026-07-17", true))
+      .rejects.toThrow("2026-07-17.json: $type must be a regular file without symbolic-link indirection.");
 
     expect(luckWorkerCache.current?.day).toBe(DAY);
     expect(luckDeferredDraws.map((draw: LuckDrawDiskMessage): string => draw.key)).toEqual(["222"]);

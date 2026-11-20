@@ -13,11 +13,9 @@ import { useMiniAppStore } from "../store/app";
 import type { MiniAppUiStoreState } from "../store/app";
 import { createStatusStore } from "../store/status";
 import type { MiniAppStatusStoreState } from "../store/status";
-import type {
-  MiniAppCapabilityStatus,
-  MiniAppLanguage,
-  MiniAppStatusView,
-} from "../types/miniApp";
+import type { MiniAppCapabilityStatus, MiniAppStatusView } from "../types/miniApp/status";
+import type { MiniAppLanguage } from "../types/miniApp/ui";
+import type { StatusQuadMosaicLayout } from "../types/statusMosaic";
 
 /** `renderStatusSnapshot` 渲染函数的参数。 */
 interface RenderStatusSnapshotOptions {
@@ -27,6 +25,8 @@ interface RenderStatusSnapshotOptions {
   readonly language: MiniAppLanguage;
   /** 当前语言翻译字典。 */
   readonly t: Readonly<MiniAppTranslations>;
+  /** 当前生效的四象限随机折线拼块布局（与骨架屏共享）。 */
+  readonly quadMosaic: Readonly<StatusQuadMosaicLayout>;
   /** 各子系统折叠面板的展开状态表（默认全部收起）。 */
   readonly expandedCapKeys: Readonly<Record<string, boolean>>;
   /** 切换指定子系统面板展开/收起的回调。 */
@@ -44,13 +44,14 @@ interface RenderStatusSnapshotOptions {
 /**
  * 渲染已加载完成的实时状态卡片与可折叠子系统就绪看板。
  *
- * @param options 状态快照、翻译字典、折叠状态与情绪切换参数
+ * @param options 状态快照、四象限拼块布局、翻译字典、折叠状态与情绪切换参数
  * @returns React 节点
  */
 function renderStatusSnapshot({
   status,
   language,
   t,
+  quadMosaic,
   expandedCapKeys,
   onToggleCapability,
   currentMood,
@@ -60,7 +61,12 @@ function renderStatusSnapshot({
 }: RenderStatusSnapshotOptions): React.JSX.Element {
   return (
     <Fragment>
-      <StatusOverviewCard status={status} language={language} t={t} />
+      <StatusOverviewCard
+        status={status}
+        language={language}
+        t={t}
+        quadMosaic={quadMosaic}
+      />
 
       <div className="card">
         <div className="card-title">
@@ -92,7 +98,7 @@ function renderStatusSnapshot({
 }
 
 /**
- * 首页实时状态看板页面组件（前台时按状态仓库的轮询节奏刷新进程资源、会话、Telegram 出站与模型就绪状态）。
+ * 首页实时状态看板页面组件（前台时按状态仓库的轮询节奏刷新进程资源、会话、Telegram 出站与模型就绪状态，并在进入与手动刷新周期内同步四象限随机折线拼块布局）。
  *
  * @returns React 节点
  */
@@ -109,6 +115,7 @@ export function StatusPage(): React.JSX.Element {
     expandedCapKeys,
     currentMood,
     switchingMood,
+    quadMosaic,
     loadMood,
     loadStatus,
     startPolling,
@@ -161,7 +168,7 @@ export function StatusPage(): React.JSX.Element {
         </button>
       </div>
 
-      {loading || refreshing ? <StatusSkeleton /> : null}
+      {loading || refreshing ? <StatusSkeleton quadMosaic={quadMosaic} /> : null}
 
       {!loading && !refreshing && errorText !== null && status === null
         ? (
@@ -178,6 +185,7 @@ export function StatusPage(): React.JSX.Element {
               status,
               language,
               t,
+              quadMosaic,
               expandedCapKeys,
               onToggleCapability: toggleCapability,
               currentMood,

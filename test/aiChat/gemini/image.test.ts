@@ -7,11 +7,17 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type { GenerateContentParameters } from "@google/genai";
 import { getAgentDeploymentConfig } from "../../../packages/config/agent";
 import { GEMINI_IMAGE_ERROR_LABEL } from "../../../packages/consts/aiChat/gemini";
+import { loggerStub } from "../../helpers/loggerMock";
 
 const requestGeminiResponse = mock(async (..._args: unknown[]): Promise<unknown> => null);
+const loggerWarn = mock((..._args: unknown[]): void => {});
+
+mock.module("../../../packages/infra/logger", () => ({
+  logger: loggerStub({ warn: loggerWarn }),
+}));
 
 // 替身按 (capability, buildBody, errorLabel) 记录调用、交回响应或 null；模块边界上换算成 requestGeminiResult 的结果。
-mock.module("../../../packages/aiChat/gemini/client", () => ({
+mock.module("../../../packages/workers/aiChat/gemini/client", () => ({
   requestGeminiResult: async (
     { capability, buildBody, errorLabel }: { capability: string; buildBody: () => unknown; errorLabel: string }
   ): Promise<unknown> => {
@@ -20,7 +26,7 @@ mock.module("../../../packages/aiChat/gemini/client", () => ({
   },
 }));
 
-const { generateGeminiImage } = await import("../../../packages/aiChat/gemini/image");
+const { generateGeminiImage } = await import("../../../packages/workers/aiChat/gemini/image");
 const {
   IMAGE_GENERATION_MAX_BYTES,
 } = await import("../../../packages/consts/aiChat/imageGeneration");
@@ -28,6 +34,7 @@ const {
 beforeEach(() => {
   requestGeminiResponse.mockReset();
   requestGeminiResponse.mockResolvedValue(null);
+  loggerWarn.mockClear();
 });
 
 /** 取第一次调用传进去的请求体闭包并求值。 */
@@ -152,5 +159,46 @@ describe("Gemini 图片生成适配器", () => {
     });
 
     await expect(generateGeminiImage({ prompt: "oversized", aspectRatio: "1:1", referenceImages: [] })).resolves.toBeNull();
+  });
+
+  test("STOP 收尾但无可用图片时记 warn 结构化诊断（不含文本正文）；正常有图与非 STOP 不记", async () => {
+    requestGeminiResponse.mockResolvedValueOnce({
+      candidates: [{
+        finishReason: "STOP",
+        content: {
+          parts: [
+            { text: "secret-model-refusal-explanation" },
+            { thought: true, inlineData: { mimeType: "image/png", data: "ignored" } },
+            { inlineData: { mimeType: "image/webp", data: "AAAA" } },
+          ],
+        },
+      }],
+    });
+    await expect(generateGeminiImage({ prompt: "test", aspectRatio: "1:1", referenceImages: [] })).resolves.toBeNull();
+    expect(loggerWarn).toHaveBeenCalledTimes(1);
+    expect(loggerWarn).toHaveBeenCalledWith(
+      "Gemini image generation completed without a usable image payload.",
+      {
+        errorLabel: GEMINI_IMAGE_ERROR_LABEL,
+        finishReason: "STOP",
+        partCount: 3,
+        inlineDataParts: 1,
+      }
+    );
+    expect(JSON.stringify(loggerWarn.mock.calls)).not.toContain("secret-model-refusal-explanation");
+
+    loggerWarn.mockClear();
+    requestGeminiResponse.mockResolvedValueOnce({
+      candidates: [{ finishReason: "MAX_TOKENS", content: { parts: [{ text: "truncated" }] } }],
+    });
+    await expect(generateGeminiImage({ prompt: "test", aspectRatio: "1:1", referenceImages: [] })).resolves.toBeNull();
+    expect(loggerWarn).not.toHaveBeenCalled();
+
+    const validPng: string = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1]).toBase64();
+    requestGeminiResponse.mockResolvedValueOnce({
+      candidates: [{ finishReason: "STOP", content: { parts: [{ inlineData: { mimeType: "image/png", data: validPng } }] } }],
+    });
+    await expect(generateGeminiImage({ prompt: "test", aspectRatio: "1:1", referenceImages: [] })).resolves.not.toBeNull();
+    expect(loggerWarn).not.toHaveBeenCalled();
   });
 });

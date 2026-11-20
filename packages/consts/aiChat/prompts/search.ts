@@ -49,7 +49,7 @@ export const WEB_SEARCH_FUNCTION_INSTRUCTION: string =
 
 /**
  * 联网检索执行器（web_search 能力的模型）的系统提示词：先检索、只依据检索结果写结论。
- * 正文上限比 WEB_SEARCH_RESULT_MAX_CHARS 留出来源列表的余量。所属模块：aiChat/ai/tools/webSearch.ts。
+ * 正文上限比 WEB_SEARCH_RESULT_MAX_CHARS 留出来源列表的余量。所属模块：workers/aiChat/ai/tools/webSearch.ts。
  */
 export const WEB_SEARCH_EXECUTOR_INSTRUCTION: string =
   "你是联网检索助手。必须先用联网检索查证用户给出的问题，再只依据检索到的网页内容用简体中文写结论：" +

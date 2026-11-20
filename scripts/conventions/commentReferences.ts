@@ -13,9 +13,6 @@ import { pathExists, statOptionalPath } from "./pathStat";
 const REFERENCE_PATTERN: RegExp =
   /([A-Za-z0-9_./-]+\.tsx?)\s*(?:里|中)?\s*的\s*`?([A-Za-z_$][A-Za-z0-9_$]*)/g;
 
-/** 豁免交叉引用核对的符号前缀（如 `TYPING_DELAY_` 泛指同前缀的一组停顿常量）。 */
-const EXEMPT_SYMBOLS: readonly string[] = ["TYPING_DELAY_"];
-
 /**
  * 把 `export * from "./x"` / `export type * from "./x"` 的目标展开一层。
  *
@@ -144,7 +141,6 @@ export async function collectCommentReferenceProblems(
       const specifier: string | undefined = match[1];
       const symbol: string | undefined = match[2];
       if (specifier === undefined || symbol === undefined) continue;
-      if (EXEMPT_SYMBOLS.includes(symbol)) continue;
       const target: string | undefined = await resolveReference(params, specifier);
       // 非相对路径解析不到唯一目标就不判：注释可以引用未随仓库分发的路径。
       if (target === undefined) continue;

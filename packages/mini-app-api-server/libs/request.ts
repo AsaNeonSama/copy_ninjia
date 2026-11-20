@@ -94,50 +94,30 @@ export function resolveSafeClientIp(request: Request): string {
 }
 
 /**
- * 从 `GET`/`HEAD` 请求查询参数中提取受保护静态/图库资源的稳定访问令牌（`?token=`）。
+ * 从请求头中提取 64 位十六进制二次认证会话令牌。
  * @param request HTTP 请求对象。
- * @param url 已解析的请求 `URL`。
- * @returns 提取出的 64 位十六进制资源令牌或空字符串。
- */
-export function extractAssetTokenFromQuery(request: Request, url: URL): string {
-  const method: string = request.method.toUpperCase();
-  if (method !== "GET" && method !== "HEAD") return "";
-  const queryToken: string | null = url.searchParams.get("token");
-  return queryToken !== null ? queryToken.trim() : "";
-}
-
-/**
- * 从请求头（或 `GET`/`HEAD` 查询参数）中提取 64 位十六进制二次认证会话令牌。
- * @param request HTTP 请求对象。
- * @param queryUrl 允许在 `GET`/`HEAD` 请求中回退读取 `session` 查询参数时传入的已解析 `URL`；不允许时为 `null`。
  * @returns 提取出的 64 位十六进制会话令牌或空字符串。
  */
-export function extractSessionToken(
-  request: Request,
-  queryUrl: URL | null = null
-): string {
+export function extractSessionToken(request: Request): string {
   const headerToken: string | null = request.headers.get(MINI_APP_SESSION_HEADER);
   if (headerToken !== null && headerToken.trim().length > 0) return headerToken.trim();
-  if (queryUrl !== null) {
-    const method: string = request.method.toUpperCase();
-    if (method === "GET" || method === "HEAD") {
-      const queryToken: string | null = queryUrl.searchParams.get("session");
-      if (queryToken !== null && queryToken.trim().length > 0) return queryToken.trim();
-    }
-  }
   return "";
 }
 
 /**
  * 流式有界读取并严格解析 JSON 请求体对象。
  * @param request HTTP 请求。
+ * @param maxBytes 允许读取的最大 UTF-8 字节数（缺省为 `MINI_APP_MAX_JSON_BODY_BYTES`）。
  * @returns 解析成功时返回普通对象，超出体积上限或非对象 JSON 时返回 `null`。
  */
-export async function readJsonObjectBody(request: Request): Promise<Record<string, unknown> | null> {
+export async function readJsonObjectBody(
+  request: Request,
+  maxBytes: number = MINI_APP_MAX_JSON_BODY_BYTES
+): Promise<Record<string, unknown> | null> {
   try {
     const text: string | null = await readBoundedResponseText(
       request,
-      MINI_APP_MAX_JSON_BODY_BYTES
+      maxBytes
     );
     if (text === null) return null;
     const parsed: unknown = JSON.parse(text);
@@ -158,4 +138,24 @@ export function parseOptionalSafeInt(raw: string | null): number | undefined {
   if (!MINI_APP_SIGNED_INTEGER_PATTERN.test(trimmed)) return undefined;
   const parsed: number = Number(trimmed);
   return Number.isSafeInteger(parsed) ? parsed : undefined;
+}
+
+/**
+ * 严格提取 URL 中唯一且不重复的指定查询参数值；若查询串包含 `&`、参数总数不为 1、目标键缺失或重复，返回 `null`。
+ * @param url 已解析的请求 `URL`。
+ * @param paramName 期望唯一存在的查询参数键名。
+ * @returns 唯一匹配的参数值字符串（可能为空串，由调用方按业务约束核验）；违例时返回 `null`。
+ */
+export function parseStrictSingleQueryParam(
+  url: URL,
+  paramName: string
+): string | null {
+  if (
+    url.search.includes("&") ||
+    url.searchParams.size !== 1 ||
+    url.searchParams.getAll(paramName).length !== 1
+  ) {
+    return null;
+  }
+  return url.searchParams.get(paramName);
 }

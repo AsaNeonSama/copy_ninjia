@@ -40,7 +40,7 @@ export async function handleClearContextCommand(ctx: CommandContext<Context>): P
   try {
     await invalidateAiChat(chatId);
   } catch (error: unknown) {
-    logger.error(`Failed to clear the AI chat context of chat ${chatId}:`, error);
+    logger.error("Failed to clear the AI chat context:", { chatId }, error);
     await replyCommandNotice(ctx, chatAtmosphere().NOTICE_TEXTS.clearContextFailed);
     return;
   }

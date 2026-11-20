@@ -1,3 +1,4 @@
+import { isRecordedWithin } from "./clockWindow";
 import type { FifoMap } from "./fifoMap";
 
 /** sweepExpiredSnapshots 的入参；两个 Anti-Raid 按需缓存共用同一套淘汰口径。 */
@@ -13,7 +14,7 @@ export interface SweepExpiredSnapshotsParams<TSnapshot extends { readonly fetche
 }
 
 /**
- * 按 TTL 淘汰按需快照，跳过仍在拉取的群。
+ * 按 TTL 淘汰按需快照，跳过仍在拉取的群（墙钟回拨按已过期处理）。
  *
  * 仍在拉取的群不淘汰，其旧快照供同步快路径在拉取完成前使用。两个 owner
  * （cache/workers/antiRaid/admins.ts、linkedChannels.ts）共用这一淘汰口径。
@@ -28,7 +29,7 @@ export function sweepExpiredSnapshots<TSnapshot extends { readonly fetchedAt: nu
 }: SweepExpiredSnapshotsParams<TSnapshot>): number {
   let deleted: number = 0;
   snapshots.forEach((cached: TSnapshot, chatId: number): void => {
-    if (now - cached.fetchedAt > ttlMs && !inFlight.has(chatId)) {
+    if (!isRecordedWithin(cached.fetchedAt, now, ttlMs) && !inFlight.has(chatId)) {
       snapshots.delete(chatId);
       deleted++;
     }

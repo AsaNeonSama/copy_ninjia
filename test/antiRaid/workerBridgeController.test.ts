@@ -114,8 +114,10 @@ const {
   postAntiRaid,
   terminateAntiRaid,
 } = await import("../../packages/antiRaid/workerBridge/controller");
-const { antiRaidRuntimeState } =
-  await import("../../packages/cache/main/antiRaid/proxy");
+const {
+  adCandidatePostRejected,
+  antiRaidRuntimeState,
+} = await import("../../packages/cache/main/antiRaid/proxy");
 const { chatIsSupergroupById } = await import("../../packages/cache/main/antiRaid/chatKind");
 const { getOrCreateChatState } = await import("../../packages/infra/chatStateStorage");
 const { VERIFICATION_RECORD_CAPACITY } =
@@ -382,6 +384,12 @@ describe("Anti-Raid 初始化与重建重放", () => {
 
     expect(antiRaidRuntimeState.initialized).toBeTrue();
     expect(workerPosts).toHaveLength(afterFirst);
+  });
+
+  test("initAntiRaid 重置广告候选投递拒收边沿标记", () => {
+    adCandidatePostRejected.current = true;
+    initAntiRaid();
+    expect(adCandidatePostRejected.current).toBeFalse();
   });
 
   test("重建重放按 FIFO 先投配置再投接管快照", () => {

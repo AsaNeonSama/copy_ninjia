@@ -117,6 +117,9 @@ export interface FloodWindowEntry {
   /**
    * 窗口内的发言时刻，按时间升序。到期项在每次发言时就地修剪；达到阈值触发
    * 禁言后整条清空，队列长度恒不超过 FLOOD_MESSAGE_LIMIT。
+   *
+   * 满载触发 LRU 淘汰时，新创建的 FloodWindowEntry 会清空并复用被驱逐条目的
+   * TimestampDeque 实例（条目对象本身保持新建）；脱离索引的旧条目不再读取此字段。
    */
   timestamps: TimestampDeque;
   /** 上一次观测到的发言时刻；用于乐观抑制起算与空闲清扫。 */

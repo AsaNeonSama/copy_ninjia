@@ -7,7 +7,7 @@ import {
   currentMoodInstruction,
   refreshMood,
   switchMood,
-} from "../../../packages/aiChat/ai/mood";
+} from "../../../packages/workers/aiChat/ai/mood";
 import { defaultMoodConfigCache } from "../../../packages/cache/perThread/config";
 import {
   currentMoodState,
@@ -21,7 +21,7 @@ import type { MoodOption } from "../../../packages/types/aiChat/mood";
 import type { MoodConfig } from "../../../packages/types/config";
 
 /**
- * aiChat/ai/mood.ts 的单测：首次抽取、寿命内维持/到期重抽、全局唯一一份。每个用例用
+ * workers/aiChat/ai/mood.ts 的单测：首次抽取、寿命内维持/到期重抽、全局唯一一份。每个用例用
  * seedMood 重置并预置 Worker 内的 currentMoodState，结束后清空。
  * 断言只按权重表位置（roll=0 落在第一档，roll 顶到上限落在最后一档），不硬编码具体
  * 心情名。
@@ -41,7 +41,7 @@ const MOOD_OPTIONS: readonly MoodOption[] = getMoodConfig().moods;
 const FIRST_MOOD_NAME: string = MOOD_OPTIONS[0]!.name;
 const LAST_MOOD_NAME: string = MOOD_OPTIONS[MOOD_OPTIONS.length - 1]!.name;
 
-describe("aiChat/ai/mood currentMoodInstruction", () => {
+describe("workers/aiChat/ai/mood currentMoodInstruction", () => {
   test("查询未到期心情时返回同一缓存档位且不强制重抽", () => {
     const cachedMood: MoodOption = { name: "平静", weight: 20, instruction: "慢慢来。" };
     seedMood(cachedMood, Date.now() + 60_000);
@@ -101,9 +101,29 @@ describe("aiChat/ai/mood currentMoodInstruction", () => {
     seedMood({ name: "摆烂", weight: 20, instruction: "随便啦。" }, Date.now() + 60_000);
     expect(currentMoodInstruction()).toBe(`【${MOOD_LABEL_NAME}：摆烂】随便啦。`);
   });
+
+  test("墙钟回拨导致剩余寿命超过最大重抽间隔时立即重抽", () => {
+    const originalNow = Date.now;
+    const originalRandom = Math.random;
+    try {
+      Date.now = (): number => 1_000_000;
+      Math.random = (): number => 0;
+      const stale: MoodOption = { name: "旧缓存心情", weight: 1, instruction: "旧指令。" };
+      seedMood(stale, 1_000_000 + MOOD_REROLL_MAX_MS + 1);
+
+      const next: MoodOption = currentMood();
+
+      expect(next).not.toBe(stale);
+      expect(next.name).toBe(FIRST_MOOD_NAME);
+      expect(currentMoodState.current?.expiresAt).toBe(1_000_000 + MOOD_REROLL_MIN_MS);
+    } finally {
+      Date.now = originalNow;
+      Math.random = originalRandom;
+    }
+  });
 });
 
-describe("aiChat/ai/mood switchMood", () => {
+describe("workers/aiChat/ai/mood switchMood", () => {
   test("未到期也强制重抽，写回新心情并重掷随机寿命", () => {
     seedMood({ name: "旧心情", weight: 1, instruction: "旧指令" }, 9_999_999);
     const originalNow = Date.now;
@@ -137,7 +157,7 @@ describe("aiChat/ai/mood switchMood", () => {
   });
 });
 
-describe("aiChat/ai/mood classifyWeatherCodeBucket", () => {
+describe("workers/aiChat/ai/mood classifyWeatherCodeBucket", () => {
   test("按 WMO 代码归类到粗粒度天气桶", () => {
     expect(classifyWeatherCodeBucket(0)).toBe("clear");
     expect(classifyWeatherCodeBucket(1)).toBe("clear");
@@ -154,7 +174,7 @@ describe("aiChat/ai/mood classifyWeatherCodeBucket", () => {
   });
 });
 
-describe("aiChat/ai/mood classifyTimeBucket", () => {
+describe("workers/aiChat/ai/mood classifyTimeBucket", () => {
   test("按东京时区小时数归类到粗粒度时段桶（边界值）", () => {
     expect(classifyTimeBucket(0)).toBe("lateNight");
     expect(classifyTimeBucket(4)).toBe("lateNight");
@@ -169,7 +189,7 @@ describe("aiChat/ai/mood classifyTimeBucket", () => {
   });
 });
 
-describe("aiChat/ai/mood computeAdjustedWeight", () => {
+describe("workers/aiChat/ai/mood computeAdjustedWeight", () => {
   const mood: MoodOption = {
     name: "测试心情",
     weight: 10,
@@ -196,7 +216,7 @@ describe("aiChat/ai/mood computeAdjustedWeight", () => {
   });
 });
 
-describe("aiChat/ai/mood refreshMood", () => {
+describe("workers/aiChat/ai/mood refreshMood", () => {
   const RELOADED_CONFIG: MoodConfig = {
     moods: [
       { name: "平静", weight: 60, instruction: "新文案。" },

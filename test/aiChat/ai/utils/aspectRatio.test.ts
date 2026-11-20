@@ -1,7 +1,7 @@
 /** 生图宽高比归一的供应商中立行为；请求映射与载荷提取见 test/aiChat/{gemini,openai}/image.test.ts。 */
 
 import { describe, expect, test } from "bun:test";
-import { normalizeImageAspectRatio } from "../../../../packages/aiChat/ai/utils/aspectRatio";
+import { normalizeImageAspectRatio } from "../../../../packages/workers/aiChat/ai/utils/aspectRatio";
 import { IMAGE_GENERATION_ASPECT_RATIOS } from "../../../../packages/consts/aiChat/imageGeneration";
 
 describe("图片比例归一化", () => {

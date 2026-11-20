@@ -10,7 +10,7 @@ export const STICKER_PACK_NAME_PATTERN: RegExp = /^[A-Za-z0-9_]{1,64}$/;
 /** 一轮最多查看的不同贴纸包数；同一包由执行侧保证只能查看一次。 */
 export const MAX_STICKER_PACK_VIEWS_PER_REPLY: number = MAX_CONFIGURED_STICKER_PACKS;
 
-/** send_sticker 在串行链发送步骤里展示「正在选择贴纸」的基础停顿和随机抖动（见 aiChat/ai/tools/stickers.ts）。 */
+/** send_sticker 在串行链发送步骤里展示「正在选择贴纸」的基础停顿和随机抖动（见 workers/aiChat/ai/tools/stickers.ts）。 */
 export const STICKER_CHOOSE_DELAY_BASE_MS: number = 1_500;
 /** 贴纸选择停顿额外增加的随机时间上界。 */
 export const STICKER_CHOOSE_DELAY_JITTER_MS: number = 3_500;
@@ -25,13 +25,13 @@ export const STICKER_CATALOG_RETRY_DELAYS_MS: readonly number[] = [15_000, 60_00
 export const STICKER_CATALOG_ENTRY_FAILURE_RETRY_MS: number = 30 * 60_000;
 
 /**
- * 目录仍不完整的包在维护节拍上的重试间隔（见 aiChat/ai/stickers/catalog.ts 的
+ * 目录仍不完整的包在维护节拍上的重试间隔（见 workers/aiChat/ai/stickers/catalog.ts 的
  * retryIncompleteStickerCatalogs）：目录为空、简介缺失或单枚失败负缓存到期的包，
  * 两次维护重试至少相隔这么久。
  */
 export const STICKER_CATALOG_RETRY_INTERVAL_MS: number = 5 * 60_000;
 
-/** 整包简介的最大字符数；超出按子句边界截断（见 aiChat/ai/stickers/catalog.ts 的 summarizePack）。 */
+/** 整包简介的最大字符数；超出按子句边界截断（见 workers/aiChat/ai/stickers/catalog.ts 的 summarizePack）。 */
 export const STICKER_PACK_SUMMARY_MAX_CHARS: number = 200;
 
 /** 贴纸整包简介请求在错误日志里的调用名；供应商中立，各家实现包共用。 */

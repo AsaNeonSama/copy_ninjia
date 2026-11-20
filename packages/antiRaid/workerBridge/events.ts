@@ -73,7 +73,8 @@ function persistCurrentLockdown(
         await persistChatState(chatId, "anti-raid lockdown intent");
       } catch (error: unknown) {
         logger.error(
-          `Failed to persist anti-raid lockdown intent for chat ${chatId}:`,
+          "Failed to persist anti-raid lockdown intent:",
+          { chatId },
           error
         );
         abandonLockdownPersistence(chatId, expectedFingerprint, postToWorker);
@@ -93,14 +94,14 @@ function persistCurrentLockdown(
       return;
     }
     logger.error(
-      `Anti-raid lockdown intent for chat ${chatId} kept changing across ` +
-      `${LOCKDOWN_PERSIST_RECONCILE_MAX_ROUNDS} durability rounds; ` +
-      "yielding before retrying the latest intent."
+      "Anti-raid lockdown intent kept changing across durability rounds; yielding before retrying the latest intent.",
+      { chatId, maxRounds: LOCKDOWN_PERSIST_RECONCILE_MAX_ROUNDS }
     );
   })()
     .catch((error: unknown): void => {
       logger.error(
-        `Anti-raid lockdown durability loop for chat ${chatId} failed:`,
+        "Anti-raid lockdown durability loop failed:",
+        { chatId },
         error
       );
     })
@@ -164,21 +165,30 @@ export function handleAntiRaidWorkerEvent(
       };
       try {
         assertPersistableLockdown(expected, `chat state ${event.chatId}`);
+        getOrCreateChatState(event.chatId).lockdown = expected;
       } catch (error: unknown) {
-        // 不写入内存：ChatState 先写内存再落盘，不可落盘的记录不得挂上去。
+        // 不写入内存：不可落盘的记录或群状态容量超限都不得挂到 ChatState，统一按落盘失败回执。
         logger.error(
-          `Anti-raid lockdown intent for chat ${event.chatId} cannot be persisted; abandoning it:`,
+          "Anti-raid lockdown intent cannot be persisted; abandoning it:",
+          { chatId: event.chatId },
           error
         );
-        postToWorker({
-          type: "lockdownPersistFailed",
-          chatId: event.chatId,
-          phase: event.phase,
-          intentId: event.intentId,
-        });
+        try {
+          postToWorker({
+            type: "lockdownPersistFailed",
+            chatId: event.chatId,
+            phase: event.phase,
+            intentId: event.intentId,
+          });
+        } catch (postError: unknown) {
+          logger.error(
+            "Failed to notify Anti-Raid Worker of abandoned lockdown intent:",
+            { chatId: event.chatId, phase: event.phase, intentId: event.intentId },
+            postError
+          );
+        }
         break;
       }
-      getOrCreateChatState(event.chatId).lockdown = expected;
       persistedLockdownFingerprints.delete(event.chatId);
       persistCurrentLockdown(event.chatId, postToWorker);
       antiRaidRuntimeState.lockdownVersion++;

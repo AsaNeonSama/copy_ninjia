@@ -34,7 +34,13 @@ mock.module("../../packages/consts/paths", () => ({
 mock.module("../../packages/config/bot", () => ({
   getBotConfig: (): BotConfig => {
     if (telegramFailure !== null) throw new Error(telegramFailure);
-    return { timeZone: getTimeZone(), atmosphere: "mesugaki", botToken: "telegram-token", superAdminUserId: 1 };
+    return {
+      timeZone: getTimeZone(),
+      atmosphere: "mesugaki",
+      logLevel: "operation",
+      botToken: "telegram-token",
+      superAdminUserId: 1,
+    };
   },
 }));
 mock.module("../../packages/config/stickers", () => ({ ensureStickerConfig: unusedLoader }));

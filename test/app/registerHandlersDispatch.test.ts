@@ -7,6 +7,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { loggerStub } from "../helpers/loggerMock";
 import { QA_QUERY_PAGE_CALLBACK_PREFIX } from "../../packages/consts/qa";
+import { markSelfSent } from "../../packages/infra/selfSentTracker";
 import type { Bot, Context } from "grammy";
 
 /** 本次 update 命中的 handler 名，按调用顺序。 */
@@ -153,8 +154,10 @@ mock.module("../../packages/infra/botAdmin", () => ({
     return Promise.resolve();
   },
 }));
+/** 拦截并校验各命令触发的 `logger.operation` 审计调用。 */
+const loggerOperation = mock((..._args: unknown[]): void => {});
 mock.module("../../packages/infra/logger", () => ({
-  logger: loggerStub(),
+  logger: loggerStub({ operation: loggerOperation }),
 }));
 mock.module("../../packages/infra/identityStorage", () => ({
   isIdentityPolicyCached: (): boolean => true,
@@ -228,6 +231,7 @@ async function dispatch(update: unknown): Promise<readonly string[]> {
   departures.length = 0;
   commandArguments.length = 0;
   cjkMatches.length = 0;
+  loggerOperation.mockClear();
   await bot.handleUpdate(update as Parameters<Bot["handleUpdate"]>[0]);
   return [...calls];
 }
@@ -235,6 +239,7 @@ async function dispatch(update: unknown): Promise<readonly string[]> {
 beforeEach((): void => {
   resetWedMemberStates();
   getOrCreateChatState(CHAT.id).isInitEnabled = true;
+  loggerOperation.mockClear();
   claims.antiRaid = false;
   claims.deleteMessage = false;
   claims.gag = false;
@@ -306,6 +311,126 @@ describe("registerHandlers 分发", () => {
     );
     expect(observed).not.toContain("handlePermissionCommand");
     expect(observed).toContain("handleIncomingMessageMiddleware");
+    expect(loggerOperation).not.toHaveBeenCalled();
+  });
+
+  test("ASCII 命令对人类与匿名/频道马甲记录 logger.operation，普通群消息与普通 bot 不记录且不泄露命令参数", async () => {
+    const secretArg = "sensitive-command-argument-xyz";
+    for (const command of Object.keys(COMMAND_HANDLERS)) {
+      await dispatch(commandMessage(`/${command} ${secretArg}`));
+      expect(loggerOperation).toHaveBeenCalledTimes(1);
+      expect(loggerOperation).toHaveBeenCalledWith(
+        "[TelegramCommand] Slash command invoked.",
+        {
+          command: `/${command}`,
+          chatId: CHAT.id,
+          chatType: CHAT.type,
+          actorId: FROM.id,
+          messageId: nextUpdateId,
+        }
+      );
+      expect(JSON.stringify(loggerOperation.mock.calls[0])).not.toContain(secretArg);
+    }
+
+    const plainObserved: readonly string[] = await dispatch(groupMessage("hello group"));
+    expect(plainObserved).toContain("handleIncomingMessageMiddleware");
+    expect(loggerOperation).not.toHaveBeenCalled();
+
+    nextUpdateId += 1;
+    await dispatch({
+      update_id: nextUpdateId,
+      message: {
+        message_id: nextUpdateId,
+        date: 1,
+        chat: CHAT,
+        from: { id: 888, is_bot: true, first_name: "OtherBot" },
+        text: "/info",
+        entities: [{ type: "bot_command", offset: 0, length: 5 }],
+      },
+    });
+    expect(loggerOperation).not.toHaveBeenCalled();
+
+    nextUpdateId += 1;
+    const anonymousMsgId: number = nextUpdateId;
+    await dispatch({
+      update_id: nextUpdateId,
+      message: {
+        message_id: anonymousMsgId,
+        date: 1,
+        chat: CHAT,
+        from: { id: 1087968824, is_bot: true, first_name: "GroupAnonymousBot" },
+        sender_chat: { id: CHAT.id, type: "supergroup", title: CHAT.title },
+        text: "/info",
+        entities: [{ type: "bot_command", offset: 0, length: 5 }],
+      },
+    });
+    expect(loggerOperation).toHaveBeenCalledTimes(1);
+    expect(loggerOperation).toHaveBeenCalledWith(
+      "[TelegramCommand] Slash command invoked.",
+      {
+        command: "/info",
+        chatId: CHAT.id,
+        chatType: CHAT.type,
+        actorId: CHAT.id,
+        messageId: anonymousMsgId,
+      }
+    );
+
+    loggerOperation.mockClear();
+    nextUpdateId += 1;
+    await dispatch({
+      update_id: nextUpdateId,
+      message: {
+        message_id: nextUpdateId,
+        date: 1,
+        chat: CHAT,
+        sender_chat: CHANNEL,
+        is_automatic_forward: true,
+        text: "/info",
+        entities: [{ type: "bot_command", offset: 0, length: 5 }],
+      },
+    });
+    expect(loggerOperation).not.toHaveBeenCalled();
+
+    nextUpdateId += 1;
+    markSelfSent(CHANNEL.id, nextUpdateId);
+    await dispatch({
+      update_id: nextUpdateId,
+      channel_post: {
+        message_id: nextUpdateId,
+        date: 1,
+        chat: CHANNEL,
+        sender_chat: CHANNEL,
+        text: "/info",
+        entities: [{ type: "bot_command", offset: 0, length: 5 }],
+      },
+    });
+    expect(loggerOperation).not.toHaveBeenCalled();
+
+    nextUpdateId += 1;
+    const channelPostMsgId: number = nextUpdateId;
+    await dispatch({
+      update_id: nextUpdateId,
+      channel_post: {
+        message_id: channelPostMsgId,
+        date: 1,
+        chat: CHANNEL,
+        sender_chat: CHANNEL,
+        text: "/info",
+        entities: [{ type: "bot_command", offset: 0, length: 5 }],
+      },
+    });
+    expect(loggerOperation).toHaveBeenCalledTimes(1);
+    expect(loggerOperation).toHaveBeenCalledWith(
+      "[TelegramCommand] Slash command invoked.",
+      {
+        command: "/info",
+        chatId: CHANNEL.id,
+        chatType: CHANNEL.type,
+        actorId: CHANNEL.id,
+        messageId: channelPostMsgId,
+      }
+    );
   });
 
   test("没有 bot_command 实体的消息一次跳过整组命令，直达 hears 与消息兜底", async () => {

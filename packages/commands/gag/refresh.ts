@@ -1,5 +1,6 @@
 import { gagBackgroundTasks, gagRuntimeAccepting } from "../../cache/main/gag";
 import { trackBackgroundTask } from "../../infra/backgroundTasks";
+import { runOutsideUpdateScope } from "../../infra/updateContext";
 import {
   GAG_SPEAK_NOTICE_IDLE_INTERVAL_MS,
   GAG_SPEAK_NOTICE_REFRESH_INTERVAL_MS,
@@ -40,7 +41,8 @@ function refreshGagSpeakNoticeFromTimer(session: GagSession): void {
 }
 
 /**
- * 激活及换新结算后安装唯一 unref timer；频道公开入口只按消息数换新。
+ * 激活及换新结算后经 `runOutsideUpdateScope` 脱离触发 update 作用域并安装唯一 unref timer；
+ * 频道公开入口只按消息数换新。
  * @param session 当前 gag 会话。
  */
 export function scheduleGagSpeakNoticeRefresh(session: GagSession): void {
@@ -51,10 +53,12 @@ export function scheduleGagSpeakNoticeRefresh(session: GagSession): void {
     session.speakNoticeRefreshTask !== null ||
     session.expiresAt - Date.now() <= GAG_SPEAK_NOTICE_REFRESH_INTERVAL_MS
   ) return;
-  session.speakNoticeRefreshTimer = setTimeout(
-    refreshGagSpeakNoticeFromTimer,
-    GAG_SPEAK_NOTICE_REFRESH_INTERVAL_MS,
-    session
+  session.speakNoticeRefreshTimer = runOutsideUpdateScope((): ReturnType<typeof setTimeout> =>
+    setTimeout(
+      refreshGagSpeakNoticeFromTimer,
+      GAG_SPEAK_NOTICE_REFRESH_INTERVAL_MS,
+      session
+    )
   );
   session.speakNoticeRefreshTimer.unref();
 }
@@ -140,13 +144,15 @@ function refreshGagSpeakNotice(
   if (session.speakNoticeRefreshTask !== null) return;
   if (!canRefreshGagSpeakNotice(session)) return;
   clearGagSpeakNoticeRefreshTimer(session);
-  const task: Promise<void> = replaceGagSpeakNotice(session, targetThreadId).finally(
-    (): void => {
-      if (session.speakNoticeRefreshTask === task) {
-        session.speakNoticeRefreshTask = null;
-        scheduleGagSpeakNoticeRefresh(session);
+  const task: Promise<void> = runOutsideUpdateScope((): Promise<void> =>
+    replaceGagSpeakNotice(session, targetThreadId).finally(
+      (): void => {
+        if (session.speakNoticeRefreshTask === task) {
+          session.speakNoticeRefreshTask = null;
+          scheduleGagSpeakNoticeRefresh(session);
+        }
       }
-    }
+    )
   );
   session.speakNoticeRefreshTask = task;
   trackBackgroundTask(gagBackgroundTasks, task, "Unexpected error while refreshing a gag speak notice:");

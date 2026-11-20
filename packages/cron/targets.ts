@@ -97,7 +97,8 @@ export function memberCanSend(member: ChatMember, needs: CronSendNeeds): boolean
  */
 async function canSendIn(chatId: number, needs: CronSendNeeds, signal: AbortSignal): Promise<boolean> {
   const member: ChatMember | undefined = await runTelegramAction({
-    action: `read the bot's membership for cron in chat ${chatId}`,
+    action: "read the bot's membership for cron",
+    errorContext: { chatId },
     execute: (requestSignal?: AbortSignal): Promise<ChatMember> =>
       bot.api.getChatMember(chatId, bot.botInfo.id, telegramSignal(requestSignal)),
     map: (value: ChatMember): ChatMember => value,
@@ -108,7 +109,8 @@ async function canSendIn(chatId: number, needs: CronSendNeeds, signal: AbortSign
   const direct: boolean | undefined = memberCanSend(member, needs);
   if (direct !== undefined) return direct;
   const defaults: ChatPermissions | undefined = await runTelegramAction({
-    action: `read the default member permissions for cron in chat ${chatId}`,
+    action: "read the default member permissions for cron",
+    errorContext: { chatId },
     execute: (requestSignal?: AbortSignal): Promise<ChatFullInfo> =>
       bot.api.getChat(chatId, telegramSignal(requestSignal)),
     map: (chat: ChatFullInfo): ChatPermissions | undefined => chat.permissions,
@@ -145,6 +147,7 @@ export async function resolveCronGroupTargets(
   for (const chatId of candidates) {
     if (schedule.cancellation.signal.aborted || signal.aborted) break;
     if (await canSendIn(chatId, needs, signal)) chatIds.push(chatId);
+    else if (signal.aborted) break;
     else skipped++;
   }
   return { chatIds, skipped };

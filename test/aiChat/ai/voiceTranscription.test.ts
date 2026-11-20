@@ -23,16 +23,16 @@ const mediaAiProvider = mock((): unknown => ({ name: "google", transcribeVoice }
 mock.module("../../../packages/infra/telegram/workerClient", () => ({
   downloadTelegramFileFromMain,
 }));
-const realProvider = await import("../../../packages/aiChat/provider");
+const realProvider = await import("../../../packages/workers/aiChat/provider");
 // 只替换 mediaAiProvider 这一个导出：同模块的 imageAiProvider 仍被生图工具静态
 // 引用，整份替换会让那条 import 在求值期就断掉。
-mock.module("../../../packages/aiChat/provider", () => ({ ...realProvider, mediaAiProvider }));
+mock.module("../../../packages/workers/aiChat/provider", () => ({ ...realProvider, mediaAiProvider }));
 mock.module("../../../packages/infra/logger", () => ({
   logger: loggerStub({ error: loggerError }),
 }));
 
-const { transcribeVoiceUncached } = await import("../../../packages/aiChat/ai/voiceTranscription");
-const { normalizeVoiceMime } = await import("../../../packages/aiChat/ai/telegramAudio");
+const { transcribeVoiceUncached } = await import("../../../packages/workers/aiChat/ai/voiceTranscription");
+const { normalizeVoiceMime } = await import("../../../packages/workers/aiChat/ai/telegramAudio");
 const {
   VOICE_MAX_DOWNLOAD_BYTES,
   VOICE_TRANSCRIPT_MAX_CHARS,
@@ -117,7 +117,8 @@ describe("语音转写", () => {
       mediaFailure: "unsupported",
     });
     expect(loggerError).toHaveBeenCalledWith(
-      "Voice transcription is unavailable: the openai media provider does not implement it."
+      "Voice transcription is unavailable: media provider does not implement it.",
+      { provider: "openai" }
     );
   });
 

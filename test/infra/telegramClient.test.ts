@@ -219,10 +219,29 @@ describe("Telegram 客户端初始化", () => {
   test("GrammyError 展开状态码，普通异常保留原对象", () => {
     const apiError = new FakeGrammyError("failed", { error_code: 429, description: "Too Many Requests" });
     client.logApiError("send message", apiError);
-    expect(loggerError).toHaveBeenLastCalledWith("Failed to send message: 429 Too Many Requests");
+    expect(loggerError).toHaveBeenLastCalledWith("Telegram API call failed.", {
+      action: "send message",
+      errorCode: 429,
+      description: "Too Many Requests",
+    });
 
     const generic = new Error("socket closed");
     client.logApiError("send message", generic);
-    expect(loggerError).toHaveBeenLastCalledWith("Error trying to send message:", generic);
+    expect(loggerError).toHaveBeenLastCalledWith("Telegram API call failed:", { action: "send message" }, generic);
+
+    client.logApiError("send message", apiError, { chatId: -1001 });
+    expect(loggerError).toHaveBeenLastCalledWith("Telegram API call failed.", {
+      action: "send message",
+      chatId: -1001,
+      errorCode: 429,
+      description: "Too Many Requests",
+    });
+
+    client.logApiError("send message", generic, { chatId: -1001 });
+    expect(loggerError).toHaveBeenLastCalledWith(
+      "Telegram API call failed:",
+      { action: "send message", chatId: -1001 },
+      generic
+    );
   });
 });

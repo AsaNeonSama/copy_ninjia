@@ -18,10 +18,8 @@ import type {
   MiniAppPermissionDrawerStoreState,
 } from "../store/permissionDrawer";
 import type { WhitelistPermissionKey } from "../types/identityPolicy";
-import type {
-  MiniAppLanguage,
-  MiniAppWhitelistEntryView,
-} from "../types/miniApp";
+import type { MiniAppWhitelistEntryView } from "../types/miniApp/identities";
+import type { MiniAppLanguage } from "../types/miniApp/ui";
 
 /** `PermissionDrawer` 组件的属性参数。 */
 export interface PermissionDrawerProps {

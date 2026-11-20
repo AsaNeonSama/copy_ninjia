@@ -15,6 +15,7 @@ import {
   collectModuleCacheProblems,
   collectIteratorHeadProblems,
   collectObjectFreezeProblems,
+  collectTestOnlyTypeBarrelProblems,
 } from "./conventions/sourceRules";
 import type { SourceFileRuleParams } from "./conventions/sourceRules";
 import { collectColdMigrationProblems } from "./conventions/coldMigrations";
@@ -30,6 +31,7 @@ import {
   collectUndeclaredDependencyProblems,
   readDeclaredPackages,
 } from "./conventions/manifestDependencies";
+import type { DeclaredPackages } from "./conventions/manifestDependencies";
 import { collectPerformanceRecordProblems } from "./conventions/performanceRecord";
 import { collectRuntimeCalibrationProblems } from "./perf/hotPaths/gateRuntime";
 import {
@@ -75,6 +77,7 @@ import {
   constantTextCorpus,
 } from "./conventions/testAssertionFragments";
 import {
+  collectAiProvidersBoundaryProblems,
   collectEnvironmentAccessProblems,
   collectFullSuiteImportProblems,
   collectInfraLayeringProblems,
@@ -93,6 +96,7 @@ const CONSTS_ROOTS: readonly string[] = CONSTS_ROOT_PREFIXES.map(
 const SOURCE_ROOT: string = join(PROJECT_ROOT, "packages");
 const SCRIPTS_ROOT: string = join(PROJECT_ROOT, "scripts");
 const TEST_ROOT: string = join(PROJECT_ROOT, "test");
+const AI_PROVIDERS_ROOT: string = join(SOURCE_ROOT, "aiProviders");
 const COMMANDS_ROOT: string = join(SOURCE_ROOT, "commands");
 const INFRA_ROOT: string = join(SOURCE_ROOT, "infra");
 const STATES_ROOT: string = join(SOURCE_ROOT, "states");
@@ -321,8 +325,8 @@ async function runProjectConventionCheck(): Promise<number> {
 
   const cacheSourceFiles: ReadonlySet<string> = new Set(cacheFiles);
   const constsSourceFiles: ReadonlySet<string> = new Set(constFiles);
-  /** 根 manifest 直接声明的包；逐文件核对运行期裸导入时共用。 */
-  const declaredPackages: ReadonlySet<string> = await readDeclaredPackages(PROJECT_ROOT);
+  /** 根 manifest 直接声明的包；运行期源码仅认 runtime，脚本与测试认 all。 */
+  const declaredPackages: DeclaredPackages = await readDeclaredPackages(PROJECT_ROOT);
   /** 常量目录导出的字符串常量表（取值 → 常量名），逐文件判定时顺带收集，供测试断言规则比对。 */
   const exportedStringConstants: Map<string, string[]> = new Map();
   /** 常量目录全部字符串字面量与模板静态片段，供测试断言的文案片段规则做子串比对。 */
@@ -346,7 +350,13 @@ async function runProjectConventionCheck(): Promise<number> {
     }
     failures.push(...collectNodeCompatibilityProblems(PROJECT_ROOT, path, source));
     nodeImportUsage.push(...collectNodeImportUsage(PROJECT_ROOT, path, source));
-    failures.push(...collectUndeclaredDependencyProblems({ projectRoot: PROJECT_ROOT, path, source, declaredPackages }));
+    failures.push(...collectUndeclaredDependencyProblems({
+      projectRoot: PROJECT_ROOT,
+      path,
+      source,
+      declaredPackages: declaredPackages.runtime,
+      runtimeOnly: true,
+    }));
     if (cacheSourceFiles.has(path)) {
       failures.push(...collectCacheJsDocProblems(params));
     }
@@ -375,6 +385,9 @@ async function runProjectConventionCheck(): Promise<number> {
     if (path.startsWith(INFRA_ROOT + "/")) {
       failures.push(...collectInfraLayeringProblems(params));
     }
+    if (path.startsWith(AI_PROVIDERS_ROOT + "/")) {
+      failures.push(...collectAiProvidersBoundaryProblems(params));
+    }
     failures.push(...await collectCommentReferenceProblems({
       projectRoot: PROJECT_ROOT,
       path,
@@ -387,16 +400,22 @@ async function runProjectConventionCheck(): Promise<number> {
     }
   }
 
-  // Node 兼容 import、依赖声明与全量基准 import 边界同时约束 scripts/ 与 test/，函数 JSDoc
-  // 同时约束 scripts/，测试断言取值口径只约束 test/，其余判定只针对 packages/。
+  // Node 兼容 import、依赖声明与全量基准 import 边界同时约束 scripts/ 与 test/，
+  // 测试专用类型聚合入口与函数 JSDoc 同时约束 scripts/，测试断言取值口径只约束 test/，其余判定只针对 packages/。
   const constantTextCorpusText: string = constantTextCorpus(constantTextFragments);
   for (const path of [...scriptFiles, ...testFiles]) {
     const source: ts.SourceFile = await parseSourceFile(path, await readCachedText(fileTexts, path));
     failures.push(...collectNodeCompatibilityProblems(PROJECT_ROOT, path, source));
     nodeImportUsage.push(...collectNodeImportUsage(PROJECT_ROOT, path, source));
-    failures.push(...collectUndeclaredDependencyProblems({ projectRoot: PROJECT_ROOT, path, source, declaredPackages }));
+    failures.push(...collectUndeclaredDependencyProblems({
+      projectRoot: PROJECT_ROOT,
+      path,
+      source,
+      declaredPackages: declaredPackages.all,
+    }));
     failures.push(...collectFullSuiteImportProblems({ projectRoot: PROJECT_ROOT, path, source }));
     if (path.startsWith(SCRIPTS_ROOT + "/")) {
+      failures.push(...collectTestOnlyTypeBarrelProblems({ projectRoot: PROJECT_ROOT, path, source }));
       failures.push(...collectFunctionJsDocProblems({ projectRoot: PROJECT_ROOT, path, source }));
     }
     if (path.startsWith(TEST_ROOT + "/")) {

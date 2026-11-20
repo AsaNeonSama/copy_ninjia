@@ -27,7 +27,7 @@ import {
 import { forumTopicThreadId } from "../libs/forumTopic";
 import { settleWithinBudget } from "../libs/inflight";
 import { logger } from "../infra/logger";
-import { throwIfUpdateAborted } from "../infra/updateContext";
+import { runOutsideUpdateScope, throwIfUpdateAborted } from "../infra/updateContext";
 import { replyCommandNotice, sendCommandMessage } from "../infra/telegram";
 import { registerChatTeardown } from "../infra/chatTeardownRegistry";
 import { isChatUnreachable, purgesChatData } from "../libs/chatTeardown";
@@ -40,7 +40,7 @@ import type { RichTextMessage } from "../types/telegram";
 import { buildQaBoardKeyboard, buildQaBoardPages } from "./qa/board";
 import { claimQaFieldMessage } from "./qa/ingress";
 import { deleteQaForm, editQaForm, sendQaForm } from "./qa/notices";
-import { renderQaFormPrompt } from "./qa/rendering";
+import { formatMissingQaQuestionEcho, renderQaFormPrompt } from "./qa/rendering";
 import {
   closeQaFormSession,
   closeQaFormSessionsInChat,
@@ -83,12 +83,15 @@ function requiresQaPermission(ctx: CommandContext<Context>): Promise<CachedUser 
 }
 
 /**
- * 表单被结算（填齐、到期或 teardown）时统一收走那条提示消息。
+ * 表单被结算（填齐、到期或 teardown）时在脱离当前 update 作用域的边界内收走提示消息，
+ * 避免停机中止 update 时 `deleteQaForm` 被中止信号拦截而遗留孤儿表单（见 docs/cn/04-invariants.md）。
  * @param session 待清理提示消息的表单会话。
  */
 function discardQaForm(session: QaFormSession): void {
-  void deleteQaForm(session).catch((error: unknown): void => {
-    logger.error(`Failed to delete the qa form in chat ${session.chatId}:`, error);
+  runOutsideUpdateScope((): void => {
+    void deleteQaForm(session).catch((error: unknown): void => {
+      logger.error("Failed to delete the qa form:", { chatId: session.chatId }, error);
+    });
   });
 }
 
@@ -158,13 +161,27 @@ async function settleQaForm(session: QaFormSession, q: string, a: string): Promi
   const formMessageId: number | undefined = session.formMessageId;
   // 同步取得结算资格（closeQaFormSession）后写入；表单保留到回执完成，回执回复到表单上。
   throwIfUpdateAborted();
-  if (!closeQaFormSession(session)) return;
+  if (!closeQaFormSession(session)) {
+    logger.operation("[TelegramCommand] /qa set form", {
+      chatId,
+      actorId: session.openedById,
+      outcome: "cancelled",
+    });
+    return;
+  }
   try {
     let outcome: "created" | "replaced";
     try {
       outcome = setChatQa(chatId, q, a);
     } catch (error: unknown) {
-      logger.error(`Failed to record the qa entry for chat ${chatId}:`, error);
+      logger.error("Failed to record the qa entry:", { chatId }, error);
+      const failOutcome: "full" | "persistFailed" =
+        error instanceof ChatQaCapacityError ? "full" : "persistFailed";
+      logger.operation("[TelegramCommand] /qa set persisted", {
+        chatId,
+        actorId: session.openedById,
+        outcome: failOutcome,
+      });
       await sendCommandMessage({
         chatId,
         text: error instanceof ChatQaCapacityError ? chatAtmosphere().QA_COMMAND_TEXTS.full : chatAtmosphere().QA_COMMAND_TEXTS.persistFailed,
@@ -173,6 +190,11 @@ async function settleQaForm(session: QaFormSession, q: string, a: string): Promi
       });
       return;
     }
+    logger.operation("[TelegramCommand] /qa set persisted", {
+      chatId,
+      actorId: session.openedById,
+      outcome,
+    });
     await sendCommandMessage({
       chatId,
       text: outcome === "replaced" ? chatAtmosphere().QA_COMMAND_TEXTS.replaced : chatAtmosphere().QA_COMMAND_TEXTS.created,
@@ -206,11 +228,24 @@ async function claimQaFormDelivery(claiming: Promise<QaFormIngressResult | null>
   const session: QaFormSession = claimed.session;
   const chatId: number = session.chatId;
   throwIfUpdateAborted();
-  if (qaFormSessions.get(chatId) !== session) return true;
+  if (qaFormSessions.get(chatId) !== session) {
+    logger.operation("[TelegramCommand] /qa set form", {
+      chatId,
+      actorId: session.openedById,
+      outcome: "cancelled",
+    });
+    return true;
+  }
 
   // 被挡下（超长或含可点命令）的那一项没写进会话，先说明原因；表单留着等一条合规的重发。
   // 同一条消息里另一项合规时它已经进了会话，表单随之更新；两项都被挡下时会话未变，不改写表单。
   if (claimed.rejection !== null) {
+    logger.operation("[TelegramCommand] /qa set form", {
+      chatId,
+      actorId: session.openedById,
+      outcome: "rejected",
+      rejection: claimed.rejection,
+    });
     if (claimed.accepted.q !== undefined || claimed.accepted.a !== undefined) {
       await editQaForm(session, renderQaFormPrompt(session.q, session.a, chatAtmosphere()));
     }
@@ -228,6 +263,11 @@ async function claimQaFormDelivery(claiming: Promise<QaFormIngressResult | null>
   const q: string | undefined = session.q;
   const a: string | undefined = session.a;
   if (q === undefined || a === undefined) {
+    logger.operation("[TelegramCommand] /qa set form", {
+      chatId,
+      actorId: session.openedById,
+      outcome: "saved",
+    });
     // 还差一项：先更新表单，再回执已收下的字段；回执自动清理，表单保留填写进度
     // （见 qa/notices.ts 的 editQaForm）。
     await editQaForm(session, renderQaFormPrompt(q, a, chatAtmosphere()));
@@ -263,7 +303,10 @@ async function queryQa(ctx: CommandContext<Context>, wanted: string): Promise<vo
   if (wanted.length > 0) {
     const answer: string | undefined = entries.get(wanted);
     if (answer === undefined) {
-      await replyCommandNotice(ctx, chatAtmosphere().QA_COMMAND_TEXTS.queryMissing(wanted));
+      await replyCommandNotice(
+        ctx,
+        chatAtmosphere().QA_COMMAND_TEXTS.queryMissing(formatMissingQaQuestionEcho(wanted))
+      );
       return;
     }
     selected.push({ q: wanted, a: answer });
@@ -303,7 +346,7 @@ async function removeQa(ctx: CommandContext<Context>, wanted: string): Promise<v
   try {
     removed = removeChatQa(chatId, wanted);
   } catch (error: unknown) {
-    logger.error(`Failed to remove the qa entry for chat ${chatId}:`, error);
+    logger.error("Failed to remove the qa entry:", { chatId }, error);
     await replyCommandNotice(ctx, chatAtmosphere().QA_COMMAND_TEXTS.persistFailed);
     return;
   }
@@ -311,7 +354,7 @@ async function removeQa(ctx: CommandContext<Context>, wanted: string): Promise<v
     ctx,
     removed
       ? chatAtmosphere().QA_COMMAND_TEXTS.removed(wanted)
-      : chatAtmosphere().QA_COMMAND_TEXTS.removeMissing(wanted)
+      : chatAtmosphere().QA_COMMAND_TEXTS.removeMissing(formatMissingQaQuestionEcho(wanted))
   );
 }
 

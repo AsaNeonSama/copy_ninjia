@@ -1,9 +1,9 @@
+import type { MiniAppTranslateLanguage } from "../types/miniApp/chats";
 import type {
   MiniAppPickerSubjectKind,
   MiniAppPickerTargetList,
-  MiniAppTranslateLanguage,
   PrepareMiniAppPickerResult,
-} from "../types/miniApp";
+} from "../types/miniApp/identities";
 import { miniAppFetchJson } from "./request";
 
 /** `requestMiniAppPreparedPicker` 的群内目标可选参数。 */

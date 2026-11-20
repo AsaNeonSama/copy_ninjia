@@ -28,6 +28,7 @@ import { adoptAdDetectConfig, parseAdDetectConfig } from "../packages/config/adD
 import { adoptMoodConfig, parseMoodConfig } from "../packages/config/mood";
 import { adoptPersona } from "../packages/config/persona";
 import { parseBotConfig } from "../packages/config/botInput";
+import { adoptLogLevel } from "../packages/config/logLevel";
 import type { BotConfig } from "../packages/types/config";
 import { adoptTimeZone } from "../packages/config/time";
 import { botAtmosphereState } from "../packages/cache/main/atmosphere";
@@ -80,6 +81,7 @@ adoptPersona(DEFAULT_AI_PERSONA);
 const botConfig: BotConfig = parseBotConfig(await Bun.file(BOT_CONFIG_PATH).json());
 botAtmosphereState.current = BOT_ATMOSPHERES[botConfig.atmosphere ?? DEFAULT_BOT_ATMOSPHERE];
 adoptTimeZone(botConfig.timeZone);
+adoptLogLevel(botConfig.logLevel);
 
 // 每个测试进程在独立数据根创建空库，时区标记取本 isolate 刚接管的配置时区。
 mkdirSync(DATABASE_DIR, {

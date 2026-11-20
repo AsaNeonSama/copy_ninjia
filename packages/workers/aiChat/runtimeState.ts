@@ -1,5 +1,5 @@
 /** 单轮 AI 回复动态上下文中的运行时状态区块（心情、当前时间与工具冷却状态）拼接。 */
-import { currentMoodInstruction } from "../../aiChat/ai/mood";
+import { currentMoodInstruction } from "./ai/mood";
 import {
   CURRENT_TIME_LABEL,
   REPLY_CONTEXT_SECTION_NAMES,
@@ -7,7 +7,7 @@ import {
   TIME_AWARENESS_INSTRUCTION,
 } from "../../consts/aiChat/prompts/memory";
 import { MOOD_STATE_PRECEDENCE_INSTRUCTION } from "../../consts/aiChat/prompts/mood";
-import { currentTimeSentence } from "../../aiChat/ai/timeSentence";
+import { currentTimeSentence } from "./ai/timeSentence";
 
 /**
  * 组装本轮运行时状态区块（当前心情、当前时间与本轮工具状态）。

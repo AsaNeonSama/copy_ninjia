@@ -12,7 +12,7 @@ import { explicitReplyTo } from "../libs/forumTopic";
 import { isTelegramGroupChatId } from "../libs/telegramId";
 import { isTranslateLanguage } from "../translate/language";
 import { setTranslateState, stopTranslation, translateStateIn } from "../translate/state";
-import { formatUserLabel } from "../users/userLabel";
+import { formatTargetLabel, formatUserLabel } from "../users/userLabel";
 import { refuseIfConfigBroken } from "./configGate";
 import { runChatToggleCommand } from "./superAdminToggle";
 import { resolveCommandTarget } from "./targetResolution";
@@ -87,11 +87,12 @@ export async function handleTranslateCommand(ctx: CommandContext<Context>): Prom
     const current: TranslateState | undefined = translateStateIn(getChatState(chatId), target.id);
     await stopTranslation(chatId, target.id);
     const atmosphere: AtmosphereTexts = chatAtmosphere();
+    const targetLabel: string = formatTargetLabel(target, atmosphere);
     await replyCommandNotice(
       ctx,
       current === undefined
-        ? atmosphere.NOTICE_TEXTS.translateNotRunning(formatUserLabel(target, atmosphere))
-        : atmosphere.NOTICE_TEXTS.translateStopped(formatUserLabel(target, atmosphere))
+        ? atmosphere.NOTICE_TEXTS.translateNotRunning(targetLabel)
+        : atmosphere.NOTICE_TEXTS.translateStopped(targetLabel)
     );
     return;
   }

@@ -4,7 +4,7 @@
  *
  * 供应商只交回自己声明的容器字节（见 types/aiChat/provider.ts 的 AiSpeechProvider）；
  * WAV 解析、OGG/Opus 编码与 OGG/Opus、MP3 的校验在与供应商无关的
- * aiChat/ai/utils/wavPcm.ts、aiChat/ai/utils/voiceContainer.ts 与 aiChat/ai/voiceEncoding.ts 完成。
+ * workers/aiChat/ai/utils/wavPcm.ts、workers/aiChat/ai/utils/voiceContainer.ts 与 workers/aiChat/ai/voiceEncoding.ts 完成。
  */
 
 import type { AgentProvider } from "../config";
@@ -36,7 +36,7 @@ export interface TtsDailyUsage {
 
 /**
  * 一次 `operator` 口径登记的凭据：登记时所在计数窗口的起点。供应商失败时凭它退还这一次，
- * 窗口已经换代则不退（见 aiChat/ai/ttsUsage.ts 的 refundOperatorTtsUsage）。
+ * 窗口已经换代则不退（见 workers/aiChat/ai/ttsUsage.ts 的 refundOperatorTtsUsage）。
  */
 export interface TtsOperatorClaim {
   readonly windowStartedAt: number;
@@ -134,14 +134,14 @@ export type VoiceSynthesisFailure =
   | AiWorkerJobFailureReason
   | VoiceEncodeFailure;
 
-/** 语音合成公共实现的结果（aiChat/ai/voiceSynthesis.ts 与主线程转交 aiChat/voiceSynthesis.ts）。 */
+/** 语音合成公共实现的结果（workers/aiChat/ai/voiceSynthesis.ts 与主线程转交 aiChat/voiceSynthesis.ts）。 */
 export type VoiceSynthesisResult =
   | { readonly ok: true; readonly voice: EncodedVoiceMessage }
   | { readonly ok: false; readonly reason: VoiceSynthesisFailure };
 
 /**
  * 本 isolate 的语音合成入口，即带每日计数的 tts 门面；只在 AI Worker 上取得（见
- * aiChat/ai/voiceSynthesis.ts）。
+ * workers/aiChat/ai/voiceSynthesis.ts）。
  */
 export type SpeechSynthesizer = (request: AiMeteredSpeechRequest) => Promise<SpeechSynthesisAttempt>;
 
@@ -160,11 +160,11 @@ export type SpeechSynthesizerLookup =
 /**
  * 随 `agent.tts.bot_language` 切换的一份语音相关文案（consts/aiChat/prompts/tools.ts 的
  * VOICE_LANGUAGE_PROMPTS 按 TtsBotLanguage 各注册一份）：回复模型可见的提示词，以及 AI 语音合成
- * 请求追加的朗读语言要求。aiChat/ai/tools/replyToolset/orchestrator.ts 每轮取一份，工具声明、系统提示词与本轮
+ * 请求追加的朗读语言要求。workers/aiChat/ai/tools/replyToolset/orchestrator.ts 每轮取一份，工具声明、系统提示词与本轮
  * send_voice 的合成请求同用这一份。
  */
 export interface VoiceLanguagePrompts {
-  /** send_voice 的内置工具说明；prompt/voice_tool.md 存在时由其正文整份替换（见 aiChat/ai/tools/replyToolset/voiceMessage.ts）。 */
+  /** send_voice 的内置工具说明；prompt/voice_tool.md 存在时由其正文整份替换（见 workers/aiChat/ai/tools/replyToolset/voiceMessage.ts）。 */
   readonly sendVoiceInstruction: string;
   /** send_voice 参数 text 的说明。 */
   readonly voiceTextDescription: string;

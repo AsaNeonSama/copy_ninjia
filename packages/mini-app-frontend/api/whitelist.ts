@@ -1,4 +1,4 @@
-import type { MiniAppWhitelistPage } from "../types/miniApp";
+import type { MiniAppWhitelistPage } from "../types/miniApp/identities";
 import { miniAppFetchJson } from "./request";
 
 /**

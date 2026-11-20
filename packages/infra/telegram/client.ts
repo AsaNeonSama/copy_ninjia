@@ -97,13 +97,23 @@ export const telegramApi: TelegramApi = {
  * 统一展开 Telegram API 错误，保留 Bot API 的状态码和 description。
  * @param action 发生错误的动作描述。
  * @param error 捕获到的异常值。
+ * @param context 可选的结构化诊断上下文字段。
  */
-export function logApiError(action: string, error: unknown): void {
+export function logApiError(
+  action: string,
+  error: unknown,
+  context?: Readonly<Record<string, unknown>>
+): void {
   const details: Readonly<{ errorCode: number; description: string }> | undefined =
     telegramErrorDetails(error);
   if (details !== undefined) {
-    logger.error(`Failed to ${action}: ${details.errorCode} ${details.description}`);
+    logger.error("Telegram API call failed.", {
+      action,
+      ...context,
+      errorCode: details.errorCode,
+      description: details.description,
+    });
   } else {
-    logger.error(`Error trying to ${action}:`, error);
+    logger.error("Telegram API call failed:", { action, ...context }, error);
   }
 }

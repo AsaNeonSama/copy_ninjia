@@ -374,7 +374,8 @@ describe("/block 跨群封禁与黑名单", () => {
       replyToMessageId: 10,
     });
     expect(loggerError).toHaveBeenCalledWith(
-      expect.stringContaining("Unexpected error while running ban blocked identity 7 in chat -1001"),
+      "Unexpected error while running managed chat blocklist action:",
+      { action: "ban blocked identity", identityId: 7, chatId: -1001, batchIndex: 0 },
       expect.any(Error)
     );
   });

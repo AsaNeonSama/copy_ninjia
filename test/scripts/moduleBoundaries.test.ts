@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import ts from "typescript";
 import {
+  collectAiProvidersBoundaryProblems,
   collectConstsPurityProblems,
   collectEnvironmentAccessProblems,
   collectFullSuiteImportProblems,
@@ -193,17 +194,23 @@ describe("infra 不得向上依赖业务层", () => {
       "packages/infra/example.ts",
       'import { a } from "../commands/x";\nimport { b } from "../aiChat/workerBridge";\n' +
       'import { c } from "../antiRaid/adDetect";\nimport { d } from "../workers/aiChat/x";\n' +
-      'import { e } from "../mini-app-api-server/auth/totpStorage";'
+      'import { e } from "../mini-app-api-server/auth/totpStorage";\n' +
+      'import { f } from "../aiProviders/finishDetails";'
     ));
-    expect(problems).toHaveLength(5);
+    expect(problems).toHaveLength(6);
     expect(problems[0]).toContain("inject the dependency instead");
   });
 
-  test("落盘诊断出口是唯一豁免", () => {
+  test("落盘诊断出口是唯一豁免（含显式 .ts 后缀）", () => {
     expect(collectInfraLayeringProblems(params(
       "packages/infra/diskIO/host.ts",
-      'import { writeDiskIODiagnostic } from "../../workers/diskIO/diagnosticSink";'
+      'import { writeDiskIODiagnostic } from "../../workers/diskIO/diagnosticSink";\n' +
+      'import { writeDiskIODiagnostic as write2 } from "../../workers/diskIO/diagnosticSink.ts";'
     ))).toEqual([]);
+    expect(collectInfraLayeringProblems(params(
+      "packages/infra/example.ts",
+      'import { a } from "../commands/x.ts";'
+    ))).toHaveLength(1);
   });
 
   test("同层与更低层照常放行", () => {
@@ -211,6 +218,27 @@ describe("infra 不得向上依赖业务层", () => {
       "packages/infra/example.ts",
       'import { a } from "./logger";\nimport { b } from "../libs/x";\nimport { c } from "../cache/main/y";'
     ))).toEqual([]);
+  });
+});
+
+describe("packages/aiProviders 双 Worker 共享边界", () => {
+  test("同层、consts、infra、libs 与纯类型引用放行", () => {
+    expect(collectAiProvidersBoundaryProblems(params(
+      "packages/aiProviders/anthropic/sdkClient.ts",
+      'import { a } from "./response";\nimport { b } from "../../consts/aiChat/anthropic";\n' +
+      'import { logger } from "../../infra/logger";\nimport { c } from "../../libs/text";\n' +
+      'import type { d } from "../../types/aiChat/anthropic";\nimport type { e } from "../../workers/aiChat/provider";'
+    ))).toEqual([]);
+  });
+
+  test("具体 Worker、主线程代理与线程缓存一律拦下", () => {
+    const problems = collectAiProvidersBoundaryProblems(params(
+      "packages/aiProviders/example.ts",
+      'import { a } from "../workers/aiChat/provider";\nimport { b } from "../aiChat/workerBridge";\n' +
+      'import { c } from "../cache/workers/aiChat/anthropic";\nimport { d } from "../antiRaid/adDetect";'
+    ));
+    expect(problems).toHaveLength(4);
+    expect(problems.every((problem: string): boolean => problem.includes("packages/aiProviders/ may only depend on"))).toBeTrue();
   });
 });
 

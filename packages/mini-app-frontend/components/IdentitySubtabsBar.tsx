@@ -1,7 +1,7 @@
 import { memo } from "react";
 import type React from "react";
 import { IdentitiesSvgIcon, RefreshSvgIcon } from "../resource";
-import type { MiniAppIdentitySubTabKey } from "../types/miniApp";
+import type { MiniAppIdentitySubTabKey } from "../types/miniApp/identities";
 import type { MiniAppTranslations } from "../types/miniAppI18n";
 
 /** `IdentitySubtabsBar` 黑白名单子页签与刷新按钮栏的属性参数。 */

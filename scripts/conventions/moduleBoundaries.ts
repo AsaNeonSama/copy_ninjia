@@ -6,8 +6,9 @@ import { globalPropertyName } from "./staticAccess";
 
 /**
  * 逐文件判定几条「谁能依赖谁」的硬边界：读取环境变量的唯一入口、
- * 常量目录与 `packages/states/` 的纯度、`infra` 不得向上依赖业务层，以及全量基准父进程与
- * 非夹具模块的 import 约束。`states/` 纯度与 `infra` 依赖方向见 docs/cn/04-invariants.md；判定细节以本文件
+ * 常量目录与 `packages/states/` 的纯度、`packages/aiProviders/` 的双 Worker 共享边界、
+ * `infra` 不得向上依赖业务层，以及全量基准父进程与非夹具模块的 import 约束。
+ * `states/` 纯度与 `infra` 依赖方向见 docs/cn/04-invariants.md；判定细节以本文件
  * 各规则的常量与 JSDoc 为准。
  *
  * 各条规则都只看 AST，判定这一个文件写了什么 import；`states/` 纯度另按调用方给出的
@@ -120,7 +121,8 @@ export function collectConstsPurityProblems({
  * `packages/states/` 只允许依赖纯模块。
  *
  * 状态机是「给定状态与事件算出 `{ next, effects }`」的纯函数。types 与 consts 是纯声明，
- * libs 是无副作用的工具，其余一律拒绝；libs 再往外引入的模块同样计入。
+ * libs 是与具体业务无关的通用底层基础设施（含通信工具等，见 docs/cn/03-directory-map.md），
+ * 其余一律拒绝；libs 再往外引入的模块同样计入传递闭包。
  */
 const STATES_ALLOWED_PREFIXES: readonly string[] = [
   "packages/consts/",
@@ -242,10 +244,48 @@ export function collectInfraLayeringProblems({
     if (!reference.specifier.startsWith(".")) continue;
     const target: string = relative(projectRoot, resolve(dirname(path), reference.specifier));
     if (INFRA_ALLOWED_PREFIXES.some((prefix: string): boolean => target.startsWith(prefix))) continue;
-    if (INFRA_LAYERING_EXEMPTIONS.includes(`${target}.ts`)) continue;
+    const normalizedTarget: string = target.endsWith(".ts") ? target : `${target}.ts`;
+    if (INFRA_LAYERING_EXEMPTIONS.includes(normalizedTarget)) continue;
     problems.push(
       `${relativePath}:${lineOf(source, reference.start)} imports ${target} at runtime; ` +
       "packages/infra/ must not statically depend on business modules — inject the dependency instead"
+    );
+  }
+  return problems;
+}
+
+/**
+ * `packages/aiProviders/` 是 aiChat 与 antiRaid 双 Worker 共享的供应商 SDK 与响应解析辅助层，
+ * 不得依赖特定线程缓存、主线程业务代理或具体 Worker 实现模块。
+ */
+const AI_PROVIDERS_ALLOWED_PREFIXES: readonly string[] = [
+  "packages/aiProviders/",
+  "packages/consts/",
+  "packages/infra/",
+  "packages/libs/",
+  "packages/types/",
+];
+
+/**
+ * 核对 `packages/aiProviders/` 模块仅依赖自身与通用低层模块，不反向引入具体 Worker 或业务模块。
+ *
+ * @param params 逐文件模块边界检查入参
+ * @returns `packages/aiProviders/` 越界依赖的问题列表
+ */
+export function collectAiProvidersBoundaryProblems({
+  projectRoot,
+  path,
+  source,
+}: ModuleBoundaryParams): readonly string[] {
+  const relativePath: string = relative(projectRoot, path);
+  const problems: string[] = [];
+  for (const reference of runtimeModuleReferences(source)) {
+    if (!reference.specifier.startsWith(".")) continue;
+    const target: string = relative(projectRoot, resolve(dirname(path), reference.specifier));
+    if (AI_PROVIDERS_ALLOWED_PREFIXES.some((prefix: string): boolean => target.startsWith(prefix))) continue;
+    problems.push(
+      `${relativePath}:${lineOf(source, reference.start)} imports ${target} at runtime; ` +
+      "packages/aiProviders/ may only depend on aiProviders, consts, infra, libs and types"
     );
   }
   return problems;

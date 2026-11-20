@@ -190,6 +190,7 @@ test("未配置包列表仍严格校验全部快照，并保留合法包文件",
   expect(inspection.snapshots.has("valid_pack")).toBeTrue();
   expect(await Bun.file(join(stickerDir, "valid_pack.json")).exists()).toBeTrue();
   await Bun.write(join(stickerDir, "invalid_pack.json"), "{broken");
-  await expect(inspectStickerCatalogs(null)).rejects.toThrow();
+  await expect(inspectStickerCatalogs(null))
+    .rejects.toThrow("invalid_pack.json: $ must be a readable valid JSON document.");
   expect(await Bun.file(join(stickerDir, "valid_pack.json")).exists()).toBeTrue();
 });

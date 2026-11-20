@@ -53,7 +53,7 @@ mock.module("../../../packages/infra/logger", () => ({
 const {
   requestGeminiResult,
   requestGeminiTextResult,
-} = await import("../../../packages/aiChat/gemini/client");
+} = await import("../../../packages/workers/aiChat/gemini/client");
 
 /** 只有正常 STOP candidate 才交回响应、其余为 null 的断言视角；经 requestGeminiResult 发请求。 */
 async function requestGeminiResponse(
@@ -66,7 +66,7 @@ async function requestGeminiResponse(
 }
 const { geminiClientCache } = await import("../../../packages/cache/workers/aiChat/gemini");
 const { installAiCacheUsageSink } = await import("../../../packages/infra/aiCacheUsage");
-const { searchGeminiWeb } = await import("../../../packages/aiChat/gemini/search");
+const { searchGeminiWeb } = await import("../../../packages/workers/aiChat/gemini/search");
 import type { AiCacheUsage } from "../../../packages/types/aiCache";
 import type { AiWebSearchResult } from "../../../packages/types/aiChat/provider";
 
@@ -176,12 +176,16 @@ describe("Gemini request safety settings", () => {
   test("SDK API 错误和普通异常都返回 null，并保留可诊断日志", async () => {
     generateContent.mockRejectedValueOnce(new FakeApiError(429, "quota"));
     expect(await requestGeminiResponse("summary", (): GenerateContentParameters => ({ model: "gemini-test", contents: "hello" }), "Gemini test")).toBeNull();
-    expect(loggerError).toHaveBeenCalledWith("Gemini test error: 429 quota");
+    expect(loggerError).toHaveBeenCalledWith("Provider API error.", {
+      errorLabel: "Gemini test",
+      status: 429,
+      message: "quota",
+    });
 
     loggerError.mockClear();
     generateContent.mockRejectedValueOnce(new Error("network"));
     expect(await requestGeminiResponse("summary", (): GenerateContentParameters => ({ model: "gemini-test", contents: "hello" }), "Gemini test")).toBeNull();
-    expect(loggerError).toHaveBeenCalledWith("Error calling Gemini test:", expect.any(Error));
+    expect(loggerError).toHaveBeenCalledWith("Error calling Gemini API:", { errorLabel: "Gemini test" }, expect.any(Error));
   });
 
   test("安全拦截和 token 截断即使夹带内容也不会越过公共边界", async () => {
@@ -200,7 +204,10 @@ describe("Gemini request safety settings", () => {
     loggerError.mockClear();
     generateContent.mockResolvedValueOnce(geminiResponse({ candidates: [{ finishReason: FinishReason.SAFETY }] }));
     expect(await requestGeminiResponse("summary", (): GenerateContentParameters => ({ model: "gemini-test", contents: "hello" }), "Gemini test")).toBeNull();
-    expect(loggerError).toHaveBeenCalledWith(expect.stringContaining("finishReason=SAFETY"));
+    expect(loggerError).toHaveBeenCalledWith(
+      "Gemini API returned an unusable response.",
+      expect.objectContaining({ errorLabel: "Gemini test", finishReason: FinishReason.SAFETY })
+    );
   });
 
   test("请求体自己抛错也归一成 ok:false，不越过这层边界", async () => {
@@ -214,7 +221,7 @@ describe("Gemini request safety settings", () => {
     expect(result).toMatchObject({ ok: false, failureKind: "request" });
     // 请求根本没发出去，配额不该被记账。
     expect(generateContent).not.toHaveBeenCalled();
-    expect(loggerError).toHaveBeenCalledWith("Error calling Gemini test:", expect.any(Error));
+    expect(loggerError).toHaveBeenCalledWith("Error calling Gemini API:", { errorLabel: "Gemini test" }, expect.any(Error));
 
     // 两个便捷边界同样吃到归一化后的失败，而不是异常。
     expect(await requestGeminiResponse("summary", broken, "Gemini test")).toBeNull();
@@ -249,20 +256,32 @@ describe("Gemini request safety settings", () => {
     const blocked = await requestGeminiResult({ capability: "summary", buildBody: (): GenerateContentParameters => ({ model: "gemini-test", contents: "hello" }), errorLabel: "Gemini test" });
     const candidateDetails: string = JSON.stringify({ finishMessage: "blocked", safetyRatings });
     expect(blocked).toMatchObject({ ok: false, failureKind: "response", finishReason: FinishReason.SAFETY, finishDetails: candidateDetails });
-    expect(loggerError).toHaveBeenLastCalledWith(`Gemini test returned an unusable response: finishReason=SAFETY, details=${candidateDetails}.`);
+    expect(loggerError).toHaveBeenLastCalledWith("Gemini API returned an unusable response.", {
+      errorLabel: "Gemini test",
+      reason: "abnormal finish",
+      finishReason: FinishReason.SAFETY,
+      finishDetails: candidateDetails,
+    });
 
     const promptFeedback = { blockReason: BlockedReason.PROHIBITED_CONTENT };
     generateContent.mockResolvedValueOnce(geminiResponse({ promptFeedback }));
     const rejected = await requestGeminiResult({ capability: "summary", buildBody: (): GenerateContentParameters => ({ model: "gemini-test", contents: "hello" }), errorLabel: "Gemini test" });
     expect(rejected).toMatchObject({ ok: false, failureKind: "response", finishReason: undefined, finishDetails: JSON.stringify({ promptFeedback }) });
-    expect(loggerError).toHaveBeenLastCalledWith(
-      `Gemini test returned an unusable response: no candidates, details=${JSON.stringify({ promptFeedback })}.`
-    );
+    expect(loggerError).toHaveBeenLastCalledWith("Gemini API returned an unusable response.", {
+      errorLabel: "Gemini test",
+      reason: "no candidates",
+      finishReason: null,
+      finishDetails: JSON.stringify({ promptFeedback }),
+    });
 
     generateContent.mockResolvedValueOnce(geminiResponse({ candidates: [{ finishReason: FinishReason.RECITATION }] }));
     expect(await requestGeminiResult({ capability: "summary", buildBody: (): GenerateContentParameters => ({ model: "gemini-test", contents: "hello" }), errorLabel: "Gemini test" }))
       .toMatchObject({ ok: false, failureKind: "response", finishDetails: undefined });
-    expect(loggerError).toHaveBeenLastCalledWith("Gemini test returned an unusable response: finishReason=RECITATION.");
+    expect(loggerError).toHaveBeenLastCalledWith("Gemini API returned an unusable response.", {
+      errorLabel: "Gemini test",
+      reason: "abnormal finish",
+      finishReason: FinishReason.RECITATION,
+    });
   });
 
   test("文本业务重采样只接受成功请求中的不可用响应", async () => {

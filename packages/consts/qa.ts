@@ -19,8 +19,8 @@ export const CHAT_QA_MAX_PER_CHAT: number = 15;
 /**
  * 单条问题文本的最大长度（UTF-16 code unit）。
  *
- * 问题文本是直答 Map 的键，本值约束键的长度。
- * 所属模块：commands/qa/fieldRules.ts、database/codec/chatQa.ts、
+ * 问题文本是直答 Map 的键，本值约束键的长度；`/qa` 未命中回显也以它为默认上限（含省略号）。
+ * 所属模块：commands/qa/fieldRules.ts、commands/qa/rendering.ts、database/codec/chatQa.ts、
  * mini-app-api-server/view/chats/targets.ts、consts/atmosphere/plain/qa.ts 与 consts/atmosphere/teasing/qa.ts。
  */
 export const CHAT_QA_QUESTION_MAX_CHARS: number = 256;
@@ -74,9 +74,9 @@ export const QA_FORM_SESSION_MAX: number = STATE_MANAGED_CHAT_LIMIT;
 export const QA_QUERY_ANSWER_PREVIEW_MAX_CHARS: number = 256;
 
 /**
- * 群问答回显被截断时补的省略号，看板与表单共用一份。
+ * 群问答回显被截断时补的省略号，看板、表单与未命中回显共用一份。
  *
- * 两处都把它计入各自的预算，截断结果不超出上限。
+ * 各处都把它计入各自的预算，截断结果不超出上限。
  * 所属模块：packages/commands/qa/board.ts 与 packages/commands/qa/rendering.ts。
  */
 export const QA_TRUNCATION_MARK: string = "…";

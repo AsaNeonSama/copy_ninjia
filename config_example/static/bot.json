@@ -1,6 +1,7 @@
 {
   "atmosphere": "mesugaki",
   "time_zone": "Asia/Tokyo",
+  "log_level": "operation",
   "bot_token": "replace-with-telegram-bot-token",
   "super_admin_user_id": 123456789,
   "mini_app": {

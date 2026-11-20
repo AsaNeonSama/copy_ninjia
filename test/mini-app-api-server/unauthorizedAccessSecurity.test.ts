@@ -6,12 +6,13 @@
  */
 
 import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
-import { existsSync, mkdirSync, readdirSync, rmSync, symlinkSync } from "node:fs";
+import { mkdirSync, readdirSync, rmSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import type { Message } from "grammy/types";
 import { imageFixture } from "../helpers/image";
 import {
   buildSignedTestInitData,
+  ensureReusableTestSession,
   installMiniAppTestDiskIOMock,
   miniAppTestBlocklistRows,
   miniAppTestWhitelistRows,
@@ -24,6 +25,7 @@ const { latestAiMemories } = await import("../../packages/cache/main/aiChat");
 const { resetChatStateCache } = await import("../../packages/cache/main/chatState");
 const { resetIdentityStorageCache } = await import("../../packages/cache/main/identityStorage");
 const {
+  miniAppAuthHandshakes,
   miniAppAuthSessions,
   miniAppCompletedPickerResults,
   miniAppPasswordGuardHolder,
@@ -33,14 +35,15 @@ const {
 } = await import("../../packages/cache/main/miniApp");
 const { chatQaEntries } = await import("../../packages/cache/main/qa");
 const { getAssetConfig } = await import("../../packages/config/assets");
-const { BOT_TOKEN, SUPER_ADMIN_USER_ID, getBotMiniAppConfig } = await import(
+const { BOT_TOKEN, SUPER_ADMIN_USER_ID } = await import(
   "../../packages/config/bot"
 );
 const {
-  MINI_APP_ASSET_CACHE_CONTROL,
   MINI_APP_AUTH_CLOCK_SKEW_SECONDS,
   MINI_APP_AUTH_MAX_AGE_SECONDS,
   MINI_APP_CSP_HEADER_VALUE,
+  MINI_APP_GALLERY_FILE_CACHE_CONTROL,
+  MINI_APP_GALLERY_FILE_VARY_HEADER_VALUE,
   MINI_APP_INIT_DATA_HEADER,
   MINI_APP_MAX_INIT_DATA_LENGTH,
   MINI_APP_MAX_JSON_BODY_BYTES,
@@ -49,11 +52,15 @@ const {
   MINI_APP_PASSWORD_LOCKOUT_MS,
   MINI_APP_PASSWORD_MAX_ATTEMPTS,
   MINI_APP_SESSION_HEADER,
-  MINI_APP_SESSION_REFRESH_THRESHOLD_MS,
+  MINI_APP_SESSION_REFRESH_MAX_MS,
   MINI_APP_SESSION_TTL_MS,
   MINI_APP_TMA_AUTH_PREFIX,
   MINI_APP_X_FRAME_OPTIONS_VALUE,
 } = await import("../../packages/consts/miniApp");
+const {
+  MINI_APP_ENCRYPTED_QUERY_PARAM,
+  MINI_APP_INVALID_ENCRYPTED_PAYLOAD_CODE,
+} = await import("../../packages/consts/miniAppCrypto");
 const {
   MINI_APP_TOTP_PENDING_TTL_MS,
   MINI_APP_TOTP_RECORD_VERSION,
@@ -61,8 +68,8 @@ const {
 } = await import("../../packages/consts/miniAppTotp");
 const { MINI_APP_TOTP_MEMORY_DIR } = await import("../../packages/consts/paths");
 const { getOrCreateChatState } = await import("../../packages/infra/chatStateStorage");
-const { deriveMiniAppAssetToken } = await import("../../packages/libs/miniAppAuth");
 const { generateMiniAppTotpCodeAt } = await import("../../packages/libs/miniAppTotp");
+const { sealMiniAppQuery } = await import("../../packages/mini-app-frontend/libs/crypto");
 const {
   createMiniAppBunRoutes,
   getMiniAppPickerResult,
@@ -75,11 +82,23 @@ const {
 const { revokeOtherMiniAppAuthSessions } = await import(
   "../../packages/mini-app-api-server/auth/session"
 );
-const { dispatchMiniAppTestRequest } = await import("../helpers/miniAppRequest");
+const {
+  dispatchMiniAppTestRequest,
+  dispatchRawMiniAppTestRequest,
+  performMiniAppTestEcdhLogin,
+} = await import("../helpers/miniAppRequest");
+const {
+  NON_ADMIN_USER_ID,
+  PROTECTED_ROUTE_DESCRIPTORS,
+  PUBLIC_ROUTE_PATTERNS,
+  SEEDED_BLOCKLIST_ID,
+  SEEDED_WHITELIST_ID,
+  TEST_CHAT_ID,
+  UNKNOWN_FALLBACK_ROUTES,
+} = await import("./unauthorizedAccessFixture");
 import type {
   MiniAppAccessDiagnostics,
   MiniAppAuthSession,
-  MiniAppLoginSuccessResponse,
 } from "../../packages/types/miniApp/auth";
 import type { MiniAppGalleryUploadResult } from "../../packages/types/miniApp/gallery";
 import type {
@@ -87,164 +106,12 @@ import type {
   MiniAppTotpSetupResponse,
   MiniAppTotpStatusView,
 } from "../../packages/types/miniAppTotp";
-
-/** 单条受保护路由描述项（用于全路由未授权访问矩阵扫描与路由表 1:1 校验）。 */
-interface ProtectedRouteDescriptor {
-  readonly method: string;
-  readonly routePattern: string;
-  readonly tier: "initDataOnly" | "sessionRequired";
-  readonly buildPath: (galleryFileName: string, pickerRequestId: number) => string;
-  readonly jsonBody?: string;
-  readonly binaryUpload?: boolean;
-}
-
-/** 业务状态不可变性快照，用于断言未授权请求零副作用。 */
-interface BusinessStateSnapshot {
-  readonly whitelistEntries: readonly (readonly [number, string])[];
-  readonly blocklistEntries: readonly (readonly [number, string])[];
-  readonly chatSnapshot: string;
-  readonly qaEntries: readonly (readonly [string, string])[];
-  readonly pendingPickerSize: number;
-  readonly completedPickerSize: number;
-  /** 图库目录的完整文件名列表（排序后），新增或删除任一文件都会改变它。 */
-  readonly galleryFiles: readonly string[];
-  readonly totpSecret: string | null | undefined;
-}
-
-/** 已种子化的业务夹具上下文。 */
-interface SeededSecurityFixture {
-  readonly galleryFileName: string;
-  readonly validPngBytes: Uint8Array;
-  readonly pickerRequestId: number;
-}
-
-/** 发送测试请求的入参选项。 */
-interface SendSecurityRequestOptions {
-  readonly path: string;
-  readonly method?: string;
-  readonly headers?: Readonly<Record<string, string>>;
-  readonly body?: string | Uint8Array;
-}
-
-/** 测试夹具使用的受管群 ID、名单初始 ID 与非超管入侵者 ID。 */
-const TEST_CHAT_ID: number = -100998877;
-const SEEDED_WHITELIST_ID: number = 610_001;
-const SEEDED_BLOCKLIST_ID: number = 620_002;
-const NON_ADMIN_USER_ID: number = SUPER_ADMIN_USER_ID + 777;
-
-/** 公开探活、图标与单页门控入口路由模式集合（未授权请求访问单页入口时仅返回独立 `reject.html`，绝不返回完整前端包或业务数据）。 */
-const PUBLIC_ROUTE_PATTERNS: ReadonlySet<string> = new Set<string>([
-  "/healthz",
-  "/",
-  "/index.html",
-  "/favicon.ico",
-]);
-
-/**
- * 构造静态路径或参数化路径的受保护路由描述项。
- * @param method 大写 HTTP 方法。
- * @param routePattern `createMiniAppBunRoutes()` 注册的路由模板。
- * @param extra 鉴权层级与请求体选项。
- * @returns 规范化后的受保护路由描述项。
- */
-function defineProtectedRoute(
-  method: string,
-  routePattern: string,
-  extra: {
-    readonly tier?: "initDataOnly" | "sessionRequired";
-    readonly query?: string;
-    readonly jsonBody?: string;
-    readonly binaryUpload?: boolean;
-  } = {}
-): ProtectedRouteDescriptor {
-  return {
-    method,
-    routePattern,
-    tier: extra.tier ?? "sessionRequired",
-    jsonBody: extra.jsonBody,
-    binaryUpload: extra.binaryUpload,
-    buildPath: (galleryFileName: string, pickerRequestId: number): string => {
-      const base: string = routePattern
-        .replace(":chatId", String(TEST_CHAT_ID))
-        .replace(":fileName", galleryFileName);
-      if (routePattern === "/api/picker/result") {
-        return `${base}?requestId=${pickerRequestId}`;
-      }
-      return extra.query !== undefined ? `${base}?${extra.query}` : base;
-    },
-  };
-}
-
-/** 全部受保护 Mini App 路由与 HTTP 方法穷举表（必须与 `createMiniAppBunRoutes()` 严格一致）。 */
-const PROTECTED_ROUTE_DESCRIPTORS: readonly Readonly<ProtectedRouteDescriptor>[] = [
-  defineProtectedRoute("GET", "/api/auth/precheck", { tier: "initDataOnly" }),
-  defineProtectedRoute("POST", "/api/auth/login", {
-    tier: "initDataOnly",
-    jsonBody: JSON.stringify({ password: getBotMiniAppConfig()?.password ?? "unused-pw" }),
-  }),
-  defineProtectedRoute("POST", "/api/auth/logout", { tier: "initDataOnly" }),
-  defineProtectedRoute("GET", "/api/status"),
-  defineProtectedRoute("GET", "/api/mood"),
-  defineProtectedRoute("POST", "/api/mood/switch", { jsonBody: "{}" }),
-  defineProtectedRoute("GET", "/api/chats"),
-  defineProtectedRoute("GET", "/api/chats/:chatId"),
-  defineProtectedRoute("GET", "/api/chats/:chatId/messages", { query: "page=1&pageSize=10" }),
-  defineProtectedRoute("POST", "/api/chats/:chatId/feature", {
-    jsonBody: JSON.stringify({ feature: "aiChat", enabled: false }),
-  }),
-  defineProtectedRoute("POST", "/api/chats/:chatId/batch-kick", {
-    jsonBody: JSON.stringify({ hours: 6 }),
-  }),
-  defineProtectedRoute("GET", "/api/chats/:chatId/targets"),
-  defineProtectedRoute("POST", "/api/chats/:chatId/targets", {
-    jsonBody: JSON.stringify({ action: "setQa", question: "unauth-q", answer: "unauth-a" }),
-  }),
-  defineProtectedRoute("GET", "/api/identities/whitelist", { query: "page=1&pageSize=10" }),
-  defineProtectedRoute("POST", "/api/identities/whitelist", {
-    jsonBody: JSON.stringify({ action: "add", id: 999_111 }),
-  }),
-  defineProtectedRoute("GET", "/api/identities/blocklist", { query: "page=1&pageSize=10" }),
-  defineProtectedRoute("POST", "/api/identities/blocklist", {
-    jsonBody: JSON.stringify({ action: "add", id: 999_222 }),
-  }),
-  defineProtectedRoute("POST", "/api/identities/permission", {
-    jsonBody: JSON.stringify({ id: SEEDED_WHITELIST_ID, action: "toggle", capability: "aiChat" }),
-  }),
-  defineProtectedRoute("POST", "/api/picker/prepare", {
-    jsonBody: JSON.stringify({ targetList: "whitelist", subjectKind: "users" }),
-  }),
-  defineProtectedRoute("GET", "/api/picker/result"),
-  defineProtectedRoute("GET", "/api/gallery", { query: "page=1&pageSize=10" }),
-  defineProtectedRoute("POST", "/api/gallery/upload", { binaryUpload: true }),
-  defineProtectedRoute("POST", "/api/gallery/delete", {
-    jsonBody: JSON.stringify({ fileName: "keep.png" }),
-  }),
-  defineProtectedRoute("GET", "/api/gallery/download/:fileName"),
-  defineProtectedRoute("HEAD", "/api/gallery/download/:fileName"),
-  defineProtectedRoute("GET", "/api/gallery/file/:fileName"),
-  defineProtectedRoute("HEAD", "/api/gallery/file/:fileName"),
-  defineProtectedRoute("DELETE", "/api/gallery/file/:fileName"),
-  defineProtectedRoute("GET", "/api/totp"),
-  defineProtectedRoute("DELETE", "/api/totp"),
-  defineProtectedRoute("POST", "/api/totp/setup"),
-  defineProtectedRoute("POST", "/api/totp/enable", { jsonBody: JSON.stringify({ code: "000000" }) }),
-  defineProtectedRoute("POST", "/api/totp/delete"),
-];
-
-/** 未注册 `/api/*` 别名路径与未知图片后缀路径兜底扫描集合。 */
-const UNKNOWN_FALLBACK_ROUTES: readonly (readonly [string, string])[] = [
-  ["GET", "/api/whitelist"],
-  ["POST", "/api/whitelist"],
-  ["GET", "/api/blocklist"],
-  ["POST", "/api/blocklist"],
-  ["POST", `/api/chats/${TEST_CHAT_ID}/features`],
-  ["POST", `/api/chats/${TEST_CHAT_ID}/kick-inactive`],
-  ["GET", "/api/picker/result/arbitrary-token"],
-  ["POST", "/api/totp/disable"],
-  ["GET", "/api/unknown/probe"],
-  ["GET", "/secret-asset.png"],
-  ["GET", "/nested/diagram.svg"],
-];
+import type {
+  BusinessStateSnapshot,
+  ProtectedRouteDescriptor,
+  SeededSecurityFixture,
+  SendSecurityRequestOptions,
+} from "./unauthorizedAccessFixture";
 
 /**
  * 生成指定用户与时间戳的合法签名 `initData` 原始查询串。
@@ -276,7 +143,7 @@ function signInitDataForUser(
 function unlockedSuperAdminHeaders(): Record<string, string> {
   return {
     [MINI_APP_INIT_DATA_HEADER]: signInitDataForUser(SUPER_ADMIN_USER_ID),
-    [MINI_APP_SESSION_HEADER]: issueMiniAppAuthSession().token,
+    [MINI_APP_SESSION_HEADER]: ensureReusableTestSession(issueMiniAppAuthSession).token,
   };
 }
 
@@ -385,6 +252,7 @@ async function seedProtectedStateFixture(): Promise<SeededSecurityFixture> {
     (await uploadRes.json()) as MiniAppGalleryUploadResult;
   expect(uploadJson.ok).toBeTrue();
   miniAppAuthSessions.clear();
+  miniAppAuthHandshakes.clear();
 
   const prepared = await prepareMiniAppPicker({
     targetList: "whitelist",
@@ -439,6 +307,7 @@ afterEach(async (): Promise<void> => {
   chatQaEntries.clear();
   latestAiMemories.clear();
   miniAppAuthSessions.clear();
+  miniAppAuthHandshakes.clear();
   miniAppPasswordGuardHolder.current = null;
   miniAppPendingTotpSetupHolder.current = null;
   miniAppTotpRecordHolder.current = undefined;
@@ -523,7 +392,8 @@ describe("Mini App 服务端未授权访问全路由安全矩阵", () => {
       SUPER_ADMIN_USER_ID,
       Math.floor(Date.now() / 1_000) - 10
     );
-    const filePath: string = `/api/gallery/file/${fixture.galleryFileName}`;
+    const filePath: string = `/api/gallery/file?fileName=${encodeURIComponent(fixture.galleryFileName)}`;
+    const downloadPath: string = "/api/gallery/download";
 
     const headerGuardCases: readonly (readonly [
       string,
@@ -538,6 +408,8 @@ describe("Mini App 服务端未授权访问全路由安全矩阵", () => {
       [filePath, { ...validHeaders, "sec-fetch-mode": "websocket" }, 403, "DIRECT_NAVIGATION_FORBIDDEN"],
       [filePath, { ...validHeaders, "sec-fetch-mode": "nested-navigate" }, 403, "DIRECT_NAVIGATION_FORBIDDEN"],
       [filePath, { ...validHeaders, "sec-fetch-dest": "iframe" }, 403, "DIRECT_NAVIGATION_FORBIDDEN"],
+      [filePath, { ...validHeaders, "sec-fetch-dest": "image" }, 403, "DIRECT_NAVIGATION_FORBIDDEN"],
+      [downloadPath, { ...validHeaders, "sec-fetch-dest": "iframe" }, 403, "DIRECT_NAVIGATION_FORBIDDEN"],
       ["/api/status", { ...validHeaders, "sec-fetch-dest": "script" }, 403, "DIRECT_NAVIGATION_FORBIDDEN"],
       ["/api/status", { ...validHeaders, accept: "text/html,application/xhtml+xml" }, 403, "DIRECT_NAVIGATION_FORBIDDEN"],
       ["/api/status", { ...validHeaders, origin: "https://evil.example" }, 403, "CROSS_SITE_FORBIDDEN"],
@@ -549,9 +421,9 @@ describe("Mini App 服务端未授权访问全路由安全矩阵", () => {
       ["/api/status", { [MINI_APP_INIT_DATA_HEADER]: `auth_date=1&hash=${"a".repeat(MINI_APP_MAX_INIT_DATA_LENGTH)}` }, 401, "MALFORMED_INIT_DATA"],
       ["/api/status", { [MINI_APP_INIT_DATA_HEADER]: `auth_date=1&hash=${"a".repeat(64)}&x=\u0007` }, 401, "MALFORMED_INIT_DATA"],
       ["/api/status", { [MINI_APP_INIT_DATA_HEADER]: "auth_date=1700000000&user=%7B%7D" }, 401, "MALFORMED_INIT_DATA"],
-      [`${filePath}?initData=${"x".repeat(MINI_APP_MAX_INIT_DATA_LENGTH + 5)}`, {}, 401, "MALFORMED_INIT_DATA"],
-      [`${filePath}?initData=${encodeURIComponent(`auth_date=1&hash=${"a".repeat(64)}&\u0007=1`)}`, {}, 401, "MALFORMED_INIT_DATA"],
-      [`${filePath}?initData=only_user_no_hash`, {}, 401, "MALFORMED_INIT_DATA"],
+      [`${downloadPath}?initData=${"x".repeat(MINI_APP_MAX_INIT_DATA_LENGTH + 5)}`, {}, 401, "MISSING_INIT_DATA"],
+      [`${downloadPath}?initData=${encodeURIComponent(`auth_date=1&hash=${"a".repeat(64)}&\u0007=1`)}`, {}, 401, "MISSING_INIT_DATA"],
+      [`${downloadPath}?initData=only_user_no_hash`, {}, 401, "MISSING_INIT_DATA"],
     ];
 
     for (const [path, headers, status, code] of headerGuardCases) {
@@ -595,8 +467,8 @@ describe("Mini App 服务端未授权访问全路由安全矩阵", () => {
     const representativeTargets: readonly string[] = [
       "/api/auth/precheck",
       "/api/status",
-      `/api/gallery/file/${fixture.galleryFileName}`,
-      `/api/gallery/download/${fixture.galleryFileName}`,
+      `/api/gallery/file?fileName=${encodeURIComponent(fixture.galleryFileName)}`,
+      `/api/gallery/download?fileName=${encodeURIComponent(fixture.galleryFileName)}`,
     ];
 
     for (const [initData, attachSession, status, code] of tamperedCases) {
@@ -667,7 +539,7 @@ describe("Mini App 服务端未授权访问全路由安全矩阵", () => {
     expect(captureBusinessStateSnapshot()).toEqual(beforeSnapshot);
   });
 
-  test("二次认证会话隔离：仅持 SuperAdmin initData、伪造/畸形/过期/注销/TOTP 变更前的旧会话在全部解锁后路由（含 /api/gallery/file/:fileName）一律 401", async () => {
+  test("二次认证会话隔离：仅持 SuperAdmin initData、伪造/畸形/过期/注销/TOTP 变更前的旧会话在全部解锁后路由（含 /api/gallery/file）一律 401", async () => {
     const baseMs: number = Date.now();
     setSystemTime(new Date(baseMs));
     const server = startMiniAppServer({
@@ -726,10 +598,13 @@ describe("Mini App 服务端未授权访问全路由安全矩阵", () => {
       }
     }
 
-    // 3. 查询串鉴权隔离：JSON API 拒绝 ?initData=&session=；图库预览拒绝伪造 ?token= 与注销会话，仅合法 assetToken 放行。
+    // 3. 查询串鉴权隔离：JSON API、/api/gallery/file、/api/gallery/download 与受保护资源均拒绝 ?token= 与 ?initData=&session=；
+    // 仅支持请求头双层鉴权 + ?e=，或经已认证 POST /api/gallery/download-ticket 签发一次性 60 秒 ?ticket= 下载票据（消费即焚并拦截跨站头）。
     const activeSession: Readonly<MiniAppAuthSession> = issueMiniAppAuthSession(baseMs);
-    const validAssetToken: string = deriveMiniAppAssetToken(BOT_TOKEN, SUPER_ADMIN_USER_ID);
-    const galleryFileUrl: string = `/api/gallery/file/${fixture.galleryFileName}`;
+    const fakeLegacyToken: string = "a".repeat(64);
+    const encodedGalleryFileName: string = encodeURIComponent(fixture.galleryFileName);
+    const galleryFileUrl: string = `/api/gallery/file?fileName=${encodedGalleryFileName}`;
+    const galleryDownloadUrl: string = `/api/gallery/download?fileName=${encodedGalleryFileName}`;
 
     await assertBlockedDiagnostics(
       await sendSecurityRequest({ path: `/api/status?initData=${encodeURIComponent(validInitData)}&session=${activeSession.token}` }),
@@ -737,12 +612,64 @@ describe("Mini App 服务端未授权访问全路由安全矩阵", () => {
       "MISSING_INIT_DATA"
     );
     await assertBlockedDiagnostics(
-      await sendSecurityRequest({
-        path: `${galleryFileUrl}?token=${"e".repeat(64)}`,
-        headers: { [MINI_APP_INIT_DATA_HEADER]: validInitData, [MINI_APP_SESSION_HEADER]: activeSession.token },
-      }),
+      await dispatchRawMiniAppTestRequest(
+        new Request(`http://127.0.0.1:3000/api/gallery/file?token=${fakeLegacyToken}&fileName=${encodedGalleryFileName}`)
+      ),
       401,
-      "INVALID_SIGNATURE"
+      "MISSING_INIT_DATA"
+    );
+    await assertBlockedDiagnostics(
+      await dispatchRawMiniAppTestRequest(
+        new Request(
+          `http://127.0.0.1:3000/api/gallery/file?initData=${encodeURIComponent(validInitData)}&session=${activeSession.token}&fileName=${encodedGalleryFileName}`
+        )
+      ),
+      401,
+      "MISSING_INIT_DATA"
+    );
+    const validGalleryFileRes: Response = await sendSecurityRequest({
+      path: galleryFileUrl,
+      headers: { [MINI_APP_INIT_DATA_HEADER]: validInitData, [MINI_APP_SESSION_HEADER]: activeSession.token },
+    });
+    expect(validGalleryFileRes.status).toBe(200);
+    expect(validGalleryFileRes.headers.get("cache-control")).toBe(
+      MINI_APP_GALLERY_FILE_CACHE_CONTROL
+    );
+    expect(validGalleryFileRes.headers.get("cdn-cache-control")).toBe("no-store");
+    expect(validGalleryFileRes.headers.get("cloudflare-cdn-cache-control")).toBe(
+      "no-store"
+    );
+    expect(validGalleryFileRes.headers.get("vary")).toBe(
+      MINI_APP_GALLERY_FILE_VARY_HEADER_VALUE
+    );
+    await validGalleryFileRes.arrayBuffer();
+
+    const sealedDownloadQuery: string = await sealMiniAppQuery(
+      await activeSession.cryptoKey,
+      `fileName=${encodedGalleryFileName}`,
+      "GET /api/gallery/download"
+    );
+    const mixedDownloadQueryRes: Response = await dispatchRawMiniAppTestRequest(
+      new Request(
+        `http://127.0.0.1:3000/api/gallery/download?${MINI_APP_ENCRYPTED_QUERY_PARAM}=${encodeURIComponent(sealedDownloadQuery)}&token=${fakeLegacyToken}`,
+        { headers: { [MINI_APP_INIT_DATA_HEADER]: validInitData, [MINI_APP_SESSION_HEADER]: activeSession.token } }
+      )
+    );
+    expect(mixedDownloadQueryRes.status).toBe(400);
+    expect(mixedDownloadQueryRes.headers.get("cache-control")).toBe(
+      MINI_APP_NO_STORE_CACHE_CONTROL
+    );
+    expect(await mixedDownloadQueryRes.json()).toEqual({
+      error: MINI_APP_INVALID_ENCRYPTED_PAYLOAD_CODE,
+    });
+    await assertBlockedDiagnostics(
+      await dispatchRawMiniAppTestRequest(
+        new Request(
+          `http://127.0.0.1:3000/api/gallery/download?fileName=${encodedGalleryFileName}&token=${fakeLegacyToken}`
+        )
+      ),
+      401,
+      "MISSING_INIT_DATA"
     );
     const wrongSigInitData: string = validInitData.replace(
       /hash=([0-9a-f])/u,
@@ -751,39 +678,80 @@ describe("Mini App 服务端未授权访问全路由安全矩阵", () => {
     );
     await assertBlockedDiagnostics(
       await sendSecurityRequest({
-        path: `${galleryFileUrl}?token=${validAssetToken}`,
-        headers: { [MINI_APP_INIT_DATA_HEADER]: wrongSigInitData },
+        path: galleryDownloadUrl,
+        headers: { [MINI_APP_INIT_DATA_HEADER]: wrongSigInitData, [MINI_APP_SESSION_HEADER]: activeSession.token },
       }),
       401,
       "INVALID_SIGNATURE"
     );
     await assertBlockedDiagnostics(
-      await sendSecurityRequest({ path: `${galleryFileUrl}?initData=${encodeURIComponent(validInitData)}&session=${loggedOutSession.token}` }),
+      await sendSecurityRequest({ path: `${galleryDownloadUrl}&initData=${encodeURIComponent(validInitData)}&session=${loggedOutSession.token}` }),
       401,
-      "PASSWORD_REQUIRED"
+      "MISSING_INIT_DATA"
     );
     await assertBlockedDiagnostics(
-      await sendSecurityRequest({ path: `${galleryFileUrl}?token=${validAssetToken}`, headers: { [MINI_APP_SESSION_HEADER]: "d".repeat(64) } }),
+      await sendSecurityRequest({ path: `${galleryDownloadUrl}&token=${fakeLegacyToken}`, headers: { [MINI_APP_SESSION_HEADER]: "d".repeat(64) } }),
       401,
-      "PASSWORD_REQUIRED"
+      "MISSING_INIT_DATA"
     );
-
-    const validAssetTokenAloneRes: Response = await sendSecurityRequest({ path: `${galleryFileUrl}?token=${validAssetToken}` });
-    expect(validAssetTokenAloneRes.status).toBe(200);
-    expect(validAssetTokenAloneRes.headers.get("cache-control")).toBe(MINI_APP_ASSET_CACHE_CONTROL);
-    await validAssetTokenAloneRes.arrayBuffer();
-
     await assertBlockedDiagnostics(
-      await sendSecurityRequest({ path: `/api/gallery/download/${fixture.galleryFileName}?token=${validAssetToken}` }),
+      await sendSecurityRequest({ path: `${galleryDownloadUrl}&token=${fakeLegacyToken}` }),
       401,
-      "PASSWORD_REQUIRED"
+      "MISSING_INIT_DATA"
     );
+
+    const ticketRes: Response = await sendSecurityRequest({
+      path: "/api/gallery/download-ticket",
+      method: "POST",
+      headers: {
+        [MINI_APP_INIT_DATA_HEADER]: validInitData,
+        [MINI_APP_SESSION_HEADER]: activeSession.token,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ fileName: fixture.galleryFileName }),
+    });
+    expect(ticketRes.status).toBe(200);
+    const ticketBody = (await ticketRes.json()) as {
+      readonly ticket: string;
+    };
+    const crossSiteTicketRes: Response = await dispatchRawMiniAppTestRequest(
+      new Request(
+        `http://127.0.0.1:3000/api/gallery/download?ticket=${encodeURIComponent(ticketBody.ticket)}`,
+        { headers: { "sec-fetch-site": "cross-site" } }
+      )
+    );
+    expect(crossSiteTicketRes.status).toBe(403);
+    const validDownloadRes: Response = await dispatchRawMiniAppTestRequest(
+      new Request(
+        `http://127.0.0.1:3000/api/gallery/download?ticket=${encodeURIComponent(ticketBody.ticket)}`
+      )
+    );
+    expect(validDownloadRes.status).toBe(200);
+    await validDownloadRes.arrayBuffer();
+    const replayedTicketRes: Response = await dispatchRawMiniAppTestRequest(
+      new Request(
+        `http://127.0.0.1:3000/api/gallery/download?ticket=${encodeURIComponent(ticketBody.ticket)}`
+      )
+    );
+    expect(replayedTicketRes.status).toBe(401);
+
+    const headerFallbackDownloadRes: Response = await sendSecurityRequest({
+      path: galleryDownloadUrl,
+      headers: { [MINI_APP_INIT_DATA_HEADER]: validInitData, [MINI_APP_SESSION_HEADER]: activeSession.token },
+    });
+    expect(headerFallbackDownloadRes.status).toBe(200);
+    await headerFallbackDownloadRes.arrayBuffer();
+
+    const unknownProtectedAssetRes: Response = await sendSecurityRequest({
+      path: `/secret-asset.png?token=${fakeLegacyToken}`,
+    });
+    expect(unknownProtectedAssetRes.status).toBe(401);
     expect(captureBusinessStateSnapshot()).toEqual(beforeSnapshot);
 
     // 4. TOTP 绑定与删除立即吊销其余旧会话（保留执行变更操作的当前会话及宽限期内别名）。
     const staleBeforeEnable: Readonly<MiniAppAuthSession> = issueMiniAppAuthSession(baseMs);
     const agedCallerSession: Readonly<MiniAppAuthSession> = issueMiniAppAuthSession(
-      baseMs - MINI_APP_SESSION_REFRESH_THRESHOLD_MS - 1_000
+      baseMs - MINI_APP_SESSION_REFRESH_MAX_MS - 1_000
     );
     const refreshRes: Response = await sendSecurityRequest({
       path: "/api/totp",
@@ -795,7 +763,7 @@ describe("Mini App 服务端未授权访问全路由安全矩阵", () => {
     const setupRes: Response = await sendSecurityRequest({
       path: "/api/totp/setup",
       method: "POST",
-      headers: { [MINI_APP_INIT_DATA_HEADER]: validInitData, [MINI_APP_SESSION_HEADER]: refreshedCallerToken },
+      headers: { [MINI_APP_INIT_DATA_HEADER]: validInitData, [MINI_APP_SESSION_HEADER]: agedCallerSession.token },
     });
     const setupBody: MiniAppTotpSetupResponse = (await setupRes.json()) as MiniAppTotpSetupResponse;
     const enableRes: Response = await sendSecurityRequest({
@@ -906,14 +874,15 @@ describe("Mini App 服务端未授权访问全路由安全矩阵", () => {
     symlinkSync(outsideSecretPath, join(galleryDir, "symlink-escape.png"));
 
     for (const unsafeName of ["..", "..%2foutside-secret.png", "%2e%2e%2foutside-secret.png", "%2e%2e", "nested%5csecret.png", ".hidden.png", "vector.svg", "config.json", "%E0%A4%A.png", "null%00.png", "symlink-escape.png"]) {
-      expect((await sendSecurityRequest({ path: `/api/gallery/file/${unsafeName}`, headers: freshAdminHeaders })).status).toBe(404);
-      expect((await sendSecurityRequest({ path: `/api/gallery/download/${unsafeName}`, headers: freshAdminHeaders })).status).toBe(404);
-      expect([400, 404]).toContain((await sendSecurityRequest({ path: `/api/gallery/file/${unsafeName}`, method: "DELETE", headers: freshAdminHeaders })).status);
+      const encodedUnsafeName: string = encodeURIComponent(unsafeName);
+      expect((await sendSecurityRequest({ path: `/api/gallery/file?fileName=${encodedUnsafeName}`, headers: freshAdminHeaders })).status).toBe(404);
+      expect((await sendSecurityRequest({ path: `/api/gallery/download?fileName=${encodedUnsafeName}`, headers: freshAdminHeaders })).status).toBe(404);
       expect([400, 404]).toContain(
         (await sendSecurityRequest({ path: "/api/gallery/delete", method: "POST", headers: { ...freshAdminHeaders, "Content-Type": "application/json" }, body: JSON.stringify({ fileName: unsafeName }) })).status
       );
     }
-    expect(existsSync(outsideSecretPath)).toBeTrue();
+    expect((await sendSecurityRequest({ path: "/api/gallery/file", method: "DELETE", headers: freshAdminHeaders })).status).toBe(404);
+    expect(await Bun.file(outsideSecretPath).exists()).toBeTrue();
     rmSync(outsideSecretPath, { force: true });
 
     // 3. HTTP 方法失配（先鉴权后 404）、URL 编码路径绕过（/%61pi/status）与超大 JSON 请求体拦截。
@@ -946,17 +915,28 @@ describe("Mini App 服务端未授权访问全路由安全矩阵", () => {
       { totpCode: "000000" },
     ];
     for (let attempt: number = 0; attempt < MINI_APP_PASSWORD_MAX_ATTEMPTS; attempt += 1) {
-      const failLoginRes: Response = await sendSecurityRequest({
-        path: "/api/auth/login",
-        method: "POST",
-        headers: { [MINI_APP_INIT_DATA_HEADER]: validInitData, "Content-Type": "application/json" },
-        body: JSON.stringify(totpLoginFailures[attempt]),
+      const failAttempt = await performMiniAppTestEcdhLogin({
+        initData: validInitData,
+        credentialPayload: totpLoginFailures[attempt]!,
       });
-      await assertBlockedDiagnostics(
-        failLoginRes,
-        403,
-        attempt + 1 < MINI_APP_PASSWORD_MAX_ATTEMPTS ? "INVALID_TOTP_CODE" : "PASSWORD_LOCKED"
+      const failLoginRes: Response = failAttempt.loginResponse;
+      expect(failLoginRes.status).toBe(403);
+      expect(failLoginRes.headers.get("cache-control")).toBe(
+        MINI_APP_NO_STORE_CACHE_CONTROL
       );
+      expect(failLoginRes.headers.get("x-content-type-options")).toBe("nosniff");
+      const requestIdHeader: string | null = failLoginRes.headers.get("x-request-id");
+      expect(requestIdHeader).toMatch(/^[0-9a-f]{16}$/u);
+      const diag: MiniAppAccessDiagnostics =
+        failAttempt.payload as unknown as MiniAppAccessDiagnostics;
+      expect(diag.status).toBe(403);
+      expect(diag.code).toBe(
+        attempt + 1 < MINI_APP_PASSWORD_MAX_ATTEMPTS
+          ? "INVALID_TOTP_CODE"
+          : "PASSWORD_LOCKED"
+      );
+      expect(diag.requestId).toBe(requestIdHeader ?? "");
+      expect(diag.host).not.toContain("127.0.0.1");
     }
     expect(miniAppAuthSessions.size).toBe(0);
 
@@ -977,22 +957,27 @@ describe("Mini App 服务端未授权访问全路由安全矩阵", () => {
     );
     await assertBlockedDiagnostics(await sendSecurityRequest({ path: "/api/status", headers: freshAdminHeaders }), 403, "PASSWORD_LOCKED");
     await assertBlockedDiagnostics(
-      await sendSecurityRequest({ path: `/api/gallery/file/${fixture.galleryFileName}?token=${deriveMiniAppAssetToken(BOT_TOKEN, SUPER_ADMIN_USER_ID)}` }),
+      await dispatchRawMiniAppTestRequest(
+        new Request(`http://127.0.0.1:3000/api/gallery/download?ticket=${"f".repeat(64)}`)
+      ),
       403,
       "PASSWORD_LOCKED"
     );
 
     setSystemTime(new Date(baseMs + MINI_APP_PASSWORD_LOCKOUT_MS + 1_000));
-    const unlockedLoginRes: Response = await sendSecurityRequest({
-      path: "/api/auth/login",
-      method: "POST",
-      headers: { [MINI_APP_INIT_DATA_HEADER]: signInitDataForUser(SUPER_ADMIN_USER_ID), "Content-Type": "application/json" },
-      body: JSON.stringify({ totpCode: generateMiniAppTotpCodeAt(activeSecret, Date.now()) }),
+    const unlockedCompleted = await performMiniAppTestEcdhLogin({
+      initData: signInitDataForUser(SUPER_ADMIN_USER_ID),
+      credentialPayload: { totpCode: generateMiniAppTotpCodeAt(activeSecret, Date.now()) },
     });
-    expect(unlockedLoginRes.status).toBe(200);
-    expect(unlockedLoginRes.headers.get("set-cookie")).toContain(`${MINI_APP_PAGE_GATE_COOKIE_NAME}=`);
-    const loginSuccess: MiniAppLoginSuccessResponse = (await unlockedLoginRes.json()) as MiniAppLoginSuccessResponse;
-    expect(loginSuccess.ok).toBeTrue();
-    expect(loginSuccess.ttlMs).toBe(MINI_APP_SESSION_TTL_MS);
+    expect(unlockedCompleted.precheckResponse?.status).toBe(200);
+    expect(unlockedCompleted.precheckResponse?.headers.get("set-cookie")).toContain(
+      `${MINI_APP_PAGE_GATE_COOKIE_NAME}=`
+    );
+    expect(unlockedCompleted.status).toBe(200);
+    expect(unlockedCompleted.loginResponse.headers.get("set-cookie")).toContain(
+      `${MINI_APP_PAGE_GATE_COOKIE_NAME}=`
+    );
+    expect(unlockedCompleted.payload.ok).toBeTrue();
+    expect(unlockedCompleted.payload.ttlMs).toBe(MINI_APP_SESSION_TTL_MS);
   });
 });

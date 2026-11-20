@@ -1,12 +1,13 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import {
   classifyProviderApiFailure,
+  handleProviderRequestError,
   logAndClassifyProviderApiError,
   numericErrorStatus,
   providerApiFailureResult,
-} from "../../../../packages/aiChat/ai/utils/mediaSupportError";
+} from "../../../../packages/workers/aiChat/ai/utils/mediaSupportError";
 import type { ProviderApiFailureKind } from
-  "../../../../packages/aiChat/ai/utils/mediaSupportError";
+  "../../../../packages/workers/aiChat/ai/utils/mediaSupportError";
 import { logger } from "../../../../packages/infra/logger";
 
 /**
@@ -93,7 +94,7 @@ describe("归因档位到失败结果的映射", () => {
     expect(providerApiFailureResult(kind)).toBeUndefined();
   });
 
-  test("logAndClassifyProviderApiError 记录错误日志并返回分类档位，支持拼入 status", () => {
+  test("logAndClassifyProviderApiError 记录结构化错误日志并返回分类档位", () => {
     const errorLog = spyOn(logger, "error").mockImplementation((): void => {});
     try {
       expect(
@@ -108,12 +109,67 @@ describe("归因档位到失败结果的映射", () => {
           error: { status: 415, message: UNSUPPORTED_MEDIA_MESSAGE },
           errorLabel: "Gemini media",
           isMediaCapability: true,
-          includeStatusInLog: true,
         })
       ).toBe("unsupported");
-      expect(errorLog.mock.calls.map((c: unknown[]) => c[0])).toEqual([
-        "OpenAI text error: not found",
-        `Gemini media error: 415 ${UNSUPPORTED_MEDIA_MESSAGE}`,
+      expect(errorLog.mock.calls).toEqual([
+        ["Provider API error.", { errorLabel: "OpenAI text", status: 404, message: "not found" }],
+        ["Provider API error.", { errorLabel: "Gemini media", status: 415, message: UNSUPPORTED_MEDIA_MESSAGE }],
+      ]);
+    } finally {
+      errorLog.mockRestore();
+    }
+  });
+
+  test("handleProviderRequestError 按 APIError 归因或按供应商静态文案记日志并归一为 request", () => {
+    const errorLog = spyOn(logger, "error").mockImplementation((): void => {});
+    try {
+      const apiErr: { status: number; message: string } = { status: 404, message: "missing" };
+      expect(handleProviderRequestError({
+        error: apiErr,
+        provider: "google",
+        apiError: apiErr,
+        errorLabel: "Gemini text",
+        isMediaCapability: false,
+      })).toEqual({ ok: false, failureKind: "misconfigured" });
+
+      const retryableApiErr: { status: number; message: string } = { status: 503, message: "busy" };
+      expect(handleProviderRequestError({
+        error: retryableApiErr,
+        provider: "openai",
+        apiError: retryableApiErr,
+        errorLabel: "OpenAI text",
+        isMediaCapability: false,
+      })).toEqual({ ok: false, failureKind: "request" });
+
+      const netErr: Error = new Error("socket closed");
+      expect(handleProviderRequestError({
+        error: netErr,
+        provider: "google",
+        apiError: null,
+        errorLabel: "Gemini text",
+        isMediaCapability: false,
+      })).toEqual({ ok: false, failureKind: "request" });
+      expect(handleProviderRequestError({
+        error: netErr,
+        provider: "openai",
+        apiError: null,
+        errorLabel: "OpenAI text",
+        isMediaCapability: false,
+      })).toEqual({ ok: false, failureKind: "request" });
+      expect(handleProviderRequestError({
+        error: netErr,
+        provider: "anthropic",
+        apiError: null,
+        errorLabel: "Anthropic text",
+        isMediaCapability: false,
+      })).toEqual({ ok: false, failureKind: "request" });
+
+      expect(errorLog.mock.calls).toEqual([
+        ["Provider API error.", { errorLabel: "Gemini text", status: 404, message: "missing" }],
+        ["Provider API error.", { errorLabel: "OpenAI text", status: 503, message: "busy" }],
+        ["Error calling Gemini API:", { errorLabel: "Gemini text" }, netErr],
+        ["Error calling OpenAI API:", { errorLabel: "OpenAI text" }, netErr],
+        ["Error calling Anthropic API:", { errorLabel: "Anthropic text" }, netErr],
       ]);
     } finally {
       errorLog.mockRestore();

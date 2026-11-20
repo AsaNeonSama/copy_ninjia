@@ -9,7 +9,7 @@ import type { BotActionPermissions } from "../../../packages/types/telegram";
 import type { FloodCandidateMessage } from "../../../packages/types/antiRaid";
 import type { FloodWindowEntry } from "../../../packages/types/antiRaid/internal";
 
-const errorLogs: string[] = [];
+const errorLogs: unknown[][] = [];
 const sentTexts: string[] = [];
 const deleteAfterCalls: {
   chatId: number;
@@ -27,6 +27,8 @@ const fetchedAdmins = new Map<number, Set<number>>();
 let muteOutcome: "muted" | "forbidden" | "failed" = "muted";
 /** 模拟三态之外的意外异常，验证处置的兜底 catch。 */
 let muteThrows: boolean = false;
+/** 模拟禁言通知发送抛出的异常（如超时/取消）。 */
+let noticeError: Error | null = null;
 let noticeMessageId: number | undefined = 500;
 /** 把下一次禁言/身份确证卡在途中，模拟网络或分类 429 退避尚未结算的窗口。 */
 let holdMute: boolean = false;
@@ -35,7 +37,7 @@ let holdAdminFetch: boolean = false;
 let releaseAdminFetch: (() => void) | undefined;
 
 mock.module("../../../packages/infra/logger", () => ({
-  logger: loggerStub({ error(message: unknown): void { errorLogs.push(String(message)); } }),
+  logger: loggerStub({ error(...args: unknown[]): void { errorLogs.push(args); } }),
 }));
 mock.module("../../../packages/infra/telegram", () => ({
   telegramApi: { kind: "guard-api" },
@@ -54,6 +56,7 @@ mock.module("../../../packages/infra/telegram", () => ({
   },
   sendMessage: async (params: { text: string; signal?: AbortSignal }): Promise<number | undefined> => {
     noticeSignals.push(params.signal);
+    if (noticeError !== null) throw noticeError;
     // 真实实现里被 abort 的请求返回 undefined（错误由统一边界吞掉）。
     if (params.signal?.aborted === true) return undefined;
     sentTexts.push(params.text);
@@ -89,8 +92,8 @@ mock.module("../../../packages/workers/antiRaid/adminCache", () => ({
     try {
       return (await fetchAdminIds(chatId)).has(userId);
     } catch {
-      // 文案与真实现一致；有用例断言这一行进入 logs/。
-      errorLogs.push(`Failed to check admin exemption for flooding user ${userId} in chat ${chatId}:`);
+      // 格式与真实现一致；有用例断言这一行进入 logs/。
+      errorLogs.push(["Failed to check admin exemption:", { chatId, userId, context: "flooding user" }]);
       return undefined;
     }
   },
@@ -159,6 +162,7 @@ beforeEach(() => {
   muteCalls.length = 0;
   muteOutcome = "muted";
   muteThrows = false;
+  noticeError = null;
   noticeMessageId = 500;
   holdMute = false;
   releaseMute = undefined;
@@ -242,6 +246,20 @@ describe("刷屏发言窗口", () => {
     expect(entry!.timestamps.size).toBe(1);
   });
 
+  test("墙钟回拨使 suppressedUntil 远超单档禁言时长时结束抑制并恢复刷屏计数", () => {
+    const initialAt: number = 10_000_000;
+    observeMemberMessage(-1001, 7, initialAt);
+    const entry: FloodWindowEntry | undefined = floodEntry(-1001, 7);
+    expect(entry).toBeDefined();
+    entry!.suppressedUntil = initialAt + FLOOD_MUTE_DURATION_MS;
+
+    const rolledBackNow: number = initialAt - 1;
+    for (let i: number = 0; i < FLOOD_MESSAGE_LIMIT - 1; i++) {
+      expect(observeMemberMessage(-1001, 7, rolledBackNow)).toBeUndefined();
+    }
+    expect(observeMemberMessage(-1001, 7, rolledBackNow)).toBe(entry!);
+  });
+
   test("群与成员各自计数，互不连累", () => {
     for (let i: number = 0; i < FLOOD_MESSAGE_LIMIT - 1; i++) {
       observeMemberMessage(-1001, 7, 1_000 + i);
@@ -256,12 +274,227 @@ describe("刷屏发言窗口", () => {
       observeMemberMessage(-1001, member, 1_000);
     }
     observeMemberMessage(-1001, 1, 2_000);
+    const oldestBeforeEviction: FloodWindowEntry | undefined = floodEntry(-1001, 2);
+    expect(oldestBeforeEviction).toBeDefined();
+    const recycledDeque = oldestBeforeEviction!.timestamps;
+
     observeMemberMessage(-2002, 1, 2_000);
 
+    const inserted: FloodWindowEntry | undefined = floodEntry(-2002, 1);
     expect(floodWindowCacheStateHolder.current.entryCount).toBe(FLOOD_WINDOW_MAX_MEMBERS);
     expect(floodEntry(-1001, 1)).toBeDefined();
     expect(floodEntry(-1001, 2)).toBeUndefined();
-    expect(floodEntry(-2002, 1)).toBeDefined();
+    expect(inserted).toBeDefined();
+    // 满载驱逐只复用被驱逐条目的时间戳队列并清空旧内容，条目对象本身保持新建。
+    expect(inserted).not.toBe(oldestBeforeEviction!);
+    expect(inserted!.timestamps).toBe(recycledDeque);
+    expect(inserted!.timestamps.size).toBe(1);
+    expect(inserted!.timestamps.peek()).toBe(2_000);
+  });
+
+  test("满载驱逐复用 timestamps 时保留在途禁言任务的引用同一性（stillManaged 失效且不污染新条目）", async () => {
+    cachedAdmins.delete(-1001);
+    fetchedAdmins.set(-1001, new Set([42]));
+    holdAdminFetch = true;
+
+    for (let i: number = 0; i < FLOOD_MESSAGE_LIMIT; i++) {
+      handleFloodCandidate(candidate(-1001, 7, 1_000 + i));
+    }
+    expect(await waitUntil((): boolean => releaseAdminFetch !== undefined)).toBe(true);
+    const evictedEntry: FloodWindowEntry | undefined = floodEntry(-1001, 7);
+    expect(evictedEntry).toBeDefined();
+
+    // 填满其余槽位并再多插入一条，把 (-1001, 7) 作为最旧条目挤出缓存。
+    for (let member: number = 1; member <= FLOOD_WINDOW_MAX_MEMBERS; member++) {
+      observeMemberMessage(-2002, member, 2_000 + member);
+    }
+    expect(floodEntry(-1001, 7)).toBeUndefined();
+    const replacement: FloodWindowEntry | undefined = floodEntry(-2002, FLOOD_WINDOW_MAX_MEMBERS);
+    expect(replacement).toBeDefined();
+    expect(replacement).not.toBe(evictedEntry!);
+    expect(replacement!.timestamps).toBe(evictedEntry!.timestamps);
+
+    // 即使原成员立刻重新发言建回新条目，在途任务持有的是旧条目对象，不得继续禁言。
+    observeMemberMessage(-1001, 7, 30_000);
+    const recreated: FloodWindowEntry | undefined = floodEntry(-1001, 7);
+    expect(recreated).toBeDefined();
+    expect(recreated).not.toBe(evictedEntry!);
+
+    releaseAdminFetch!();
+    await Promise.allSettled([...antiRaidInFlightTasks]);
+
+    expect(muteCalls).toBeEmpty();
+    expect(sentTexts).toBeEmpty();
+    expect(replacement!.suppressedUntil).toBe(0);
+    expect(recreated!.suppressedUntil).toBe(0);
+  });
+
+  test("满载随机序列（驱逐、LRU 命中、抑制、回拨、清扫与清群）与不复用队列的参考模型完全等价", () => {
+    interface RefEntry {
+      readonly chatId: number;
+      readonly userId: number;
+      timestamps: number[];
+      lastObservedAt: number;
+      suppressedUntil: number;
+    }
+
+    const activeChats: readonly number[] = [-3001, -3002];
+    const activeUserCount: number = 3;
+    const fillerChatId: number = -9999;
+
+    const refOrder = new Map<string, RefEntry>();
+    const keyOf = (chatId: number, userId: number): string => `${chatId}:${userId}`;
+
+    const refObserve = (chatId: number, userId: number, now: number): boolean => {
+      const key: string = keyOf(chatId, userId);
+      let entry: RefEntry | undefined = refOrder.get(key);
+      if (entry === undefined) {
+        if (refOrder.size >= FLOOD_WINDOW_MAX_MEMBERS) {
+          const oldestKey: string | undefined = refOrder.keys().next().value;
+          if (oldestKey !== undefined) refOrder.delete(oldestKey);
+        }
+        entry = { chatId, userId, timestamps: [], lastObservedAt: now, suppressedUntil: 0 };
+        refOrder.set(key, entry);
+      } else {
+        refOrder.delete(key);
+        refOrder.set(key, entry);
+      }
+      entry.lastObservedAt = now;
+      if (
+        entry.suppressedUntil > now &&
+        entry.suppressedUntil - now <= FLOOD_MUTE_DURATION_MS
+      ) {
+        return false;
+      }
+      while (entry.timestamps.length > 0 && entry.timestamps[entry.timestamps.length - 1]! > now) {
+        entry.timestamps.pop();
+      }
+      const cutoff: number = now - FLOOD_WINDOW_MS;
+      while (entry.timestamps.length > 0 && entry.timestamps[0]! <= cutoff) {
+        entry.timestamps.shift();
+      }
+      entry.timestamps.push(now);
+      if (entry.timestamps.length < FLOOD_MESSAGE_LIMIT) return false;
+      entry.timestamps = [];
+      return true;
+    };
+
+    const refSweep = (now: number): number => {
+      let deleted: number = 0;
+      for (const [key, entry] of [...refOrder.entries()]) {
+        const suppressed: boolean =
+          entry.suppressedUntil > now &&
+          entry.suppressedUntil - now <= FLOOD_MUTE_DURATION_MS;
+        if (suppressed) continue;
+        const activeWindow: boolean =
+          now >= entry.lastObservedAt &&
+          now - entry.lastObservedAt <= FLOOD_WINDOW_MS;
+        if (activeWindow) continue;
+        refOrder.delete(key);
+        deleted++;
+      }
+      return deleted;
+    };
+
+    const refClearChat = (chatId: number): void => {
+      for (const [key, entry] of [...refOrder.entries()]) {
+        if (entry.chatId === chatId) refOrder.delete(key);
+      }
+    };
+
+    // 先填满全局硬顶，再在满载边界上连续跑 300 组随机序列持续触发驱逐与 timestamps 队列复用。
+    let now: number = 10_000_000;
+    let nextFillerUser: number = 1;
+    let nextEphemeralUser: number = 100_000;
+    const ensureAtCapacity = (): void => {
+      while (refOrder.size < FLOOD_WINDOW_MAX_MEMBERS) {
+        const fillerUser: number = nextFillerUser++;
+        observeMemberMessage(fillerChatId, fillerUser, now);
+        refObserve(fillerChatId, fillerUser, now);
+      }
+    };
+
+    let rng: number = 0x5eed_cafe;
+    const nextRand = (bound: number): number => {
+      rng = (rng * 1_664_525 + 1_013_904_223) >>> 0;
+      return rng % bound;
+    };
+
+    ensureAtCapacity();
+    let totalEvictionsObserved: number = 0;
+    let totalTriggersObserved: number = 0;
+
+    for (let sequence: number = 0; sequence < 300; sequence++) {
+      ensureAtCapacity();
+      for (let step: number = 0; step < 30; step++) {
+        const action: number = nextRand(20);
+        if (action === 0) {
+          // 偶发小幅时钟回拨
+          now = Math.max(1_000, now - (1 + nextRand(2_000)));
+        } else {
+          now += nextRand(400);
+        }
+        const chatId: number = activeChats[nextRand(activeChats.length)]!;
+        // 混合高频复访成员（构造多条时间戳与触发禁言）与全新访客（强制触发满载驱逐与 deque 复用）。
+        const userId: number = action < 7
+          ? nextEphemeralUser++
+          : 1 + nextRand(activeUserCount);
+        const wasAtCap: boolean =
+          floodWindowCacheStateHolder.current.entryCount >= FLOOD_WINDOW_MAX_MEMBERS &&
+          floodEntry(chatId, userId) === undefined;
+        const actualTriggered: FloodWindowEntry | undefined = observeMemberMessage(chatId, userId, now);
+        const expectedTriggered: boolean = refObserve(chatId, userId, now);
+        if (wasAtCap) totalEvictionsObserved++;
+        if (expectedTriggered) totalTriggersObserved++;
+        expect(actualTriggered !== undefined).toBe(expectedTriggered);
+        if (actualTriggered !== undefined) {
+          const until: number = actualTriggered.lastObservedAt + FLOOD_MUTE_DURATION_MS;
+          actualTriggered.suppressedUntil = until;
+          refOrder.get(keyOf(chatId, userId))!.suppressedUntil = until;
+        }
+      }
+
+      if (sequence % 25 === 24) {
+        const chatId: number = activeChats[nextRand(activeChats.length)]!;
+        clearChatFloodWindows(chatId);
+        refClearChat(chatId);
+      }
+      if (sequence % 60 === 59) {
+        const sweepNow: number = now + FLOOD_WINDOW_MS + 1;
+        const actualDeleted: number = sweepFloodWindows(sweepNow);
+        const expectedDeleted: number = refSweep(sweepNow);
+        expect(actualDeleted).toBe(expectedDeleted);
+        now = sweepNow;
+      }
+
+      // 每组序列结束后核对总数、活跃条目时间戳内容与 LRU 头尾一致。
+      expect(floodWindowCacheStateHolder.current.entryCount).toBe(refOrder.size);
+      for (const chatId of activeChats) {
+        for (let userId: number = 1; userId <= activeUserCount; userId++) {
+          const actual: FloodWindowEntry | undefined = floodEntry(chatId, userId);
+          const expected: RefEntry | undefined = refOrder.get(keyOf(chatId, userId));
+          expect(actual !== undefined).toBe(expected !== undefined);
+          if (actual !== undefined && expected !== undefined) {
+            expect(actual.lastObservedAt).toBe(expected.lastObservedAt);
+            expect(actual.suppressedUntil).toBe(expected.suppressedUntil);
+            expect(actual.timestamps.size).toBe(expected.timestamps.length);
+            for (let idx: number = 0; idx < expected.timestamps.length; idx++) {
+              expect(actual.timestamps.peekAt(idx)).toBe(expected.timestamps[idx]);
+            }
+          }
+        }
+      }
+      const oldestRef: RefEntry | undefined = refOrder.values().next().value;
+      if (oldestRef === undefined) {
+        expect(floodWindowCacheStateHolder.current.oldest).toBeNull();
+        expect(floodWindowCacheStateHolder.current.newest).toBeNull();
+      } else {
+        expect(floodWindowCacheStateHolder.current.oldest?.chatId).toBe(oldestRef.chatId);
+        expect(floodWindowCacheStateHolder.current.oldest?.userId).toBe(oldestRef.userId);
+      }
+    }
+    expect(totalEvictionsObserved).toBeGreaterThan(2_000);
+    expect(totalTriggersObserved).toBeGreaterThan(0);
   });
 
   test("统一 sweep 删掉空闲满一个窗口的条目，仍在抑制期的留到抑制结束", () => {
@@ -276,6 +509,17 @@ describe("刷屏发言窗口", () => {
     expect(floodEntry(-1001, 8)).toBeDefined();
     expect(sweepFloodWindows(2_000 + FLOOD_MUTE_DURATION_MS)).toBe(1);
     expect(floodWindowCacheStateHolder.current.entryCount).toBe(0);
+  });
+
+  test("墙钟回拨时 sweep 回收早于 lastObservedAt 的空闲条目与远超单档时长的抑制条目", () => {
+    const recordedAt: number = 10_000_000;
+    observeMemberMessage(-1001, 7, recordedAt);
+    observeMemberMessage(-1001, 8, recordedAt);
+    floodEntry(-1001, 8)!.suppressedUntil = recordedAt + FLOOD_MUTE_DURATION_MS;
+
+    expect(sweepFloodWindows(recordedAt - 1)).toBe(2);
+    expect(floodWindowCacheStateHolder.current.entryCount).toBe(0);
+    expect(floodWindowsByChat.size).toBe(0);
   });
 
   test("停管/`/init disable` 丢掉该群全部窗口，别的群不受影响", () => {
@@ -391,8 +635,10 @@ describe("刷屏禁言的处置", () => {
     expect(muteCalls).toBeEmpty();
     expect(sentTexts).toBeEmpty();
     // 结论在权限变回来之前不变，抑制位保留，一场刷屏只记一行。
-    expect(errorLogs).toHaveLength(1);
-    expect(errorLogs[0]).toContain("does not have permission to restrict members");
+    expect(errorLogs).toEqual([[
+      "Flood control cannot mute user; the bot does not have permission to restrict members.",
+      { chatId: -1001, userId: 7 },
+    ]]);
   });
 
   test("目标是群管理员时不禁言，且不刷「机器人没权限」的假线索", async () => {
@@ -407,7 +653,10 @@ describe("刷屏禁言的处置", () => {
     cachedAdmins.delete(-1001);
     await flood(FLOOD_MESSAGE_LIMIT);
     expect(muteCalls).toBeEmpty();
-    expect(errorLogs[0]).toContain("Failed to check admin exemption");
+    expect(errorLogs[0]).toEqual([
+      "Failed to check admin exemption:",
+      { chatId: -1001, userId: 7, context: "flooding user" },
+    ]);
 
     // 冷缓存但拉得到时照常处置。
     fetchedAdmins.set(-1001, new Set([42]));
@@ -456,7 +705,11 @@ describe("刷屏禁言的处置", () => {
     muteThrows = true;
     await flood(FLOOD_MESSAGE_LIMIT);
     expect(sentTexts).toBeEmpty();
-    expect(errorLogs.some((line: string): boolean => line.includes("Failed to mute flooding user"))).toBeTrue();
+    expect(errorLogs).toContainEqual([
+      "Failed to mute flooding user:",
+      { chatId: -1001, userId: 7 },
+      expect.any(Error),
+    ]);
 
     muteThrows = false;
     await flood(FLOOD_MESSAGE_LIMIT);
@@ -528,5 +781,29 @@ describe("刷屏禁言的处置", () => {
     expect(notice).toContain(`${FLOOD_MUTE_DURATION_MS / 60_000} 分钟`);
     // 文案只由标签与两个常量拼成，不带消息正文。
     expect(notice).not.toContain("spam");
+  });
+
+  test("禁言成功后通知发送抛错仍保留抑制位：普通异常仅记通知失败，AbortError 不记错误日志", async () => {
+    noticeError = new Error("notice transport failed");
+    await flood(FLOOD_MESSAGE_LIMIT);
+    expect(muteCalls).toHaveLength(1);
+    expect(errorLogs).toEqual([[
+      "Failed to send flood mute notice:",
+      { chatId: -1001, userId: 7 },
+      noticeError,
+    ]]);
+
+    // 抑制位必须保留，同一窗口期内继续刷屏不得再次禁言。
+    await flood(FLOOD_MESSAGE_LIMIT);
+    expect(muteCalls).toHaveLength(1);
+
+    // 换另一个用户触发禁言成功，若通知因 AbortError 取消，保留抑制位且不记 error。
+    errorLogs.length = 0;
+    noticeError = new DOMException("aborted", "AbortError");
+    await flood(FLOOD_MESSAGE_LIMIT, candidate(-1001, 8));
+    expect(muteCalls).toHaveLength(2);
+    expect(errorLogs).toBeEmpty();
+    await flood(FLOOD_MESSAGE_LIMIT, candidate(-1001, 8));
+    expect(muteCalls).toHaveLength(2);
   });
 });

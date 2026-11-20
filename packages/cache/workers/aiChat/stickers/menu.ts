@@ -1,4 +1,4 @@
-/** owner: workers/aiChat。贴纸包菜单记忆化状态（packages/aiChat/ai/tools/stickers.ts）。 */
+/** owner: workers/aiChat。贴纸包菜单记忆化状态（packages/workers/aiChat/ai/tools/stickers.ts）。 */
 
 import type { StickerPackCandidate } from "../../../../types/stickers/tools";
 

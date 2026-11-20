@@ -24,17 +24,17 @@ const describeVision: Mock<(request: { readonly signal?: AbortSignal }) => Promi
     }
   })
 );
-mock.module("../../../packages/aiChat/provider", () => ({ mediaAiProvider: () => ({ describeVision }) }));
-mock.module("../../../packages/aiChat/ai/voiceTranscription", () => ({ transcribeVoiceUncached: describeVision }));
-mock.module("../../../packages/aiChat/ai/telegramImage", () => ({
+mock.module("../../../packages/workers/aiChat/provider", () => ({ mediaAiProvider: () => ({ describeVision }) }));
+mock.module("../../../packages/workers/aiChat/ai/voiceTranscription", () => ({ transcribeVoiceUncached: describeVision }));
+mock.module("../../../packages/workers/aiChat/ai/telegramImage", () => ({
   downloadTelegramVisionImage: async () => ({ bytes: new Uint8Array([1]), mime: "image/png" }),
 }));
-const { describeMedia, describeMediaForStickerCatalog } = await import("../../../packages/aiChat/ai/imageDescription");
+const { describeMedia, describeMediaForStickerCatalog } = await import("../../../packages/workers/aiChat/ai/imageDescription");
 const { transientDescriptionCache: cache, transientDescriptionTasks } = await import("../../../packages/cache/workers/aiChat/imageDescription");
 const { mediaTaskRunner } = await import("../../../packages/cache/workers/aiChat/mediaTasks");
 const { resetMediaInputSupport, getMediaInputState, getMediaInputProbe } =
   await import("../../../packages/cache/workers/aiChat/mediaInputSupport");
-const { recordMediaInputResult } = await import("../../../packages/aiChat/ai/mediaInputSupport");
+const { recordMediaInputResult } = await import("../../../packages/workers/aiChat/ai/mediaInputSupport");
 
 function request(key: string, signal?: AbortSignal): Promise<string | null> {
   return describeMedia({ kind: "photo", fileId: key, fileUniqueId: key, voiceMime: undefined, signal });

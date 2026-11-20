@@ -2,12 +2,13 @@
  * 拼进机器人对外文案的文本清洗与排版纯函数：单行空白折叠、双向控制符剥除、
  * 可点击命令中和、字形簇切分、子句截断以及 Telegram 姓名拼接。
  *
- * 消费方跨 AI 流水线（aiChat/ai/imageDescription.ts 等）、命令回执
+ * 消费方跨 AI 流水线（workers/aiChat/ai/imageDescription.ts 等）、命令回执
  * （users/userLabel.ts）与消息转录（auto/message/facts.ts）。
  */
 
 import {
   BIDI_CONTROL_PATTERN,
+  BIDI_CONTROL_TEST_PATTERN,
   INLINE_SANITIZE_REQUIRED_PATTERN,
   INLINE_WHITESPACE_PATTERN,
   LEADING_AT_SIGNS_PATTERN,
@@ -35,14 +36,18 @@ export function sanitizeInline(raw: string): string {
  *
  * 昵称由用户设置，会被拼进机器人撰写的句子，并作为 text_link 的锚文本
  * （见 commands/cjkAction.ts）。所有拼进机器人文案的昵称、频道名、群标题都经由这一入口
- * 统一处理：双向控制符一律剥掉，形如命令的片段由 neutralizeRenderableCommands 中和。
+ * 统一处理：先用非全局规则 `BIDI_CONTROL_TEST_PATTERN` 检测，命中时以 `BIDI_CONTROL_PATTERN`
+ * 剥掉双向控制符，再由 `neutralizeRenderableCommands` 中和形如命令的片段。
  *
  * 空白折叠的规则与 sanitizeInline 共用。
  * @param raw 原始显示名文本。
  * @returns 清洗后的单行显示名。
  */
 export function sanitizeDisplayName(raw: string): string {
-  return sanitizeInline(neutralizeRenderableCommands(raw.replace(BIDI_CONTROL_PATTERN, "")));
+  const withoutBidi: string = BIDI_CONTROL_TEST_PATTERN.test(raw)
+    ? raw.replace(BIDI_CONTROL_PATTERN, "")
+    : raw;
+  return sanitizeInline(neutralizeRenderableCommands(withoutBidi));
 }
 
 /**
@@ -51,7 +56,7 @@ export function sanitizeDisplayName(raw: string): string {
  * Telegram 的 username 字段本身不含 `@`，剥离针对用户手打进来的 @名字与从 mention
  * 实体里切出来的片段。先看首码元，只有带 `@` 时才走正则。这条判定落在每条进滚动记忆的
  * 群消息（workers/aiChat/bufferedMessage.ts）、每次转录渲染的名册与回复标注
- * （aiChat/ai/utils/chatTranscript.ts）以及 Mini App 名单检索与元数据同步
+ * （workers/aiChat/ai/utils/chatTranscript.ts）以及 Mini App 名单检索与元数据同步
  * （mini-app-api-server/view/identities/page.ts、mini-app-api-server/view/identities/metadata.ts）上。
  *
  * 空串的 `charCodeAt(0)` 是 NaN，比较为假，原样返回。

@@ -40,11 +40,12 @@ export interface MigratedDeployment {
   readonly wedMembers: readonly WedMemberEntry[];
 }
 
-/** 冷迁移输入格式的 bot.json（time_zone 缺省）；身份与安装器夹具的 API 桩一致。 */
+/** 冷迁移输入格式的 bot.json（time_zone 缺省，显式开启 info 日志覆盖冒烟日志断言）；身份与安装器夹具的 API 桩一致。 */
 const BOT_IDENTITY: Readonly<Record<string, unknown>> = {
   bot_token: "123456789:migration_test_token",
   super_admin_user_id: 123456789,
   atmosphere: "mesugaki",
+  log_level: "info",
 };
 
 /** 含凭据、须保持 0600 的部署文件在当前布局下的相对路径。 */

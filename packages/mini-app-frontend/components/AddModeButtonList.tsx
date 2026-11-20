@@ -6,8 +6,12 @@ import {
   HashtagSvgIcon,
   UserSvgIcon,
 } from "../resource";
-import type { MiniAppIdentityAddMode } from "../types/miniApp";
+import type {
+  MiniAppIdentityAddMode,
+  MiniAppPickerSubjectKind,
+} from "../types/miniApp/identities";
 import type { MiniAppTranslations } from "../types/miniAppI18n";
+import { LoadingDotsWave } from "./animations/LoadingDotsWave";
 
 /** `AddModeButtonList` 三合一添加模式按钮列表组件的属性参数。 */
 export interface AddModeButtonListProps {
@@ -15,6 +19,8 @@ export interface AddModeButtonListProps {
   readonly idFormOpen: boolean;
   /** 按钮是否处于禁用状态。 */
   readonly disabled: boolean;
+  /** 正在预备原生选择器的模式键（仅 `"users"` 或 `"channel"` 播放三点加载动画；空闲时为 `null`）。 */
+  readonly loadingMode?: MiniAppPickerSubjectKind | null;
   /** 折叠面板当前是否可见（决定键盘焦点 `tabIndex`）。 */
   readonly interactive: boolean;
   /** 额外附加在网格容器上的 CSS 类名（可选）。 */
@@ -46,6 +52,7 @@ function renderAddModeIcon(mode: MiniAppIdentityAddMode): React.JSX.Element {
 function AddModeButtonListView({
   idFormOpen,
   disabled,
+  loadingMode = null,
   interactive,
   className,
   t,
@@ -58,26 +65,40 @@ function AddModeButtonListView({
   return (
     <div className={gridClassName}>
       {MINI_APP_IDENTITY_ADD_MODES.map(
-        (mode: MiniAppIdentityAddMode): React.JSX.Element => (
-          <button
-            key={mode}
-            type="button"
-            className={`add-mode-card ${mode === "id" && idFormOpen ? "active" : ""}`}
-            disabled={disabled}
-            tabIndex={interactive ? 0 : -1}
-            onClick={(): void => {
-              onSelectMode(mode);
-            }}
-          >
-            <div className="add-mode-head">
-              {renderAddModeIcon(mode)}
-              <span>{t.identities.addModes[mode]}</span>
-            </div>
-            <div className="add-mode-desc">
-              {t.identities.addModeDescriptions[mode]}
-            </div>
-          </button>
-        )
+        (mode: MiniAppIdentityAddMode): React.JSX.Element => {
+          const isActive: boolean = mode === "id" && idFormOpen;
+          const isLoading: boolean =
+            (mode === "users" || mode === "channel") && loadingMode === mode;
+          const cardClassName: string = `add-mode-card${isActive ? " active" : ""}${isLoading ? " is-loading" : ""}`;
+          return (
+            <button
+              key={mode}
+              type="button"
+              className={cardClassName}
+              disabled={disabled}
+              aria-busy={isLoading ? true : undefined}
+              tabIndex={interactive ? 0 : -1}
+              onClick={(): void => {
+                onSelectMode(mode);
+              }}
+            >
+              <div className="add-mode-head">
+                {renderAddModeIcon(mode)}
+                <span>{t.identities.addModes[mode]}</span>
+              </div>
+              <div className="add-mode-desc">
+                {t.identities.addModeDescriptions[mode]}
+              </div>
+              {isLoading
+                ? (
+                  <span className="add-mode-loading-overlay" aria-hidden="true">
+                    <LoadingDotsWave />
+                  </span>
+                )
+                : null}
+            </button>
+          );
+        }
       )}
     </div>
   );

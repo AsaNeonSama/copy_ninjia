@@ -2,7 +2,7 @@
  * 可自愈的业务 Worker 宿主（主线程侧）骨架，由 infra/supervisedDuplexWorker.ts 包装后供
  * aiChat/workerBridge.ts 与 antiRaid/workerBridge/controller.ts 使用：
  * - 创建 Worker 并 unref（不阻止进程退出，停机时在途任务随线程丢弃）；
- * - 识别 Worker 回传的有界 error 日志批次（logger.ts 的转发模式），转投主线程
+ * - 识别 Worker 回传的有界日志批次（logger.ts 的转发模式），将达到 `log_level` 阈值的日志转投主线程
  *   唯一的落盘线程并确认该批；其余消息交给 onEvent（业务事件回传）；
  * - Worker 崩溃时按节流重建：Bun 在未捕获异常后已终止该 Worker 线程，这里不再
  *   terminate，直接换新实例顶上，并经 onRespawn 重放必要状态；
@@ -81,7 +81,7 @@ export function superviseWorker<TMessage, TEvent = never>(
     try {
       failedWorker.terminate();
     } catch (error: unknown) {
-      logger.error(`${options.label} termination after failure rejected:`, error);
+      logger.error("Worker termination after failure rejected:", { label: options.label }, error);
     }
   }
 
@@ -94,7 +94,7 @@ export function superviseWorker<TMessage, TEvent = never>(
     try {
       options.onGiveUp?.();
     } catch (error: unknown) {
-      logger.error(`${options.label} unavailable cleanup failed:`, error);
+      logger.error("Worker unavailable cleanup failed:", { label: options.label }, error);
     }
     signalBusinessWorkerFatal(failure);
   }
@@ -109,7 +109,7 @@ export function superviseWorker<TMessage, TEvent = never>(
       else target.postMessage(message, transfer);
       return true;
     } catch (error: unknown) {
-      logger.error(`${options.label} postMessage failed:`, error);
+      logger.error("Worker postMessage failed:", { label: options.label }, error);
       return false;
     }
   }
@@ -135,7 +135,7 @@ export function superviseWorker<TMessage, TEvent = never>(
     w.onmessage = (event: MessageEvent<unknown>): void => {
       const data: unknown = event.data;
       // __logBatch 转发不受下面的活跃实例守卫约束：它只把这个 Worker 自己的
-      // error 日志转投落盘线程，不改写共享镜像；旧实例的迟到日志同样转投。
+      // 已启用级别日志转投落盘线程，不改写共享镜像；旧实例的迟到日志同样转投。
       if (data && typeof data === "object" && "__logBatch" in data) {
         const forwarded: ForwardedLogBatch = data as ForwardedLogBatch;
         let acceptedAll: boolean = true;
@@ -159,14 +159,19 @@ export function superviseWorker<TMessage, TEvent = never>(
     w.onerror = (event: ErrorEvent): void => {
       // 已被替换的旧实例迟到或重复上报的错误忽略。
       if (worker !== w) return;
-      logger.error(`${options.label} errored, restarting:`, event.message || event.error || event);
+      logger.error("Worker errored, restarting:", { label: options.label }, event.message || event.error || event);
       controller.abort();
       if (restartThrottle.shouldGiveUp()) {
         const failure: Error = new Error(
           `${options.label} restarted ${WORKER_MAX_RESTARTS} times within ` +
           `${WORKER_RESTART_WINDOW_MS / 1000}s; ${options.giveUpConsequence}`
         );
-        logger.error(`${failure.message}`);
+        logger.error("Worker restart budget exhausted; giving up.", {
+          label: options.label,
+          maxRestarts: WORKER_MAX_RESTARTS,
+          windowSeconds: WORKER_RESTART_WINDOW_MS / 1000,
+          giveUpConsequence: options.giveUpConsequence,
+        });
         becomeUnavailable(w, failure);
         return;
       }
@@ -175,7 +180,7 @@ export function superviseWorker<TMessage, TEvent = never>(
         next = createWorker();
       } catch (error: unknown) {
         const failure: Error = toErrorOr(error, `${options.label} replacement construction failed.`);
-        logger.error(`${options.label} replacement construction failed:`, error);
+        logger.error("Worker replacement construction failed:", { label: options.label }, error);
         becomeUnavailable(w, failure);
         return;
       }
@@ -190,7 +195,7 @@ export function superviseWorker<TMessage, TEvent = never>(
         });
       } catch (error: unknown) {
         replayFailure = toErrorOr(error, `${options.label} state replay failed.`);
-        logger.error(`${options.label} state replay failed:`, error);
+        logger.error("Worker state replay failed:", { label: options.label }, error);
       }
       if (replayFailure !== null) {
         becomeUnavailable(next, replayFailure);

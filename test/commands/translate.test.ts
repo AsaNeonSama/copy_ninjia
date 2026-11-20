@@ -3,7 +3,7 @@ import type { CachedUser, GlobalCopyState } from "../../packages/types/chatState
 import type { TranslateLanguage, TranslateState } from "../../packages/types/translate";
 import type { SendCommandMessageParams } from "../../packages/infra/telegram/commandMessages";
 import { TRANSLATE_CHAT_USER_LIMIT, TRANSLATE_LANGUAGE_LABELS } from "../../packages/consts/translate";
-import { formatUserLabel } from "../../packages/users/userLabel";
+import { formatTargetLabel, formatUserLabel } from "../../packages/users/userLabel";
 import { TRANSLATE_CHAT_CAPACITY_TEXT, TRANSLATE_DISABLED_TEXT, TRANSLATE_TARGET_TEXTS } from "../../packages/consts/atmosphere/teasing/translate";
 import {
   TRANSLATE_TARGET_TEXTS as PLAIN_TRANSLATE_TARGET_TEXTS,
@@ -443,5 +443,35 @@ describe("/translate 独立命令", () => {
     expect(sendCommandMessage).toHaveBeenCalledWith({ chatId: -1001, text: TRANSLATE_DISABLED_TEXT, replyToMessageId: 9 });
     expect(translateStates.has(-1001)).toBe(false);
     expect(persistChatState).not.toHaveBeenCalled();
+  });
+
+  test("stop 命中或未命中裸用户/频道 ID 时按 formatTargetLabel 格式化回执", async () => {
+    const atmosphere = ATMOSPHERE_TEXTS.teasing;
+    const bareUser: CachedUser = { id: 7 };
+    const bareChannel: CachedUser = { id: -3003, isChannel: true };
+
+    setTranslateState(-1001, { translatedUser: bareUser, language: "ja" });
+    target = bareUser;
+    await handleTranslateCommand(context("stop 7"));
+    expect(sendCommandMessage.mock.calls.at(-1)?.[0]).toMatchObject({
+      text: atmosphere.NOTICE_TEXTS.translateStopped(formatTargetLabel(bareUser, atmosphere)),
+    });
+
+    await handleTranslateCommand(context("stop 7"));
+    expect(sendCommandMessage.mock.calls.at(-1)?.[0]).toMatchObject({
+      text: atmosphere.NOTICE_TEXTS.translateNotRunning(formatTargetLabel(bareUser, atmosphere)),
+    });
+
+    setTranslateState(-1001, { translatedUser: bareChannel, language: "ja" });
+    target = bareChannel;
+    await handleTranslateCommand(context("stop -3003"));
+    expect(sendCommandMessage.mock.calls.at(-1)?.[0]).toMatchObject({
+      text: atmosphere.NOTICE_TEXTS.translateStopped(formatTargetLabel(bareChannel, atmosphere)),
+    });
+
+    await handleTranslateCommand(context("stop -3003"));
+    expect(sendCommandMessage.mock.calls.at(-1)?.[0]).toMatchObject({
+      text: atmosphere.NOTICE_TEXTS.translateNotRunning(formatTargetLabel(bareChannel, atmosphere)),
+    });
   });
 });

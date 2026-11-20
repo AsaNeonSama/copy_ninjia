@@ -4,7 +4,7 @@ import {
   buildTieredVerbatimTranscript,
   formatBufferedMessageLine,
   formatSpeakerIdentity,
-} from "../../../packages/aiChat/ai/utils/chatTranscript";
+} from "../../../packages/workers/aiChat/ai/utils/chatTranscript";
 import { COMPACT_BATCH_SIZE, TIER_BOUNDARY_ALIGNMENT, TRANSCRIPT_SETTLED_SEGMENT_SIZE } from
   "../../../packages/consts/aiChat/memory";
 import {
@@ -13,7 +13,7 @@ import {
   SUMMARY_SYSTEM_PROMPT,
   TRANSCRIPT_FORMAT_INSTRUCTION,
 } from "../../../packages/consts/aiChat/prompts/memory";
-import type { RenderedTranscript, TieredTranscriptOptions } from "../../../packages/aiChat/ai/utils/chatTranscript";
+import type { RenderedTranscript, TieredTranscriptOptions } from "../../../packages/workers/aiChat/ai/utils/chatTranscript";
 import {
   COLD_MEMORY_BLOCK_HEADER,
   COLD_MEMORY_BLOCK_NAME,
@@ -59,7 +59,7 @@ const message: BufferedMessage = bufferedMessageFixture({
 /** 多数用例不关心自我识别与触发消息；固定用一个不在样本里的 selfId。 */
 const TRANSCRIPT_OPTIONS: TieredTranscriptOptions = { selfId: -1, triggerMessageId: -1 };
 
-/** 多数用例只关心拼出来的文本；随渲染一并交出的编号表与消息号在位判定
+/** 多数用例只关心拼出来的文本；随渲染一并交出的编号查询与消息号在位判定
  *  另有专门用例（文件末尾「渲染结果提供行内编号与单跳引用…」那条）。 */
 function renderTranscript(
   messages: BufferedMessage[],
@@ -496,9 +496,9 @@ describe("AI 群聊转录身份格式", () => {
       { selfId: 99, triggerMessageId: 11 }
     );
 
-    expect(rendered.codeOf.get(42)).toBe("u1");
-    expect(rendered.codeOf.get(99)).toBe(SELF_ROSTER_CODE);
-    expect(rendered.codeOf.get(12345)).toBeUndefined();
+    expect(rendered.codeOf(42)).toBe("u1");
+    expect(rendered.codeOf(99)).toBe(SELF_ROSTER_CODE);
+    expect(rendered.codeOf(12345)).toBeUndefined();
     // 目标还在窗口里就给指针；滑出了才退回内嵌快照。
     expect(rendered.replyReference(bufferedReplyReferenceFixture({
       messageId: 10,
@@ -514,6 +514,26 @@ describe("AI 群聊转录身份格式", () => {
       lastName: "",
       text: "已经不在段内的原话",
     }))).toContain(REPLY_TARGET_EVICTED_TAG);
+  });
+
+  test("单 Map 发言人表在改名时保留首次发言顺位并更新末次快照，同时兼容定宽与不定宽时间戳", () => {
+    const rendered: RenderedTranscript = buildTieredVerbatimTranscript(
+      [
+        { ...message, messageId: 1, id: 10, firstName: "旧名", lastName: "", text: "第一句", at: "2026/07/17 09:00:00" },
+        { ...message, messageId: 2, id: 20, firstName: "路人", lastName: "", text: "插话", at: "2026/7/17 09:01:00" },
+        { ...message, messageId: 3, id: 10, firstName: "新名", lastName: "", username: "renamed", text: "改名后", at: "2026/07/18 00:05:00" },
+      ],
+      { selfId: 99, triggerMessageId: 3 }
+    );
+
+    expect(rendered.codeOf(10)).toBe("u1");
+    expect(rendered.codeOf(20)).toBe("u2");
+    expect(rendered.text).toContain(`${transcriptDateHeader("2026/07/17")}\n[09:00:00] u1：第一句`);
+    expect(rendered.text).toContain(`${transcriptDateHeader("2026/7/17")}\n[09:01:00] u2：插话`);
+    expect(rendered.text).toContain(`${transcriptDateHeader("2026/07/18")}\n[00:05:00] #3 u1：改名后`);
+    expect(rendered.text).toContain("u1=[id:10] [username:@renamed] 新名");
+    expect(rendered.text).not.toContain("旧名");
+    expect(rendered.text.indexOf("u1=")).toBeLessThan(rendered.text.indexOf("u2="));
   });
 
 });

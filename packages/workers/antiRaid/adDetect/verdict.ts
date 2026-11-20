@@ -1,12 +1,15 @@
 /**
  * 单个待检键的广告分类、引用归因与处置编排（Anti-Raid Worker 侧）：
  * - 送检前由 `selectAdBundleEntries` 定格入选条目与水位；
- * - 依次执行贴纸黑名单快路径（`sticker_black_list`）、自定义表情包黑名单（`emoji_black_list`）与 AI 分类；
+ * - 先经 `./blacklistFastPath.ts` 执行贴纸与自定义表情包黑名单快路径，未命中时再调用 AI 分类；
  * - 按分类与归因结果分派：非广告/未知仅推进 `checkedSeq`，命中黑名单或本人姓名/正文命中广告直接处置，
  *   仅引用内容命中广告且未处于警告窗口时先发警告并删除警告前消息，警告窗口内再次命中则升级处置。
  */
 
-import type { Sticker } from "grammy/types";
+import {
+  matchCustomEmojiBlacklistFastPath,
+  matchStickerBlacklistFastPath,
+} from "./blacklistFastPath";
 import { classifyAdText } from "./classifier";
 import {
   deleteReferencedAdMessages,
@@ -15,24 +18,16 @@ import {
 } from "./disposal";
 import { getAdDetectConfig } from "../../../config/adDetectConfig";
 import { deleteMessage, telegramApi } from "../../../infra/telegram";
-import { isTelegramRequestRejected } from "../../../infra/telegram/errors";
 import { isChatAdmin } from "../adminCache";
 import { logger } from "../../../infra/logger";
 import {
   adVerdictTruePublishHolder,
   adDetectStopping,
-  customEmojiSetNames,
   inFlightAdDetectKeys,
   recentlyDisposedAdKeys,
   referencedAdWarningStates,
 } from "../../../cache/workers/antiRaid/adDetect";
-import {
-  AD_DETECT_CUSTOM_EMOJI_QUERY_MAX_RETRIES,
-  AD_REFERENCE_WARNING_WINDOW_MS,
-  adEmojiBlacklistReason,
-  adStickerBlacklistReason,
-} from "../../../consts/antiRaid/adDetect";
-import { TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS } from "../../../consts/telegram";
+import { AD_REFERENCE_WARNING_WINDOW_MS } from "../../../consts/antiRaid/adDetect";
 import {
   claimSampleContextParts,
   containsReferencedAdContent,
@@ -81,111 +76,6 @@ type AdDetectionOutcome =
   | { readonly kind: "referencedOnly"; readonly verdict: AdVerdict };
 
 /**
- * 检查本次未检条目是否命中贴纸包黑名单（快路径）。
- *
- * @param bundle 待检消息束。
- * @param judged 本次送检入选的条目快照。
- * @param stickerBlackList 贴纸包黑名单。
- * @returns 命中的贴纸包 short name；未命中时返回 `undefined`。
- */
-function matchBlacklistedStickerSet(
-  bundle: AdMessageBundle,
-  judged: readonly AdCandidateEntry[],
-  stickerBlackList: ReadonlySet<string>
-): string | undefined {
-  for (const entry of judged) {
-    if (
-      entry.seq > bundle.checkedSeq &&
-      entry.stickerSetName !== undefined &&
-      stickerBlackList.has(entry.stickerSetName)
-    ) return entry.stickerSetName;
-  }
-  return undefined;
-}
-
-/**
- * 核对本次未检条目的自定义表情是否属于黑名单表情包：已在 customEmojiSetNames 的 ID 直接比对，
- * 其余 ID 去重后交给 queryBlacklistedCustomEmojiSet 分批查询。
- *
- * @param bundle 待检消息束。
- * @param judged 本次送检入选的条目快照。
- * @param emojiBlackList 非空的自定义表情包黑名单。
- * @returns 命中的自定义表情包 short name；未命中或查询失败时返回 `undefined`。
- */
-async function matchBlacklistedCustomEmojiSet(
-  bundle: AdMessageBundle,
-  judged: readonly AdCandidateEntry[],
-  emojiBlackList: ReadonlySet<string>
-): Promise<string | undefined> {
-  let uncachedIds: Set<string> | undefined;
-  for (const entry of judged) {
-    if (entry.seq <= bundle.checkedSeq || entry.customEmojiIds === undefined) continue;
-    for (const id of entry.customEmojiIds) {
-      const setName: string | null | undefined = customEmojiSetNames.get(id);
-      if (setName === undefined) {
-        uncachedIds ??= new Set<string>();
-        uncachedIds.add(id);
-      } else if (setName !== null && emojiBlackList.has(setName)) {
-        return setName;
-      }
-    }
-  }
-  if (uncachedIds === undefined) return undefined;
-  return await queryBlacklistedCustomEmojiSet(bundle, [...uncachedIds], emojiBlackList);
-}
-
-/**
- * 经主线程统一 Telegram 出站按 TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS 分批查询自定义表情所属表情包，
- * 把每批返回的贴纸写入 customEmojiSetNames 后比对黑名单，命中即停。查询失败时各批共用
- * AD_DETECT_CUSTOM_EMOJI_QUERY_MAX_RETRIES 次立即重试；4xx 拒绝、预算用尽或进入停机时放弃本轮核对。
- *
- * @param bundle 待检消息束。
- * @param customEmojiIds 去重后的待查询自定义表情 ID 列表。
- * @param emojiBlackList 自定义表情包黑名单。
- * @returns 命中的自定义表情包 short name；未命中或放弃核对时返回 `undefined`。
- */
-async function queryBlacklistedCustomEmojiSet(
-  bundle: AdMessageBundle,
-  customEmojiIds: readonly string[],
-  emojiBlackList: ReadonlySet<string>
-): Promise<string | undefined> {
-  let retriesLeft: number = AD_DETECT_CUSTOM_EMOJI_QUERY_MAX_RETRIES;
-  for (
-    let start: number = 0;
-    start < customEmojiIds.length;
-    start += TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS
-  ) {
-    const batch: string[] = customEmojiIds.slice(start, start + TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS);
-    let stickers: readonly Sticker[];
-    for (;;) {
-      try {
-        stickers = await telegramApi.getCustomEmojiStickers(batch);
-        break;
-      } catch (error: unknown) {
-        if (retriesLeft === 0 || isTelegramRequestRejected(error) || adDetectStopping.current) {
-          logger.error(
-            `Ad detection failed to query custom emoji stickers for sender ${bundle.senderId} ` +
-            `in chat ${bundle.chatId} (${AD_DETECT_CUSTOM_EMOJI_QUERY_MAX_RETRIES - retriesLeft} ` +
-            "retries used); skipping the custom emoji blacklist check:",
-            error
-          );
-          return undefined;
-        }
-        retriesLeft--;
-      }
-    }
-    let matched: string | undefined;
-    for (const sticker of stickers) {
-      const setName: string | null = sticker.set_name ?? null;
-      if (sticker.custom_emoji_id !== undefined) customEmojiSetNames.set(sticker.custom_emoji_id, setName);
-      if (matched === undefined && setName !== null && emojiBlackList.has(setName)) matched = setName;
-    }
-    if (matched !== undefined) return matched;
-  }
-  return undefined;
-}
-
-/**
  * 检查本次送检是否存在尚未做过 AI 文本判定的非空文本条目。
  *
  * @param bundle 待检消息束。
@@ -203,7 +93,7 @@ function hasUncheckedAdText(
 }
 
 /**
- * 对选中条目按「贴纸黑名单快路径 -> 自定义表情包黑名单 -> AI 分类与引用归因」顺序执行检测。
+ * 对选中条目按「贴纸与自定义表情黑名单快路径 -> AI 分类与引用归因」顺序执行检测。
  *
  * @param bundle 待检消息束。
  * @param judged 本次送检入选的条目快照。
@@ -216,25 +106,18 @@ async function classifyAdBundle(
   let combinedVerdict: AdVerdict | null;
   try {
     const { stickerBlackList, emojiBlackList }: AdDetectConfig = getAdDetectConfig();
-    const matchedStickerSet: string | undefined =
-      matchBlacklistedStickerSet(bundle, judged, stickerBlackList);
-    if (matchedStickerSet !== undefined) {
-      return {
-        kind: "directAd",
-        verdict: { isAd: true, reason: adStickerBlacklistReason(matchedStickerSet) },
-      };
+    const stickerVerdict: AdVerdict | null =
+      matchStickerBlacklistFastPath(bundle, judged, stickerBlackList);
+    if (stickerVerdict !== null) {
+      return { kind: "directAd", verdict: stickerVerdict };
     }
-
-    const matchedEmojiSet: string | undefined = emojiBlackList.size === 0
-      ? undefined
-      : await matchBlacklistedCustomEmojiSet(bundle, judged, emojiBlackList);
-    if (matchedEmojiSet !== undefined) {
-      return {
-        kind: "directAd",
-        verdict: { isAd: true, reason: adEmojiBlacklistReason(matchedEmojiSet) },
-      };
+    if (emojiBlackList.size > 0) {
+      const emojiVerdict: AdVerdict | null =
+        await matchCustomEmojiBlacklistFastPath(bundle, judged, emojiBlackList);
+      if (emojiVerdict !== null) {
+        return { kind: "directAd", verdict: emojiVerdict };
+      }
     }
-
     if (!hasUncheckedAdText(bundle, judged)) return { kind: "notAd" };
     combinedVerdict = await classifyAdText({
       text: formatAdBundleText(judged),
@@ -242,7 +125,8 @@ async function classifyAdBundle(
     });
   } catch (error: unknown) {
     logger.error(
-      `Ad detection failed to classify sender ${bundle.senderId} in chat ${bundle.chatId}:`,
+      "Ad detection failed to classify sender:",
+      { chatId: bundle.chatId, senderId: bundle.senderId },
       error
     );
     return { kind: "unknown" };
@@ -264,8 +148,8 @@ async function classifyAdBundle(
     });
     if (directVerdict === null) {
       logger.error(
-        `Ad detection could not attribute referenced content for sender ${bundle.senderId} ` +
-        `in chat ${bundle.chatId}: the direct-content classifier returned no verdict.`
+        "Ad detection could not attribute referenced content; the direct-content classifier returned no verdict.",
+        { chatId: bundle.chatId, senderId: bundle.senderId }
       );
       return { kind: "unknown" };
     }
@@ -274,8 +158,8 @@ async function classifyAdBundle(
       : { kind: "referencedOnly", verdict: combinedVerdict };
   } catch (error: unknown) {
     logger.error(
-      `Ad detection failed to attribute referenced content for sender ${bundle.senderId} ` +
-      `in chat ${bundle.chatId}:`,
+      "Ad detection failed to attribute referenced content:",
+      { chatId: bundle.chatId, senderId: bundle.senderId },
       error
     );
     return { kind: "unknown" };
@@ -293,37 +177,56 @@ function selectedWithinReferencedWarning(selection: AdBundleSelection): boolean 
 }
 
 /**
- * 保留 `messageId` 晚于公开警告的消息并更新其引用去重与警告窗口标记（`AD_REFERENCE_WARNING_WINDOW_MS`）。
+ * 提取本次送检条目快照中的最大消息 ID；快照为空时返回 0。
+ *
+ * @param entries 本次送检入选的条目列表。
+ * @returns 最大 `messageId`。
+ */
+function maxMessageId(entries: readonly AdCandidateEntry[]): number {
+  let maxId: number = 0;
+  for (const entry of entries) {
+    if (entry.messageId > maxId) maxId = entry.messageId;
+  }
+  return maxId;
+}
+
+/**
+ * 裁剪不晚于 `messageIdThrough` 的已处置条目与待删 ID，并按保留条目的不可变 `senderText`
+ * 重新计算引用去重；给出 `warningSentAt` 时同步刷新剩余条目的警告窗口标记（`AD_REFERENCE_WARNING_WINDOW_MS`）。
  *
  * @param bundle 待检消息束。
- * @param warning 公开警告消息的发送结果。
+ * @param messageIdThrough 已触发清理的消息 ID 上界（含）。
+ * @param warningSentAt 公开警告消息发送时刻；警告发送失败时缺省，不改写既有窗口标记。
  */
 function retainPostWarningContent(
   bundle: AdMessageBundle,
-  warning: TelegramWorkerTemporaryMessageSentResult
+  messageIdThrough: number,
+  warningSentAt?: number
 ): void {
   const retainedEntries: AdCandidateEntry[] = [];
   for (const entry of bundle.entries) {
-    if (entry.messageId <= warning.messageId) continue;
+    if (entry.messageId <= messageIdThrough) continue;
     if (
       entry.text.length > 0 &&
       (entry.quote !== undefined || entry.replyTo !== undefined)
     ) {
       entry.text = claimSampleContextParts(
-        entry.directText,
+        entry.senderText,
         entry,
         retainedEntries
       );
     }
-    entry.withinReferencedWarning =
-      entry.receivedAt - warning.sentAt < AD_REFERENCE_WARNING_WINDOW_MS;
+    if (warningSentAt !== undefined) {
+      entry.withinReferencedWarning =
+        entry.receivedAt - warningSentAt < AD_REFERENCE_WARNING_WINDOW_MS;
+    }
     retainedEntries.push(entry);
   }
   bundle.entries = retainedEntries;
 
   let pendingIdWriteIndex: number = 0;
   for (const messageId of bundle.pendingDeleteIds) {
-    if (messageId <= warning.messageId) continue;
+    if (messageId <= messageIdThrough) continue;
     bundle.pendingDeleteIds[pendingIdWriteIndex] = messageId;
     pendingIdWriteIndex++;
   }
@@ -381,8 +284,14 @@ export async function detectOne(
   }
   if (isAdmin !== false) {
     logger.error(
-      `Ad detection flagged ${isAdmin === true ? "chat admin" : "unverified sender"} ${bundle.senderId} ` +
-      `in chat ${bundle.chatId}; skipping disposal (${outcome.verdict.reason || "no reason given"}).`
+      isAdmin === true
+        ? "Ad detection flagged chat admin; skipping disposal."
+        : "Ad detection flagged unverified sender; skipping disposal.",
+      {
+        chatId: bundle.chatId,
+        senderId: bundle.senderId,
+        reason: outcome.verdict.reason || null,
+      }
     );
     if (isAdmin === true) {
       deletePendingAdBundle(bundle.chatId, bundle.senderId);
@@ -424,8 +333,8 @@ async function warnReferencedOnlySender(
       warningResult = await warnReferencedAdSender(bundle);
     } catch (error: unknown) {
       logger.error(
-        `Ad detection failed to send referenced-ad warning for sender ${bundle.senderId} ` +
-        `in chat ${bundle.chatId}:`,
+        "Ad detection failed to send referenced-ad warning:",
+        { chatId: bundle.chatId, senderId: bundle.senderId },
         error
       );
     }
@@ -447,11 +356,13 @@ async function warnReferencedOnlySender(
         !adDetectStopping.current &&
         pendingAdBundle(bundle.chatId, bundle.senderId) === bundle
       ) {
+        const messageIdThrough: number = maxMessageId(judged);
         deleteReferencedAdMessages({
           bundle,
           judged,
-          messageIdThrough: Number.POSITIVE_INFINITY,
+          messageIdThrough,
         });
+        retainPostWarningContent(bundle, messageIdThrough);
       }
       return;
     }
@@ -473,7 +384,7 @@ async function warnReferencedOnlySender(
       judged,
       messageIdThrough: warning.messageId,
     });
-    retainPostWarningContent(bundle, warning);
+    retainPostWarningContent(bundle, warning.messageId, warning.sentAt);
   } finally {
     inFlightAdDetectKeys.delete(key);
     if (!adDetectStopping.current) {

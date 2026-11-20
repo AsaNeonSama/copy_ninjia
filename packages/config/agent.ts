@@ -109,15 +109,17 @@ function requireAgentRecord(
 }
 
 /**
- * 严格解析整份已存在的 agent.json：已出现的每项能力都必须合法，缺省的段返回 null。
- * @param path 配置文件路径。
+ * 严格解析内存中的整份 agent.json 对象：已出现的每项能力都必须合法，缺省的段返回 null（纯函数，不访问文件系统）。
+ * @param value 待校验的顶层 JSON 值。
+ * @param path 配置文件路径，用于构造致命错误诊断。
  * @returns 广告检测与 AI 对话能力的分段配置快照，未配置的段为 null。
  */
-export async function loadAgentConfigSnapshots(
+export function parseAgentConfigSnapshots(
+  value: unknown,
   path: string = AGENT_CONFIG_PATH
-): Promise<AgentConfigSnapshots> {
+): AgentConfigSnapshots {
   const record: Readonly<Record<string, unknown>> = requireAgentRecord(
-    await readJsonInput(path),
+    value,
     path
   );
   if (!hasOnlyKeys(record, AGENT_CAPABILITY_NAMES)) {
@@ -146,6 +148,17 @@ export async function loadAgentConfigSnapshots(
   if (record.tts !== undefined) parseTtsCapability(record.tts, path);
   if (record.web_search !== undefined) parseWebSearchCapability(record.web_search, path);
   return { adDetect: adDetectConfig ?? null, agent: null };
+}
+
+/**
+ * 严格解析整份已存在的 agent.json：已出现的每项能力都必须合法，缺省的段返回 null。
+ * @param path 配置文件路径。
+ * @returns 广告检测与 AI 对话能力的分段配置快照，未配置的段为 null。
+ */
+export async function loadAgentConfigSnapshots(
+  path: string = AGENT_CONFIG_PATH
+): Promise<AgentConfigSnapshots> {
+  return parseAgentConfigSnapshots(await readJsonInput(path), path);
 }
 
 /**

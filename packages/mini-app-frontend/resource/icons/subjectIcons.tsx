@@ -1,5 +1,5 @@
 import type React from "react";
-import type { MiniAppIconProps } from "../../types/miniApp";
+import type { MiniAppIconProps } from "../../types/miniApp/ui";
 
 /**
  * 渲染联系人/好友（单人轮廓）SVG 图标。

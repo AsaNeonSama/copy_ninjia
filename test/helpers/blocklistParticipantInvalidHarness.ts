@@ -118,11 +118,11 @@ export function participantInvalidDiskIO(): typeof diskIO {
   });
 }
 
-/** `infra/logger` 替身：记录 log 与 error 的首个参数。 */
+/** `infra/logger` 替身：记录 info 与 error 的首个参数。 */
 export function participantInvalidLogger(): { logger: ReturnType<typeof loggerStub> } {
   return {
     logger: loggerStub({
-      log: (message: unknown): void => { participantInvalidHarness.logged.push(String(message)); },
+      info: (message: unknown): void => { participantInvalidHarness.logged.push(String(message)); },
       error: (message: unknown): void => { participantInvalidHarness.loggedErrors.push(String(message)); },
     }),
   };

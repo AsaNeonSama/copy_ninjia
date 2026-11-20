@@ -4,6 +4,7 @@
  * - `static/` 下仅允许重启生效的 `bot.json`、`g-auth.json`；
  * - `dynamic/` 下仅允许热重载生效的六份部署文件（见 `config/reload.ts`）。
  * 其余任何目录项（含放错层级的配置文件、未清理的异名条目、隐藏文件、备份、子目录与悬空链接）一律按致命错误拒绝。
+ * `config/bot.ts` 在加载 `bot.json` 前另经 `assertNoLegacyOrMisplacedBotConfig` 只按名称检查配置根顶层的旧版与错位文件。
  */
 
 import { readdir } from "node:fs/promises";
@@ -40,10 +41,12 @@ interface ConfigLayoutRule {
 }
 
 const ROOT_ALLOWED_NAMES: readonly string[] = [STATIC_CONFIG_DIR_NAME, DYNAMIC_CONFIG_DIR_NAME];
-const STATIC_ALLOWED_NAMES: readonly string[] = [BOT_CONFIG_PATH, GOOGLE_AUTH_FILE_PATH].map(
+/** `config/static/` 内允许存在的部署配置文件名白名单；与 `infra/storage/cleanup.ts` 共用，作为清扫前置过滤的单一来源。 */
+export const STATIC_ALLOWED_NAMES: readonly string[] = [BOT_CONFIG_PATH, GOOGLE_AUTH_FILE_PATH].map(
   (path: string): string => basename(path)
 );
-const DYNAMIC_ALLOWED_NAMES: readonly string[] = [
+/** `config/dynamic/` 内允许存在的部署配置文件名白名单；与 `infra/storage/cleanup.ts` 共用，作为清扫前置过滤的单一来源。 */
+export const DYNAMIC_ALLOWED_NAMES: readonly string[] = [
   AGENT_CONFIG_PATH,
   ASSETS_CONFIG_PATH,
   AD_DETECT_CONFIG_PATH,
@@ -156,6 +159,21 @@ async function assertDirectoryWhitelist(
 }
 
 /**
+ * 仅检查配置根顶层是否存在旧版 `telegram.json` 或放错层级的 `bot.json`（按目录项名称判定，不读取文件内容，也不检查 `static/` 与 `dynamic/`）。
+ * 供 `config/bot.ts` 在加载 `bot.json` 前先行暴露冷迁移或目录归属诊断。
+ * @param root 部署配置根目录路径，默认为 `CONFIG_ROOT`。
+ */
+export async function assertNoLegacyOrMisplacedBotConfig(root: string = CONFIG_ROOT): Promise<void> {
+  const listed: DirectoryNamesResult = await listSortedDirectoryNames(root);
+  if (!listed.ok) return;
+  const rootLabel: string = basename(root) || root;
+  for (const name of listed.names) {
+    if (name !== LEGACY_BOT_CONFIG_NAME && name !== BOT_CONFIG_NAME) continue;
+    return invalidInput(join(root, name), "$", expectedEntryShape(ROOT_LAYOUT_RULE, rootLabel, name));
+  }
+}
+
+/**
  * 按三层白名单核对配置根、`static/` 与 `dynamic/` 下的目录项，按层级与名称排序拒绝第一个非白名单条目。
  * 配置根或子目录本身不存在时视为空（普通文件或悬空链接仍拒绝）；安装器在建立子目录与示例文件之前调用。
  * @param root 部署配置根目录路径。
@@ -191,7 +209,8 @@ export async function readDynamicConfigLayoutRejections(
 }
 
 /**
- * 启动总闸的目录布局检查：先核对三层目录白名单，再确认 `dynamic/` 为已存在的可访问目录（可为空，供热重载监听挂载）；在读取 `bot.json` 之前执行。
+ * 启动总闸的目录布局检查：先核对三层目录白名单，再确认 `dynamic/` 为已存在的可访问目录（可为空，供热重载监听挂载）；
+ * 在 `ApplicationLifecycle.init` 持单实例锁并完成 `cleanupOrphanedTempFiles` 孤儿清扫之后、`loadState` 与 `validateExistingDeploymentInputs` 之前执行。
  */
 export async function assertDeploymentConfigLayout(): Promise<void> {
   await assertNoMisplacedConfigFiles(CONFIG_ROOT);

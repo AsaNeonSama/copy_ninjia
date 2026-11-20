@@ -4,6 +4,7 @@
  */
 export type * from "./miniApp/auth";
 export type * from "./miniApp/chats";
+export type * from "./miniApp/configs";
 export type * from "./miniApp/gallery";
 export type * from "./miniApp/identities";
 export type * from "./miniApp/server";

@@ -46,7 +46,7 @@ export function fetchChatHasLinkedChannel(chatId: number): Promise<boolean | und
         cacheLinkedChannel(chatId, "linked_chat_id" in chat && chat.linked_chat_id !== undefined);
       })
       .catch((error: unknown): void => {
-        logger.error(`Error fetching linked channel info for chat ${chatId}:`, error);
+        logger.error("Error fetching linked channel info:", { chatId }, error);
       })
   ).then((): boolean | undefined => cachedChatHasLinkedChannel(chatId));
   return trackAntiRaidTask({ task });

@@ -14,7 +14,7 @@ import type { WebSearchToolExecutor, WebSearchToolOutcome } from "../../../packa
 const loggerError = mock((..._args: unknown[]): void => {});
 mock.module("../../../packages/infra/logger", () => ({ logger: loggerStub({ error: loggerError }) }));
 
-const { createWebSearchExecutor, formatWebSearchResult } = await import("../../../packages/aiChat/ai/tools/webSearch");
+const { createWebSearchExecutor, formatWebSearchResult } = await import("../../../packages/workers/aiChat/ai/tools/webSearch");
 const {
   WEB_SEARCH_FAILED_TEXT,
   WEB_SEARCH_MAX_SOURCES,
@@ -95,8 +95,8 @@ test("未成功的各种情形一律只回「模型搜索失败」，检索次�
   expect(await execute(JSON.stringify({ query: "a" }))).toEqual({ result: FAILED, searchCalls: 1 });
   expect(await execute(JSON.stringify({ query: "b" }))).toEqual({ result: FAILED, searchCalls: 0 });
   expect(loggerError).toHaveBeenCalledTimes(5);
-  // 日志只写原因，不写检索问题。
-  for (const [message] of loggerError.mock.calls) expect(String(message)).not.toContain("凭空写的");
+  // 日志只写原因，不写检索问题或未检索文本。
+  for (const call of loggerError.mock.calls) expect(JSON.stringify(call)).not.toContain("凭空写的");
 });
 
 test("检索模型拒答时回拒答说明与 retryable: false，检索次数如实交回；本轮已作废时不记日志", async () => {
@@ -105,7 +105,7 @@ test("检索模型拒答时回拒答说明与 retryable: false，检索次数如
   expect(await createWebSearchExecutor(provider, TEST_MAX_CALLS_PER_USE, undefined)(JSON.stringify({ query: "被拒的问题" })))
     .toEqual({ result: refused, searchCalls: 1 });
   expect(loggerError).toHaveBeenCalledTimes(1);
-  expect(String(loggerError.mock.calls[0]?.[0])).not.toContain("被拒的问题");
+  expect(JSON.stringify(loggerError.mock.calls[0])).not.toContain("被拒的问题");
 
   const controller: AbortController = new AbortController();
   controller.abort();

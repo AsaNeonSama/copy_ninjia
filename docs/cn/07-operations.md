@@ -94,7 +94,7 @@ WantedBy=multi-user.target
 > [!WARNING]
 > **多租户环境的数据权限隔离**：
 > `memory/` 目录下新建文件的默认权限是 `0644`。如果上层目录开放了其他本地用户的读取权限，同一台机器上的其他本地用户将能够直接读取群聊数据。在多用户共享的服务器上，建议将数据根与 `memory/` 权限收紧为 `0750`，已有文件收紧为 `0600` 或 `0640`（程序运行时会保留已有文件的权限，不会静默修改）。
-> `database/` 目录权限上限为 `IDENTITY_DATABASE_DIRECTORY_MODE`（含 setgid 位时为 `02770`），主数据库及 WAL/SHM 临时文件创建权限为 `IDENTITY_DATABASE_FILE_MODE`。**切勿对整个数据根执行递归 `chmod 0750`**，因为 `database/` 必须保留属组写入权限。`config/` 属于只读输入，保持普通只读即可。
+> `database/` 目录权限上限为 `IDENTITY_DATABASE_DIRECTORY_MODE`（含 setgid 位时为 `02770`），主数据库及 WAL/SHM 临时文件创建权限为 `IDENTITY_DATABASE_FILE_MODE`。**切勿对整个数据根执行递归 `chmod 0750`**，因为 `database/` 必须保留属组写入权限。`config/` 默认属于只读输入，常规运行保持普通只读即可；若启用 Mini App「配置编辑」在线保存功能，需向服务运行账号开放 `config/dynamic/` 和/或 `config/static/` 的写入与原子替换权限（新建可选文件默认权限为 `0600`），且以非 `root` 账号执行静态配置在线重启时需通过 polkit 授权该服务账号重启 `copy-ninjia.service`（见 [10 Mini App 设置与推荐配置](10-mini-app.md)）。
 
 - **崩溃自愈机制**：如果进程意外崩溃或以非零码退出，systemd 的 `Restart=on-failure` 会自动拉起实例。尚未完成的入群验证状态、锁定计时器、身份写入、AI 上下文记忆以及未确认的 Telegram update 将按照 [04 运行时权威约束](04-invariants.md#持久化) 的规则无缝恢复。
 
@@ -183,7 +183,7 @@ WantedBy=multi-user.target
   - **覆盖能力范围**：全面覆盖 `AGENT_CAPABILITY_NAMES` 中定义的所有能力维度。
 
 ### 8. 日志与实例锁：`logs/` 与 `bot.lock`
-- **`logs/`**：英文结构化错误日志目录，由 Disk I/O Worker 负责批量异步写入。
+- **`logs/`**：按 `config/static/bot.json` 的可选 `log_level`（`info` / `operation` / `warn` / `error`，缺省默认 `"operation"`）过滤后写入的英文结构化运行日志目录：单条记录为 `{ level, message, args? }`（`message` 拼接字符串摘要，`args` 仅存非字符串结构化上下文/展开后的 `Error`，缺省不写入）；`info` / `operation` / `warn` 在主线程按 32 条批上限或 30 秒间隔缓冲，随后由 Disk I/O Worker 批量追加落盘，`error` 日志立即落盘。
 - **`bot.lock`**（及附属的 `.guard` / `.recovery`）：基于 Linux `/proc` 文件系统的单实例互斥锁，确保同一个数据根在同一时间绝对只有一个活跃进程在运行。
 
 ---
@@ -340,32 +340,30 @@ WantedBy=multi-user.target
 
 ### 关键日志特征与排查
 
-- **统一结构化日志**：位于 `logs/` 目录下，由 Disk I/O Worker 异步批量落盘，全英文输出，方便使用 `grep` 或日志采集器统一检索。
+- **统一结构化日志**：控制台输出按级别前置 `[INFO]` / `[OPERATION]` / `[WARN]` / `[ERROR]`（`CONSOLE_PREFIX_BY_LOG_LEVEL`），并按 `config/static/bot.json` 中可选 `log_level`（缺省默认 `"operation"`）过滤落盘至 `logs/<YYYY-MM-DD>.json`（每条记录为 `{ level, message, args? }`）；其中 `info` / `operation` / `warn` 在主线程按 32 条批上限或 30 秒窗口缓冲后由 Disk I/O Worker 批量落盘，`error` 日志立即落盘；静态英文摘要与驼峰结构化上下文字段方便使用 `grep`、jq 或日志采集器统一检索。
 - **Worker 线程崩溃自愈**：当某个 Worker 线程意外崩溃退出时，主线程会进行节流防抖并自动拉起新线程，随后从主线程内部的缓存快照中重新初始化 Worker 状态。
 - **存储失败主动快速退出**：当底层磁盘写入遭遇持久化失败且有限次重试全部耗尽时，进程会主动以非零码退出，触发 systemd 重启恢复，防止内存数据与磁盘发生不可逆的分裂。
 
 #### 常见日志提示
 
-- `Cron task "<name>" action #<n> (<type>) failed after <k> attempt(s)`：
-  定时任务执行到了最终失败状态。常见排查方向：
+- `Cron task action failed; skipping the remaining actions for this chat.` / `Cron task action failed; skipping the remaining actions of this run.`（`{ task, actionIndex, actionType, chatId?, attempts, detail }`）：
+  定时任务执行到了最终失败状态。常见 `detail` 排查方向：
   - `403`：机器人已被移出目标频道或群组。
   - `400`：引用的外部媒体 URL 无效，或者图片/音频格式不被 Telegram 支持。
   - `local file ... is missing`：定时任务指定的本地素材文件不存在。
   - `speech synthesis failed: ...`：语音合成生成失败（若提示 `tts unconfigured` 或 `tts unsupported` 说明配置不匹配；`worker unavailable` 表示 AI Worker 尚未完成初始化；`synthesis failed` 或 `timed out` 通常为模型服务商端网络或接口抖动；`daily limit reached` 表示当前配额窗口的额度已耗尽）。
-- `/send TTS for chat <id> produced no voice: <原因>`：
+- `/send TTS produced no voice.`（`{ chatId, reason }`）：
   超级管理员在私聊中使用 `/send` 中转消息时的语音合成失败，原因同上。管理员私聊窗口中会同步收到错误提示，中转会话会保持打开状态。
-- `AI reply voice was not sent (chat <id>): <原因>`：
+- `AI reply voice was not sent.`（`{ chatId, reason }`）：
   AI 在群聊回复时尝试调用 `send_voice` 工具生成语音失败（可能由于模型接口超时或每日配额超标）。该错误不会中断文本消息的正常发出。
-- `Failed to probe chat membership ... PARTICIPANT_ID_INVALID`：
+- `Telegram API call failed.`（`{ action: "probe chat membership", chatId, userId, errorCode: 400, description }` 且 `description` 含 `PARTICIPANT_ID_INVALID`）：
   黑名单成员巡检在探测群成员时遇到了已被 Telegram 官方注销的“已销号账号”（Deleted Account）。当同一个用户连续 `BLOCKLIST_PARTICIPANT_INVALID_LIMIT` 次巡检均返回该错误时，系统会自动将该注销 ID 从黑名单中永久移除。
-- `Chat <id> was upgraded to supergroup <newId>; tearing down the old chat.`：
+- `Chat upgraded to supergroup; tearing down the old chat.`（`{ chatId, supergroupChatId }`）：
   受管普通群升级成了超级群，旧群 id 已按「群已不存在」收尾（数据清除、受管名额释放）。新超级群需要重新执行 `/init enable`，旧群设置不会自动搬迁。
-- `Chat <id> was gone|departed in <n> lookups <ms>ms apart; tearing it down.`：
+- `Chat confirmed unreachable; tearing it down.`（`{ chatId, reason, attempts, intervalMs }`，`reason` 为 `"gone"` 或 `"departed"`）：
   启动时标题刷新连续多次确证某群已不存在（`gone`）或机器人已不是成员（`departed`），已自动收尾。`departed` 的群若还有未恢复的私密模式记录会继续保留，机器人回到群里并拿回限制成员权限后自动还原。
-- `Chat <id> looked gone|departed at startup but lookup <n> disagreed; keeping it.`：
+- `Chat absence check disagreed on retry; keeping chat.`（`{ chatId, initialReason, attempt }`）：
   首次查询像是不可达，但后续重查结论不一致（多为 Telegram 偶发错误），本次不收尾，下次启动重新确证。
-- `Gemini context cache API ... create rejected (n/<max>): 400`：
-  向 Gemini 创建上下文缓存请求时被接口返回 HTTP 400 拒绝。通常是因为当前上下文总 Token 数尚未达到官方要求的创建下限，或者请求参数不合法。系统在等待 `GEMINI_CONTEXT_CACHE_REJECTION_RETRY_AFTER_MS` 冷却时间后会尝试重试，累计达到 `GEMINI_CONTEXT_CACHE_MAX_REJECTIONS` 次失败后将不再为当前内容尝试建立缓存；在此期间，常规的对话回复不受影响，将以不带缓存的方式正常调用。
 
 ---
 

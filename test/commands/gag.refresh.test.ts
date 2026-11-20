@@ -29,6 +29,8 @@ import {
 import type { EphemeralMessageParams } from "../helpers/gagHarness";
 
 const gag = await import("../../packages/commands/gag");
+const { drainGagRuntime, quiesceGagRuntime, teardownGagInChat } = await import("../../packages/commands/gag/runtime");
+const { currentUpdateAbortSignal, runWithUpdateAbortSignal } = await import("../../packages/infra/updateContext");
 
 installGagTestHooks();
 installGagFakeClockHooks();
@@ -56,10 +58,10 @@ describe("gag 发言入口刷新", () => {
     }
     const pendingTaskCount: number = gagBackgroundTasks.size;
     const sendCount: number = sendEphemeralMessage.mock.calls.length;
-    gag.quiesceGagRuntime();
+    quiesceGagRuntime();
     for (const complete of completions) complete();
     await settleGagBackgroundTasks();
-    await gag.drainGagRuntime(1_000);
+    await drainGagRuntime(1_000);
     expect(pendingTaskCount).toBeLessThanOrEqual(GAG_SESSION_MAX);
     expect(sendCount).toBe(GAG_SESSION_MAX);
     expect(gagBackgroundTasks.size).toBe(0);
@@ -215,7 +217,7 @@ describe("gag 发言入口刷新", () => {
       })
     );
     jest.advanceTimersByTime(GAG_SPEAK_NOTICE_REFRESH_INTERVAL_MS);
-    const draining: Promise<string> = gag.drainGagRuntime(1_000);
+    const draining: Promise<string> = drainGagRuntime(1_000);
     expect(session.speakNoticeRefreshTimer).toBeNull();
     expect(deleteEphemeralMessageWithOutcome).toHaveBeenCalledTimes(1);
     finishDeletion!();
@@ -233,8 +235,8 @@ describe("gag 发言入口刷新", () => {
       await gag.handleGagCommand(commandContext());
       const session: GagSession = sessionFor(-1001)!;
       if (ending === "ungag") await gag.handleUngagCommand(commandContext());
-      else if (ending === "teardown") await gag.teardownGagInChat(-1001, "explicitDisable");
-      else expect(await gag.drainGagRuntime(1_000)).toBe("flushed");
+      else if (ending === "teardown") await teardownGagInChat(-1001, "explicitDisable");
+      else expect(await drainGagRuntime(1_000)).toBe("flushed");
       expect(session.speakNoticeRefreshTimer).toBeNull();
       expect(sessionFor(-1001)).toBeUndefined();
       await advanceGagTime(GAG_SPEAK_NOTICE_REFRESH_INTERVAL_MS * 2);
@@ -257,5 +259,28 @@ describe("gag 发言入口刷新", () => {
     await sendVisibleMessages(7);
     expect(sendMessage).toHaveBeenCalledTimes(2);
     expect(sendEphemeralMessage).not.toHaveBeenCalled();
+  });
+
+  test("在 update 作用域内注册的定时换新与立即换新均脱离 trigger update 信号", async () => {
+    const observedSignals: (AbortSignal | undefined)[] = [];
+    const updateController: AbortController = new AbortController();
+
+    await runWithUpdateAbortSignal(updateController.signal, async (): Promise<void> => {
+      await gag.handleGagCommand(commandContext());
+    });
+    sendEphemeralMessage.mockImplementation(async (params: EphemeralMessageParams): Promise<number> => {
+      observedSignals.push(currentUpdateAbortSignal());
+      params.onSent?.(201);
+      return 201;
+    });
+
+    updateController.abort();
+    await advanceGagTime(GAG_SPEAK_NOTICE_REFRESH_INTERVAL_MS);
+
+    await runWithUpdateAbortSignal(updateController.signal, async (): Promise<void> => {
+      await sendVisibleMessages(7);
+    });
+
+    expect(observedSignals).toEqual([undefined, undefined]);
   });
 });

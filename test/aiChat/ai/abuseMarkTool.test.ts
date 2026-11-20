@@ -29,7 +29,7 @@ const {
   botInfoState,
   superAdminUserIdState,
 } = await import("../../../packages/cache/workers/aiChat/identity");
-const { createReplyToolset } = await import("../../../packages/aiChat/ai/tools/replyToolset/orchestrator");
+const { createReplyToolset } = await import("../../../packages/workers/aiChat/ai/tools/replyToolset/orchestrator");
 
 beforeEach(() => {
   resetReplyToolsetMocks();

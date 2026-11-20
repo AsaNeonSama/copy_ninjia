@@ -6,6 +6,7 @@ import {
   NO_VERIFICATION_EFFECTS,
   VERIFICATION_TIMEOUT_MS,
 } from "../../consts/antiRaid/verification";
+import { isRecordedWithin } from "../../libs/clockWindow";
 import type {
   JoinEvent,
   JoinExemption,
@@ -30,7 +31,7 @@ function resolveJoinExemption(event: JoinEvent): JoinExemption {
 }
 
 /**
- * 判断本次投递是否为秒踢记录之后的真正重新入群：距记录时刻超过 KICKED_REJOIN_GRACE_MS，
+ * 判断本次投递是否为秒踢记录之后的真正重新入群：距记录时刻超过 KICKED_REJOIN_GRACE_MS（墙钟回拨按窗口已结束处理），
  * 且不是携带同一条入群公告的重复投递（同号公告恒属同一次物理入群）。
  * @param state 当前成员的验证状态，未记录时为 undefined。
  * @param event 入群事件载荷。
@@ -41,11 +42,12 @@ function isKickRejoin(
   event: JoinEvent
 ): boolean {
   if (state?.kind === "kickPending") {
-    return event.now - state.requestedAt > KICKED_REJOIN_GRACE_MS &&
+    return !isRecordedWithin(state.requestedAt, event.now, KICKED_REJOIN_GRACE_MS) &&
       (event.announcementMessageId === undefined ||
         state.announcementMessageId !== event.announcementMessageId);
   }
-  return state?.kind === "kicked" && event.now - state.kickedAt > KICKED_REJOIN_GRACE_MS;
+  return state?.kind === "kicked" &&
+    !isRecordedWithin(state.kickedAt, event.now, KICKED_REJOIN_GRACE_MS);
 }
 
 /**
@@ -126,16 +128,16 @@ function joinExempt(
  * 踢人动作的旧记录所持公告。
  * @param state 当前成员已有的可入群改写状态。
  * @param event 入群事件载荷。
- * @param invitedByOther 是否由其他成员邀请入群。
+ * @param inviterId 由其他成员邀请入群时的拉人者 ID；自主入群或未知时为 undefined。
  * @returns 补充投递更新后或重新入群重建后的状态转移结果。
  */
 function joinDuplicateDelivery(
   state: JoinableState,
   event: JoinEvent,
-  invitedByOther: boolean
+  inviterId: number | undefined
 ): VerificationTransition {
   if (isKickRejoin(state, event)) {
-    const created: VerificationTransition = joinCreate(event, invitedByOther);
+    const created: VerificationTransition = joinCreate(event, inviterId);
     if (
       state.kind !== "kickPending" ||
       state.effectStarted ||
@@ -165,13 +167,13 @@ function joinDuplicateDelivery(
       effects.push({ kind: "deleteMessage", messageId: event.announcementMessageId });
     }
   }
-  if (state.kind === "pending" && invitedByOther) {
+  if (state.kind === "pending" && inviterId !== undefined) {
     if (state.invitedBy === undefined) {
-      state.invitedBy = event.actorId;
+      state.invitedBy = inviterId;
       snapshotChanged = true;
     }
     if (!event.adminCacheFresh) {
-      effects.push({ kind: "startAdminCheck", actorId: event.actorId! });
+      effects.push({ kind: "startAdminCheck", actorId: inviterId });
     }
   }
   if (state.kind === "pending" && snapshotChanged) return pendingUpdated(state, effects);
@@ -181,10 +183,10 @@ function joinDuplicateDelivery(
 /**
  * 处理新一次物理入群：私密模式期间进入 kickPending，否则开启验证窗口并发送提醒。
  * @param event 入群事件载荷。
- * @param invitedByOther 是否由其他成员邀请入群。
+ * @param inviterId 由其他成员邀请入群时的拉人者 ID；自主入群或未知时为 undefined。
  * @returns 新建的 kickPending 或 pending 状态转移结果。
  */
-function joinCreate(event: JoinEvent, invitedByOther: boolean): VerificationTransition {
+function joinCreate(event: JoinEvent, inviterId: number | undefined): VerificationTransition {
   if (event.lockdownActive) {
     return {
       next: kickPendingOf({
@@ -203,7 +205,7 @@ function joinCreate(event: JoinEvent, invitedByOther: boolean): VerificationTran
     isBot: event.isBot,
     announcementMessageId: event.announcementMessageId,
     trackedMessageTimes: [],
-    invitedBy: invitedByOther ? event.actorId : undefined,
+    invitedBy: inviterId,
     reminderMessageId: undefined,
     replyReminderMessageId: undefined,
     replyReminderRequested: false,
@@ -213,8 +215,8 @@ function joinCreate(event: JoinEvent, invitedByOther: boolean): VerificationTran
     expiresAt: event.now + VERIFICATION_TIMEOUT_MS,
   };
   const effects: VerificationEffect[] = [];
-  if (invitedByOther && !event.adminCacheFresh) {
-    effects.push({ kind: "startAdminCheck", actorId: event.actorId! });
+  if (inviterId !== undefined && !event.adminCacheFresh) {
+    effects.push({ kind: "startAdminCheck", actorId: inviterId });
   }
   effects.push({ kind: "sendReminder", label: event.label, isBot: event.isBot });
   return { next: pending, effects };
@@ -240,10 +242,13 @@ export function handleJoin(
     };
   }
   const { exempt, viaChannelComment }: JoinExemption = resolveJoinExemption(event);
-  const invitedByOther: boolean = event.actorId !== undefined && event.actorId !== event.memberId;
+  const inviterId: number | undefined =
+    event.actorId !== undefined && event.actorId !== event.memberId
+      ? event.actorId
+      : undefined;
   if (exempt) return joinExempt(state, event, viaChannelComment);
-  if (state !== undefined) return joinDuplicateDelivery(state, event, invitedByOther);
-  return joinCreate(event, invitedByOther);
+  if (state !== undefined) return joinDuplicateDelivery(state, event, inviterId);
+  return joinCreate(event, inviterId);
 }
 
 /**

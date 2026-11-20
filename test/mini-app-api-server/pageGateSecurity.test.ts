@@ -47,7 +47,6 @@ const { serveBundledAssetResponse } = await import(
   "../../packages/mini-app-api-server/libs/response"
 );
 const {
-  deriveMiniAppAssetToken,
   deriveMiniAppInitDataSecretKey,
   deriveMiniAppPageGateSecretKey,
   issueMiniAppPageGateToken,
@@ -64,7 +63,10 @@ const {
   startMiniAppServer,
   stopMiniAppServer,
 } = await import("../../packages/mini-app-api-server");
-const { dispatchMiniAppTestRequest } = await import("../helpers/miniAppRequest");
+const {
+  dispatchMiniAppTestRequest,
+  performMiniAppTestEcdhLogin,
+} = await import("../helpers/miniAppRequest");
 import type { MiniAppAccessDiagnostics } from "../../packages/types/miniApp/auth";
 import type {
   BundledMiniAppAsset,
@@ -459,22 +461,33 @@ describe("Mini App 单页门控握手与前端打包产物隔离安全测试", (
 
     // 2. 连续 3 次输错密码触发 30 分钟 PASSWORD_LOCKED：第 3 次登录响应清除门禁 Cookie，且此前签发的门禁 Cookie 访问 / 与 /chunk-* 一律被拒并携带剩余分钟数。
     for (let attempt: number = 0; attempt < MINI_APP_PASSWORD_MAX_ATTEMPTS; attempt += 1) {
-      const badLoginRes: Response = await sendGateSecurityRequest({
-        path: "/api/auth/login",
-        method: "POST",
-        headers: {
-          [MINI_APP_INIT_DATA_HEADER]: validSuperInit,
-          Cookie: gateCookieHeader,
-          "Content-Type": "application/json",
+      const failedLogin = await performMiniAppTestEcdhLogin({
+        initData: validSuperInit,
+        credentialPayload: { password: `wrong-pass-${attempt}` },
+        send: (request: Request): Promise<Response> => {
+          const headers: Headers = new Headers(request.headers);
+          headers.set("Cookie", gateCookieHeader);
+          return dispatchMiniAppTestRequest(new Request(request, { headers }));
         },
-        body: JSON.stringify({ password: `wrong-pass-${attempt}` }),
       });
       const isLockStrike: boolean = attempt + 1 === MINI_APP_PASSWORD_MAX_ATTEMPTS;
-      await assertBlockedDiagnostics(
-        badLoginRes,
-        403,
-        isLockStrike ? "PASSWORD_LOCKED" : "INVALID_PASSWORD"
+      const expectedCode: string = isLockStrike
+        ? "PASSWORD_LOCKED"
+        : "INVALID_PASSWORD";
+      const badLoginRes: Response = failedLogin.loginResponse;
+      expect(badLoginRes.status).toBe(403);
+      expect(badLoginRes.headers.get("cache-control")).toBe(
+        MINI_APP_NO_STORE_CACHE_CONTROL
       );
+      expect(badLoginRes.headers.get("x-content-type-options")).toBe("nosniff");
+      const requestIdHeader: string | null = badLoginRes.headers.get("x-request-id");
+      expect(requestIdHeader).toMatch(/^[0-9a-f]{16}$/u);
+      const diag: MiniAppAccessDiagnostics =
+        failedLogin.payload as unknown as MiniAppAccessDiagnostics;
+      expect(diag.status).toBe(403);
+      expect(diag.code).toBe(expectedCode);
+      expect(diag.requestId).toBe(requestIdHeader ?? "");
+      expect(diag.host).not.toContain("127.0.0.1");
       if (isLockStrike) {
         expect(badLoginRes.headers.get("set-cookie")).toContain("Max-Age=0");
       }
@@ -528,7 +541,7 @@ describe("Mini App 单页门控握手与前端打包产物隔离安全测试", (
     const rootImgTokenFallbackRes: Response = await sendGateSecurityRequest({
       path: "/probe-root.png?token=bad_token",
     });
-    await assertBlockedDiagnostics(rootImgTokenFallbackRes, 401, "INVALID_SIGNATURE");
+    await assertBlockedDiagnostics(rootImgTokenFallbackRes, 401, "MISSING_INIT_DATA");
 
     const rootImgWithGateCookieRes: Response = await sendGateSecurityRequest({
       path: "/probe-root.png?token=bad_token",
@@ -789,7 +802,7 @@ describe("Mini App 单页门控握手与前端打包产物隔离安全测试", (
     miniAppRejectHtmlHolder.current = null;
   });
 
-  test("打包资源路径携带 ?token= 或 ?initData= 且无门禁 Cookie 时转交受保护资源策略鉴权后返回 404", async (): Promise<void> => {
+  test("打包图片资源路径携带 ?token= 或 ?initData= 时不旁路门禁，统一拒绝未携带合法头/Cookie 的访问", async (): Promise<void> => {
     const validInitData: string = buildSignedTestInitData({
       botToken: BOT_TOKEN,
       authDate: Math.floor(Date.now() / 1000),
@@ -798,10 +811,6 @@ describe("Mini App 单页门控握手与前端打包产物隔离安全测试", (
         first_name: "SuperAdmin",
       },
     });
-    const validAssetToken: string = deriveMiniAppAssetToken(
-      BOT_TOKEN,
-      SUPER_ADMIN_USER_ID
-    );
     const validSessionToken: string = issueMiniAppAuthSession().token;
 
     const badTokenRes: Response = await handleMiniAppHttpRequest(
@@ -809,18 +818,8 @@ describe("Mini App 单页门控握手与前端打包产物隔离安全测试", (
     );
     expect(badTokenRes.status).toBe(401);
     expect(((await badTokenRes.json()) as { readonly error?: string }).error).toBe(
-      "INVALID_SIGNATURE"
+      "MISSING_INIT_DATA"
     );
-
-    const validTokenNoCookieRes: Response = await handleMiniAppHttpRequest(
-      new Request(
-        `http://127.0.0.1:3000/chunk-deadbeef.png?token=${encodeURIComponent(validAssetToken)}`
-      )
-    );
-    expect(validTokenNoCookieRes.status).toBe(404);
-    expect(
-      ((await validTokenNoCookieRes.json()) as { readonly error?: string }).error
-    ).toBe("Resource not found");
 
     const initDataNoSessionRes: Response = await handleMiniAppHttpRequest(
       new Request(
@@ -830,16 +829,39 @@ describe("Mini App 单页门控握手与前端打包产物隔离安全测试", (
     expect(initDataNoSessionRes.status).toBe(401);
     expect(
       ((await initDataNoSessionRes.json()) as { readonly error?: string }).error
-    ).toBe("PASSWORD_REQUIRED");
+    ).toBe("MISSING_INIT_DATA");
 
-    const initDataWithSessionRes: Response = await handleMiniAppHttpRequest(
+    const initDataWithSessionQueryRes: Response = await handleMiniAppHttpRequest(
       new Request(
         `http://127.0.0.1:3000/chunk-deadbeef.png?initData=${encodeURIComponent(validInitData)}&session=${encodeURIComponent(validSessionToken)}`
       )
     );
-    expect(initDataWithSessionRes.status).toBe(404);
+    expect(initDataWithSessionQueryRes.status).toBe(401);
     expect(
-      ((await initDataWithSessionRes.json()) as { readonly error?: string }).error
+      ((await initDataWithSessionQueryRes.json()) as { readonly error?: string }).error
+    ).toBe("MISSING_INIT_DATA");
+
+    const noSessionAssetRes: Response = await handleMiniAppHttpRequest(
+      new Request("http://127.0.0.1:3000/chunk-deadbeef.png", {
+        headers: { [MINI_APP_INIT_DATA_HEADER]: validInitData },
+      })
+    );
+    expect(noSessionAssetRes.status).toBe(401);
+    expect(
+      ((await noSessionAssetRes.json()) as { readonly error?: string }).error
+    ).toBe("PASSWORD_REQUIRED");
+
+    const validHeaderRes: Response = await handleMiniAppHttpRequest(
+      new Request("http://127.0.0.1:3000/chunk-deadbeef.png", {
+        headers: {
+          [MINI_APP_INIT_DATA_HEADER]: validInitData,
+          "X-Mini-App-Session": validSessionToken,
+        },
+      })
+    );
+    expect(validHeaderRes.status).toBe(404);
+    expect(
+      ((await validHeaderRes.json()) as { readonly error?: string }).error
     ).toBe("Resource not found");
   });
 

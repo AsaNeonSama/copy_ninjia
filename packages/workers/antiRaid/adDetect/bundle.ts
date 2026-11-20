@@ -57,18 +57,24 @@ export function enforceBundleCapacity(bundle: AdMessageBundle): void {
     if (!bundle.uncheckedEvicted) {
       bundle.uncheckedEvicted = true;
       logger.error(
-        `Ad detection dropped never-judged message text from sender ${bundle.senderId} in chat ` +
-        `${bundle.chatId}: the burst filled the ${AD_DETECT_MAX_MESSAGES_PER_SENDER}-message ` +
-        "per-sender limit before the first tick, so that content never reaches the classifier."
+        "Ad detection dropped never-judged message text; the burst filled the per-sender limit before the first tick, so that content never reaches the classifier.",
+        {
+          chatId: bundle.chatId,
+          senderId: bundle.senderId,
+          maxMessagesPerSender: AD_DETECT_MAX_MESSAGES_PER_SENDER,
+        }
       );
     }
     if (bundle.pendingDeleteIds.length >= AD_DETECT_MAX_PENDING_DELETE_IDS) {
       if (!bundle.pendingDeleteOverflowed) {
         bundle.pendingDeleteOverflowed = true;
         logger.error(
-          `Ad detection filled the ${AD_DETECT_MAX_PENDING_DELETE_IDS}-id pending-delete list of ` +
-          `sender ${bundle.senderId} in chat ${bundle.chatId}; the oldest ad messages will stay in ` +
-          "the chat even if the sender is flagged."
+          "Ad detection filled the pending-delete list; the oldest ad messages will stay in the chat even if the sender is flagged.",
+          {
+            chatId: bundle.chatId,
+            senderId: bundle.senderId,
+            maxPendingDeleteIds: AD_DETECT_MAX_PENDING_DELETE_IDS,
+          }
         );
       }
       bundle.pendingDeleteIds.shift();

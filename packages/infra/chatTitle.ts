@@ -113,15 +113,21 @@ async function confirmChatAbsence(
     const lookup: ChatLookup = await lookUpChat(chatId, signal);
     if (signal.aborted) return;
     if (lookup.kind !== "absent" || lookup.reason !== reason) {
-      logger.info(`Chat ${chatId} looked ${reason} at startup but lookup ${attempt + 1} disagreed; keeping it.`);
+      logger.info("Chat absence check disagreed on retry; keeping chat.", {
+        chatId,
+        initialReason: reason,
+        attempt: attempt + 1,
+      });
       return;
     }
   }
   if (!getChatStateCache().has(chatId)) return;
-  logger.warn(
-    `Chat ${chatId} was ${reason} in ${CHAT_ABSENCE_CONFIRM_ATTEMPTS} lookups ` +
-    `${CHAT_ABSENCE_CONFIRM_INTERVAL_MS}ms apart; tearing it down.`
-  );
+  logger.warn("Chat confirmed unreachable; tearing it down.", {
+    chatId,
+    reason,
+    attempts: CHAT_ABSENCE_CONFIRM_ATTEMPTS,
+    intervalMs: CHAT_ABSENCE_CONFIRM_INTERVAL_MS,
+  });
   await completeChatDeparture(chatId, reason);
 }
 
@@ -138,7 +144,7 @@ export async function refreshAllChatTitles(
   const total: number = chatIds.length;
   const startedAt: number = Date.now();
   let completed: number = 0;
-  logger.info(`Chat title refresh started: total=${total}.`);
+  logger.info("Chat title refresh started.", { total });
   await runBoundedSettledBatch<number, void>({
     items: chatIds,
     maxConcurrent: CHAT_TITLE_REFRESH_CONCURRENCY,
@@ -155,19 +161,23 @@ export async function refreshAllChatTitles(
           await confirmChatAbsence(chatId, lookup.reason, signal);
         } else {
           // 单个群查询失败不中断其它群的回填。
-          logger.error(`Failed to refresh chat title for chat ${chatId}:`, lookup.error);
+          logger.error("Failed to refresh chat title:", { chatId }, lookup.error);
         }
       } catch (error: unknown) {
         // 收尾失败只记日志，不中断其它群；下次启动重新确证。
-        logger.error(`Failed to tear down unreachable chat ${chatId}:`, error);
+        logger.error("Failed to tear down unreachable chat:", { chatId }, error);
       } finally {
         completed++;
       }
     },
   });
   logger.info(
-    `Chat title refresh ${signal.aborted ? "aborted" : "completed"}: ` +
-    `${completed}/${total}, elapsed=${Date.now() - startedAt}ms.`
+    signal.aborted ? "Chat title refresh aborted." : "Chat title refresh completed.",
+    {
+      completed,
+      total,
+      elapsedMs: Date.now() - startedAt,
+    }
   );
 }
 

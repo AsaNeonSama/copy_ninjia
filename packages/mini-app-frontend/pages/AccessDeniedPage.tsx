@@ -4,7 +4,8 @@ import type { MiniAppTranslations } from "../i18n";
 import { buildFallbackDiagnostics } from "../libs/diagnostics";
 import { useMiniAppStore } from "../store/app";
 import type { MiniAppUiStoreState } from "../store/app";
-import type { MiniAppAccessDiagnostics, MiniAppLanguage } from "../types/miniApp";
+import type { MiniAppAccessDiagnostics } from "../types/miniApp/auth";
+import type { MiniAppLanguage } from "../types/miniApp/ui";
 
 /**
  * 渲染外部访问或鉴权失败时的平行四边形拦截诊断页（按浏览器默认语言展示请求链路节点、拦截原因与请求诊断信息，内层文案与徽章反向拉正保持水平可读）。

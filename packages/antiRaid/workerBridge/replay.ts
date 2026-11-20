@@ -13,6 +13,7 @@ import { adDetectAgentConfigSnapshot } from "../../config/agent";
 import { getAdDetectConfig } from "../../config/adDetectConfig";
 import { adDetectConfigReadiness } from "../../config/readiness";
 import { botAtmosphere } from "../../infra/atmosphere";
+import { getLogLevel } from "../../config/logLevel";
 import { getTimeZone } from "../../config/time";
 import { logger } from "../../infra/logger";
 import { projectBotActionPermissions } from "../../libs/chatMember";
@@ -83,6 +84,7 @@ export function replayAdDetectAgentConfig(
   return postTo({
     type: "agentConfig",
     timeZone: getTimeZone(),
+    logLevel: getLogLevel(),
     atmosphere: botAtmosphere(),
     adDetect: adDetectAgentConfigSnapshot(),
     adDetectConfig: adDetectConfigReadiness().ok ? getAdDetectConfig() : null,
@@ -156,13 +158,13 @@ export function purgeDisabledJoinGuards(
     deleteDeferredVerificationsForChat(chatId);
     if (postTo({ type: "deactivateJoinGuard", chatId })) continue;
     logger.error(
-      `Anti-Raid Worker rejected the join guard cleanup for chat ${chatId}; ` +
-      "relying on the next respawn to retry it."
+      "Anti-Raid Worker rejected the join guard cleanup; relying on the next respawn to retry it.",
+      { chatId }
     );
     return;
   }
-  logger.log(
-    `Cleared join guard runtime left over in ${purged.size} chat(s) whose /antiraid switch is off: ` +
-    `${[...purged].join(", ")}.`
+  logger.info(
+    "Cleared join guard runtime left over in chats whose /antiraid switch is off.",
+    { purgedCount: purged.size, chatIds: [...purged] }
   );
 }

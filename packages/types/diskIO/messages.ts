@@ -14,17 +14,17 @@ import type { TemporaryAdBypassActivity } from "../states/temporaryAdBypass";
 import type { LuckReceiptSecret } from "./storage";
 import type { DiskIODomain } from "./replies";
 
-/** 统一日志门面支持的日志级别。 */
-export type LogLevel = "log" | "info" | "warn" | "error";
+/** 统一日志门面与持久化链路支持的日志级别（按严重度递增：`info` < `operation` < `warn` < `error`）。 */
+export type LogLevel = "info" | "operation" | "warn" | "error";
 
-/** 一条日志的内容（不含 type 标；也是 Worker 日志转发批次的元素形状）。 */
+/** 一条达到当前 `log_level` 阈值、待输出或落盘的日志内容（不含 type 标；也是 Worker 日志转发批次的元素形状）。 */
 export interface LogMessage {
   timestamp: number;
   level: LogLevel;
   args: unknown[];
 }
 
-/** Worker 线程 -> 主线程：单批在途、有界待发送 FIFO 中的一批 error 日志。 */
+/** Worker 线程 -> 主线程：单批在途、有界待发送 FIFO 中的一批已启用级别（>= `log_level`）日志。 */
 export interface ForwardedLogBatch {
   readonly __logBatch: {
     readonly batchId: number;
@@ -37,7 +37,7 @@ export interface ForwardedLogBatchAccepted {
   readonly __logBatchAccepted: number;
 }
 
-/** 主线程/转发 -> diskIOWorker：落盘一条日志。 */
+/** 主线程/转发 -> diskIOWorker：落盘一条达到或高于配置 `log_level` 阈值的日志。 */
 export interface LogEnvelope extends LogMessage {
   type: "log";
   /**

@@ -15,8 +15,8 @@ mock.module("../../packages/copy/avatarQueue", () => ({ queueAvatarUpdate }));
 
 await import("../../packages/commands/copy");
 const { teardownRegisteredChat } = await import("../../packages/infra/chatTeardownRegistry");
+const { StateStore } = await import("../../packages/infra/storage/statePersistence");
 const {
-  StateStore,
   adoptCopyTarget,
   clearCopyTarget,
   getGlobalCopyState,

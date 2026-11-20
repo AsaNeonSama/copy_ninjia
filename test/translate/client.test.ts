@@ -46,7 +46,8 @@ const {
   quiesceTranslate,
   translateText: requestTranslation,
 } = await import("../../packages/translate/client");
-const { googleServiceAccountKey, translateParentCache } = await import("../../packages/cache/main/translate");
+const { googleServiceAccountKey, translateParentCache, translateRuntime } =
+  await import("../../packages/cache/main/translate");
 const { validateGoogleServiceAccountKey } = await import("../../packages/config/googleAuth");
 
 beforeEach(async () => {
@@ -233,5 +234,31 @@ describe("Google Translation 适配层", () => {
     initTranslate();
     await requestTranslation("new client", "ja");
     expect(constructedClients).toBe(2);
+  });
+
+  test("drainTranslate 超时或 closeTranslate 后中止 translateRuntime.controller", async () => {
+    const controllerBefore: AbortController = translateRuntime.controller;
+    expect(controllerBefore.signal.aborted).toBeFalse();
+
+    const hung: PromiseWithResolvers<{ translations: { translatedText: string }[] }[]> =
+      Promise.withResolvers<{ translations: { translatedText: string }[] }[]>();
+    translateText.mockImplementationOnce(
+      (): Promise<{ translations: { translatedText: string }[] }[]> => hung.promise
+    );
+    const hungRequest: Promise<string | null> = requestTranslation("hung", "ja");
+    await Bun.sleep(0);
+
+    await expect(drainTranslate(0)).resolves.toBe("timedOut");
+    expect(controllerBefore.signal.aborted).toBeTrue();
+
+    hung.resolve([{ translations: [{ translatedText: "完了" }] }]);
+    await expect(hungRequest).resolves.toBe("完了");
+    expect(translateRuntime.tasks.size).toBe(0);
+
+    initTranslate();
+    const controllerAfter: AbortController = translateRuntime.controller;
+    expect(controllerAfter.signal.aborted).toBeFalse();
+    await expect(closeTranslate()).resolves.toBe("flushed");
+    expect(controllerAfter.signal.aborted).toBeTrue();
   });
 });

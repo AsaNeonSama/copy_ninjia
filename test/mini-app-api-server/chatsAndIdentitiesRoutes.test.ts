@@ -23,10 +23,12 @@ import { verificationKey } from "../../packages/libs/verificationKey";
 import { botPermissions } from "../helpers/botPermissions";
 import {
   buildSuperAdminHeaders,
+  ensureReusableTestSession,
   installMiniAppTestDiskIOMock,
   miniAppTestJoinLogState,
   resetMiniAppTestDiskIOState,
 } from "../helpers/miniAppInitData";
+import { waitUntil } from "../helpers/waitUntil";
 
 installMiniAppTestDiskIOMock();
 
@@ -90,7 +92,7 @@ function superAdminHeaders(): Record<string, string> {
   return buildSuperAdminHeaders({
     botToken: BOT_TOKEN,
     superAdminUserId: SUPER_ADMIN_USER_ID,
-    sessionToken: issueMiniAppAuthSession().token,
+    sessionToken: ensureReusableTestSession(issueMiniAppAuthSession).token,
     username: "super_admin",
   });
 }
@@ -172,7 +174,7 @@ describe("Mini App 受管群与黑白名单路由", () => {
     expect(listBody.items[0]?.title).toBe("已初始化群 A");
 
     const detailRes: Response = await handleMiniAppHttpRequest(
-      new Request("http://127.0.0.1:3000/api/chats/-1002001", {
+      new Request("http://127.0.0.1:3000/api/chats/detail?chatId=-1002001", {
         headers: superAdminHeaders(),
       })
     );
@@ -206,13 +208,13 @@ describe("Mini App 受管群与黑白名单路由", () => {
       ["init", true],
     ] as const) {
       const toggleRes: Response = await handleMiniAppHttpRequest(
-        new Request("http://127.0.0.1:3000/api/chats/-1002001/feature", {
+        new Request("http://127.0.0.1:3000/api/chats/feature", {
           method: "POST",
           headers: {
             ...superAdminHeaders(),
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ feature, enabled }),
+          body: JSON.stringify({ chatId: -1002001, feature, enabled }),
         })
       );
       expect(toggleRes.status).toBe(200);
@@ -222,13 +224,13 @@ describe("Mini App 受管群与黑白名单路由", () => {
     }
 
     const disableInitRes: Response = await handleMiniAppHttpRequest(
-      new Request("http://127.0.0.1:3000/api/chats/-1002001/feature", {
+      new Request("http://127.0.0.1:3000/api/chats/feature", {
         method: "POST",
         headers: {
           ...superAdminHeaders(),
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ feature: "init", enabled: false }),
+        body: JSON.stringify({ chatId: -1002001, feature: "init", enabled: false }),
       })
     );
     expect(disableInitRes.status).toBe(200);
@@ -238,13 +240,13 @@ describe("Mini App 受管群与黑白名单路由", () => {
     expect(disableInitBody.detail).toBeNull();
   });
 
-  test("POST /api/chats/:chatId/batch-kick 校验超级群身份、1–24 小时参数、并发锁、空记录与入群日志读取，接纳后复用 /batch_kick 后台清理", async () => {
+  test("POST /api/chats/batch-kick 校验超级群身份、1–24 小时参数、并发锁、空记录与入群日志读取，接纳后复用 /batch_kick 后台清理", async () => {
     const chatId: number = -1002099;
     const uninitRes: Response = await handleMiniAppHttpRequest(
-      new Request(`http://127.0.0.1:3000/api/chats/${chatId}/batch-kick`, {
+      new Request("http://127.0.0.1:3000/api/chats/batch-kick", {
         method: "POST",
         headers: { ...superAdminHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ hours: 6 }),
+        body: JSON.stringify({ chatId, hours: 6 }),
       })
     );
     expect(uninitRes.status).toBe(404);
@@ -257,14 +259,14 @@ describe("Mini App 受管群与黑白名单路由", () => {
     state.title = "清理测试群";
 
     for (const invalidBody of [
-      "{}",
-      JSON.stringify({ hours: MINI_APP_BATCH_KICK_MIN_HOURS - 1 }),
-      JSON.stringify({ hours: MINI_APP_BATCH_KICK_MAX_HOURS + 1 }),
-      JSON.stringify({ hours: 1.5 }),
+      JSON.stringify({ chatId }),
+      JSON.stringify({ chatId, hours: MINI_APP_BATCH_KICK_MIN_HOURS - 1 }),
+      JSON.stringify({ chatId, hours: MINI_APP_BATCH_KICK_MAX_HOURS + 1 }),
+      JSON.stringify({ chatId, hours: 1.5 }),
       "not-json",
     ]) {
       const badRes: Response = await handleMiniAppHttpRequest(
-        new Request(`http://127.0.0.1:3000/api/chats/${chatId}/batch-kick`, {
+        new Request("http://127.0.0.1:3000/api/chats/batch-kick", {
           method: "POST",
           headers: { ...superAdminHeaders(), "Content-Type": "application/json" },
           body: invalidBody,
@@ -280,10 +282,10 @@ describe("Mini App 受管群与黑白名单路由", () => {
     chatIsSupergroupById.set(chatId, false);
     miniAppTestJoinLogState.records = [{ userId: 7999, joinedAt: Date.now() - 10_000 }];
     const cachedBasicRes: Response = await handleMiniAppHttpRequest(
-      new Request(`http://127.0.0.1:3000/api/chats/${chatId}/batch-kick`, {
+      new Request("http://127.0.0.1:3000/api/chats/batch-kick", {
         method: "POST",
         headers: { ...superAdminHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ hours: 3 }),
+        body: JSON.stringify({ chatId, hours: 3 }),
       })
     );
     expect(cachedBasicRes.status).toBe(200);
@@ -302,10 +304,10 @@ describe("Mini App 受管群与黑白名单路由", () => {
       },
     } as unknown as InstalledTelegramApi;
     const chatKindUnavailableRes: Response = await handleMiniAppHttpRequest(
-      new Request(`http://127.0.0.1:3000/api/chats/${chatId}/batch-kick`, {
+      new Request("http://127.0.0.1:3000/api/chats/batch-kick", {
         method: "POST",
         headers: { ...superAdminHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ hours: 3 }),
+        body: JSON.stringify({ chatId, hours: 3 }),
       })
     );
     expect(chatKindUnavailableRes.status).toBe(503);
@@ -325,10 +327,10 @@ describe("Mini App 受管群与黑白名单路由", () => {
       }),
     } as unknown as InstalledTelegramApi;
     const probedBasicRes: Response = await handleMiniAppHttpRequest(
-      new Request(`http://127.0.0.1:3000/api/chats/${chatId}/batch-kick`, {
+      new Request("http://127.0.0.1:3000/api/chats/batch-kick", {
         method: "POST",
         headers: { ...superAdminHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ hours: 3 }),
+        body: JSON.stringify({ chatId, hours: 3 }),
       })
     );
     expect(probedBasicRes.status).toBe(200);
@@ -351,10 +353,10 @@ describe("Mini App 受管群与黑白名单路由", () => {
 
     miniAppTestJoinLogState.shouldThrow = true;
     const unavailableRes: Response = await handleMiniAppHttpRequest(
-      new Request(`http://127.0.0.1:3000/api/chats/${chatId}/batch-kick`, {
+      new Request("http://127.0.0.1:3000/api/chats/batch-kick", {
         method: "POST",
         headers: { ...superAdminHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ hours: 3 }),
+        body: JSON.stringify({ chatId, hours: 3 }),
       })
     );
     expect(unavailableRes.status).toBe(503);
@@ -366,10 +368,10 @@ describe("Mini App 受管群与黑白名单路由", () => {
 
     miniAppTestJoinLogState.records = [];
     const emptyRes: Response = await handleMiniAppHttpRequest(
-      new Request(`http://127.0.0.1:3000/api/chats/${chatId}/batch-kick`, {
+      new Request("http://127.0.0.1:3000/api/chats/batch-kick", {
         method: "POST",
         headers: { ...superAdminHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ hours: 3 }),
+        body: JSON.stringify({ chatId, hours: 3 }),
       })
     );
     expect(emptyRes.status).toBe(200);
@@ -380,10 +382,10 @@ describe("Mini App 受管群与黑白名单路由", () => {
 
     batchKickChats.add(chatId);
     const runningRes: Response = await handleMiniAppHttpRequest(
-      new Request(`http://127.0.0.1:3000/api/chats/${chatId}/batch-kick`, {
+      new Request("http://127.0.0.1:3000/api/chats/batch-kick", {
         method: "POST",
         headers: { ...superAdminHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ hours: 3 }),
+        body: JSON.stringify({ chatId, hours: 3 }),
       })
     );
     expect(runningRes.status).toBe(200);
@@ -419,10 +421,10 @@ describe("Mini App 受管群与黑白名单路由", () => {
     ];
 
     const busyRes: Response = await handleMiniAppHttpRequest(
-      new Request(`http://127.0.0.1:3000/api/chats/${chatId}/batch-kick`, {
+      new Request("http://127.0.0.1:3000/api/chats/batch-kick", {
         method: "POST",
         headers: { ...superAdminHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ hours: 2 }),
+        body: JSON.stringify({ chatId, hours: 2 }),
       })
     );
     expect(busyRes.status).toBe(200);
@@ -432,10 +434,10 @@ describe("Mini App 受管群与黑白名单路由", () => {
 
     initDeferredCommandRuntime();
     const acceptedRes: Response = await handleMiniAppHttpRequest(
-      new Request(`http://127.0.0.1:3000/api/chats/${chatId}/batch-kick`, {
+      new Request("http://127.0.0.1:3000/api/chats/batch-kick", {
         method: "POST",
         headers: { ...superAdminHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ hours: 2 }),
+        body: JSON.stringify({ chatId, hours: 2 }),
       })
     );
     expect(acceptedRes.status).toBe(200);
@@ -446,15 +448,13 @@ describe("Mini App 受管群与黑白名单路由", () => {
     expect(acceptedBody.hours).toBe(2);
     expect(acceptedBody.recordCount).toBe(2);
 
-    for (let turn: number = 0; turn < 20 && batchKickChats.has(chatId); turn += 1) {
-      await Bun.sleep(10);
-    }
+    expect(await waitUntil((): boolean => !batchKickChats.has(chatId))).toBeTrue();
     expect(bannedUsers).toEqual([]);
     expect(unbannedUsers).toEqual([7001, 7002]);
     expect(miniAppBatchKickCompletedByChat.get(chatId)?.kicked).toBe(2);
 
     const afterApiDetailRes: Response = await handleMiniAppHttpRequest(
-      new Request(`http://127.0.0.1:3000/api/chats/${chatId}`, {
+      new Request(`http://127.0.0.1:3000/api/chats/detail?chatId=${chatId}`, {
         headers: superAdminHeaders(),
       })
     );
@@ -475,9 +475,7 @@ describe("Mini App 受管群与黑白名单路由", () => {
         records: [{ userId: 7003, joinedAt: nowMs - 10_000 }],
       })
     ).toBeTrue();
-    for (let turn: number = 0; turn < 20 && batchKickChats.has(chatId); turn += 1) {
-      await Bun.sleep(10);
-    }
+    expect(await waitUntil((): boolean => !batchKickChats.has(chatId))).toBeTrue();
     expect(miniAppBatchKickCompletedByChat.has(chatId)).toBeFalse();
   });
 
@@ -519,10 +517,10 @@ describe("Mini App 受管群与黑白名单路由", () => {
     ];
 
     const acceptedRes: Response = await handleMiniAppHttpRequest(
-      new Request(`http://127.0.0.1:3000/api/chats/${chatId}/batch-kick`, {
+      new Request("http://127.0.0.1:3000/api/chats/batch-kick", {
         method: "POST",
         headers: { ...superAdminHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ hours: 2 }),
+        body: JSON.stringify({ chatId, hours: 2 }),
       })
     );
     expect(acceptedRes.status).toBe(200);
@@ -533,10 +531,10 @@ describe("Mini App 受管群与黑白名单路由", () => {
       expect(batchKickChats.has(chatId)).toBeTrue();
 
       const disableRes: Response = await handleMiniAppHttpRequest(
-        new Request(`http://127.0.0.1:3000/api/chats/${chatId}/feature`, {
+        new Request("http://127.0.0.1:3000/api/chats/feature", {
           method: "POST",
           headers: { ...superAdminHeaders(), "Content-Type": "application/json" },
-          body: JSON.stringify({ feature: "init", enabled: false }),
+          body: JSON.stringify({ chatId, feature: "init", enabled: false }),
         })
       );
       expect(disableRes.status).toBe(200);
@@ -549,9 +547,7 @@ describe("Mini App 受管群与黑白名单路由", () => {
     } finally {
       releaseProbe.resolve();
     }
-    for (let turn: number = 0; turn < 20 && batchKickChats.has(chatId); turn += 1) {
-      await Bun.sleep(10);
-    }
+    expect(await waitUntil((): boolean => !batchKickChats.has(chatId))).toBeTrue();
     expect(banCalls).toBe(0);
     expect(sendCalls).toBe(0);
     expect(miniAppBatchKickCompletedByChat.has(chatId)).toBeFalse();
@@ -559,22 +555,20 @@ describe("Mini App 受管群与黑白名单路由", () => {
 
     // 重开后发起的新一轮 API 批次分配新序号，完成后正常写入最新结果。
     const freshAcceptedRes: Response = await handleMiniAppHttpRequest(
-      new Request(`http://127.0.0.1:3000/api/chats/${chatId}/batch-kick`, {
+      new Request("http://127.0.0.1:3000/api/chats/batch-kick", {
         method: "POST",
         headers: { ...superAdminHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ hours: 3 }),
+        body: JSON.stringify({ chatId, hours: 3 }),
       })
     );
     expect(freshAcceptedRes.status).toBe(200);
     expect(((await freshAcceptedRes.json()) as MiniAppBatchKickResult).outcome).toBe("accepted");
-    for (let turn: number = 0; turn < 20 && batchKickChats.has(chatId); turn += 1) {
-      await Bun.sleep(10);
-    }
+    expect(await waitUntil((): boolean => !batchKickChats.has(chatId))).toBeTrue();
     expect(miniAppBatchKickCompletedByChat.get(chatId)?.hours).toBe(3);
     expect(miniAppBatchKickCompletedByChat.get(chatId)?.kicked).toBe(1);
   });
 
-  test("GET /api/chats/:chatId/messages 仅返回热 256 条发言记录并支持分页，不暴露压缩记忆", async () => {
+  test("GET /api/chats/messages 仅返回热 256 条发言记录并支持分页，不暴露压缩记忆", async () => {
     const chatId: number = -1003001;
     const state = getOrCreateChatState(chatId);
     state.isInitEnabled = true;
@@ -602,7 +596,7 @@ describe("Mini App 受管群与黑白名单路由", () => {
 
     const resPage1: Response = await handleMiniAppHttpRequest(
       new Request(
-        `http://127.0.0.1:3000/api/chats/${chatId}/messages?page=1&pageSize=${MINI_APP_MESSAGES_DEFAULT_PAGE_SIZE}`,
+        `http://127.0.0.1:3000/api/chats/messages?chatId=${chatId}&page=1&pageSize=${MINI_APP_MESSAGES_DEFAULT_PAGE_SIZE}`,
         { headers: superAdminHeaders() }
       )
     );
@@ -621,10 +615,10 @@ describe("Mini App 受管群与黑白名单路由", () => {
     expect(page1.items[0]?.text).toBe(`hot message #${AI_MEMORY_HYDRATE_BUFFER_MAX - 1}`);
   });
 
-  test("GET|POST /api/chats/:chatId/targets 支持问答对、追着删目标与追着翻目标的查询、新增、修改与删除", async () => {
+  test("GET|POST /api/chats/targets 支持问答对、追着删目标与追着翻目标的查询、新增、修改与删除", async () => {
     const chatId: number = -1004001;
     const uninitRes: Response = await handleMiniAppHttpRequest(
-      new Request(`http://127.0.0.1:3000/api/chats/${chatId}/targets`, {
+      new Request(`http://127.0.0.1:3000/api/chats/targets?chatId=${chatId}`, {
         headers: superAdminHeaders(),
       })
     );
@@ -637,7 +631,7 @@ describe("Mini App 受管群与黑白名单路由", () => {
     state.botPermissions = botPermissions({ canDeleteMessages: true });
 
     const getEmptyRes: Response = await handleMiniAppHttpRequest(
-      new Request(`http://127.0.0.1:3000/api/chats/${chatId}/targets`, {
+      new Request(`http://127.0.0.1:3000/api/chats/targets?chatId=${chatId}`, {
         headers: superAdminHeaders(),
       })
     );
@@ -649,10 +643,10 @@ describe("Mini App 受管群与黑白名单路由", () => {
     expect(emptyBody.targets.translateTargets).toEqual([]);
 
     const setQaRes: Response = await handleMiniAppHttpRequest(
-      new Request(`http://127.0.0.1:3000/api/chats/${chatId}/targets`, {
+      new Request("http://127.0.0.1:3000/api/chats/targets", {
         method: "POST",
         headers: { ...superAdminHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "setQa", q: "早安", a: "早安杂鱼♡" }),
+        body: JSON.stringify({ chatId, action: "setQa", q: "早安", a: "早安杂鱼♡" }),
       })
     );
     expect(setQaRes.status).toBe(200);
@@ -664,10 +658,10 @@ describe("Mini App 受管群与黑白名单路由", () => {
     expect(setQaBody.detail?.qaPairCount).toBe(1);
 
     const removeQaRes: Response = await handleMiniAppHttpRequest(
-      new Request(`http://127.0.0.1:3000/api/chats/${chatId}/targets`, {
+      new Request("http://127.0.0.1:3000/api/chats/targets", {
         method: "POST",
         headers: { ...superAdminHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "removeQa", q: "早安" }),
+        body: JSON.stringify({ chatId, action: "removeQa", q: "早安" }),
       })
     );
     expect(removeQaRes.status).toBe(200);
@@ -689,10 +683,10 @@ describe("Mini App 受管群与黑白名单路由", () => {
     for (const [qText, aText, expectedRuleRejection, expectedApiMessage] of qaRejectionCases) {
       expect(questionRejectionOf(qText) ?? answerRejectionOf(aText)).toBe(expectedRuleRejection);
       const rejectRes: Response = await handleMiniAppHttpRequest(
-        new Request(`http://127.0.0.1:3000/api/chats/${chatId}/targets`, {
+        new Request("http://127.0.0.1:3000/api/chats/targets", {
           method: "POST",
           headers: { ...superAdminHeaders(), "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "setQa", q: qText, a: aText }),
+          body: JSON.stringify({ chatId, action: "setQa", q: qText, a: aText }),
         })
       );
       expect(rejectRes.status).toBe(200);
@@ -705,10 +699,10 @@ describe("Mini App 受管群与黑白名单路由", () => {
     const fencedAnswer: string = "示例用法：\n```\n/kick @user\n```\n说明完毕";
     expect(questionRejectionOf("围栏示例") ?? answerRejectionOf(fencedAnswer)).toBeNull();
     const fencedQaRes: Response = await handleMiniAppHttpRequest(
-      new Request(`http://127.0.0.1:3000/api/chats/${chatId}/targets`, {
+      new Request("http://127.0.0.1:3000/api/chats/targets", {
         method: "POST",
         headers: { ...superAdminHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "setQa", q: "围栏示例", a: fencedAnswer }),
+        body: JSON.stringify({ chatId, action: "setQa", q: "围栏示例", a: fencedAnswer }),
       })
     );
     expect(fencedQaRes.status).toBe(200);
@@ -717,18 +711,18 @@ describe("Mini App 受管群与黑白名单路由", () => {
     expect(fencedQaBody.ok).toBeTrue();
     expect(fencedQaBody.message).toBe("QA_ADDED");
     await handleMiniAppHttpRequest(
-      new Request(`http://127.0.0.1:3000/api/chats/${chatId}/targets`, {
+      new Request("http://127.0.0.1:3000/api/chats/targets", {
         method: "POST",
         headers: { ...superAdminHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "removeQa", q: "围栏示例" }),
+        body: JSON.stringify({ chatId, action: "removeQa", q: "围栏示例" }),
       })
     );
 
     const addDelRes: Response = await handleMiniAppHttpRequest(
-      new Request(`http://127.0.0.1:3000/api/chats/${chatId}/targets`, {
+      new Request("http://127.0.0.1:3000/api/chats/targets", {
         method: "POST",
         headers: { ...superAdminHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "addDeleteTarget", target: "77001" }),
+        body: JSON.stringify({ chatId, action: "addDeleteTarget", target: "77001" }),
       })
     );
     expect(addDelRes.status).toBe(200);
@@ -740,10 +734,10 @@ describe("Mini App 受管群与黑白名单路由", () => {
     expect(addDelBody.detail?.deleteMessageTargetCount).toBe(1);
 
     const remDelRes: Response = await handleMiniAppHttpRequest(
-      new Request(`http://127.0.0.1:3000/api/chats/${chatId}/targets`, {
+      new Request("http://127.0.0.1:3000/api/chats/targets", {
         method: "POST",
         headers: { ...superAdminHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "removeDeleteTarget", id: 77001 }),
+        body: JSON.stringify({ chatId, action: "removeDeleteTarget", id: 77001 }),
       })
     );
     expect(remDelRes.status).toBe(200);
@@ -754,10 +748,11 @@ describe("Mini App 受管群与黑白名单路由", () => {
     expect(remDelBody.targets?.deleteMessageTargets).toEqual([]);
 
     const addTransRes: Response = await handleMiniAppHttpRequest(
-      new Request(`http://127.0.0.1:3000/api/chats/${chatId}/targets`, {
+      new Request("http://127.0.0.1:3000/api/chats/targets", {
         method: "POST",
         headers: { ...superAdminHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({
+          chatId,
           action: "addTranslateTarget",
           target: "77002",
           language: "ja",
@@ -774,10 +769,10 @@ describe("Mini App 受管群与黑白名单路由", () => {
     expect(addTransBody.detail?.translateTargetCount).toBe(1);
 
     const remTransRes: Response = await handleMiniAppHttpRequest(
-      new Request(`http://127.0.0.1:3000/api/chats/${chatId}/targets`, {
+      new Request("http://127.0.0.1:3000/api/chats/targets", {
         method: "POST",
         headers: { ...superAdminHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "removeTranslateTarget", id: 77002 }),
+        body: JSON.stringify({ chatId, action: "removeTranslateTarget", id: 77002 }),
       })
     );
     expect(remTransRes.status).toBe(200);

@@ -1,4 +1,4 @@
-/** owner: main。`/h_image` 命令限流状态与图库目录缓存（packages/commands/hImage.ts、packages/infra/imageGallery.ts）。 */
+/** owner: main。`/h_image` 命令限流状态与图库目录缓存（packages/commands/hImage.ts、packages/infra/imageGallery/cache.ts）。 */
 
 import { H_IMAGE_RATE_LIMIT_MAX_CALLS_PER_WINDOW } from "../../consts/hImage";
 import { TimestampDeque } from "../../libs/timestampDeque";
@@ -16,12 +16,12 @@ export const recentHImageCallTimestamps: TimestampDeque =
 
 /**
  * 随机图库目录的字典序文件名缓存 holder（供启动校验、`/h_image` 与定时任务抽图、`readRandomImageLibrary` 计数使用）。
- * - 填充：启动或热重载执行 `ensureRandomImageDirectory` 时读取目录并按字典序升序填充；访问未缓存目录时在首次读取时
+ * - 填充：启动或热重载生效阶段经 `inspectRandomImageDirectory` 扫描后由 `adoptRandomImageDirectory` 按字典序升序填充；访问未缓存目录时在首次读取时
  *   按 `readdir` + 字典序升序填充。
  * - 清理与更新：`storeRandomImage` 入库或核对已存在图片时二分插入 `names`；`deleteRandomImageFile` 删除图片，或
  *   `storeRandomImage`、`pickRandomImage`、`statRandomImageFile` 探测到文件消失或非普通文件时二分移除；
  *   `isRandomImageDirectory`、`pickRandomImage`、`listRandomImageGalleryEntries` 探测到目录缺失或切换目录时置 `null` 或替换。
- * - 重建：主线程独占内存状态，不涉及 Worker；进程重启后由启动阶段 `ensureRandomImageDirectory` 重建。
+ * - 重建：主线程独占内存状态，不涉及 Worker；进程重启后由启动阶段 `inspectRandomImageDirectory` + `adoptRandomImageDirectory` 重建。
  * - 容量与清理策略：容量等于当前图库目录内有效图片文件数，随图库增删同步维护。
  */
 export const randomImageDirectoryCache: {
@@ -32,12 +32,12 @@ export const randomImageDirectoryCache: {
 
 /**
  * Mini App 图库分页专用的按修改时间降序缓存 holder（供 `listRandomImageGalleryEntries` / `listMiniAppGalleryPage` 分页读取）。
- * - 填充：启动或热重载执行 `ensureRandomImageDirectory` 时读取文件修改时间并按从新到老（降序）填充；访问未缓存目录时
+ * - 填充：启动或热重载生效阶段经 `inspectRandomImageDirectory` 扫描后由 `adoptRandomImageDirectory` 按从新到老（降序）填充；访问未缓存目录时
  *   在首次调用 `listRandomImageGalleryEntries` 时按 `readdir` + `lstat` 修改时间降序填充。
  * - 清理与更新：`storeRandomImage` 新增或补齐图片时按修改时间降序二分插入 `entries`（新写入图片排在同修改时间已有项之前）；
  *   `deleteRandomImageFile` 删除图片，或 `storeRandomImage`、`pickRandomImage`、`statRandomImageFile` 探测到文件消失或非普通文件时
  *   从 `entries` 移除；探测到目录缺失或切换目录时置 `null` 或替换。
- * - 重建：主线程独占内存状态，不涉及 Worker；进程重启后由启动阶段 `ensureRandomImageDirectory` 或首次分页请求重建。
+ * - 重建：主线程独占内存状态，不涉及 Worker；进程重启后由启动阶段 `inspectRandomImageDirectory` + `adoptRandomImageDirectory` 或首次分页请求重建。
  * - 容量与清理策略：容量等于当前图库目录内有效图片文件数，随图库增删同步维护。
  */
 export const randomImageGalleryCache: {

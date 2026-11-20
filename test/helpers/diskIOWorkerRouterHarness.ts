@@ -283,7 +283,6 @@ beforeEach(() => {
     adoptAiCacheFile,
     maintainAiCacheFile,
     summarizeAiCache,
-    markAiMemorySnapshotDirty,
     deleteAiMemorySnapshot,
     markStickerCatalogSnapshotDirty,
     handleLuckDrawMessage,
@@ -330,6 +329,7 @@ beforeEach(() => {
   hydratedLuckEntries.current = new Map();
   // 默认实现返回 undefined 的几个，reset 后的空实现与之等价，无需装回。
   for (const fn of [
+    markAiMemorySnapshotDirty,
     handleVerificationUpsert,
     collectStorageDatabaseFailures,
     handleBlocklistRemovalWriteMessage,

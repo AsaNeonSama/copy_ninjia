@@ -192,17 +192,30 @@ function findStructuredLogValueEnd(text: string, start: number): number {
  * @returns 已将内嵌敏感字段值与 HTTP(S) URL 敏感部分脱敏后的文本。
  */
 export function redactSensitiveFieldsInText(text: string): string {
+  let nextColon: number = text.indexOf(":");
+  const sawColon: boolean = nextColon !== -1;
+  let nextEquals: number = text.indexOf("=");
+  if (!sawColon && nextEquals === -1) return text;
+
   let searchFrom: number = 0;
   let copyFrom: number = 0;
   let redacted: string | null = null;
   while (searchFrom < text.length) {
-    let separator: number = searchFrom;
-    while (separator < text.length) {
-      const code: number = text.charCodeAt(separator);
-      if (code === 0x3a || code === 0x3d) break;
-      separator++;
+    if (nextColon !== -1 && nextColon < searchFrom) {
+      nextColon = text.indexOf(":", searchFrom);
     }
-    if (separator >= text.length) break;
+    if (nextEquals !== -1 && nextEquals < searchFrom) {
+      nextEquals = text.indexOf("=", searchFrom);
+    }
+    let separator: number;
+    if (nextColon === -1) {
+      if (nextEquals === -1) break;
+      separator = nextEquals;
+    } else if (nextEquals === -1 || nextColon < nextEquals) {
+      separator = nextColon;
+    } else {
+      separator = nextEquals;
+    }
     searchFrom = separator + 1;
     if (!hasSensitiveLogFieldBefore(text, separator)) continue;
 
@@ -217,7 +230,8 @@ export function redactSensitiveFieldsInText(text: string): string {
     searchFrom = valueEnd;
   }
   const sanitized: string = redacted === null ? text : redacted + text.slice(copyFrom);
-  return sanitized.includes("://") && (sanitized.includes("?") || sanitized.includes("#") || sanitized.includes("@"))
+  return sawColon && sanitized.includes("://") &&
+      (sanitized.includes("?") || sanitized.includes("#") || sanitized.includes("@"))
     ? sanitized.replace(LOGGER_HTTP_URL_PATTERN, redactUrlForLog) : sanitized;
 }
 

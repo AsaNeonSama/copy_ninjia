@@ -13,6 +13,7 @@ import {
   packageNameOf,
   readDeclaredPackages,
 } from "../../scripts/conventions/manifestDependencies";
+import type { DeclaredPackages } from "../../scripts/conventions/manifestDependencies";
 import { sourceFilesUnder } from "../../scripts/conventions/sourceAnalysis";
 
 const PROJECT_ROOT: string = "/project";
@@ -92,22 +93,51 @@ describe("依赖声明门禁", (): void => {
     expect(problemsOf(source)).toEqual([]);
   });
 
-  test("manifest 同时读取 dependencies 与 devDependencies，缺节按空处理", async (): Promise<void> => {
+  test("manifest 将 dependencies 与 devDependencies 拆分为 runtime 与 all，缺节按空处理", async (): Promise<void> => {
     const root: string = mkdtempSync(join(tmpdir(), "manifest-dependencies-"));
     roots.push(root);
     await Bun.write(join(root, "package.json"), JSON.stringify({
       dependencies: { grammy: "^1.0.0" },
       devDependencies: { "detect-libc": "^2.1.2" },
     }));
-    expect([...await readDeclaredPackages(root)].sort()).toEqual(["detect-libc", "grammy"]);
+    const declared: DeclaredPackages = await readDeclaredPackages(root);
+    expect([...declared.runtime].sort()).toEqual(["grammy"]);
+    expect([...declared.all].sort()).toEqual(["detect-libc", "grammy"]);
     await Bun.write(join(root, "package.json"), JSON.stringify({ name: "empty" }));
-    expect([...await readDeclaredPackages(root)]).toEqual([]);
+    const empty: DeclaredPackages = await readDeclaredPackages(root);
+    expect([...empty.runtime]).toEqual([]);
+    expect([...empty.all]).toEqual([]);
+  });
+
+  test("负例：生产源码引用仅声明在 devDependencies 的包按 runtime 拦截，脚本与测试放行", () => {
+    const prodPath: string = "/project/packages/infra/devDepLeak.ts";
+    const scriptPath: string = "/project/scripts/example.ts";
+    const devOnlyText: string = 'import { familySync } from "detect-libc";\nvoid familySync;\n';
+    const runtimeSet: ReadonlySet<string> = new Set<string>(["grammy"]);
+    const allSet: ReadonlySet<string> = new Set<string>(["grammy", "detect-libc"]);
+
+    expect(collectUndeclaredDependencyProblems({
+      projectRoot: PROJECT_ROOT,
+      path: prodPath,
+      source: ts.createSourceFile(prodPath, devOnlyText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS),
+      declaredPackages: runtimeSet,
+      runtimeOnly: true,
+    })).toEqual([
+      "packages/infra/devDepLeak.ts:1 imports detect-libc at runtime, " +
+      "but detect-libc is not declared in package.json dependencies",
+    ]);
+    expect(collectUndeclaredDependencyProblems({
+      projectRoot: PROJECT_ROOT,
+      path: scriptPath,
+      source: ts.createSourceFile(scriptPath, devOnlyText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS),
+      declaredPackages: allSet,
+    })).toEqual([]);
   });
 
   test("回归用例：构建脚本的 detect-libc 缺少直接声明时报出", async (): Promise<void> => {
     const projectRoot: string = process.cwd();
     const path: string = join(projectRoot, "scripts", "build.ts");
-    const declared: Set<string> = new Set<string>(await readDeclaredPackages(projectRoot));
+    const declared: Set<string> = new Set<string>((await readDeclaredPackages(projectRoot)).all);
     expect(declared.has("detect-libc")).toBeTrue();
     declared.delete("detect-libc");
     const source: ts.SourceFile = ts.createSourceFile(
@@ -118,21 +148,40 @@ describe("依赖声明门禁", (): void => {
     ]);
   });
 
-  test("真实仓库的运行期裸导入全部由根 manifest 直接声明", async (): Promise<void> => {
+  test("真实仓库的运行期裸导入分别匹配 runtime（生产）与 all（脚本/测试）声明", async (): Promise<void> => {
     const projectRoot: string = process.cwd();
-    const declaredPackages: ReadonlySet<string> = await readDeclaredPackages(projectRoot);
-    const paths: readonly string[] = [
+    const declared: DeclaredPackages = await readDeclaredPackages(projectRoot);
+    const runtimePaths: readonly string[] = [
       join(projectRoot, "index.ts"),
       ...sourceFilesUnder(join(projectRoot, "packages")),
+    ];
+    const devAndScriptPaths: readonly string[] = [
       ...sourceFilesUnder(join(projectRoot, "scripts")),
       ...sourceFilesUnder(join(projectRoot, "test")),
     ];
     const problems: string[] = [];
-    for (const path of paths) {
+    for (const path of runtimePaths) {
       const source: ts.SourceFile = ts.createSourceFile(
         path, await Bun.file(path).text(), ts.ScriptTarget.Latest, true, ts.ScriptKind.TS
       );
-      problems.push(...collectUndeclaredDependencyProblems({ projectRoot, path, source, declaredPackages }));
+      problems.push(...collectUndeclaredDependencyProblems({
+        projectRoot,
+        path,
+        source,
+        declaredPackages: declared.runtime,
+        runtimeOnly: true,
+      }));
+    }
+    for (const path of devAndScriptPaths) {
+      const source: ts.SourceFile = ts.createSourceFile(
+        path, await Bun.file(path).text(), ts.ScriptTarget.Latest, true, ts.ScriptKind.TS
+      );
+      problems.push(...collectUndeclaredDependencyProblems({
+        projectRoot,
+        path,
+        source,
+        declaredPackages: declared.all,
+      }));
     }
     expect(problems).toEqual([]);
   });

@@ -1,4 +1,12 @@
-/* 图库上传按钮满铺原生文件命中层与按压复位/悬停抑制样式、网格卡片、切角悬浮操作按钮与大图预览折叠面板样式。 */
+/* 图库顶栏卡片、上传按钮满铺原生文件命中层与按压复位/悬停抑制样式、网格卡片与独立元数据/图片骨架样式、切角悬浮操作按钮与大图预览折叠面板样式。 */
+.gallery-toolbar-card > .card-title {
+  margin-bottom: 0;
+}
+
+.gallery-toolbar-card > .row-sub {
+  margin-top: 10px;
+}
+
 .gallery-upload-btn,
 .btn.primary.icon-btn.gallery-upload-btn {
   position: relative;
@@ -169,6 +177,11 @@
   border-radius: var(--radius-xs);
 }
 
+.gallery-img-skeleton::after {
+  animation-duration: 0.92s;
+  animation-delay: -0.24s;
+}
+
 .gallery-skeleton-icon-pulse {
   display: inline-flex;
   animation: miniapp-pulse 1.6s var(--ease-brutal) infinite;
@@ -312,8 +325,10 @@
 
 .gallery-meta {
   padding: 7px 8px;
+  min-height: 47px;
   display: flex;
   flex-direction: column;
+  justify-content: center;
   gap: 3px;
   background: var(--surface-elevated);
 }
@@ -330,14 +345,25 @@
   background: #3d1a2e;
 }
 
+@keyframes gallery-meta-reveal {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 .gallery-name {
   font-family: var(--font-mono);
   font-size: 11px;
+  line-height: 16px;
   font-weight: 700;
   color: var(--text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  animation: gallery-meta-reveal 0.14s var(--ease-brutal);
 }
 
 .gallery-sub {
@@ -348,8 +374,10 @@
   justify-content: space-between;
   gap: 4px;
   font-size: 10px;
+  line-height: 14px;
   font-weight: 600;
   color: var(--hint);
+  animation: gallery-meta-reveal 0.14s var(--ease-brutal);
 }
 
 [data-theme="dark"] .gallery-card.selected .gallery-sub {
@@ -399,8 +427,8 @@
   padding: 0 4px 12px 0;
 }
 
-.gallery-preview-collapse-grid.expanded > .gallery-preview-collapse-inner,
-.gallery-preview-collapse-grid.flip-closing > .gallery-preview-collapse-inner {
+.gallery-preview-collapse-grid.flip-closing > .gallery-preview-collapse-inner,
+.gallery-preview-collapse-inner[data-flip-in-flight="1"] {
   will-change: transform, opacity;
   transform: translate3d(0, 0, 0);
   backface-visibility: hidden;
@@ -494,4 +522,26 @@
 
 .gallery-preview-img.loaded {
   opacity: 1;
+}
+
+.gallery-card.gallery-skeleton-item {
+  pointer-events: none;
+  cursor: default;
+}
+
+.gallery-skeleton-meta {
+  gap: 5px;
+  padding: 8px;
+}
+
+.gallery-skeleton-name {
+  width: 72%;
+  height: 14px;
+  margin-left: 0;
+}
+
+.gallery-skeleton-sub {
+  width: 88%;
+  height: 12px;
+  margin-left: 0;
 }

@@ -30,7 +30,7 @@ mock.module("../../../packages/config/readiness", () => ({
   }),
 }));
 mock.module("../../../packages/infra/logger", () => ({
-  logger: loggerStub({ log: loggerLog, error: loggerError, info: loggerLog, warn: loggerLog }),
+  logger: loggerStub({ error: loggerError, info: loggerLog, warn: loggerLog }),
 }));
 mock.module("../../../packages/infra/selfSentTracker", () => ({
   markSelfSent: (): void => {},

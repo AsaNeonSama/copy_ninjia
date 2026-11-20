@@ -1,5 +1,5 @@
 import type React from "react";
-import type { MiniAppIconProps } from "../../types/miniApp";
+import type { MiniAppIconProps } from "../../types/miniApp/ui";
 
 /**
  * 渲染搜索放大镜 SVG 图标。
@@ -291,6 +291,66 @@ export function AlertSvgIcon({
       <circle cx="12" cy="12" r="10" />
       <line x1="12" y1="8" x2="12" y2="12" />
       <line x1="12" y1="16" x2="12.01" y2="16" />
+    </svg>
+  );
+}
+
+/**
+ * 渲染保存（磁盘写入）SVG 图标。
+ *
+ * @param props 图标尺寸与类名
+ * @returns SVG 节点
+ */
+export function SaveSvgIcon({
+  size = 14,
+  className = "",
+}: MiniAppIconProps): React.JSX.Element {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+      <polyline points="17 21 17 13 7 13 7 21" />
+      <polyline points="7 3 7 8 15 8" />
+    </svg>
+  );
+}
+
+/**
+ * 渲染代码格式化（尖括号斜杠）SVG 图标。
+ *
+ * @param props 图标尺寸与类名
+ * @returns SVG 节点
+ */
+export function CodeFormatSvgIcon({
+  size = 14,
+  className = "",
+}: MiniAppIconProps): React.JSX.Element {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <polyline points="16 18 22 12 16 6" />
+      <polyline points="8 6 2 12 8 18" />
+      <line x1="14" y1="4" x2="10" y2="20" />
     </svg>
   );
 }

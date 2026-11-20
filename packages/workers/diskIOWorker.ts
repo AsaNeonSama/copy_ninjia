@@ -252,12 +252,15 @@ export async function handleDiskIOWorkerMessage(
       await handleDiagnosticBatch(msg);
       break;
     case "aiMemory":
-      markAiMemorySnapshotDirty({
-        chatId: msg.chatId,
-        revision: msg.revision,
-        snapshot: msg.snapshot,
-        persistImmediately: msg.persistImmediately === true,
-      });
+      handleStorageMessage(
+        "aiMemory",
+        (): void => markAiMemorySnapshotDirty({
+          chatId: msg.chatId,
+          revision: msg.revision,
+          snapshot: msg.snapshot,
+          persistImmediately: msg.persistImmediately === true,
+        })
+      );
       break;
     case "deleteAiMemory":
       deleteAiMemorySnapshot(msg.chatId, msg.revision);
@@ -291,31 +294,31 @@ export async function handleDiskIOWorkerMessage(
       );
       break;
     case "blocklistRemovalWrite":
-      handleIdentityMessage(
+      handleStorageMessage(
         "blocklistRemovalOutbox",
         (): void => handleBlocklistRemovalWrite(msg, postReply)
       );
       break;
     case "identityPolicyWrite":
-      handleIdentityMessage(
+      handleStorageMessage(
         msg.table,
         (): void => handleIdentityPolicyWrite(msg, postReply)
       );
       break;
     case "temporaryAdBypassWrite":
-      handleIdentityMessage(
+      handleStorageMessage(
         "temporaryAdBypass",
         (): void => handleTemporaryAdBypassWrite(msg, postReply)
       );
       break;
     case "chatStateWrite":
-      handleIdentityMessage(
+      handleStorageMessage(
         "chatState",
         (): void => handleChatStateWrite(msg, postReply)
       );
       break;
     case "chatQaWrite":
-      handleIdentityMessage(
+      handleStorageMessage(
         "chatQa",
         (): void => handleChatQaWrite(msg, postReply)
       );
@@ -405,12 +408,12 @@ function replyReplayFailureIfActive(domain: RecoveryReplayFailedReply["domain"],
 }
 
 /**
- * 执行共享 SQLite 领域写操作；关库后忽略，抛错时记录领域拒收、容量告警与重放失败。
+ * 执行共享 SQLite 领域（含 AI 上下文）写操作；关库后忽略，抛错时记录领域拒收、容量告警与重放失败。
  * @param domain 目标共享 SQLite 子领域名称。
  * @param apply 具体的领域写库闭包。
  */
-function handleIdentityMessage(
-  domain: Exclude<StorageDatabaseDomain, "aiMemory">,
+function handleStorageMessage(
+  domain: StorageDatabaseDomain,
   apply: () => void
 ): void {
   if (storageDatabaseClosed.current) return;
@@ -419,7 +422,7 @@ function handleIdentityMessage(
   } catch (error: unknown) {
     rejectedStorageDomains.add(domain);
     if (error instanceof StorageWriteCapacityError) postReply({ type: "storageWriteStalled" });
-    console.error(`[diskIOWorker] rejected an identity ${domain} message:`, error);
+    console.error(`[diskIOWorker] rejected a storage ${domain} message:`, error);
     replyReplayFailureIfActive(domain, error);
   }
 }

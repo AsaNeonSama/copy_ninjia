@@ -2,13 +2,14 @@
  * 固定容量、按插入顺序淘汰的 Map（FIFO）。
  *
  * 条目存成固定 shape 的节点（`key`、`value`、`newer`、`older`），节点另串成一条按插入顺序的侵入式
- * 双向链表，容器单独持有 `oldest`/`newest` 端点：取最早项、满载淘汰都是 O(1)。全仓有界
- * FIFO 一律用本容器；packages/ 内不得在 Map / Set 上用 `keys()`、`values()`、`entries()` 的
- * `.next()` 取最早项（`check:conventions` 拦截）。
+ * 双向链表，容器单独持有 `oldest`/`newest` 端点：取最早项、满载淘汰都是 O(1)，且满容写入新键时
+ * 原地复用被淘汰的最早节点（节点仅在容器内部持有，不向外部暴露）。全仓有界 FIFO 一律用本容器；
+ * packages/ 内不得在 Map / Set 上用 `keys()`、`values()`、`entries()` 的 `.next()` 取最早项
+ * （`check:conventions` 拦截）。
  *
  * 语义：
  * - `get` / `has` 不改变顺序。
- * - `set` 写已有键只改值、不移位（与 Map 相同）；写新键时若已达容量，先淘汰最早项再插到最新端。
+ * - `set` 写已有键只改值、不移位（与 Map 相同）；写新键时若已达容量，先淘汰最早项并复用其节点再插到最新端。
  *   要把已有键挪到最新端，先 `delete` 再 `set`。
  * - 迭代（`keys` / `values` / `entries` / `forEach` / for...of）从最早到最新；迭代中只允许删除
  *   当前项，删除其它项或写入新键的结果未定义。
@@ -16,9 +17,9 @@
  * libs/lruCache.ts 的 LruCache 继承本类，只在命中时额外把节点挪到最新端。
  */
 
-/** 一个条目；`newer` / `older` 为 null 分别表示本节点在最新端 / 最早端。 */
+/** 一个条目；`newer` / `older` 为 null 分别表示本节点在最新端 / 最早端。满容淘汰时原地复写 `key` 与 `value` 并复用。 */
 export interface FifoNode<K, V> {
-  readonly key: K;
+  key: K;
   value: V;
   newer: FifoNode<K, V> | null;
   older: FifoNode<K, V> | null;
@@ -59,7 +60,7 @@ export class FifoMap<K, V> {
   }
 
   /**
-   * 已有键只改值不移位；新键在达到容量时先淘汰最早项，再插到最新端。
+   * 已有键只改值不移位；新键在达到容量时先淘汰最早项并复用其节点，再插到最新端。
    * @param key 待写入的键。
    * @param value 待关联的值。
    */
@@ -161,19 +162,21 @@ export class FifoMap<K, V> {
   }
 
   /**
-   * 插入一个新键到最新端；已达容量时先淘汰最早项。调用方保证键不存在。
+   * 插入一个新键到最新端；已达容量时先淘汰最早项并原地复用其节点对象。调用方保证键不存在。
    * @param key 尚不存在的新键。
    * @param value 待关联的值。
    */
   protected insertNewest(key: K, value: V): void {
-    if (this.map.size >= this.maxEntries) {
-      const oldest: FifoNode<K, V> | null = this.oldest;
-      if (oldest !== null) {
-        this.map.delete(oldest.key);
-        this.unlink(oldest);
-      }
+    let node: FifoNode<K, V>;
+    if (this.map.size >= this.maxEntries && this.oldest !== null) {
+      node = this.oldest;
+      this.map.delete(node.key);
+      this.unlink(node);
+      node.key = key;
+      node.value = value;
+    } else {
+      node = { key, value, newer: null, older: null };
     }
-    const node: FifoNode<K, V> = { key, value, newer: null, older: null };
     this.map.set(key, node);
     this.linkNewest(node);
   }

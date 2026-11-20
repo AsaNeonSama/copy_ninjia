@@ -1,7 +1,12 @@
 import { afterEach, beforeEach, describe, expect, jest, spyOn, test } from "bun:test";
 import {
+  BLOCKLIST_SWEEP_PENDING_DELTA_MAX_ENTRIES,
   IDENTITY_WRITE_FLUSH_INTERVAL_MS,
 } from "../../../packages/consts/identityStorage";
+import {
+  encodeBlocklistEntryData,
+  encodePendingBlockedRemovalData,
+} from "../../../packages/database/codec/identity";
 import { IDENTITY_DATABASE_PATH } from "../../../packages/consts/paths";
 import {
   closeStorageDatabase,
@@ -9,12 +14,14 @@ import {
 } from "../../../packages/database/interact/connection";
 import {
   pendingWhitelistWrites,
+  pendingBlocklistWrites,
   resetStorageDatabaseCache,
   storageDatabaseHandle,
   rejectedStorageDomains,
   pendingChatQaWrites,
   storagePersistenceReplyHolder,
   storageWriteFlushTimer,
+  storageWriteRetry,
 } from "../../../packages/cache/workers/diskIO/storageDatabase";
 import { diskIOOperationTail } from
   "../../../packages/cache/workers/diskIO/recovery";
@@ -27,12 +34,15 @@ import {
   resetDatabaseFixture,
   whitelistWrite,
 } from "../../helpers/storageDatabaseHydration";
-import { handleIdentityPolicyWrite } from
-  "../../../packages/workers/diskIO/storageDatabase/identityPolicy";
+import {
+  handleIdentityPolicyWrite,
+  hasAnyEffectiveBlocklistIdentity,
+} from "../../../packages/workers/diskIO/storageDatabase/identityPolicy";
 import { handleBlocklistRemovalWrite } from
   "../../../packages/workers/diskIO/storageDatabase/pendingRemoval";
 import type {
   DiskIODomain,
+  IdentityPolicyWriteDiskMessage,
   IdentityStoragePersistedReply,
 } from "../../../packages/types/diskIO";
 import type { StorageDatabase } from
@@ -227,5 +237,64 @@ describe("DiskIO Worker SQLite 定时提交与失败重试", (): void => {
 
     expect(flushStorageDatabase(reply)).toBeTrue();
     expect(acknowledgements).toHaveLength(1);
+  });
+
+  function blocklistWrite(id: number, revision: number, deleted: boolean = false): IdentityPolicyWriteDiskMessage {
+    return {
+      type: "identityPolicyWrite",
+      table: "blocklist",
+      id,
+      data: deleted
+        ? null
+        : encodeBlocklistEntryData({
+          blockedAt: "2026/08/11 00:00:00",
+          meta: { firstName: "Blocked", lastName: "", username: "" },
+        }),
+      revision,
+    };
+  }
+
+  test("待写黑名单变更超过分页增量上限时，判空与退避期删除校验仍正常计算不抛错", (): void => {
+    const count: number = BLOCKLIST_SWEEP_PENDING_DELTA_MAX_ENTRIES + 5;
+    // 先写入一批已提交的黑名单行并提交进 SQLite。
+    storagePersistenceReplyHolder.current = reply;
+    for (let id: number = 1; id <= count + 1; id++) {
+      handleIdentityPolicyWrite(blocklistWrite(id, 1), reply);
+    }
+    expect(flushStorageDatabase(reply)).toBeTrue();
+
+    // 进入退避期：待写删除超过 BLOCKLIST_SWEEP_PENDING_DELTA_MAX_ENTRIES 时判空与删除校验不得因分页保护抛错。
+    storageWriteRetry.failures = 1;
+    storageWriteRetry.retryAt = performance.now() + IDENTITY_WRITE_FLUSH_INTERVAL_MS;
+    for (let id: number = 1; id <= count; id++) {
+      handleIdentityPolicyWrite(blocklistWrite(id, 2, true), reply);
+    }
+    expect(pendingBlocklistWrites.size).toBe(count);
+    // 仍留有 1 条未删除的已提交黑名单身份 (count + 1)。
+    expect(hasAnyEffectiveBlocklistIdentity()).toBeTrue();
+
+    handleBlocklistRemovalWrite({
+      type: "blocklistRemovalWrite",
+      removalId: 10,
+      data: encodePendingBlockedRemovalData(
+        {
+          params: { chatId: -1001, probeMembership: true, removalId: 10 },
+          createdAt: 1,
+          attempts: 0,
+          lastFailure: null,
+        },
+        "storageDatabaseFlush.test"
+      ),
+      revision: 1,
+    }, reply);
+    // 再删掉最后一个有效黑名单身份（count + 1）必须触发业务级引用保护错（而非分页增量超限错）。
+    expect(() => handleIdentityPolicyWrite(blocklistWrite(count + 1, 2, true), reply)).toThrow(
+      "would leave pending sweep rows without any blocklist entry"
+    );
+
+    // 移除探活行后删净全部有效身份：hasAnyEffectiveBlocklistIdentity 应返回 false。
+    handleBlocklistRemovalWrite({ type: "blocklistRemovalWrite", removalId: 10, data: null, revision: 2 }, reply);
+    handleIdentityPolicyWrite(blocklistWrite(count + 1, 2, true), reply);
+    expect(hasAnyEffectiveBlocklistIdentity()).toBeFalse();
   });
 });

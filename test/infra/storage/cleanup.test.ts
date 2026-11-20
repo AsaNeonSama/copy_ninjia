@@ -1,7 +1,22 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import type { Subprocess } from "bun";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
+import { assertNoMisplacedConfigFiles } from "../../../packages/config/layout";
+import { DYNAMIC_CONFIG_DIR_NAME, STATIC_CONFIG_DIR_NAME } from "../../../packages/consts/configLayout";
+import {
+  AD_DETECT_CONFIG_PATH,
+  AGENT_CONFIG_PATH,
+  ASSETS_CONFIG_PATH,
+  BOT_CONFIG_PATH,
+  CRON_CONFIG_PATH,
+  GOOGLE_AUTH_FILE_PATH,
+  MOOD_CONFIG_PATH,
+  STICKERS_CONFIG_PATH,
+  TMP_FILE_SUFFIX,
+} from "../../../packages/consts/paths";
+import { logger } from "../../../packages/infra/logger";
 import { cleanupOrphanedTempFiles } from "../../../packages/infra/storage/cleanup";
 import { readLinuxProcessIdentity } from "../../../packages/infra/storage/instanceLock";
 import type { ProcessIdentity } from "../../../packages/types/storage";
@@ -40,23 +55,33 @@ describe("storage startup cleanup", () => {
     ]);
   });
 
-  test("状态文件、TOTP 文件与锁不同目录时各扫各的：各目录只认本目标临时件，缺失目录直接跳过", async () => {
+  test("状态文件、TOTP 文件、锁与配置目录不同目录时各扫各的：各目录只认本目标临时件，缺失目录直接跳过", async () => {
     const removed: string[] = [];
     const scanned: string[] = [];
     const listing: Readonly<Record<string, readonly string[]>> = {
       "/virtual": [".bot.lock.1.uuid.tmp", ".state.json.1.uuid.tmp", ".totp.json.1.uuid.tmp", "bot.lock.guard.recovery"],
       "/virtual/memory/global": [".state.json.2.uuid.tmp", ".bot.lock.2.uuid.tmp", "bot.lock.guard.recovery"],
       "/virtual/memory/mini-app-totp": [".totp.json.2.uuid.tmp", ".state.json.2.uuid.tmp", "totp.json"],
+      "/virtual/config/static": [],
+      "/virtual/config/dynamic": [],
     };
     await cleanupOrphanedTempFiles({
       stateFilePath: "/virtual/memory/global/state.json",
       totpFilePath: "/virtual/memory/mini-app-totp/totp.json",
       lockFilePath: "/virtual/bot.lock",
+      configStaticDir: "/virtual/config/static",
+      configDynamicDir: "/virtual/config/dynamic",
       readDirectory: async (path) => { scanned.push(path); return [...listing[path]!]; },
       isInactiveLockOwner: async () => true,
       removeFile: async (path) => { removed.push(path); },
     });
-    expect(scanned).toEqual(["/virtual", "/virtual/memory/global", "/virtual/memory/mini-app-totp"]);
+    expect(scanned).toEqual([
+      "/virtual",
+      "/virtual/memory/global",
+      "/virtual/memory/mini-app-totp",
+      "/virtual/config/static",
+      "/virtual/config/dynamic",
+    ]);
     expect(removed).toEqual([
       "/virtual/.bot.lock.1.uuid.tmp",
       "/virtual/bot.lock.guard.recovery",
@@ -71,6 +96,8 @@ describe("storage startup cleanup", () => {
       stateFilePath: "/virtual/memory/global/state.json",
       totpFilePath: "/virtual/memory/mini-app-totp/totp.json",
       lockFilePath: "/virtual/bot.lock",
+      configStaticDir: "/virtual/config/static",
+      configDynamicDir: "/virtual/config/dynamic",
       readDirectory: async (path) => {
         if (path !== "/virtual") throw missing;
         return [".bot.lock.3.uuid.tmp"];
@@ -223,5 +250,129 @@ describe("guard 归属判定的真实实现", () => {
 
     await cleanupOrphanedTempFiles({ stateFilePath, lockFilePath });
     expect(await Bun.file(recoveryPath).exists()).toBe(true);
+  });
+
+  test("配置目录只删格式严格匹配且归属 PID 已死或与本进程同 PID 的白名单临时件，其余残留交由布局检查拒绝", async () => {
+    const configRoot: string = join(testDir, "config");
+    const staticDir: string = join(configRoot, STATIC_CONFIG_DIR_NAME);
+    const dynamicDir: string = join(configRoot, DYNAMIC_CONFIG_DIR_NAME);
+    mkdirSync(staticDir, { recursive: true });
+    mkdirSync(dynamicDir, { recursive: true });
+
+    const uuidA: string = "11111111-1111-4111-8111-111111111111";
+    const uuidB: string = "22222222-2222-4222-8222-222222222222";
+    const deadStatic: string = `.${basename(BOT_CONFIG_PATH)}.${DEAD_PID}.${uuidA}${TMP_FILE_SUFFIX}`;
+    const deadDynamicNames: readonly string[] = [
+      AGENT_CONFIG_PATH,
+      ASSETS_CONFIG_PATH,
+      AD_DETECT_CONFIG_PATH,
+      MOOD_CONFIG_PATH,
+      STICKERS_CONFIG_PATH,
+      CRON_CONFIG_PATH,
+    ].map((path: string): string => `.${basename(path)}.${DEAD_PID}.${uuidB}${TMP_FILE_SUFFIX}`);
+    const deadGAuth: string = `.${basename(GOOGLE_AUTH_FILE_PATH)}.${DEAD_PID}.${uuidB}${TMP_FILE_SUFFIX}`;
+    // 启动清扫先于本进程任何配置写入：与本进程同 PID 的临时件只可能是 PID 复用前的残留，需清除；其他存活进程的临时件保留。
+    const liveOwner: Subprocess = Bun.spawn(["sleep", "60"]);
+    const selfPidDynamic: string = `.${basename(MOOD_CONFIG_PATH)}.${process.pid}.${uuidA}${TMP_FILE_SUFFIX}`;
+    const liveDynamic: string = `.${basename(AGENT_CONFIG_PATH)}.${liveOwner.pid}.${uuidA}${TMP_FILE_SUFFIX}`;
+    const swpFile: string = `.${basename(AGENT_CONFIG_PATH)}.swp`;
+    const nonWhitelistTemp: string = `.other.json.${DEAD_PID}.${uuidA}${TMP_FILE_SUFFIX}`;
+    const zeroPidTemp: string = `.${basename(AGENT_CONFIG_PATH)}.0.${uuidA}${TMP_FILE_SUFFIX}`;
+    const badUuidTemp: string = `.${basename(AGENT_CONFIG_PATH)}.${DEAD_PID}.not-a-uuid${TMP_FILE_SUFFIX}`;
+
+    await Bun.write(join(staticDir, deadStatic), "{}");
+    await Bun.write(join(staticDir, deadGAuth), "{}");
+    for (const fileName of deadDynamicNames) await Bun.write(join(dynamicDir, fileName), "{}");
+    await Bun.write(join(dynamicDir, liveDynamic), "{}");
+    await Bun.write(join(dynamicDir, selfPidDynamic), "{}");
+    await Bun.write(join(dynamicDir, swpFile), "swap");
+    await Bun.write(join(dynamicDir, nonWhitelistTemp), "{}");
+    await Bun.write(join(dynamicDir, zeroPidTemp), "{}");
+    await Bun.write(join(dynamicDir, badUuidTemp), "{}");
+
+    try {
+      await cleanupOrphanedTempFiles({
+        stateFilePath,
+        totpFilePath: join(testDir, "totp.json"),
+        lockFilePath,
+        configStaticDir: staticDir,
+        configDynamicDir: dynamicDir,
+      });
+    } finally {
+      liveOwner.kill();
+      await liveOwner.exited;
+    }
+
+    expect(await Bun.file(join(dynamicDir, selfPidDynamic)).exists()).toBeFalse();
+    expect(await Bun.file(join(staticDir, deadStatic)).exists()).toBeFalse();
+    expect(await Bun.file(join(staticDir, deadGAuth)).exists()).toBeFalse();
+    for (const fileName of deadDynamicNames) {
+      expect(await Bun.file(join(dynamicDir, fileName)).exists()).toBeFalse();
+    }
+    expect(readdirSync(dynamicDir).sort()).toEqual(
+      [liveDynamic, swpFile, nonWhitelistTemp, zeroPidTemp, badUuidTemp].sort()
+    );
+    await expect(assertNoMisplacedConfigFiles(configRoot)).rejects.toThrow("must be absent");
+
+    for (const kept of [liveDynamic, swpFile, nonWhitelistTemp, zeroPidTemp, badUuidTemp]) {
+      rmSync(join(dynamicDir, kept), { force: true });
+    }
+    await expect(assertNoMisplacedConfigFiles(configRoot)).resolves.toBeUndefined();
+
+    // 单独放入死 PID 残留并重清扫后，布局白名单即直接通过。
+    const loneDeadTemp: string = join(dynamicDir, `.${basename(CRON_CONFIG_PATH)}.${DEAD_PID}.${uuidA}${TMP_FILE_SUFFIX}`);
+    await Bun.write(loneDeadTemp, "[]");
+    await cleanupOrphanedTempFiles({
+      stateFilePath,
+      totpFilePath: join(testDir, "totp.json"),
+      lockFilePath,
+      configStaticDir: staticDir,
+      configDynamicDir: dynamicDir,
+    });
+    expect(await Bun.file(loneDeadTemp).exists()).toBeFalse();
+    await expect(assertNoMisplacedConfigFiles(configRoot)).resolves.toBeUndefined();
+  });
+
+  test("配置目录只读或删除返回 EACCES/EROFS 时记错误日志并继续，随后由布局检查拒绝启动", async () => {
+    const configRoot: string = join(testDir, "config-ro");
+    const staticDir: string = join(configRoot, STATIC_CONFIG_DIR_NAME);
+    const dynamicDir: string = join(configRoot, DYNAMIC_CONFIG_DIR_NAME);
+    mkdirSync(staticDir, { recursive: true });
+    mkdirSync(dynamicDir, { recursive: true });
+
+    const uuid: string = "33333333-3333-4333-8333-333333333333";
+    const blockedTemp: string = `.${basename(AGENT_CONFIG_PATH)}.${DEAD_PID}.${uuid}${TMP_FILE_SUFFIX}`;
+    const staticDeadTemp: string = `.${basename(BOT_CONFIG_PATH)}.${DEAD_PID}.${uuid}${TMP_FILE_SUFFIX}`;
+    await Bun.write(join(dynamicDir, blockedTemp), "{}");
+    await Bun.write(join(staticDir, staticDeadTemp), "{}");
+
+    const errorSpy = spyOn(logger, "error").mockImplementation((): void => {});
+    const removed: string[] = [];
+    try {
+      await cleanupOrphanedTempFiles({
+        stateFilePath,
+        totpFilePath: join(testDir, "totp.json"),
+        lockFilePath,
+        configStaticDir: staticDir,
+        configDynamicDir: dynamicDir,
+        readDirectory: async (path: string): Promise<string[]> => readdirSync(path),
+        removeFile: async (path: string): Promise<void> => {
+          if (path === join(dynamicDir, blockedTemp)) {
+            const err: NodeJS.ErrnoException = new Error("EROFS: read-only file system");
+            err.code = "EROFS";
+            throw err;
+          }
+          removed.push(path);
+          await Bun.file(path).delete();
+        },
+        isProcessPidDead: async (): Promise<boolean> => true,
+      });
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      expect(removed).toEqual([join(staticDir, staticDeadTemp)]);
+      expect(await Bun.file(join(dynamicDir, blockedTemp)).exists()).toBeTrue();
+      await expect(assertNoMisplacedConfigFiles(configRoot)).rejects.toThrow("must be absent");
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 });

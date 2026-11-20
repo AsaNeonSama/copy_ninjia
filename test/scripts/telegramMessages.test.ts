@@ -20,11 +20,18 @@ const BASELINE_FILES: Readonly<Record<string, string>> = {
   "commands/gag/notices.ts": "",
   "commands/qa/notices.ts": "",
   "copy/avatarQueue.ts": "",
-  "workers/antiRaid/verificationReminders.ts": "",
+  "workers/aiChat/ai/tools/replyToolset/messageState.ts": "export async function sendDirectMessage(): Promise<void> {}\n",
+  "workers/antiRaid/lockdownApi.ts": "export function beginLockdownAnnouncement(): void {}\n",
+  "workers/antiRaid/verificationReminders.ts": "function attemptReminderDelivery(): void {}\n",
+  "auto/message/qaDirectAnswer.ts": "export function sendQaDirectAnswer(): void {}\n",
+  "auto/message/proxySend.ts": "export function handlePrivateProxySend(): void {}\n",
+  "auto/message/proxyTts.ts": "function sendProxyTtsNotice(): void {}\n",
+  "auto/message/proactive.ts": "function replyToBathTrigger(): void {}\n",
+  "mini-app-api-server/handlers/auth.ts": "export function handlePostAuthLoginRoute(): void {}\n",
 };
 
-/** 在临时仓库根下写入 packages/ 夹具（覆盖同名基线文件）后跑一遍门禁。 */
-async function problemsFor(files: Readonly<Record<string, string>>): Promise<readonly string[]> {
+/** 在临时仓库根下写入 packages/ 夹具（覆盖同名基线文件，null 表示删去该基线文件）后跑一遍门禁。 */
+async function problemsFor(files: Readonly<Record<string, string | null>>): Promise<readonly string[]> {
   const root: string = mkdtempSync(join(tmpdir(), "copy-ninjia-telegram-messages-"));
   temporaryRoots.push(root);
   const sourceRoot: string = join(root, "packages");
@@ -37,6 +44,7 @@ async function problemsFor(files: Readonly<Record<string, string>>): Promise<rea
     join(sourceRoot, "mini-app-api-server"),
   ]) mkdirSync(directory, { recursive: true });
   for (const [relativePath, text] of Object.entries({ ...BASELINE_FILES, ...files })) {
+    if (text === null) continue;
     await Bun.write(join(sourceRoot, relativePath), text);
   }
   return collectTelegramMessageProblems(root, sourceRoot, commandsRoot);
@@ -168,5 +176,35 @@ describe("Telegram 提示留存门禁的命名边界函数", () => {
     expect(await problemsFor({
       "cron/schedule.ts": 'export function remind(): unknown { return sendCommandMessage({ chatId: 1, text: "hi" }); }\n',
     })).toEqual(["packages/cron/schedule.ts: cron messages must be sent through cron/delivery.ts"]);
+  });
+
+  test("命令目录与头像队列禁止引入 sendMessageWithResult 及成员调用 sendMessage", async (): Promise<void> => {
+    expect([...await problemsFor({
+      "commands/badImport.ts": 'import { sendMessageWithResult } from "../infra/telegram";\nvoid sendMessageWithResult;\n',
+      "commands/gag.ts": 'import { sendMessageWithResult } from "../infra/telegram";\nvoid sendMessageWithResult;\n',
+      "commands/botCall.ts": "export function f(bot: { api: { sendMessage: (c: number, t: string) => void } }): void { bot.api.sendMessage(1, \"x\"); }\n",
+      "commands/ctxCall.ts": "export function g(ctx: { api: { sendMessage: (c: number, t: string) => void } }): void { ctx.api.sendMessage(1, \"x\"); }\n",
+      "copy/avatarQueue.ts": 'import { sendMessageWithResult } from "../infra/telegram";\nexport function q(ctx: { api: { sendMessage: (c: number, t: string) => void } }): void { void sendMessageWithResult; ctx.api.sendMessage(1, "x"); }\n',
+    })].sort()).toEqual([
+      `packages/commands/badImport.ts:1 ${COMMAND_TEXT_PROBLEM}`,
+      `packages/commands/botCall.ts:1 ${COMMAND_TEXT_PROBLEM}`,
+      `packages/commands/ctxCall.ts:1 ${COMMAND_TEXT_PROBLEM}`,
+      `packages/commands/gag.ts:1 ${COMMAND_TEXT_PROBLEM}`,
+      `packages/copy/avatarQueue.ts:1 ${COMMAND_TEXT_PROBLEM}`,
+      `packages/copy/avatarQueue.ts:2 ${COMMAND_TEXT_PROBLEM}`,
+    ]);
+  });
+
+  test("directBoundaries 登记的文件或边界函数不存在时必须报错（防陈旧豁免）", async (): Promise<void> => {
+    expect(await problemsFor({
+      "auto/message/proxyTts.ts": null,
+    })).toEqual([
+      expect.stringContaining("auto/message/proxyTts.ts"),
+    ]);
+    expect(await problemsFor({
+      "auto/message/proxyTts.ts": "function renamedHelper(): void {}\n",
+    })).toEqual([
+      expect.stringContaining("sendProxyTtsNotice"),
+    ]);
   });
 });

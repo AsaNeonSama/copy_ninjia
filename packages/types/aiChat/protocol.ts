@@ -11,6 +11,7 @@ import type {
   MoodConfig,
   StickerConfig,
 } from "../config";
+import type { LogLevel } from "../diskIO/messages";
 
 /** Worker 侧自我认知所需的机器人账号身份。 */
 export interface AiBotInfo {
@@ -43,6 +44,8 @@ export interface AiInitMessage {
   type: "init";
   /** 主线程已校验的默认时区；初始化及 Worker 重建时随启动快照重放。 */
   readonly timeZone: string;
+  /** 主线程已校验的日志级别阈值；初始化及 Worker 重建时随启动快照重放。 */
+  readonly logLevel: LogLevel;
   botInfo: AiBotInfo;
   /** 主线程从 config/static/bot.json 读取后注入；Worker 不直接加载 Bot 部署配置。 */
   superAdminUserId: number;
@@ -148,7 +151,7 @@ export interface AiRecordMediaMessage extends AiRecordContext {
   stickerFallbackText: string | undefined;
   /**
    * 语音专用的 Telegram 声明容器原始值；其余媒体为 undefined。交给转写侧按白名单归一（见
-   * aiChat/ai/telegramAudio.ts 的 normalizeVoiceMime）后才用于模型请求。
+   * workers/aiChat/ai/telegramAudio.ts 的 normalizeVoiceMime）后才用于模型请求。
    */
   voiceMime: string | undefined;
   /**
@@ -169,6 +172,15 @@ export interface AiRecordMediaMessage extends AiRecordContext {
    * 图片记进生图参考相册缓存（见 workers/aiChat/imageReferenceAlbums.ts）。
    */
   mediaGroupId: string | undefined;
+  /**
+   * 发起回复时本群登记的问答清单 JSON 文本（从 `[string, string][]` 序列化）；
+   * 不发起回复或本群无问答时为 undefined。键恒发，保持结构化克隆 shape 稳定。
+   */
+  chatQaJson: string | undefined;
+  /**
+   * 发起回复时本群登记的问答条数；不发起回复或本群无问答时为 0。键恒发。
+   */
+  chatQaCount: number;
 }
 
 /**
@@ -251,7 +263,7 @@ export interface AiInvalidateChatMessage {
   requestId: number;
 }
 
-/** /mood switch 的重抽请求：未过 deadlineAt 时 Worker 调 aiChat/ai/mood.ts 的
+/** /mood switch 的重抽请求：未过 deadlineAt 时 Worker 调 workers/aiChat/ai/mood.ts 的
  *  switchMood 重抽全局唯一的心情，再以同 requestId 的 moodSwitched 回执带回结果；
  *  过期请求不得产生副作用，回复由主线程命令处理器发出。 */
 export interface AiSwitchMoodMessage {
@@ -274,7 +286,7 @@ export interface AiQueryMoodMessage {
 
 /**
  * 主线程转交的一次语音合成（`/send` 代发的 TTS 与 cron `send_voice`，见
- * aiChat/voiceSynthesis.ts）。Worker 经公共实现 aiChat/ai/voiceSynthesis.ts 合成并编码，
+ * aiChat/voiceSynthesis.ts）。Worker 经公共实现 workers/aiChat/ai/voiceSynthesis.ts 合成并编码，
  * 再以同 requestId 的 voiceSynthesized 回执带回结果；台词与语气已由主线程清洗并校验长度。
  */
 export interface AiSynthesizeVoiceMessage {
@@ -297,7 +309,7 @@ export interface AiCancelVoiceSynthesisMessage {
 
 /**
  * cron `send_web_digest` 转交的一次摘要组稿（见 aiChat/webDigest.ts）。Worker 经
- * aiChat/ai/webDigest.ts 检索并组稿，再以同 requestId 的 webDigestComposed 回执带回结果。
+ * workers/aiChat/ai/webDigest.ts 检索并组稿，再以同 requestId 的 webDigestComposed 回执带回结果。
  */
 export interface AiComposeWebDigestMessage {
   type: "composeWebDigest";
@@ -421,7 +433,7 @@ export interface AiWebDigestComposedEvent {
 }
 
 /**
- * Worker 登记或退还一次语音合成请求后的全量计数（见 aiChat/ai/ttsUsage.ts）：主线程据此
+ * Worker 登记或退还一次语音合成请求后的全量计数（见 workers/aiChat/ai/ttsUsage.ts）：主线程据此
  * 替换全局状态的 `ttsUsage` 并落盘，作为 Worker 重建时的重放来源。退还到两项计数都为 0 时
  * 为 null，等同从没用过，落盘时不写该键。
  */

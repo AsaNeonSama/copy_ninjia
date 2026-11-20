@@ -21,7 +21,11 @@ import { botPermissions } from "../helpers/botPermissions";
 import { identityFieldView } from "../helpers/identityCacheView";
 import type { IdentityFieldView } from "../helpers/identityCacheView";
 
+import { loggerStub } from "../helpers/loggerMock";
+
 const blocklistField: IdentityFieldView<"blocklist"> = identityFieldView("blocklist");
+const loggerInfoCalls: unknown[][] = [];
+const loggerErrorCalls: unknown[][] = [];
 
 /**
  * 黑名单销号计数规则：回执驱动的 JSONB 计数、清零、满额解除与失败路径。
@@ -33,11 +37,26 @@ mock.module("../../packages/infra/chatStateStorage", () => ({
   getChatStateCache: (): ReadonlyMap<number, { isInitEnabled: boolean; botPermissions: BotChatPermissions }> =>
     new Map([[-1001, { isInitEnabled: true, botPermissions: botPermissions() }]]),
 }));
-mock.module("../../packages/infra/logger", participantInvalidLogger);
+mock.module("../../packages/infra/logger", () => {
+  const base = participantInvalidLogger().logger;
+  return {
+    logger: loggerStub({
+      info: (...args: unknown[]): void => {
+        loggerInfoCalls.push(args);
+        base.info(args[0]);
+      },
+      error: (...args: unknown[]): void => {
+        loggerErrorCalls.push(args);
+        base.error(args[0]);
+      },
+    }),
+  };
+});
 
 const {
   blocklistParticipantInvalidQueue,
   pendingBlockedRemovals,
+  pendingParticipantInvalidUnblocks,
 } = await import("../../packages/cache/main/blocklist");
 const {
   resetIdentityStorageCache,
@@ -51,7 +70,10 @@ const { recordBlocklistParticipantReadability } = await import("../../packages/i
 beforeEach(async () => {
   await blocklistParticipantInvalidQueue.current;
   resetParticipantInvalidHarness();
+  loggerInfoCalls.length = 0;
+  loggerErrorCalls.length = 0;
   pendingBlockedRemovals.clear();
+  pendingParticipantInvalidUnblocks.clear();
   diskIORuntime.fatalSignaled = false;
   resetIdentityStorageCache();
 });
@@ -111,9 +133,10 @@ describe("黑名单销号计数", () => {
       .toEqual(["blocklistRemovalWrite", "identityPolicyWrite"]);
     // 计数只持久化到上限减 1；满额那次直接解除，不写出越界值。
     expect(writtenCounts()).toEqual([[7, 1], [7, 2], [7, 3], [7, 4], [7, null]]);
-    expect(participantInvalidHarness.logged.some((message: string): boolean =>
-      message.includes("Removed blocklisted user 7")
-    )).toBeTrue();
+    expect(loggerInfoCalls).toContainEqual([
+      "Removed blocklisted user after consecutive PARTICIPANT_ID_INVALID sweep results.",
+      { userId: 7, consecutiveLimit: BLOCKLIST_PARTICIPANT_INVALID_LIMIT },
+    ]);
   });
 
   test("已落定回执清零已有计数，之后重新从 1 开始", async () => {
@@ -208,9 +231,11 @@ describe("黑名单销号计数", () => {
     recordBlocklistParticipantReadability(receipt([7]));
     await drainParticipantInvalidWork();
     expect(identityWrites("blocklist")).toEqual([]);
-    expect(participantInvalidHarness.loggedErrors.some((message: string): boolean =>
-      message.includes("Failed to update blocklist PARTICIPANT_ID_INVALID counts for removal 1 in chat -1001")
-    )).toBeTrue();
+    expect(loggerErrorCalls).toContainEqual([
+      "Failed to update blocklist PARTICIPANT_ID_INVALID counts:",
+      { removalId: 1, chatId: -1001 },
+      expect.any(Error),
+    ]);
 
     diskIORuntime.fatalSignaled = false;
     recordBlocklistParticipantReadability(receipt([7]));
@@ -232,8 +257,28 @@ describe("黑名单销号计数", () => {
 
     expect(isUserBlocked(7)).toBeTrue();
     expect(identityWrites("blocklist")).toEqual([]);
-    expect(participantInvalidHarness.loggedErrors.some((message: string): boolean =>
-      message.includes("Failed to remove deleted account 7 from the blocklist")
-    )).toBeTrue();
+    expect(loggerErrorCalls).toContainEqual([
+      "Failed to remove deleted account from the blocklist:",
+      { userId: 7 },
+      expect.any(Error),
+    ]);
+  });
+
+  test("排队等待解除期间条目被 LRU 挤出但字段值未变时仍正常解除拉黑", async () => {
+    storeBlocked(7, BLOCKLIST_PARTICIPANT_INVALID_LIMIT - 1);
+    const busy: { promise: Promise<void>; resolve: () => void } = Promise.withResolvers<void>();
+    const held: Promise<void> = blocklistIdentityMutationRunner.run(7, (): Promise<void> => busy.promise);
+
+    recordBlocklistParticipantReadability(receipt([7]));
+    await blocklistParticipantInvalidQueue.current;
+    // 模拟在途排队期间被 LRU 挤出，后续重新冷读得到字段值相同但对象引用全新的条目。
+    resetIdentityStorageCache();
+
+    busy.resolve();
+    await held;
+    await drainParticipantInvalidWork();
+
+    expect(isUserBlocked(7)).toBeFalse();
+    expect(lastWrittenData(7)).toBeNull();
   });
 });

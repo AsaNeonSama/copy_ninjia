@@ -10,7 +10,7 @@ import {
   rateLimitNoticeTimes,
 } from "../../cache/workers/aiChat/replies";
 import { botInfoState } from "../../cache/workers/aiChat/identity";
-import { buildSelfRecordMessage } from "../../aiChat/ai/utils/selfRecord";
+import { buildSelfRecordMessage } from "../../aiChat/selfRecord";
 import { recordChatMessage } from "./rollingMemory";
 import {
   replyGenerationSignal,

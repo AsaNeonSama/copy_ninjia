@@ -1,5 +1,5 @@
 /**
- * 语音合成公共实现（aiChat/ai/voiceSynthesis.ts）与 AI Worker 侧转交处理：入口查找、
+ * 语音合成公共实现（workers/aiChat/ai/voiceSynthesis.ts）与 AI Worker 侧转交处理：入口查找、
  * 合成后编码、取消与失败归类，以及回执转移语音 buffer、撤回中止在途合成。
  */
 
@@ -19,11 +19,12 @@ const synthesizeSpeech = mock(async (_request: AiMeteredSpeechRequest): Promise<
 }));
 const ttsAiProvider = mock((): unknown => ({ name: "google", synthesizeSpeech }));
 const loggerError = mock((..._args: unknown[]): void => {});
-const realProvider = await import("../../../packages/aiChat/provider");
-mock.module("../../../packages/aiChat/provider", () => ({ ...realProvider, ttsAiProvider }));
+const realProvider = await import("../../../packages/workers/aiChat/provider");
+mock.module("../../../packages/workers/aiChat/provider", () => ({ ...realProvider, ttsAiProvider }));
 mock.module("../../../packages/infra/logger", () => ({ logger: loggerStub({ error: loggerError }) }));
 
-const { resolveSpeechSynthesizer, synthesizeVoiceMessage } = await import("../../../packages/aiChat/ai/voiceSynthesis");
+const { resolveSpeechSynthesizer, synthesizeVoiceMessage } = await import("../../../packages/workers/aiChat/ai/voiceSynthesis");
+const { drainAiWorkerJobs } = await import("../../../packages/workers/aiChat/workerJob");
 const { handleCancelVoiceSynthesis, handleSynthesizeVoice } = await import("../../../packages/workers/aiChat/voiceSynthesis");
 const { voiceSynthesisRequests } = await import("../../../packages/cache/workers/aiChat/voiceSynthesis");
 const { aiChatWorkerAbortController, aiChatWorkerQuiescing } = await import("../../../packages/cache/workers/aiChat/worker");
@@ -65,7 +66,7 @@ describe("公共实现", () => {
   });
 
   test("合成后编码成 OGG/Opus；合成失败、额度用尽、signal 已中止与编码失败各自归类", async () => {
-    const encoded = await synthesizeVoiceMessage(synthesizeSpeech, { text: "hi", tone: "小声で", quota: "ai" }, "test");
+    const encoded = await synthesizeVoiceMessage(synthesizeSpeech, { text: "hi", tone: "小声で", quota: "ai" }, { chatId: -1 });
     expect(encoded.ok).toBeTrue();
     if (!encoded.ok) throw new Error("expected encoded voice");
     expect(new TextDecoder().decode(encoded.voice.bytes.subarray(0, 4))).toBe("OggS");
@@ -73,25 +74,28 @@ describe("公共实现", () => {
     expect(synthesizeSpeech).toHaveBeenCalledWith({ text: "hi", tone: "小声で", quota: "ai" });
 
     synthesizeSpeech.mockImplementationOnce(async (): Promise<SpeechSynthesisAttempt> => ({ ok: false, reason: "synthesis failed" }));
-    expect(await synthesizeVoiceMessage(synthesizeSpeech, { text: "hi", quota: "ai" }, "test")).toEqual({ ok: false, reason: "synthesis failed" });
+    expect(await synthesizeVoiceMessage(synthesizeSpeech, { text: "hi", quota: "ai" }, { chatId: -1 })).toEqual({ ok: false, reason: "synthesis failed" });
 
     synthesizeSpeech.mockImplementationOnce(async (): Promise<SpeechSynthesisAttempt> => ({ ok: false, reason: "daily limit reached" }));
-    expect(await synthesizeVoiceMessage(synthesizeSpeech, { text: "hi", quota: "ai" }, "test")).toEqual({ ok: false, reason: "daily limit reached" });
+    expect(await synthesizeVoiceMessage(synthesizeSpeech, { text: "hi", quota: "ai" }, { chatId: -1 })).toEqual({ ok: false, reason: "daily limit reached" });
 
     const controller: AbortController = new AbortController();
     synthesizeSpeech.mockImplementationOnce(async (): Promise<SpeechSynthesisAttempt> => {
       controller.abort();
       return { ok: true, speech: { bytes: sineWav(24_000, 0.5), mimeType: "audio/wav" } };
     });
-    expect(await synthesizeVoiceMessage(synthesizeSpeech, { text: "hi", quota: "ai", signal: controller.signal }, "test"))
+    expect(await synthesizeVoiceMessage(synthesizeSpeech, { text: "hi", quota: "ai", signal: controller.signal }, { chatId: -1 }))
       .toEqual({ ok: false, reason: "aborted" });
 
     synthesizeSpeech.mockImplementationOnce(async (): Promise<SpeechSynthesisAttempt> => ({
       ok: true,
       speech: { bytes: new Uint8Array([1]), mimeType: "audio/mp3" },
     }));
-    expect(await synthesizeVoiceMessage(synthesizeSpeech, { text: "hi", quota: "ai" }, "chat -1")).toEqual({ ok: false, reason: "unsupported speech mime type" });
-    expect(loggerError).toHaveBeenCalledWith("Voice message encoding failed (chat -1): unsupported speech mime type.");
+    expect(await synthesizeVoiceMessage(synthesizeSpeech, { text: "hi", quota: "ai" }, { chatId: -1 })).toEqual({ ok: false, reason: "unsupported speech mime type" });
+    expect(loggerError).toHaveBeenCalledWith("Voice message encoding failed.", {
+      chatId: -1,
+      reason: "unsupported speech mime type",
+    });
   });
 
   test("合成返回后、编码期间 signal 中止时返回 aborted，不记编码失败", async () => {
@@ -101,7 +105,7 @@ describe("公共实现", () => {
       setImmediate((): void => controller.abort());
       return { ok: true, speech: { bytes: sineWav(24_000, 3), mimeType: "audio/wav" } };
     });
-    expect(await synthesizeVoiceMessage(synthesizeSpeech, { text: "hi", quota: "ai", signal: controller.signal }, "test"))
+    expect(await synthesizeVoiceMessage(synthesizeSpeech, { text: "hi", quota: "ai", signal: controller.signal }, { chatId: -1 }))
       .toEqual({ ok: false, reason: "aborted" });
     expect(controller.signal.aborted).toBeTrue();
     expect(loggerError).not.toHaveBeenCalled();
@@ -164,7 +168,11 @@ describe("AI Worker 侧转交", () => {
     ttsAiProvider.mockImplementationOnce((): never => { throw new Error("config missing"); });
     handleSynthesizeVoice({ type: "synthesizeVoice", requestId: 6, text: "hi", tone: undefined });
     expect((await nextEvent())[0]).toEqual({ type: "voiceSynthesized", requestId: 6, result: { ok: false, reason: "synthesis failed" } });
-    expect(loggerError.mock.calls[0]![0]).toBe("Speech synthesizer lookup for main-thread request 6 threw:");
+    expect(loggerError.mock.calls[0]).toEqual([
+      "Speech synthesizer lookup threw:",
+      { requestId: 6 },
+      expect.any(Error),
+    ]);
     expect(voiceSynthesisRequests.size).toBe(0);
     expect(synthesizeSpeech).not.toHaveBeenCalled();
   });
@@ -173,6 +181,34 @@ describe("AI Worker 侧转交", () => {
     synthesizeSpeech.mockImplementationOnce(async (): Promise<SpeechSynthesisAttempt> => { throw new Error("boom"); });
     handleSynthesizeVoice({ type: "synthesizeVoice", requestId: 5, text: "hi", tone: undefined });
     expect((await nextEvent())[0]).toEqual({ type: "voiceSynthesized", requestId: 5, result: { ok: false, reason: "synthesis failed" } });
-    expect(loggerError.mock.calls[0]![0]).toBe("Voice synthesis failed unexpectedly (main-thread request 5):");
+    expect(loggerError.mock.calls[0]).toEqual([
+      "Voice synthesis failed unexpectedly:",
+      { requestId: 5 },
+      expect.any(Error),
+    ]);
+  });
+
+  test("drainAiWorkerJobs 等在途合成结算并送出退款与回执后才返回", async () => {
+    const release: PromiseWithResolvers<SpeechSynthesisAttempt> = Promise.withResolvers<SpeechSynthesisAttempt>();
+    synthesizeSpeech.mockImplementationOnce((): Promise<SpeechSynthesisAttempt> => release.promise);
+    handleSynthesizeVoice({ type: "synthesizeVoice", requestId: 8, text: "hi", tone: undefined });
+
+    let drained: boolean = false;
+    const drain: Promise<void> = drainAiWorkerJobs().then((): void => {
+      drained = true;
+    });
+    await Bun.sleep(0);
+    expect(drained).toBeFalse();
+    expect(postMessage).not.toHaveBeenCalled();
+
+    aiChatWorkerAbortController.current.abort();
+    // 模拟被中止的合成异步完成退款与收敛。
+    release.resolve({ ok: false, reason: "synthesis failed" });
+    await drain;
+    expect(drained).toBeTrue();
+    expect(voiceSynthesisRequests.size).toBe(0);
+    expect(postMessage).toHaveBeenCalledWith(
+      { type: "voiceSynthesized", requestId: 8, result: { ok: false, reason: "aborted" } }
+    );
   });
 });

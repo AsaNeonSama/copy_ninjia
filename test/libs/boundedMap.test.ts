@@ -7,6 +7,17 @@ describe("sweepExpiredSnapshots", () => {
     const snapshots = new FifoMap<number, { readonly fetchedAt: number }>(10);
     snapshots.set(-1, { fetchedAt: 0 });
     snapshots.set(-2, { fetchedAt: 0 });
+    snapshots.set(-3, { fetchedAt: 500 });
+    snapshots.set(-4, { fetchedAt: 900 });
+    const inFlight: ReadonlyMap<number, unknown> = new Map([[-2, Promise.resolve()]]);
+    expect(sweepExpiredSnapshots({ snapshots, inFlight, ttlMs: 500, now: 1_000 })).toBe(1);
+    expect([...snapshots.keys()]).toEqual([-2, -3, -4]);
+  });
+
+  test("墙钟回拨使 fetchedAt 晚于 now 时淘汰空闲快照，但仍跳过在途拉取", () => {
+    const snapshots = new FifoMap<number, { readonly fetchedAt: number }>(10);
+    snapshots.set(-1, { fetchedAt: 2_000 });
+    snapshots.set(-2, { fetchedAt: 2_000 });
     snapshots.set(-3, { fetchedAt: 900 });
     const inFlight: ReadonlyMap<number, unknown> = new Map([[-2, Promise.resolve()]]);
     expect(sweepExpiredSnapshots({ snapshots, inFlight, ttlMs: 500, now: 1_000 })).toBe(1);

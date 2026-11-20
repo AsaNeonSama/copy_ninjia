@@ -1,6 +1,7 @@
 import type { Message, SharedUser } from "grammy/types";
 import { miniAppCompletedPickerResults, miniAppPendingPickers } from "../../cache/main/miniApp";
 import { SUPER_ADMIN_USER_ID } from "../../config/bot";
+import { logger } from "../../infra/logger";
 import type { TelegramIdentityMetadata } from "../../types/identityPolicy";
 import type { MiniAppChatTargetsMutationResult } from "../../types/miniApp/chats";
 import type {
@@ -237,5 +238,11 @@ export async function handleMiniAppSharedMessage(
     summary: formatPickerImportSummary(tally),
   };
   miniAppCompletedPickerResults.set(requestId, resultEvent);
+  logger.operation("[MiniApp] picker.import", {
+    requestId,
+    targetList: session.targetList,
+    added: tally.addedIds.length,
+    skipped: tally.skippedIds.length,
+  });
   return resultEvent;
 }

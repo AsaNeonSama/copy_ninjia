@@ -95,36 +95,36 @@ describe("fault-injection 清单门禁", (): void => {
   });
 
   test.each([
-    'import { drainPendingMessageDeletions } from "../../packages/infra/telegram/actions";',
-    'import { sendMessage, flushPendingMessageDeletions as flush } from "../../packages/infra/telegram/actions";',
-    'import * as actions from "../../packages/infra/telegram/actions";\nawait actions.drainPendingMessageDeletions(0);',
-    'const actions = await import("../../packages/infra/telegram/actions");\nactions.flushPendingMessageDeletions();',
-    'const actions = await import("../../packages/infra/telegram/actions");\nawait actions["drainPendingMessageDeletions"](0);',
-    'const actions = await import("../../packages/infra/telegram/actions");\nregister(actions);',
-    'const actions = await import("../../packages/infra/telegram/actions");\nmock.module("x", () => actions);',
-    'const { flushPendingMessageDeletions: flush } = await import("../../packages/infra/telegram/actions");',
-    'const { sendMessage, ...rest } = await import("../../packages/infra/telegram/actions");',
-    'export * from "../../packages/infra/telegram/actions";',
-    'void import("../../packages/infra/telegram/actions").then((loaded) => loaded);',
+    'import { drainPendingMessageDeletions } from "../../packages/infra/telegram/actions/messageLifecycle";',
+    'import { deleteMessageAfter, flushPendingMessageDeletions as flush } from "../../packages/infra/telegram/actions/messageLifecycle";',
+    'import * as lifecycle from "../../packages/infra/telegram/actions/messageLifecycle";\nawait lifecycle.drainPendingMessageDeletions(0);',
+    'const lifecycle = await import("../../packages/infra/telegram/actions/messageLifecycle");\nlifecycle.flushPendingMessageDeletions();',
+    'const lifecycle = await import("../../packages/infra/telegram/actions/messageLifecycle");\nawait lifecycle["drainPendingMessageDeletions"](0);',
+    'const lifecycle = await import("../../packages/infra/telegram/actions/messageLifecycle");\nregister(lifecycle);',
+    'const lifecycle = await import("../../packages/infra/telegram/actions/messageLifecycle");\nmock.module("x", () => lifecycle);',
+    'const { flushPendingMessageDeletions: flush } = await import("../../packages/infra/telegram/actions/messageLifecycle");',
+    'const { deleteMessageAfter, ...rest } = await import("../../packages/infra/telegram/actions/messageLifecycle");',
+    'export * from "../../packages/infra/telegram/actions/messageLifecycle";',
+    'void import("../../packages/infra/telegram/actions/messageLifecycle").then((loaded) => loaded);',
   ])("限定导出的边界：取用停机导出或无法确定取用范围时必须登记：%s", async (source) => {
     const path: string = "test/infra/deletion.test.ts";
     expect(await problemsFor({ tests: { [path]: source } })).toEqual([
-      expect.stringContaining(`${path} uses packages/infra/telegram/actions.ts`),
+      expect.stringContaining(`${path} uses packages/infra/telegram/actions/messageLifecycle.ts`),
     ]);
   });
 
   test.each([
-    'import { sendMessage, deleteMessageAfter } from "../../packages/infra/telegram/actions";',
+    'import { deleteMessageWithOutcome, deleteMessageAfter } from "../../packages/infra/telegram/actions/messageLifecycle";',
     'import { resetPendingMessageDeletions } from "../../packages/infra/telegram/actions/messageLifecycle";',
     'const { deleteMessageWithOutcome } = await import("../../packages/infra/telegram/actions/messageLifecycle");',
-    'import "../../packages/infra/telegram/actions";',
-    'import type { drainPendingMessageDeletions } from "../../packages/infra/telegram/actions";',
-    'import { type drainPendingMessageDeletions, sendMessage } from "../../packages/infra/telegram/actions";',
-    'export { sendMessage } from "../../packages/infra/telegram/actions";',
-    'import * as actions from "../../packages/infra/telegram/actions";',
-    'const telegram = await import("../../packages/infra/telegram/actions");\nmock.module("x", () => ({ ...telegram, sendMessage }));',
-    'import * as actions from "../../packages/infra/telegram/actions";\nactions.sendMessage();\ntype Api = typeof actions;',
-    'const actions = await import("../../packages/infra/telegram/actions");\nconst other = { actions: 1 };\nvoid other.actions;',
+    'import "../../packages/infra/telegram/actions/messageLifecycle";',
+    'import type { drainPendingMessageDeletions } from "../../packages/infra/telegram/actions/messageLifecycle";',
+    'import { type drainPendingMessageDeletions, deleteMessageAfter } from "../../packages/infra/telegram/actions/messageLifecycle";',
+    'export { deleteMessageAfter } from "../../packages/infra/telegram/actions/messageLifecycle";',
+    'import * as lifecycle from "../../packages/infra/telegram/actions/messageLifecycle";',
+    'const lifecycle = await import("../../packages/infra/telegram/actions/messageLifecycle");\nmock.module("x", () => ({ ...lifecycle, deleteMessageAfter }));',
+    'import * as lifecycle from "../../packages/infra/telegram/actions/messageLifecycle";\nlifecycle.deleteMessageAfter();\ntype Api = typeof lifecycle;',
+    'const lifecycle = await import("../../packages/infra/telegram/actions/messageLifecycle");\nconst other = { lifecycle: 1 };\nvoid other.lifecycle;',
   ])("限定导出的边界：只取用其它导出时不扩大专项：%s", async (source) => {
     expect(await problemsFor({ tests: { "test/infra/other.test.ts": source } })).toEqual([]);
   });

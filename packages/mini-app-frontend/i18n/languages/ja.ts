@@ -1,16 +1,22 @@
 import type {
-  MiniAppActiveSessionCounts,
   MiniAppBatchKickCompletion,
-  MiniAppCapabilityDetailItem,
-  MiniAppCapabilityStatus,
   MiniAppChatDetail,
   MiniAppFeatureKey,
-  MiniAppIdentitySubTabKey,
-} from "../../types/miniApp";
+} from "../../types/miniApp/chats";
+import type { MiniAppIdentitySubTabKey } from "../../types/miniApp/identities";
+import type {
+  MiniAppActiveSessionCounts,
+  MiniAppCapabilityDetailItem,
+  MiniAppCapabilityStatus,
+} from "../../types/miniApp/status";
 import type {
   MiniAppServerNoticeParams,
   MiniAppTranslations,
 } from "../../types/miniAppI18n";
+import {
+  formatJaConfigServerNotice,
+  getJaConfigsTranslations,
+} from "../configs/ja";
 
 /**
  * 返回日文（雑魚♡语气）的 Mini App 界面文案字典。
@@ -168,8 +174,15 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
         return `雑魚♡、ID ${idText} は最初からホワイトリストにいないわよ。`;
       case "WHITELIST_PERSIST_FAILED":
         return "ちぇっ、ホワイトリスト変更のディスク保存に失敗したわ。DB書き込み状態を確認しなさい♡";
-      case "BLOCKLIST_DUPLICATE":
-        return `マヌケな雑魚♡、ID ${idText} はとっくにブラックリストに入ってるわよ！重複追加はダメ！`;
+      case "BLOCKLIST_DUPLICATE": {
+        const fanOutNote: string =
+          params?.totalChats !== undefined && params.totalChats > 0
+            ? `（${params.affectedChats ?? 0}/${params.totalChats} 個の管理群でBANを再実行）`
+            : "";
+        const persistNote: string =
+          params?.persisted === false ? "（※ディスク保存確認が未完了）" : "";
+        return `マヌケな雑魚♡、ID ${idText} はとっくにブラックリストに入ってるわよ！重複追加はダメ！${fanOutNote}${persistNote}`;
+      }
       case "BLOCKLIST_ADDED": {
         const fanOutNote: string =
           params?.totalChats !== undefined && params.totalChats > 0
@@ -266,11 +279,9 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
       case "QA_STORAGE_FAILED":
         return "ちぇっ、QAペアのディスク保存に失敗したわ。DB書き込み状態を確認しなさい♡";
       case "TARGET_REQUIRED":
-        return "マヌケな雑魚♡、対象の @username か数値 ID を入力しなさい！";
+        return "マヌケな雑魚♡、対象の数値 ID を入力しなさい！";
       case "TARGET_INVALID":
-        return "マヌケな雑魚♡、対象の形式が間違ってるわ（@username、正整数ユーザーID、または -100... チャンネルID）！";
-      case "TARGET_USERNAME_NOT_FOUND":
-        return "ちぇっ、その @username はまだキャッシュにないわ。数値 ID で指定するか本人が発言するのを待ちなさい♡";
+        return "マヌケな雑魚♡、対象の形式が間違ってるわ（正整数ユーザーID、または -100... チャンネルID）！";
       case "TARGET_NOT_IN_CHAT":
         return "雑魚♡、そのユーザーはこのグループにいないわよ、対象リストには入れられないわ！";
       case "TARGET_SELF_FORBIDDEN":
@@ -312,7 +323,7 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
       case "INVALID_CHAT_TARGETS_PARAMS":
         return "マヌケな雑魚♡、対象管理リクエストのパラメータ形式が不正よ！";
       default:
-        return code;
+        return formatJaConfigServerNotice(code, params) ?? code;
     }
   };
   return {
@@ -334,6 +345,7 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
       status: "ステータス",
       chats: "管理グループ",
       identities: "権限管理",
+      configs: "設定編集",
       gallery: "えっち図鑑",
       totp: "認証システム",
     },
@@ -341,6 +353,7 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
       status: "CPU・メモリ・送信制御と稼働状態",
       chats: "/init 群スイッチと直近256件発言",
       identities: "白黒リストと18項目の権限管理",
+      configs: "動的ホットリロードと静的 JSON 設定編集",
       gallery: "/h_image プレビュー・追加・削除",
       totp: "Google 認証システム (TOTP) の登録・変更・削除",
     },
@@ -437,8 +450,10 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
       memoryOtherUsedLabel: "他プロセス使用",
       memoryTotalUsedLabel: "合計使用",
       managedChatsLabel: "/init 済み管理群",
-      managedChatsSub: (whitelistCount: number, blocklistCount: number): string =>
-        `白リスト ${whitelistCount} · 黒リスト ${blocklistCount}`,
+      managedChatsSub: (whitelistCount: number, blocklistCount: number): readonly [string, string] => [
+        `白リスト ${whitelistCount}`,
+        `黒リスト ${blocklistCount}`,
+      ],
       activeSessionsLabel: "進行中セッション",
       activeSessionsSub: (
         sessions: Readonly<MiniAppActiveSessionCounts>
@@ -449,8 +464,8 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
         `QA ${sessions.qaSet}`,
       ],
       outboundGateLabel: "Telegram 送信ゲート",
-      outboundGateSub: (waiting: number, retrySize: number, retryMax: number): string =>
-        `待機 ${waiting} · 再送キュー ${retrySize}/${retryMax}`,
+      outboundGateSub: (retryWaiting: number, retryQueueMax: number): string =>
+        `再送キュー ${retryWaiting}/${retryQueueMax}`,
       capabilitiesSectionTitle: "機能設定とサブシステム準備状態",
       capabilityReadyBadge: "準備完了",
       capabilityMissingBadge: "未設定",
@@ -603,14 +618,14 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
       confirmDeleteQa: (q: string): string =>
         `雑魚♡、QAペア「${q}」を本当に削除するの？`,
       qaEmptyHint: "上のボタンからQAを追加しなさい♡",
-      deleteTargetInputPlaceholder: "@username / ユーザーID / チャンネルID",
+      deleteTargetInputPlaceholder: "早く書きなさい、雑魚",
       deleteTargetAddButton: "削除対象を追加",
       deleteTargetAddingButton: "追加中…",
       deleteTargetRemoveButton: "解除",
       confirmRemoveDeleteTarget: (displayName: string, id: number): string =>
         `雑魚、本当に ${displayName} (${id}) を削除対象リストから外すの？`,
-      deleteTargetEmptyHint: "@username か ID で追加しなさい♡",
-      translateTargetInputPlaceholder: "@username / ユーザーID / チャンネルID",
+      deleteTargetEmptyHint: "上のボタンから削除対象を追加しなさい♡",
+      translateTargetInputPlaceholder: "早く書きなさい、雑魚",
       translateLanguageLabels: {
         ja: "日本語 (ja)",
         cn: "中国語 (cn)",
@@ -727,7 +742,7 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
     identities: {
       whitelistTab: "権限",
       blocklistTab: "ブラックリスト",
-      searchPlaceholder: "id/name",
+      searchPlaceholder: "はっきり書きなさい",
       searchClearAria: "検索語をクリア",
       addFoldButton: "ユーザー追加",
       addModes: {
@@ -740,7 +755,7 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
         users: "Telegram ネイティブの連絡先ピッカーで友達を複数選択",
         channel: "Telegram ネイティブのチャンネルピッカーでチャンネルを選択",
       },
-      idInputPlaceholder: "正整数 ID または -100... チャンネル ID",
+      idInputPlaceholder: "早く書きなさい、雑魚",
       idConfirmButton: "追加する",
       idCancelButton: "閉じる",
       invalidIdToast: "マヌケな雑魚、0以外の整数 ID をちゃんと入力しなさい（例: 123456789 / -1001234567890）！",
@@ -825,8 +840,6 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
       uploadButton: "画像を追加",
       directoryMissingText: (_directory: string): string =>
         "図鑑ストレージが未準備よ、自動作成はしないからね",
-      directoryReadyText: (_directory: string): string =>
-        "図鑑ストレージ準備完了 · JPEG / PNG / WebP (≤ 10 MiB)",
       previewTitle: (shortName: string): string => `プレビュー · ${shortName}`,
       downloadButton: "保存",
       downloadingButton: "保存中…",
@@ -844,5 +857,6 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
       emptyGalleryHint:
         "図鑑に画像が1枚もないじゃない！右上の「画像を追加」から登録しなさい雑魚♡",
     },
+    configs: getJaConfigsTranslations(),
   };
 }

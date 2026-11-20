@@ -190,14 +190,15 @@
   flex-direction: column;
   gap: 5px;
   transform-origin: top right;
-  will-change: transform, opacity;
-  transform: translate3d(0, 0, 0);
-  backface-visibility: hidden;
+  will-change: auto;
+  backface-visibility: visible;
   animation: miniapp-popover-drop 0.18s var(--ease-brutal);
 }
 
 .chat-targets-menu-popover.closing {
   pointer-events: none;
+  will-change: transform, opacity;
+  backface-visibility: hidden;
   animation: miniapp-popover-drop-out 0.18s var(--ease-exit) forwards;
 }
 

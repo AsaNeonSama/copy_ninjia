@@ -2,7 +2,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { DUPLICATE_REPLY_RESULT } from "../../../../packages/consts/aiChat/tools";
-import { parseToolResult, toolError } from "../../../../packages/aiChat/ai/utils/toolResult";
+import { parseToolResult, toolError } from "../../../../packages/workers/aiChat/ai/utils/toolResult";
 
 describe("parseToolResult", () => {
   test("成功结果按 actions_used 占额度，缺省为 1", () => {

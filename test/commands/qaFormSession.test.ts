@@ -9,6 +9,7 @@ import {
   closeQaFormSessionsInChat,
   openQaFormSession,
 } from "../../packages/commands/qa/session";
+import { currentUpdateAbortSignal, runWithUpdateAbortSignal } from "../../packages/infra/updateContext";
 import type { QaFormSession } from "../../packages/types/qa";
 
 const CHAT_ID: number = -1001;
@@ -138,6 +139,30 @@ describe("/qa set 表单会话", () => {
       jest.advanceTimersByTime(QA_FORM_SESSION_TTL_MS * 2);
 
       expect(expired).toHaveLength(0);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test("在 update 作用域内开启的表单，其 TTL 到期回调脱离该 update 作用域执行", async () => {
+    jest.useFakeTimers();
+    try {
+      const controller: AbortController = new AbortController();
+      let observedSignal: AbortSignal | undefined = controller.signal;
+      await runWithUpdateAbortSignal(controller.signal, async (): Promise<void> => {
+        openQaFormSession({
+          chatId: CHAT_ID,
+          openedById: OWNER_ID,
+          messageThreadId: undefined,
+          onDiscard: (): void => {
+            observedSignal = currentUpdateAbortSignal();
+          },
+        });
+      });
+
+      jest.advanceTimersByTime(QA_FORM_SESSION_TTL_MS);
+
+      expect(observedSignal).toBeUndefined();
     } finally {
       jest.useRealTimers();
     }

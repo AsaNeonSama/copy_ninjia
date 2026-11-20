@@ -1,6 +1,7 @@
 import { installTemporaryMessageWorkerMock } from "../../helpers/temporaryMessageWorkerMock";
 installTemporaryMessageWorkerMock();
 import { afterAll, afterEach, beforeEach, describe, expect, jest, mock, test } from "bun:test";
+import { VERIFICATION_TIMEOUT_MS } from "../../../packages/consts/antiRaid/verification";
 import { loggerStub } from "../../helpers/loggerMock";
 import { waitUntil } from "../../helpers/waitUntil";
 import type { AntiRaidWorkerEvent, VerificationUpsertEvent } from "../../../packages/types/antiRaid/events";
@@ -619,5 +620,26 @@ describe("Anti-Raid Worker verification recovery", () => {
     expect(kicks).toBe(baselineKicks + 1);
     expect(verificationEntries.get("-2004:83")?.state.kind).toBe("kicked");
     runtime.deactivateVerificationChat(-2004);
+  });
+
+  test("墙钟回拨导致 expiresAt 远高于 VERIFICATION_TIMEOUT_MS 时，超时定时器延迟夹紧到上限内", async () => {
+    jest.useFakeTimers({ now: 1_000_000 });
+    try {
+      const future: VerificationSnapshot = {
+        ...record(60, 1_000_000 + VERIFICATION_TIMEOUT_MS * 3),
+        joinedAt: 999_000,
+      };
+      runtime.adoptVerifications({
+        type: "adoptVerifications",
+        generation: 1,
+        verifications: [future],
+      });
+      expect(verificationEntries.get("-1001:60")?.state.kind).toBe("pending");
+
+      await advanceFakeTimers(VERIFICATION_TIMEOUT_MS);
+      expect(verificationEntries.get("-1001:60")?.state.kind).toBe("expelling");
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

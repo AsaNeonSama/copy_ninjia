@@ -3,7 +3,7 @@ import { loggerStub } from "../../../helpers/loggerMock";
 import { settleTestBatch } from "../../../helpers/common";
 
 /**
- * 贴纸包菜单的记忆化（packages/aiChat/ai/tools/stickers.ts 的 buildStickerPackMenu）。
+ * 贴纸包菜单的记忆化（packages/workers/aiChat/ai/tools/stickers.ts 的 buildStickerPackMenu）。
  *
  * 菜单的两个输入——贴纸集合缓存与画面描述目录——均为无 TTL 的进程内缓存。
  */
@@ -14,8 +14,8 @@ mock.module("../../../../packages/infra/logger", () => ({
   logger: loggerStub({ error: loggerError }),
 }));
 
-const realSets = { ...(await import("../../../../packages/aiChat/ai/stickers/sets")) };
-mock.module("../../../../packages/aiChat/ai/stickers/sets", () => ({
+const realSets = { ...(await import("../../../../packages/workers/aiChat/ai/stickers/sets")) };
+mock.module("../../../../packages/workers/aiChat/ai/stickers/sets", () => ({
   ...realSets,
   getStickerSet: getStickerSetMock,
 }));
@@ -23,7 +23,7 @@ mock.module("../../../../packages/config/stickers", () => ({
   getStickerConfig: (): { packs: readonly string[] } => ({ packs: ["pack_a"] }),
 }));
 
-const { buildStickerPackMenu } = await import("../../../../packages/aiChat/ai/tools/stickers");
+const { buildStickerPackMenu } = await import("../../../../packages/workers/aiChat/ai/tools/stickers");
 const { catalogs } = await import("../../../../packages/cache/workers/aiChat/stickers/catalog");
 const {
   invalidateStickerMenu,
@@ -95,7 +95,8 @@ describe("贴纸包菜单的记忆化", () => {
 
     expect(await buildStickerPackMenu()).toEqual([]);
     expect(loggerError).toHaveBeenCalledWith(
-      "Unexpected sticker menu fetch rejection for pack \"pack_a\":",
+      "Unexpected sticker menu fetch rejection:",
+      { pack: "pack_a" },
       failure
     );
   });

@@ -1,7 +1,7 @@
 /**
  * Mini App 群目标管理 `mutateManagedChatTargets` 的拒绝与边界分支：未 `/init`、问答空字段/替换/上限/缺失、
- * 目标解析（空、非法、用户名未知、机器人自身、本群自身）、在群核验、追着删与追着翻的权限、上限、重复与
- * 等待期间状态变化。
+ * 目标解析（空、用户名与非 `-100...` 负群号等非法输入、机器人自身、本群自身）、在群核验、追着删与追着翻的
+ * 权限、上限、重复与等待期间状态变化。
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import type {
@@ -125,17 +125,30 @@ describe("Mini App 群目标管理", () => {
     expectOutcome(await mutate({ action: "removeQa", q: "不存在" }), true, "QA_NOT_FOUND");
   });
 
-  test("目标解析：空、非法用户名、未知用户名、机器人自身与本群自身均被拒绝；已知用户名解析为缓存身份", async () => {
+  test("目标解析：空、用户名、非 -100... 负数、机器人自身与本群自身均被拒绝；正整数用户 ID 与 -100... 频道 ID 正常解析", async () => {
     seedChat();
     aiChatBotInfo.current = { id: BOT_USER_ID, username: "fixture_bot", first_name: "Bot" };
+    updateCachedIdentity({ id: 77_101, username: "known_member", first_name: "Known" });
     expectOutcome(await mutate({ action: "addDeleteTarget", target: "  " }), false, "TARGET_REQUIRED");
     expectOutcome(await mutate({ action: "addDeleteTarget" }), false, "TARGET_REQUIRED");
-    expectOutcome(await mutate({ action: "addDeleteTarget", target: "@a b" }), false, "TARGET_INVALID");
-    expectOutcome(
-      await mutate({ action: "addDeleteTarget", target: "@nobody_known" }),
-      false,
-      "TARGET_USERNAME_NOT_FOUND"
-    );
+    for (const invalidTarget of [
+      "@a b",
+      "@nobody_known",
+      "known_member",
+      "@known_member",
+      "-500",
+      "-100",
+      "-1000",
+      "-1000123",
+      "0123",
+      "0",
+    ]) {
+      expectOutcome(
+        await mutate({ action: "addDeleteTarget", target: invalidTarget }),
+        false,
+        "TARGET_INVALID"
+      );
+    }
     expectOutcome(
       await mutate({ action: "addDeleteTarget", target: String(BOT_USER_ID) }),
       false,
@@ -147,11 +160,16 @@ describe("Mini App 群目标管理", () => {
       "TARGET_CURRENT_CHAT_FORBIDDEN"
     );
 
-    updateCachedIdentity({ id: 77_101, username: "known_member", first_name: "Known" });
-    const added: Readonly<MiniAppChatTargetsMutationResult> =
-      await mutate({ action: "addDeleteTarget", target: "known_member" });
-    expectOutcome(added, true, "DELETE_TARGET_ADDED");
-    expect(added.targets?.deleteMessageTargets.map((item) => item.id)).toEqual([77_101]);
+    const addedUser: Readonly<MiniAppChatTargetsMutationResult> =
+      await mutate({ action: "addDeleteTarget", target: "77101" });
+    expectOutcome(addedUser, true, "DELETE_TARGET_ADDED");
+    const addedChannel: Readonly<MiniAppChatTargetsMutationResult> =
+      await mutate({ action: "addDeleteTarget", target: "-1009400099" });
+    expectOutcome(addedChannel, true, "DELETE_TARGET_ADDED");
+    expect(addedChannel.targets?.deleteMessageTargets.map((item) => item.id)).toEqual([
+      77_101,
+      -1_009_400_099,
+    ]);
   });
 
   test("追着删：拒绝超级管理员与缺删消息权限；重复回 ALREADY_EXISTS，达到上限拒绝；删除校验 ID", async () => {

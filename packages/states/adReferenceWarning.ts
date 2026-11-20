@@ -10,6 +10,18 @@ import type {
 } from "../types/states/adReferenceWarning";
 
 /**
+ * 构造引用类广告警告发送中状态。
+ *
+ * @param generation 本次警告发送对应的 attempt 序号。
+ * @returns 新建的 `sending` 状态对象。
+ */
+export function sendingReferencedAdWarningState(
+  generation: number
+): ReferencedAdWarningState {
+  return { phase: "sending", generation };
+}
+
+/**
  * 在当前记录仍为同代 `sending` 时将其提交为 `warned` 状态；不匹配时原样返回 `current`。
  *
  * @param current 当前键持有的警告状态记录。

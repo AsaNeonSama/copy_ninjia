@@ -70,10 +70,6 @@ import type {
   AntiRaidDrainCompleteEvent,
   BlockedMembersRemovedEvent,
 } from "../types/antiRaid/events";
-import {
-  flushPendingMessageDeletions,
-  resetPendingMessageDeletions as resetGenericMessageDeletions,
-} from "../infra/telegram/actions/messageLifecycle";
 import { resetRecentComments, sweepRecentComments } from "./antiRaid/recentComments";
 import { antiRaidCacheSweepTimer } from "../cache/workers/antiRaid/worker";
 import { antiRaidDispatchSignal } from "../cache/workers/antiRaid/tasks";
@@ -88,6 +84,7 @@ import {
   setWorkerDuplexRequestSignal,
 } from "../libs/workerDuplex";
 import { atmosphereState } from "../cache/workers/antiRaid/atmosphere";
+import { adoptLogLevel } from "../config/logLevel";
 import { adoptTimeZone } from "../config/time";
 import { installBusinessWorkerPort } from "./businessWorkerPort";
 
@@ -101,6 +98,7 @@ export function handleAntiRaidWorkerMessage(msg: AntiRaidWorkerMessage): void {
   switch (msg.type) {
     case "agentConfig":
       adoptTimeZone(msg.timeZone);
+      adoptLogLevel(msg.logLevel);
       atmosphereState.current = msg.atmosphere;
       adoptAdDetectConfigMessage(msg);
       break;
@@ -191,19 +189,9 @@ export function handleAntiRaidWorkerMessage(msg: AntiRaidWorkerMessage): void {
       self.postMessage({ type: "barrierComplete", barrierId: msg.barrierId } satisfies AntiRaidBarrierCompleteEvent);
       break;
     case "drain": {
-      // 停机排空：先停止广告检测调度并取消排队中的尽力而为请求，再以无取消信号刷出待执行的延迟删除任务并等待全部在途任务完成。
+      // 停机排空：先停止广告检测调度并取消排队中的尽力而为请求，再等待全部在途任务完成。
       quiesceAdDetectQueue();
       quiesceAntiRaidDispatch();
-      setWorkerDuplexRequestSignal(null);
-      let deletionTasks: readonly Promise<void>[];
-      try {
-        deletionTasks = flushPendingMessageDeletions();
-      } finally {
-        setWorkerDuplexRequestSignal(antiRaidDispatchSignal());
-      }
-      for (const task of deletionTasks) {
-        void trackAntiRaidTask({ task });
-      }
       void drainAntiRaidTasks().then((): void => {
         self.postMessage({ type: "drainComplete", drainId: msg.drainId } satisfies AntiRaidDrainCompleteEvent);
       });
@@ -256,7 +244,6 @@ export function stopAntiRaidWorker(): void {
   resetLinkedChannelCache();
   resetRecentComments();
   resetFloodWindows();
-  resetGenericMessageDeletions();
   resetWorkerBotPermissions();
   atmosphereState.current = null;
   resetWorkerChatKind();

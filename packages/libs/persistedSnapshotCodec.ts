@@ -9,8 +9,7 @@ import {
   MAX_SUMMARY_ROUNDS,
   REPLY_REFERENCE_MAX_CHARS,
 } from "../consts/aiChat/memory";
-import { LOCAL_TIMESTAMP_PATTERN } from "../consts/time";
-import { invalidInput, parseJsonInput } from "./inputValidation";
+import { assertLocalTimestamp, invalidInput, parseJsonInput } from "./inputValidation";
 import { hasExactKeys, hasOnlyKeys, isPlainRecord } from "./record";
 import type {
   AiMemorySnapshot,
@@ -108,18 +107,7 @@ function validateBufferedMessage(value: unknown, source: string, field: string):
   validateSpeaker(value, source, field);
   if (value.replyTo !== undefined) validateReplyReference(value.replyTo, source, `${field}.replyTo`);
   if (value.pendingImage !== undefined) validatePendingBotImage(value.pendingImage, source, `${field}.pendingImage`);
-  if (typeof value.at !== "string" || !LOCAL_TIMESTAMP_PATTERN.test(value.at)) {
-    invalidInput(source, `${field}.at`, "a valid local calendar time in YYYY/MM/DD HH:mm:ss format");
-  }
-  try {
-    const normalized: string = value.at.replaceAll("/", "-").replace(" ", "T");
-    const local: Temporal.PlainDateTime = Temporal.PlainDateTime.from(normalized, { overflow: "reject" });
-    if (local.toString({ fractionalSecondDigits: 0 }) !== normalized) {
-      invalidInput(source, `${field}.at`, "a valid local calendar time in YYYY/MM/DD HH:mm:ss format");
-    }
-  } catch (_error: unknown) {
-    invalidInput(source, `${field}.at`, "a valid local calendar time in YYYY/MM/DD HH:mm:ss format");
-  }
+  assertLocalTimestamp(value.at, source, `${field}.at`);
 }
 
 /**

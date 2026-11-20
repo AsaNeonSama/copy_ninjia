@@ -31,12 +31,12 @@ const requestAnthropicMessage = mock(async (...args: unknown[]): Promise<Anthrop
   return results.shift() ?? { ok: false, failureKind: "request" };
 });
 const getAnthropicClient = mock((): object => ({}));
-mock.module("../../../packages/aiChat/anthropic/client", () => ({
+mock.module("../../../packages/workers/aiChat/anthropic/client", () => ({
   getAnthropicClient,
   requestAnthropicMessage,
 }));
 
-const { searchAnthropicWeb } = await import("../../../packages/aiChat/anthropic/search");
+const { searchAnthropicWeb } = await import("../../../packages/workers/aiChat/anthropic/search");
 const { logger } = await import("../../../packages/infra/logger");
 const {
   ANTHROPIC_WEB_SEARCH_MAX_TOKENS,

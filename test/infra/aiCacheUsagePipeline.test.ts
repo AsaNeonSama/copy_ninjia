@@ -20,11 +20,11 @@ import { acceptDiskIODiagnosticBatch, resetDiskIODiagnosticChannel } from "../..
 import { handleAntiRaidWorkerEvent } from "../../packages/antiRaid/workerBridge/events";
 import { requestOpenAiAdDetectJson } from "../../packages/workers/antiRaid/adDetect/ai/openai";
 import { requestGoogleAdDetectJson } from "../../packages/workers/antiRaid/adDetect/ai/google";
-import { requestGeminiResult } from "../../packages/aiChat/gemini/client";
-import { generateGeminiImage } from "../../packages/aiChat/gemini/image";
-import { synthesizeGeminiSpeech } from "../../packages/aiChat/gemini/speech";
-import { generateOpenAiImage } from "../../packages/aiChat/openai/image";
-import { transcribeOpenAiVoice } from "../../packages/aiChat/openai/text";
+import { requestGeminiResult } from "../../packages/workers/aiChat/gemini/client";
+import { generateGeminiImage } from "../../packages/workers/aiChat/gemini/image";
+import { synthesizeGeminiSpeech } from "../../packages/workers/aiChat/gemini/speech";
+import { generateOpenAiImage } from "../../packages/workers/aiChat/openai/image";
+import { transcribeOpenAiVoice } from "../../packages/workers/aiChat/openai/text";
 import { adoptAiCacheFile, inspectAiCacheFile, handleAiCacheUsageMessage, flushAiCacheBuffer, summarizeAiCache } from "../../packages/workers/diskIO/aiCacheFile";
 import type { AiCacheUsage } from "../../packages/types/aiCache";
 import type { AgentCapability } from "../../packages/types/config";
@@ -89,7 +89,7 @@ test("六种能力的真实响应适配经 Worker 转发和诊断 ACK 落盘，t
     usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 3, thoughtsTokenCount: 2, cachedContentTokenCount: 4 },
   }));
   const fakeGoogle = {
-    models: { generateContent, get: async () => ({ supportedActions: ["generateContent"] }) },
+    models: { generateContent },
     interactions: { create: async () => ({ output_audio: { data: new Uint8Array([0x52, 0x49, 0x46, 0x46, 1, 2, 3, 4]).toBase64(), mime_type: "audio/wav" }, usage: { total_input_tokens: 4, total_output_tokens: 8, total_thought_tokens: 1, total_cached_tokens: 1 } }) },
   } as unknown as GoogleGenAI;
   const completion = mock(async () => ({ choices: [{ message: { content: "{}" } }], usage: { prompt_tokens: 50, completion_tokens: 5 } }));
@@ -144,7 +144,10 @@ test("六种能力的真实响应适配经 Worker 转发和诊断 ACK 落盘，t
     adoptAdDetectAgentConfig(openai);
     completion.mockResolvedValueOnce({ choices: [{ message: { content: "{}" } }] } as any);
     expect(await requestOpenAiAdDetectJson(adRequest)).toBe("{}");
-    expect(warning.mock.calls.some((call) => String(call[0]).includes("capability=ad_detect, provider=openai, reason=missing"))).toBeTrue();
+    expect(warning.mock.calls).toContainEqual([
+      "AI token usage unavailable.",
+      { capability: "ad_detect", provider: "openai", reason: "missing" },
+    ]);
 
     // 重装出口与重新接管同一文件，不重放已经 ACK 的行。
     installAiCacheUsageSink(null);

@@ -116,8 +116,8 @@ beforeEach(() => {
   hasWhitelistPermission.mockClear();
   hasWhitelistPermission.mockImplementation((id: number): boolean => id === 1);
   protectedIdentityMutationQueue.current = Promise.resolve();
-  prefetchIdentityPolicies.mockClear();
-  prefetchIdentityPolicies.mockResolvedValue(true);
+  prefetchIdentityPolicies.mockReset();
+  prefetchIdentityPolicies.mockImplementation(async (): Promise<boolean> => true);
   userCache.clear();
   senderUsernameCache.clear();
 });
@@ -396,5 +396,32 @@ describe("/white", () => {
     expect(sendMessage).toHaveBeenLastCalledWith(expect.objectContaining({
       text: TEASING_WHITE.mutationFailed,
     }));
+  });
+
+  test("等待临界区期间缓存冷缺失时在临界区内重预热 [actor, target]，失败拒绝写入并回执不可用", async () => {
+    const isCachedSpy = spyOn(identityStorage, "isIdentityPolicyCached").mockReturnValue(false);
+    try {
+      // 目标解析阶段预热成功，随后进入临界区发现缓存缺失：二次预热失败则拒绝写入。
+      prefetchIdentityPolicies
+        .mockResolvedValueOnce(true)
+        .mockResolvedValueOnce(false);
+      hasWhitelistPermission.mockImplementation((id: number, key: string): boolean =>
+        id === 2 && key === "isCanWhiteOther"
+      );
+
+      await handleWhiteCommand(context(2, "100 enable"));
+
+      expect(prefetchIdentityPolicies).toHaveBeenLastCalledWith([2, 100]);
+      expect(isUserBlocked).not.toHaveBeenCalled();
+      expect(setWhitelistMembership).not.toHaveBeenCalled();
+      expect(confirmWhitelistEntryPersisted).not.toHaveBeenCalled();
+      expect(sendMessage).toHaveBeenLastCalledWith({
+        chatId: -1001,
+        text: IDENTITY_POLICY_UNAVAILABLE_TEXT,
+        replyToMessageId: 10,
+      });
+    } finally {
+      isCachedSpy.mockRestore();
+    }
   });
 });

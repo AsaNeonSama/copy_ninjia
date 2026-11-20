@@ -9,7 +9,7 @@ mock.module("../../../../packages/infra/logger", () => ({
 }));
 mock.module("../../../../packages/libs/sleep", () => ({ sleep }));
 
-const { resampleAiText } = await import("../../../../packages/aiChat/ai/utils/resample");
+const { resampleAiText } = await import("../../../../packages/workers/aiChat/ai/utils/resample");
 
 const DELAYS_MS: readonly number[] = [10, 20];
 const UNUSABLE: AiTextResult = { ok: false, retryable: true };
@@ -40,8 +40,8 @@ describe("resampleAiText", () => {
     await expect(resampleAiText({ label: "Test", call, delaysMs: DELAYS_MS, signal })).resolves.toBe("late");
     expect(sleep.mock.calls).toEqual([[DELAYS_MS[0]!, signal], [DELAYS_MS[1]!, signal]]);
     expect(loggerWarn.mock.calls).toEqual([
-      [`Test attempt 1 returned no usable text; resampling in ${DELAYS_MS[0]} ms.`],
-      [`Test attempt 2 returned no usable text; resampling in ${DELAYS_MS[1]} ms.`],
+      ["AI text attempt returned no usable text; resampling.", { label: "Test", attempt: 1, delayMs: DELAYS_MS[0] }],
+      ["AI text attempt returned no usable text; resampling.", { label: "Test", attempt: 2, delayMs: DELAYS_MS[1] }],
     ]);
   });
 

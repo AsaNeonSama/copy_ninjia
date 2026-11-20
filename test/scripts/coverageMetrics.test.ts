@@ -212,6 +212,6 @@ describe("覆盖率指标一致性", () => {
   test("任一指标文件缺失时门禁直接抛错", async (): Promise<void> => {
     const root: string = await fixture();
     await Bun.file(join(root, "public", "coverage_dark.svg")).delete();
-    await expect(collectCoverageMetricProblems(root)).rejects.toThrow();
+    await expect(collectCoverageMetricProblems(root)).rejects.toThrow(/ENOENT.*coverage_dark\.svg/);
   });
 });

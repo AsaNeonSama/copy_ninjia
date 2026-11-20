@@ -17,6 +17,7 @@ const resumeAiChat = mock((): void => {});
 const syncAntiRaidAgentConfig = mock((): void => {});
 const reconcileCronSchedule = mock((): void => {});
 const loggerLog = mock((..._args: unknown[]): void => {});
+const loggerWarn = mock((..._args: unknown[]): void => {});
 const loggerError = mock((..._args: unknown[]): void => {});
 const TEST_DEBOUNCE_MS: number = 100;
 const TEST_REWATCH_RETRY_DELAYS_MS: readonly number[] = [50, 50];
@@ -25,7 +26,7 @@ mock.module("../../packages/aiChat", () => ({ resumeAiChat, syncAiChatConfig }))
 mock.module("../../packages/antiRaid", () => ({ syncAntiRaidAgentConfig }));
 mock.module("../../packages/cron/scheduler", () => ({ reconcileCronSchedule }));
 mock.module("../../packages/infra/logger", () => ({
-  logger: loggerStub({ log: loggerLog, error: loggerError }),
+  logger: loggerStub({ info: loggerLog, warn: loggerWarn, error: loggerError }),
 }));
 mock.module("../../packages/consts/configReload", () => ({
   CONFIG_RELOAD_DEBOUNCE_MS: TEST_DEBOUNCE_MS,
@@ -76,6 +77,7 @@ beforeEach((): void => {
   syncAntiRaidAgentConfig.mockClear();
   reconcileCronSchedule.mockClear();
   loggerLog.mockClear();
+  loggerWarn.mockClear();
   loggerError.mockClear();
 });
 
@@ -113,6 +115,7 @@ describe("config/dynamic/ 目录监听", () => {
     expect(syncAiChatConfig).not.toHaveBeenCalled();
     expect(syncAntiRaidAgentConfig).not.toHaveBeenCalled();
     expect(loggerLog).not.toHaveBeenCalled();
+    expect(loggerWarn).not.toHaveBeenCalled();
     expect(loggerError).not.toHaveBeenCalled();
     expect(configReloadRuntime.watcher).not.toBeNull();
   });
@@ -129,7 +132,7 @@ describe("config/dynamic/ 目录监听", () => {
     expect(changes.aiAgent).toBe(false);
     expect(defaultMoodConfigCache.current?.moods[0]?.name).toBe("平静");
     expect(syncAntiRaidAgentConfig).not.toHaveBeenCalled();
-    expect(loggerLog).toHaveBeenCalledWith(`Reloaded deployment config ${MOOD_CONFIG_PATH}.`);
+    expect(loggerLog).toHaveBeenCalledWith("Reloaded deployment config.", { path: MOOD_CONFIG_PATH });
   });
 
   test("config/static/ 下的改动不在监听范围内，不武装防抖", async () => {
@@ -165,10 +168,10 @@ describe("config/dynamic/ 目录监听", () => {
     await Bun.write(STICKERS_CONFIG_PATH, "{\"packs\": [\"bad name\"]}\n");
 
     expect(await waitUntil((): boolean => loggerError.mock.calls.length > 0)).toBe(true);
-    expect(loggerError.mock.calls[0]![0]).toBe(
-      "Rejected a runtime deployment config change; keeping the last validated snapshot: " +
-      `${STICKERS_CONFIG_PATH}: $.packs[0] must be a valid Telegram sticker pack short name.`
-    );
+    expect(loggerError.mock.calls[0]).toEqual([
+      "Rejected a runtime deployment config change; keeping the last validated snapshot.",
+      { reason: `${STICKERS_CONFIG_PATH}: $.packs[0] must be a valid Telegram sticker pack short name.` },
+    ]);
     expect(syncAiChatConfig).not.toHaveBeenCalled();
 
     await Bun.write(STICKERS_CONFIG_PATH, "{\"packs\": [\"NewPack_1\"]}\n");
@@ -192,7 +195,14 @@ describe("config/dynamic/ 目录监听", () => {
     expect(defaultMoodConfigCache.current).toBeNull();
     expect(syncAiChatConfig).not.toHaveBeenCalled();
     expect(resumeAiChat).not.toHaveBeenCalled();
-    expect(loggerLog).toHaveBeenCalledWith(`Deployment config ${MOOD_CONFIG_PATH} was removed.`);
+    expect(loggerLog).toHaveBeenCalledWith("Deployment config was removed.", { path: MOOD_CONFIG_PATH });
+    expect(loggerWarn).toHaveBeenCalledWith(
+      "AI chat became unavailable after a deployment config reload; the AI Worker stays idle.",
+      {
+        file: "config/dynamic/mood.json",
+        reason: `${MOOD_CONFIG_PATH}: $ must be a readable valid JSON document.`,
+      }
+    );
 
     let readyWhileResuming: boolean | undefined;
     resumeAiChat.mockImplementation((): void => {
@@ -216,7 +226,10 @@ describe("config/dynamic/ 目录监听", () => {
 
     await Bun.write(STICKERS_CONFIG_PATH, "{\"packs\": [\"NewPack_1\"]}\n");
     expect(await waitUntil((): boolean =>
-      loggerLog.mock.calls.some((call: unknown[]): boolean => call[0] === `Reloaded deployment config ${STICKERS_CONFIG_PATH}.`)
+      loggerLog.mock.calls.some((call: unknown[]): boolean =>
+        call[0] === "Reloaded deployment config." &&
+        (call[1] as { path?: string } | undefined)?.path === STICKERS_CONFIG_PATH
+      )
     )).toBe(true);
 
     expect(aiChatConfigReadinessCache.current).toBe(unavailable);
@@ -252,7 +265,14 @@ describe("config/dynamic/ 目录监听", () => {
     await Bun.file(AD_DETECT_CONFIG_PATH).delete();
 
     expect(await waitUntil((): boolean => !published(adDetectConfigReadinessCache).ok)).toBe(true);
-    expect(published(adDetectConfigReadinessCache)).toMatchObject({ ok: false, failure: { file: "config/dynamic/ad_detect.json" } });
+    const adReadiness = published(adDetectConfigReadinessCache);
+    expect(adReadiness).toMatchObject({ ok: false, failure: { file: "config/dynamic/ad_detect.json" } });
+    if (!adReadiness.ok) {
+      expect(loggerWarn).toHaveBeenCalledWith(
+        "Ad detection became unavailable after a deployment config reload.",
+        { file: adReadiness.failure.file, reason: adReadiness.failure.reason }
+      );
+    }
     expect(syncAntiRaidAgentConfig).toHaveBeenCalledTimes(1);
     expect(published(aiChatConfigReadinessCache).ok).toBe(true);
 
@@ -287,17 +307,19 @@ describe("config/dynamic/ 目录监听", () => {
     await Bun.write(MOOD_CONFIG_PATH, moodDocument("暂缓生效"));
     try {
       expect(await waitUntil((): boolean => loggerError.mock.calls.length > 0)).toBe(true);
-      expect(loggerError.mock.calls[0]![0]).toContain(
-        `Rejected a runtime deployment config change; keeping the last validated snapshot: ${unexpected}: $ must be absent`
-      );
+      expect(loggerError.mock.calls[0]).toEqual([
+        "Rejected a runtime deployment config change; keeping the last validated snapshot.",
+        { reason: expect.stringContaining(`${unexpected}: $ must be absent`) },
+      ]);
       expect(defaultMoodConfigCache.current).toBe(originalMood);
       expect(syncAiChatConfig).not.toHaveBeenCalled();
       expect(loggerLog).not.toHaveBeenCalled();
+      expect(loggerWarn).not.toHaveBeenCalled();
 
       await rm(unexpected, { force: true });
       expect(await waitUntil((): boolean => defaultMoodConfigCache.current?.moods[0]?.name === "暂缓生效")).toBe(true);
       expect(syncAiChatConfig).toHaveBeenCalledTimes(1);
-      expect(loggerLog).toHaveBeenCalledWith(`Reloaded deployment config ${MOOD_CONFIG_PATH}.`);
+      expect(loggerLog).toHaveBeenCalledWith("Reloaded deployment config.", { path: MOOD_CONFIG_PATH });
     } finally {
       await rm(unexpected, { force: true });
     }
@@ -357,9 +379,10 @@ describe("config/dynamic/ 监听的失效与关闸", () => {
     await rename(DYNAMIC_CONFIG_DIR, retired);
     await rename(replacement, DYNAMIC_CONFIG_DIR);
     try {
-      const reattached: string = `Re-attached the deployment config watcher to ${DYNAMIC_CONFIG_DIR}.`;
       expect(await waitUntil((): boolean => loggerLog.mock.calls.some(
-        (args: unknown[]): boolean => args[0] === reattached
+        (args: unknown[]): boolean =>
+          args[0] === "Re-attached the deployment config watcher." &&
+          (args[1] as { directory?: string } | undefined)?.directory === DYNAMIC_CONFIG_DIR
       ))).toBe(true);
 
       await Bun.write(MOOD_CONFIG_PATH, moodDocument("换目录后"));

@@ -259,17 +259,18 @@ export async function sendChatAction({
   signal,
   messageThreadId,
 }: SendChatActionParams): Promise<boolean> {
-  return runBooleanTelegramAction(
-    `send ${action} action`,
-    (requestSignal?: AbortSignal): Promise<true> =>
+  return runBooleanTelegramAction({
+    action: "send chat action",
+    errorContext: { chatId, chatAction: action },
+    execute: (requestSignal?: AbortSignal): Promise<true> =>
       api.sendChatAction(
         chatId,
         action,
         { message_thread_id: messageThreadId },
         telegramSignal(requestSignal)
       ),
-    signal
-  );
+    signal,
+  });
 }
 
 /**
@@ -317,9 +318,9 @@ export async function editMessageText({
   // 「内容本就相同」在 execute 内就地吞掉：既不记 API 错误，也对调用方报成功。
   // 其余失败原样抛给统一边界，停机 abort 由 runTelegramAction 缺省的
   // logUnlessAborted 判为不记错误。
-  return runBooleanTelegramAction(
-    "edit message text",
-    async (requestSignal?: AbortSignal): Promise<true> => {
+  return runBooleanTelegramAction({
+    action: "edit message text",
+    execute: async (requestSignal?: AbortSignal): Promise<true> => {
       try {
         await api.editMessageText(
           chatId,
@@ -336,8 +337,8 @@ export async function editMessageText({
       }
       return true;
     },
-    signal
-  );
+    signal,
+  });
 }
 
 /** `answerCallbackQuery` 应答内联按钮回调查询的参数。 */

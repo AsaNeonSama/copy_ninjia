@@ -114,9 +114,9 @@ export function deleteReferencedAdMessages({
     evictedIds: bundle.pendingDeleteIds,
     messageIdThrough,
   });
-  logger.log(
-    `Ad detection warned sender ${bundle.senderId} in chat ${bundle.chatId} for referenced ad content, ` +
-    `deleting ${messageIds.length} message(s).`
+  logger.info(
+    "Ad detection warned sender for referenced ad content and deleted messages.",
+    { chatId: bundle.chatId, senderId: bundle.senderId, deletedCount: messageIds.length }
   );
   if (
     messageIds.length === 0 ||
@@ -124,8 +124,8 @@ export function deleteReferencedAdMessages({
   ) {
     if (messageIds.length > 0) {
       logger.error(
-        `Ad detection skipped deleting ${messageIds.length} referenced-ad message(s) ` +
-        `in chat ${bundle.chatId}: the cleanup task ceiling is full.`
+        "Ad detection skipped deleting referenced-ad messages; the cleanup task ceiling is full.",
+        { chatId: bundle.chatId, senderId: bundle.senderId, skippedCount: messageIds.length }
       );
     }
     return;
@@ -135,8 +135,8 @@ export function deleteReferencedAdMessages({
     messageIds
   ).catch((error: unknown): void => {
     logger.error(
-      `Unexpected error while deleting referenced ad messages for sender ${bundle.senderId} ` +
-      `in chat ${bundle.chatId}:`,
+      "Unexpected error while deleting referenced ad messages:",
+      { chatId: bundle.chatId, senderId: bundle.senderId },
       error
     );
   });
@@ -223,16 +223,21 @@ export async function disposeAdSender({ bundle, verdict, judged }: DisposeAdSend
     current: bundle.entries,
     evictedIds: bundle.pendingDeleteIds,
   });
-  logger.log(
-    `Ad detection flagged sender ${bundle.senderId} in chat ${bundle.chatId} ` +
-    `on ${judged.length} judged message(s), deleting ${messageIds.length}: ` +
-    `${verdict.reason || "no reason given"}.`
+  logger.info(
+    "Ad detection flagged sender and deleted messages.",
+    {
+      chatId: bundle.chatId,
+      senderId: bundle.senderId,
+      judgedCount: judged.length,
+      deletedCount: messageIds.length,
+      reason: verdict.reason || null,
+    }
   );
   const publish: ((event: AdDetectedEvent) => void) | null = adDetectPublishHolder.current;
   if (publish === null) {
     logger.error(
-      `Ad detection could not report sender ${bundle.senderId} in chat ${bundle.chatId}: ` +
-      "the main-thread channel is closed; deleting the messages without punishing or announcing."
+      "Ad detection could not report sender; the main-thread channel is closed, so deleting the messages without punishing or announcing.",
+      { chatId: bundle.chatId, senderId: bundle.senderId }
     );
     await deleteAdMessages(bundle.chatId, messageIds);
     return;
@@ -265,8 +270,8 @@ export async function disposeAdSender({ bundle, verdict, judged }: DisposeAdSend
 async function deleteAdMessages(chatId: number, messageIds: readonly number[]): Promise<void> {
   if (botCanDeleteIn(chatId) === false) {
     logger.error(
-      `Ad disposal skipped deleting ${messageIds.length} message(s) in chat ${chatId}: ` +
-      "the bot is known to lack can_delete_messages there."
+      "Ad disposal skipped deleting messages; the bot is known to lack can_delete_messages there.",
+      { chatId, messageCount: messageIds.length }
     );
     return;
   }
@@ -281,7 +286,7 @@ async function deleteAdMessages(chatId: number, messageIds: readonly number[]): 
   }
   if (failedBatches === 0) return;
   logger.error(
-    `Ad disposal could not delete ${failedBatches} batch(es) of ${messageIds.length} message(s) ` +
-    `in chat ${chatId}: the bot may lack can_delete_messages, or the messages are older than 48h.`
+    "Ad disposal could not delete message batches; the bot may lack can_delete_messages, or the messages are older than 48h.",
+    { chatId, failedBatchCount: failedBatches, messageCount: messageIds.length }
   );
 }

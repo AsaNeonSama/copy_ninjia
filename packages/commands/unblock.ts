@@ -14,27 +14,38 @@ import {
   unblockUser,
 } from "../infra/blocklist/membership";
 import { liftBlockedIdentityBanInManagedChats } from "../infra/blocklist/crossChatBan";
+import {
+  isIdentityPolicyCached,
+  prefetchIdentityPolicies,
+} from "../infra/identityStorage";
 import { runBlocklistFanOut } from "./blocklistFanOut";
 
-/** 串行位内的名单解除结果。 */
-interface UnblockListOutcome {
-  /** 本次操作是否从黑名单中移除了该目标（目标此前处于黑名单中时为 `true`）。 */
-  readonly removedFromList: boolean;
-  /** 黑名单移除操作是否已收到 Disk I/O Worker 的落盘确认。 */
-  readonly persisted: boolean;
-}
+/** 串行位内的名单解除结果：身份缓存重预热失败时为不可用，否则为名单移除结论与落盘确认状态。 */
+type UnblockListOutcome =
+  | { readonly status: "unavailable" }
+  | {
+    readonly status: "applied";
+    /** 本次操作是否从黑名单中移除了该目标（目标此前处于黑名单中时为 `true`）。 */
+    readonly removedFromList: boolean;
+    /** 黑名单移除操作是否已收到 Disk I/O Worker 的落盘确认。 */
+    readonly persisted: boolean;
+  };
 
 /**
- * 先发布主线程 LRU 的解除结论，再投递 tombstone；后续入群更新立即读到新结论。随后等待
+ * 先复核目标身份仍在身份 LRU 中（等串行位期间被挤出时重预热，失败即返回不可用、不改名单），
+ * 再发布主线程 LRU 的解除结论并投递 tombstone；后续入群更新立即读到新结论。随后等待
  * tombstone 的事务 ACK；名单里本就没有目标时，若上一次解除的 tombstone 尚未 ACK，先补投同一
  * 最终值再等待。名单里没有目标不代表各群没有封禁，跨群解封照常执行。
  * @param targetUser 被解除黑名单的目标身份。
- * @returns 名单移除结论与落盘确认状态。
+ * @returns 名单移除结论与落盘确认状态，或身份缓存不可用。
  */
 async function removeFromBlocklist(targetUser: CachedUser): Promise<UnblockListOutcome> {
+  if (!isIdentityPolicyCached(targetUser.id) && !await prefetchIdentityPolicies([targetUser.id])) {
+    return { status: "unavailable" };
+  }
   const removedFromList: boolean = unblockUser(targetUser.id);
   const persisted: boolean = await confirmBlocklistPersisted(targetUser.id, !removedFromList);
-  return { removedFromList, persisted };
+  return { status: "applied", removedFromList, persisted };
 }
 
 /**
@@ -101,7 +112,7 @@ interface UnbanEverywhereParams {
 }
 
 /**
- * 跨群解封后在发起群回执名单结论与解封计数。
+ * 跨群解封后在发起群回执名单结论与解封计数；身份缓存不可用时只回执不可用，不改名单也不跨群解封。
  * @param params 发起群上下文、被解封的目标身份与串行位内的黑名单移除结果。
  */
 async function unbanEverywhereAndReport({
@@ -110,6 +121,14 @@ async function unbanEverywhereAndReport({
   targetUser,
   listOutcome,
 }: UnbanEverywhereParams): Promise<void> {
+  if (listOutcome.status === "unavailable") {
+    await sendCommandMessage({
+      chatId,
+      text: chatAtmosphere().IDENTITY_POLICY_UNAVAILABLE_TEXT,
+      replyToMessageId: messageId,
+    });
+    return;
+  }
   const { unbannedCount, failedCount }: UnbanOutcome = await unbanEverywhereFor(targetUser, chatId);
   // 该 id 的最终值（本次或上一次解除的 tombstone）未收到持久化确认时附加警告；没有未 ACK 最终值时不等待。
   const atmosphere: AtmosphereTexts = chatAtmosphere();

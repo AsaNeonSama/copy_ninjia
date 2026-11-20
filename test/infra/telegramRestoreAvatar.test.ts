@@ -30,6 +30,7 @@ import {
 import { RUNTIME_DATA_ROOT } from "../../packages/consts/paths";
 import { BOT_DEFAULT_AVATAR_URL, DEFAULT_ASSET_CONFIG } from "../../packages/consts/ui/assets";
 import type { DefaultAvatarSource } from "../../packages/types/config";
+import { redactUrlForLog } from "../../packages/libs/redaction";
 import { MP4_BYTES, ftypBox, moovBox, mp4OfSize, trakBox } from "../helpers/mp4";
 
 const loggerErrorMock = mock((..._args: unknown[]): void => {});
@@ -181,7 +182,13 @@ describe("上传前的字节校验", () => {
     // 配额/病毒扫描插页是确定性失败：不重试。
     expect(fetchCalls).toHaveLength(1);
     expect(loggerErrorMock).toHaveBeenCalledWith(
-      expect.stringContaining(`did not return ${DEFAULT_AVATAR_EXPECTED_FORM} (sniffed=unknown`)
+      "Default avatar link did not return supported media bytes; it must serve raw media bytes rather than an HTML page such as a login, quota or virus-scan interstitial.",
+      {
+        url: redactUrlForLog(BOT_DEFAULT_AVATAR_URL),
+        expectedForm: DEFAULT_AVATAR_EXPECTED_FORM,
+        sniffed: "unknown",
+        bytes: expect.any(Number),
+      }
     );
   });
 
@@ -190,7 +197,15 @@ describe("上传前的字节校验", () => {
 
     await expect(restoreDefaultProfilePhoto(DEFAULT_SOURCE)).resolves.toBe(false);
     expect(setMyProfilePhotoMock).not.toHaveBeenCalled();
-    expect(loggerErrorMock).toHaveBeenCalledWith(expect.stringContaining("bytes=0"));
+    expect(loggerErrorMock).toHaveBeenCalledWith(
+      "Default avatar link did not return supported media bytes; it must serve raw media bytes rather than an HTML page such as a login, quota or virus-scan interstitial.",
+      {
+        url: redactUrlForLog(BOT_DEFAULT_AVATAR_URL),
+        expectedForm: DEFAULT_AVATAR_EXPECTED_FORM,
+        sniffed: "unknown",
+        bytes: 0,
+      }
+    );
   });
 
   test("JPEG/PNG 超过 Bot API 图片上限时不上传、不重试", async () => {
@@ -202,7 +217,13 @@ describe("上传前的字节校验", () => {
     expect(fetchCalls).toHaveLength(1);
     expect(setMyProfilePhotoMock).not.toHaveBeenCalled();
     expect(loggerErrorMock).toHaveBeenCalledWith(
-      expect.stringContaining(`did not return ${DEFAULT_AVATAR_EXPECTED_FORM} (sniffed=png, bytes=${png.byteLength})`)
+      "Default avatar link did not return supported media bytes; it must serve raw media bytes rather than an HTML page such as a login, quota or virus-scan interstitial.",
+      {
+        url: redactUrlForLog(BOT_DEFAULT_AVATAR_URL),
+        expectedForm: DEFAULT_AVATAR_EXPECTED_FORM,
+        sniffed: "png",
+        bytes: png.byteLength,
+      }
     );
   });
 
@@ -223,7 +244,10 @@ describe("上传前的字节校验", () => {
     await expect(restoreDefaultProfilePhoto(DEFAULT_SOURCE)).resolves.toBe(false);
     expect(fetchCalls).toHaveLength(1);
     expect(setMyProfilePhotoMock).not.toHaveBeenCalled();
-    expect(loggerErrorMock).toHaveBeenCalledWith(expect.stringContaining("sniffed=mp4 video tracks 1280x720"));
+    expect(loggerErrorMock).toHaveBeenCalledWith(
+      "Default avatar link did not return supported media bytes; it must serve raw media bytes rather than an HTML page such as a login, quota or virus-scan interstitial.",
+      expect.objectContaining({ sniffed: "mp4 video tracks 1280x720" })
+    );
   });
 
   test("WebP 之类 Telegram 不收的静态图也在本地就挡掉", async () => {
@@ -235,7 +259,10 @@ describe("上传前的字节校验", () => {
 
     await expect(restoreDefaultProfilePhoto(DEFAULT_SOURCE)).resolves.toBe(false);
     expect(setMyProfilePhotoMock).not.toHaveBeenCalled();
-    expect(loggerErrorMock).toHaveBeenCalledWith(expect.stringContaining("sniffed=webp"));
+    expect(loggerErrorMock).toHaveBeenCalledWith(
+      "Default avatar link did not return supported media bytes; it must serve raw media bytes rather than an HTML page such as a login, quota or virus-scan interstitial.",
+      expect.objectContaining({ sniffed: "webp" })
+    );
   });
 });
 
@@ -246,7 +273,15 @@ describe("失败分类", () => {
     await expect(restoreDefaultProfilePhoto(DEFAULT_SOURCE)).resolves.toBe(false);
     expect(fetchCalls).toHaveLength(AVATAR_FETCH_MAX_ATTEMPTS);
     expect(setMyProfilePhotoMock).not.toHaveBeenCalled();
-    expect(loggerErrorMock).toHaveBeenCalledWith(expect.stringContaining("Failed to download the default avatar (503)"));
+    expect(loggerErrorMock).toHaveBeenCalledWith(
+      "Failed to download the default avatar.",
+      {
+        url: redactUrlForLog(BOT_DEFAULT_AVATAR_URL),
+        status: 503,
+        attempt: 1,
+        maxAttempts: AVATAR_FETCH_MAX_ATTEMPTS,
+      }
+    );
   });
 
   test("首次失败、重试成功时最终仍算复原成功", async () => {
@@ -265,7 +300,13 @@ describe("失败分类", () => {
     await expect(restoreDefaultProfilePhoto(DEFAULT_SOURCE)).resolves.toBe(false);
     expect(fetchCalls).toHaveLength(1);
     expect(setMyProfilePhotoMock).not.toHaveBeenCalled();
-    expect(loggerErrorMock).toHaveBeenCalledWith(expect.stringContaining("exceeded the download limit"));
+    expect(loggerErrorMock).toHaveBeenCalledWith(
+      "Default avatar exceeded the download limit.",
+      {
+        url: redactUrlForLog(BOT_DEFAULT_AVATAR_URL),
+        observedBytes: DEFAULT_AVATAR_MAX_READ_BYTES + 1,
+      }
+    );
   });
 
   test("setMyProfilePhoto 抛瞬时错误时记日志并按上限重试", async () => {
@@ -307,7 +348,9 @@ describe("失败分类", () => {
 describe("失败日志的地址脱敏", () => {
   /** 本次运行里所有 logger.error 参数拼成一段，用于整体断言。 */
   function loggedText(): string {
-    return loggerErrorMock.mock.calls.flat().map((arg: unknown): string => String(arg)).join(" ");
+    return loggerErrorMock.mock.calls.flat().map((arg: unknown): string =>
+      typeof arg === "string" ? arg : JSON.stringify(arg) ?? String(arg)
+    ).join(" ");
   }
 
   const PRESIGNED: string = "https://bucket.example/faces/bot.png?X-Amz-Signature=deadbeefcafe&X-Amz-Expires=600";
@@ -375,7 +418,11 @@ describe("本机文件来源", () => {
     await expect(restoreDefaultProfilePhoto({ kind: "path", path })).resolves.toBe(false);
     expect(setMyProfilePhotoMock).not.toHaveBeenCalled();
     expect(loggerErrorMock).toHaveBeenCalledTimes(1);
-    expect(loggerErrorMock).toHaveBeenCalledWith(`Failed to read the default avatar file ${path}:`, expect.anything());
+    expect(loggerErrorMock).toHaveBeenCalledWith(
+      "Failed to read the default avatar file:",
+      { path },
+      expect.anything()
+    );
   });
 
   test("超限是确定性失败，不上传", async () => {
@@ -384,7 +431,10 @@ describe("本机文件来源", () => {
     await expect(restoreDefaultProfilePhoto(source)).resolves.toBe(false);
     expect(setMyProfilePhotoMock).not.toHaveBeenCalled();
     expect(loggerErrorMock).toHaveBeenCalledTimes(1);
-    expect(loggerErrorMock).toHaveBeenCalledWith(expect.stringContaining("exceeds the size limit"));
+    expect(loggerErrorMock).toHaveBeenCalledWith(
+      "Default avatar file exceeds the size limit.",
+      { path: source.kind === "path" ? source.path : "", maxBytes: DEFAULT_AVATAR_MAX_READ_BYTES }
+    );
   });
 
   test("MP4 文件按动态头像上传", async () => {
@@ -397,12 +447,21 @@ describe("本机文件来源", () => {
   });
 
   test("既非 JPEG/PNG 也非 MP4 是确定性失败，不上传", async () => {
-    const source: DefaultAvatarSource = await fileSource("face.txt", new TextEncoder().encode("not an image"));
+    const content: Uint8Array = new TextEncoder().encode("not an image");
+    const source: DefaultAvatarSource = await fileSource("face.txt", content);
 
     await expect(restoreDefaultProfilePhoto(source)).resolves.toBe(false);
     expect(setMyProfilePhotoMock).not.toHaveBeenCalled();
     expect(loggerErrorMock).toHaveBeenCalledTimes(1);
-    expect(loggerErrorMock).toHaveBeenCalledWith(expect.stringContaining(`is not ${DEFAULT_AVATAR_EXPECTED_FORM} (sniffed=unknown`));
+    expect(loggerErrorMock).toHaveBeenCalledWith(
+      "Default avatar file is not in a supported media format.",
+      {
+        path: source.kind === "path" ? source.path : "",
+        expectedForm: DEFAULT_AVATAR_EXPECTED_FORM,
+        sniffed: "unknown",
+        bytes: content.byteLength,
+      }
+    );
   });
 
   test("上传抛瞬时错误时按上限重试，每次重新读文件", async () => {

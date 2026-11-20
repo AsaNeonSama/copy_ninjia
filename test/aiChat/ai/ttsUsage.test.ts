@@ -2,7 +2,7 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { TTS_DEFAULT_BOT_LANGUAGE, TTS_DEFAULT_STYLE, TTS_USAGE_WINDOW_MS } from "../../../packages/consts/aiChat/voiceMessage";
 import { adoptAgentDeploymentConfig } from "../../../packages/config/agent";
-import { ttsQuotaLimit } from "../../../packages/aiChat/ai/utils/ttsUsageWindow";
+import { ttsQuotaLimit } from "../../../packages/workers/aiChat/ai/utils/ttsUsageWindow";
 import type { AgentDeploymentConfig, AgentTtsCapabilityConfig } from "../../../packages/types/config";
 import type { TtsDailyUsage, TtsOperatorClaim, TtsQuotaScope } from "../../../packages/types/aiChat/voiceMessage";
 
@@ -16,7 +16,7 @@ const {
   refundOperatorTtsUsage,
   reserveAiTtsUsage,
   settleAiTtsReservation,
-} = await import("../../../packages/aiChat/ai/ttsUsage");
+} = await import("../../../packages/workers/aiChat/ai/ttsUsage");
 const { decodeGlobalStateFile } = await import("../../../packages/libs/stateFileCodec");
 const { pendingAiTtsReservations, ttsDailyUsage } = await import("../../../packages/cache/workers/aiChat/ttsUsage");
 

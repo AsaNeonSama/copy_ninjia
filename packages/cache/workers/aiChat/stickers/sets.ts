@@ -1,4 +1,4 @@
-/** owner: workers/aiChat。贴纸包集合缓存（packages/aiChat/ai/stickers/sets.ts）。 */
+/** owner: workers/aiChat。贴纸包集合缓存（packages/workers/aiChat/ai/stickers/sets.ts）。 */
 
 import type { StickerSet } from "grammy/types";
 

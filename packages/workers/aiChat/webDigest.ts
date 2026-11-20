@@ -4,7 +4,7 @@
  */
 
 import { webDigestRequests } from "../../cache/workers/aiChat/webDigest";
-import { composeWebDigest } from "../../aiChat/ai/webDigest";
+import { composeWebDigest } from "./ai/webDigest";
 import { agentDeploymentConfigSnapshot } from "../../config/agent";
 import { logger } from "../../infra/logger";
 import type {
@@ -29,7 +29,7 @@ async function compose(msg: AiComposeWebDigestMessage, signal: AbortSignal): Pro
   try {
     return await composeWebDigest(msg.request, signal);
   } catch (error: unknown) {
-    logger.error(`Web digest composition for main-thread request ${msg.requestId} threw:`, error);
+    logger.error("Web digest composition threw:", { requestId: msg.requestId }, error);
     return { ok: false, reason: "compose failed" };
   }
 }

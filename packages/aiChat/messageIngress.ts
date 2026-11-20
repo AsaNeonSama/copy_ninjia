@@ -62,13 +62,16 @@ export function recordChatMessage(message: AiRecordMessage | AiRecordBotImageMes
 }
 
 /**
- * 向 AI Worker 投递一条媒体消息记录；若该消息同时发起回复，原地写入当前 Telegram 发送面软背压快照。
+ * 向 AI Worker 投递一条媒体消息记录；若该消息同时发起回复，原地写入当前 Telegram 发送面软背压快照及本群问答热表清单。
  * @param message 独占的新构造媒体消息记录载荷。
  */
 export function recordChatMedia(message: AiRecordMediaMessage): void {
   purgedAiMemoryChats.delete(message.chatId);
   if (message.replyTelegramBackpressured !== undefined) {
     message.replyTelegramBackpressured = isTelegramReplyBackpressured();
+    const chatQa: ReadonlyMap<string, string> | undefined = chatQaEntries.get(message.chatId);
+    message.chatQaJson = chatQaJsonFor(message.chatId, chatQa);
+    message.chatQaCount = chatQa === undefined ? 0 : chatQa.size;
   }
   postMemoryRecord(message);
 }

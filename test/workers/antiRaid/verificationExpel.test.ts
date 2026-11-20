@@ -159,12 +159,13 @@ describe("踢人失败时的权限告警", () => {
     expect(dispatched).toContainEqual({ userId: USER_ID, event: { type: "expelSettled" } });
   });
 
-  test("真人和机器人验证超时成功战报都明确报告三分钟", async () => {
+  test("真人和机器人验证超时成功战报都按配置超时时长报告", async () => {
+    const expectedTimeoutText: string = formatMinSec(VERIFICATION_TIMEOUT_MS);
     const humanState = expellingState();
     setState(humanState);
 
     await run([{ kind: "expel", reason: humanState.reason, snapshot: humanState.snapshot }]);
-    expect(sentTexts[0]).toContain("3分钟");
+    expect(sentTexts[0]).toContain(expectedTimeoutText);
 
     const botState = expellingState({
       label: "待验证机器人",
@@ -172,7 +173,7 @@ describe("踢人失败时的权限告警", () => {
     });
     setState(botState);
     await run([{ kind: "expel", reason: botState.reason, snapshot: botState.snapshot }]);
-    expect(sentTexts[1]).toContain("3分钟");
+    expect(sentTexts[1]).toContain(expectedTimeoutText);
   });
 
   test("成员查询失败时不贸然踢人，保留终态进入既有退避重试", async () => {
@@ -482,12 +483,14 @@ describe("踢人失败时的权限告警", () => {
       longestTemplatePart((label: string): string => ATMOSPHERE_TEXTS.teasing.NOTICE_TEXTS.verificationCleanupForbidden(label, 3, 1))
     );
     // 线索仍留，但不指向 can_delete_messages。
-    expect(loggedErrors.some((line: string): boolean => line.includes("1 of 3"))).toBeTrue();
+    expect(loggedErrors.some((line: string): boolean =>
+      line.includes("deletions failed without a permission error")
+    )).toBeTrue();
     expect(loggedErrors.some((line: string): boolean => line.includes("can_delete_messages"))).toBeFalse();
   });
 
   test("告警自己也没发出去时不置位：否则这条诊断永远不再尝试", async () => {
-    // sendMessage 失败返回 undefined（错误被 infra/telegram/actions.ts 吞掉）：
+    // sendMessage 失败返回 undefined（错误被 infra/telegram/actions/messages.ts 吞掉）：
     // 告警没发出去时不置位 failureNoticeSent，终态重试再跑 expelMember 时仍会尝试发诊断。
     testState.kickSucceeds = false;
     testState.nextSentMessageId = undefined;

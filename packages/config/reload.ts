@@ -35,8 +35,12 @@ import {
   STICKERS_CONFIG_PATH,
 } from "../consts/paths";
 import { DEFAULT_ASSET_CONFIG } from "../consts/ui/assets";
-import { ensureRandomImageDirectory } from "../infra/imageGallery";
+import {
+  adoptRandomImageDirectory,
+  inspectRandomImageDirectory,
+} from "../infra/imageGallery";
 import type { CronAgentShortfall, CronConfig } from "../types/cron";
+import type { RandomImageDirectoryInspection } from "../types/imageGallery";
 import { InputValidationError } from "../libs/inputValidation";
 import type {
   AdDetectConfig,
@@ -69,28 +73,36 @@ async function readHotConfig<T>(
   }
 }
 
-/**
- * 读取 assets.json；随机图片目录与当前快照不同时，接管之前先准备并严格检查新目录，
- * 失败按拒绝处理。
- * @returns 素材配置的热重载读取结果。
- */
-async function readHotAssetConfig(): Promise<HotConfigRead<AssetConfig>> {
-  const read: HotConfigRead<AssetConfig> = await readHotConfig(ASSETS_CONFIG_PATH, loadAssetConfig);
-  if (read.kind === "invalid") return read;
-  const directory: string = read.kind === "loaded"
-    ? read.value.randomHImageDirectory
-    : DEFAULT_ASSET_CONFIG.randomHImageDirectory;
-  if (directory === assetConfigCache.current.randomHImageDirectory) return read;
-  try {
-    await ensureRandomImageDirectory(directory);
-  } catch (error: unknown) {
-    return { kind: "invalid", reason: errorMessage(error) };
-  }
-  return read;
+/** `readHotAssetConfig` 返回的素材配置读盘结果与可选新图库目录只读巡检结果。 */
+interface HotAssetConfigReadResult {
+  readonly read: HotConfigRead<AssetConfig>;
+  readonly inspection: Readonly<RandomImageDirectoryInspection> | null;
 }
 
 /**
- * 先核对 dynamic/ 目录项白名单，合法后按固定顺序逐份读取可热重载部署文件；不改写任何 holder。
+ * 读取 `assets.json`；随机图片目录与当前快照不同时在读取阶段仅执行只读目录巡检（零创建目录、零改写图库缓存），
+ * 失败按拒绝处理，实际建目录与接管图库缓存在 `applyHotDeploymentConfigs` 中进行。
+ * @returns 素材配置的热重载读取结果与可选新目录巡检清单。
+ */
+async function readHotAssetConfig(): Promise<HotAssetConfigReadResult> {
+  const read: HotConfigRead<AssetConfig> = await readHotConfig(ASSETS_CONFIG_PATH, loadAssetConfig);
+  if (read.kind === "invalid") return { read, inspection: null };
+  const directory: string = read.kind === "loaded"
+    ? read.value.randomHImageDirectory
+    : DEFAULT_ASSET_CONFIG.randomHImageDirectory;
+  if (directory === assetConfigCache.current.randomHImageDirectory) return { read, inspection: null };
+  try {
+    return {
+      read,
+      inspection: await inspectRandomImageDirectory(directory),
+    };
+  } catch (error: unknown) {
+    return { read: { kind: "invalid", reason: errorMessage(error) }, inspection: null };
+  }
+}
+
+/**
+ * 先核对 dynamic/ 目录项白名单，合法后按固定顺序逐份读取可热重载部署文件；不改写任何 holder 或磁盘目录。
  * 存在非白名单目录项或目录读取失败时短路文件读取，交由 applyHotDeploymentConfigs 整轮拒绝。
  * @returns 全部可热重载部署文件的本轮读取结果集合。
  */
@@ -100,6 +112,7 @@ export async function readHotDeploymentConfigs(): Promise<HotDeploymentConfigRea
     return {
       layoutRejections,
       assets: { kind: "absent" },
+      randomImageDirectoryInspection: null,
       adDetectConfig: { kind: "absent" },
       agent: { kind: "absent" },
       mood: { kind: "absent" },
@@ -107,13 +120,14 @@ export async function readHotDeploymentConfigs(): Promise<HotDeploymentConfigRea
       cron: { kind: "absent" },
     };
   }
-  const assets: HotConfigRead<AssetConfig> = await readHotAssetConfig();
+  const { read: assets, inspection: randomImageDirectoryInspection }: HotAssetConfigReadResult =
+    await readHotAssetConfig();
   const adDetectConfig: HotConfigRead<AdDetectConfig> = await readHotConfig(AD_DETECT_CONFIG_PATH, loadAdDetectConfig);
   const agent: HotConfigRead<AgentConfigSnapshots> = await readHotConfig(AGENT_CONFIG_PATH, loadAgentConfigSnapshots);
   const mood: HotConfigRead<MoodConfig> = await readHotConfig(MOOD_CONFIG_PATH, loadMoodConfig);
   const stickers: HotConfigRead<StickerConfig> = await readHotConfig(STICKERS_CONFIG_PATH, loadStickerConfig);
   const cron: HotConfigRead<CronConfig> = await readHotConfig(CRON_CONFIG_PATH, loadCronConfig);
-  return { layoutRejections, assets, adDetectConfig, agent, mood, stickers, cron };
+  return { layoutRejections, assets, randomImageDirectoryInspection, adDetectConfig, agent, mood, stickers, cron };
 }
 
 /** nextFileSnapshot 的入参：本轮读取结果、当前快照与拒绝诊断收集表。 */
@@ -270,10 +284,24 @@ export function applyHotDeploymentConfigs(reads: HotDeploymentConfigReads): HotD
   } else {
     const assets: Readonly<AssetConfig> = reads.assets.kind === "absent" ? DEFAULT_ASSET_CONFIG : reads.assets.value;
     if (!Bun.deepEquals(assets, assetConfigCache.current)) {
-      adoptAssetConfig(assets);
-      assetsChanged = true;
-      if (reads.assets.kind === "absent") paths.removedPaths.push(ASSETS_CONFIG_PATH);
-      else paths.reloadedPaths.push(ASSETS_CONFIG_PATH);
+      let galleryAdopted: boolean = true;
+      if (reads.randomImageDirectoryInspection !== null) {
+        try {
+          adoptRandomImageDirectory(
+            assets.randomHImageDirectory,
+            reads.randomImageDirectoryInspection
+          );
+        } catch (error: unknown) {
+          rejections.push(errorMessage(error));
+          galleryAdopted = false;
+        }
+      }
+      if (galleryAdopted) {
+        adoptAssetConfig(assets);
+        assetsChanged = true;
+        if (reads.assets.kind === "absent") paths.removedPaths.push(ASSETS_CONFIG_PATH);
+        else paths.reloadedPaths.push(ASSETS_CONFIG_PATH);
+      }
     }
   }
 

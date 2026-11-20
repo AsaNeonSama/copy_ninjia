@@ -29,7 +29,7 @@ export interface ColdStartPhaseTimings {
   readonly moduleGraphMs: number;
   /** 取得数据根单实例锁（含数据根 durability 预检）的耗时。 */
   readonly instanceLockMs: number;
-  /** 清扫原子写中断残留临时文件的耗时。 */
+  /** 清扫原子写中断残留临时文件并校验 `config/` 目录布局（与生产启动序列同序）的耗时。 */
   readonly orphanCleanupMs: number;
   /** 读取并严格解析全局状态文件 memory/global/state.json 的耗时。 */
   readonly stateLoadMs: number;

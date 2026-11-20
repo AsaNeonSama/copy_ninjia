@@ -20,7 +20,7 @@ const loggerError = mock((..._args: unknown[]): void => {});
 mock.module("../../../packages/infra/telegram/workerClient", () => ({
   downloadTelegramFileFromMain,
 }));
-mock.module("../../../packages/aiChat/provider", () => ({
+mock.module("../../../packages/workers/aiChat/provider", () => ({
   mediaAiProvider: () => ({ name: "google", describeVision }),
 }));
 mock.module("../../../packages/infra/image", () => ({ prepareVisionImage }));
@@ -28,7 +28,7 @@ mock.module("../../../packages/infra/logger", () => ({
   logger: loggerStub({ error: loggerError }),
 }));
 
-const { describeMedia, describeMediaForStickerCatalog } = await import("../../../packages/aiChat/ai/imageDescription");
+const { describeMedia, describeMediaForStickerCatalog } = await import("../../../packages/workers/aiChat/ai/imageDescription");
 const { ANIMATION_DESCRIPTION_PROMPT, IMAGE_DESCRIPTION_PROMPT } =
   await import("../../../packages/consts/aiChat/prompts/media");
 const { transientDescriptionCache } = await import("../../../packages/cache/workers/aiChat/imageDescription");
@@ -40,7 +40,8 @@ const {
   resetMediaInputSupport,
   setMediaInputProbe,
 } = await import("../../../packages/cache/workers/aiChat/mediaInputSupport");
-const { recordMediaInputResult } = await import("../../../packages/aiChat/ai/mediaInputSupport");
+const { recordMediaInputResult } = await import("../../../packages/workers/aiChat/ai/mediaInputSupport");
+const { mediaTaskRunner } = await import("../../../packages/cache/workers/aiChat/mediaTasks");
 const {
   IMAGE_DESCRIPTION_MAX_CHARS,
   SHORT_MEDIA_DESCRIPTION_MAX_CHARS,
@@ -701,7 +702,11 @@ describe("Telegram 媒体下载与视觉描述适配层", () => {
 
     expect(prepareVisionImage).not.toHaveBeenCalled();
     expect(describeVision).not.toHaveBeenCalled();
-    expect(loggerError).toHaveBeenCalledWith("Error loading chat media (kind=photo):", expect.any(TypeError));
+    expect(loggerError).toHaveBeenCalledWith(
+      "Error loading Telegram image:",
+      { label: "chat media", kind: "photo" },
+      expect.any(TypeError)
+    );
   });
 
   test("不支持的图片、转码后超限和空模型正文均安全降级", async () => {
@@ -722,7 +727,11 @@ describe("Telegram 媒体下载与视觉描述适配层", () => {
   test("Telegram/下载异常不抛出，贴纸目录描述绕过临时缓存", async () => {
     downloadTelegramFileFromMain.mockRejectedValueOnce(new Error("getFile failed"));
     await expect(describeMedia({ kind: "photo", fileId: "throw", fileUniqueId: "u7", voiceMime: undefined })).resolves.toBeNull();
-    expect(loggerError).toHaveBeenCalledWith("Error loading chat media (kind=photo):", expect.any(Error));
+    expect(loggerError).toHaveBeenCalledWith(
+      "Error loading Telegram image:",
+      { label: "chat media", kind: "photo" },
+      expect.any(Error)
+    );
 
     await expect(describeMediaForStickerCatalog("catalog-file")).resolves.toEqual({ ok: true, text: "一只挥手的猫" });
     await expect(describeMediaForStickerCatalog("catalog-file")).resolves.toEqual({ ok: true, text: "一只挥手的猫" });
@@ -766,6 +775,24 @@ describe("Telegram 媒体下载与视觉描述适配层", () => {
     // （file_unique_id 在 Telegram 内全局唯一，键空间不冲突）。
     expect(second).toBe(first);
     await first;
+  });
+
+  test("贴纸目录建库走 background 车道，实时群聊媒体走 interactive 车道", async () => {
+    const runSpy = spyOn(mediaTaskRunner, "run");
+    try {
+      await expect(describeMediaForStickerCatalog("file-catalog-sticker")).resolves.toMatchObject({ ok: true });
+      await expect(describeMedia({
+        kind: "photo",
+        fileId: "file-realtime-photo",
+        fileUniqueId: "unique-realtime-photo",
+        voiceMime: undefined,
+      })).resolves.toBe("一只挥手的猫");
+      expect(runSpy).toHaveBeenCalledTimes(2);
+      expect(runSpy.mock.calls[0]![0]).toBe("background");
+      expect(runSpy.mock.calls[1]![0]).toBe("interactive");
+    } finally {
+      runSpy.mockRestore();
+    }
   });
 });
 

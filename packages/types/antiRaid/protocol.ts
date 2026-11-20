@@ -1,4 +1,5 @@
 import type { Atmosphere } from "../atmosphere";
+import type { LogLevel } from "../diskIO/messages";
 import type { ChatPermissions } from "grammy/types";
 import type { RemoveBlockedMembersParams } from "../blocklist";
 import type { LockdownPhase } from "../chatState";
@@ -248,13 +249,15 @@ export interface ChatKindChangedMessage {
 
 /**
  * 主线程 -> Worker：主线程当前生效的广告检测能力配置与广告检测部署配置（ad_detect.json）。初始化、Worker
- * 重建与 config/dynamic/ 热重载替换这两份快照时各投递一次；adDetectConfig 为 null 表示广告
- * 检测不可用，Worker 保留原 holder 不动。
+ * 重建与 config/dynamic/ 热重载替换这两份快照时各投递一次；`adDetectConfig` 为 `null` 时保留原配置 holder 不动，
+ * 当 `adDetect` 或 `adDetectConfig` 为 `null` 时 Worker 清空残留待检队列与消息束。
  */
 export interface AntiRaidAgentConfigMessage {
   type: "agentConfig";
   /** 主线程已校验的默认时区；每次投递取同一启动快照。 */
   readonly timeZone: string;
+  /** 主线程已校验的日志级别阈值；每次投递取同一启动快照。 */
+  readonly logLevel: LogLevel;
   /** 主线程启动总闸确定的本进程群通知风格；每次投递取同一启动快照。 */
   readonly atmosphere: Atmosphere;
   adDetect: AdDetectAgentConfig | null;

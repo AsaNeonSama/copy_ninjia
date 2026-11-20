@@ -211,7 +211,6 @@ export function flushStorageDatabase(reply: IdentityPersistenceReply): boolean {
     chatQaWrites: chatQaAcknowledgements,
     removalWrites: removalAcknowledgements,
   });
-  scheduleStorageCommit();
   return true;
 }
 

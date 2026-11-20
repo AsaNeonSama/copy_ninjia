@@ -5,13 +5,13 @@ import type { MiniAppTranslations } from "../i18n";
 import { AlertSvgIcon, CloseSvgIcon } from "../resource";
 import { useMiniAppStore } from "../store/app";
 import type { MiniAppConfirmModalState, MiniAppUiStoreState } from "../store/app";
-import type { MiniAppLanguage } from "../types/miniApp";
+import type { MiniAppLanguage } from "../types/miniApp/ui";
 import { useDelayedUnmount } from "./animations/useDelayedUnmount";
 import type { DelayedUnmountState } from "./animations/useDelayedUnmount";
 
 /**
  * 渲染 `requestConfirm` 发起的自定义确认弹窗。
- * 按递增 `requestSeq` 重播连续请求的进入动画，关闭时保留快照播放收起动画；点击遮罩、关闭或取消按钮均按取消结算。
+ * 按递增 `requestSeq` 重播连续请求的进入动画，关闭时保留快照播放收起动画；按钮优先展示请求指定的自定义文案，缺省回退至 `t.confirmDialog` 默认文案；点击遮罩、关闭或取消按钮均按取消结算。
  *
  * @returns React 节点或 `null`
  */
@@ -37,6 +37,10 @@ export function ConfirmModal(): React.JSX.Element | null {
 
   if (displayModal === null) return null;
   const isDanger: boolean = displayModal.tone === "danger";
+  const cancelLabel: string =
+    displayModal.cancelLabel ?? t.confirmDialog.cancelButton;
+  const confirmLabel: string =
+    displayModal.confirmLabel ?? t.confirmDialog.confirmButton;
   return (
     <div
       key={displayModal.requestSeq}
@@ -72,7 +76,7 @@ export function ConfirmModal(): React.JSX.Element | null {
             onClick={(): void => {
               resolveConfirm(false);
             }}
-            aria-label={t.confirmDialog.cancelButton}
+            aria-label={cancelLabel}
           >
             <CloseSvgIcon size={14} />
           </button>
@@ -87,7 +91,7 @@ export function ConfirmModal(): React.JSX.Element | null {
               resolveConfirm(false);
             }}
           >
-            {t.confirmDialog.cancelButton}
+            {cancelLabel}
           </button>
           <button
             type="button"
@@ -97,7 +101,7 @@ export function ConfirmModal(): React.JSX.Element | null {
               resolveConfirm(true);
             }}
           >
-            {t.confirmDialog.confirmButton}
+            {confirmLabel}
           </button>
         </div>
       </div>

@@ -295,3 +295,17 @@ export function hasCopyableContent(message: Message): boolean {
     message.location || message.venue || message.poll || message.story
   );
 }
+
+/**
+ * `/copy` 指定目标复读前过滤不可复制的服务消息（入群/退群、置顶、话题变更、发票、抽奖、
+ * 礼物、无图注付费媒体等），同时保留 `checklist`、`game`、`live_photo`、`rich_message`
+ * 等可由 Telegram `copyMessage` 复制的内容消息。
+ *
+ * @param message Telegram 入站消息
+ * @returns 该消息是否适合交由 `/copy` 复读出口发送
+ */
+export function isCopyableTargetMessage(message: Message): boolean {
+  return hasCopyableContent(message) || Boolean(
+    message.checklist ?? message.game ?? message.live_photo ?? message.rich_message
+  );
+}

@@ -14,8 +14,8 @@
  * 用例里常见的窄签名替身（如 `mock((message: string) => void)`）可以直接传入。
  */
 export interface LoggerStubOverrides {
-  log?(...args: unknown[]): void;
   info?(...args: unknown[]): void;
+  operation?(...args: unknown[]): void;
   warn?(...args: unknown[]): void;
   error?(...args: unknown[]): void;
 }
@@ -23,8 +23,8 @@ export interface LoggerStubOverrides {
 /** 与 infra/logger.ts 的 Logger 结构一致的完整桩。 */
 export function loggerStub(overrides: LoggerStubOverrides = {}): Required<LoggerStubOverrides> {
   return {
-    log: overrides.log ?? ((): void => {}),
     info: overrides.info ?? ((): void => {}),
+    operation: overrides.operation ?? ((): void => {}),
     warn: overrides.warn ?? ((): void => {}),
     error: overrides.error ?? ((): void => {}),
   };

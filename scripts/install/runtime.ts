@@ -98,7 +98,7 @@ export async function validateStagedBotConfig(path: string): Promise<void> {
  * 判断 `bot.json` 原始对象中的 `mini_app` 段是否为示例占位密码。
  *
  * @param miniApp `bot.json` 的 `mini_app` 原始字段值
- * @returns 当 `mini_app` 为普通对象且 `password` trim 后等于 `MINI_APP_PASSWORD_PLACEHOLDER` 时返回 `true`
+ * @returns 当 `mini_app` 为普通对象且 `password` 为示例占位符时返回 `true`
  */
 function isPlaceholderMiniAppRecord(miniApp: unknown): boolean {
   return (

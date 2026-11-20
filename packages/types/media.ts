@@ -1,10 +1,10 @@
 /** 群聊媒体里可做异步解析的类型：图片、贴纸、GIF（Telegram animation）、
  *  语音（Telegram voice）。各类型共用同一套「占位入缓存 -> 异步下载解析 -> 原位
- *  回填」管线（见 aiChat/ai/imageDescription.ts 的 describeMedia、
+ *  回填」管线（见 workers/aiChat/ai/imageDescription.ts 的 describeMedia、
  *  workers/aiChat/mediaIngest.ts 的 recordChatMedia），占位符、提示词与长度上限按类型区分。
  *
  *  图片、贴纸、GIF 走视觉理解，语音走语音转写：解析入口同一个，下载与模型调用分成
- *  两条（见 aiChat/ai/voiceTranscription.ts）。语音记录不带像素尺寸，两个尺寸字段
+ *  两条（见 workers/aiChat/ai/voiceTranscription.ts）。语音记录不带像素尺寸，两个尺寸字段
  *  恒为 0，各类型共用同一协议形状（见 types/aiChat/protocol.ts 的 AiRecordMediaMessage）。 */
 export type MediaKind = "photo" | "sticker" | "animation" | "voice";
 
@@ -36,7 +36,7 @@ export interface VoiceClip {
   mime: string;
 }
 
-/** MP4 中一条视频轨的展示宽高：tkhd 的 16.16 定点值换算成的像素，可含小数（解析见 infra/video.ts）。 */
+/** MP4 中一条视频轨的展示宽高：tkhd 的 16.16 定点值换算成的像素，可含小数（解析见 libs/video.ts）。 */
 export interface Mp4VideoTrack {
   readonly width: number;
   readonly height: number;

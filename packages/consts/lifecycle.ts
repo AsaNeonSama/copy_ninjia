@@ -1,4 +1,4 @@
-/** 进程停机排空、轮询与落盘的统一时间预算。 */
+/** 进程停机排空与落盘的统一时间预算。 */
 
 import { ANTI_RAID_DRAIN_TIMEOUT_MS } from "./antiRaid/protocol";
 import { TELEGRAM_REPEATED_OFFSET_MIN_WAIT_MS } from "./telegram";
@@ -6,8 +6,6 @@ import type { FlushTimeouts } from "../types/lifecycle";
 
 /** 等待 grammY runner 中在途 update 处理完毕的最长时间。 */
 export const RUNNER_DRAIN_TIMEOUT_MS: number = 5_000;
-/** 等待 runner 归零时的轮询间隔。 */
-export const RUNNER_DRAIN_POLL_INTERVAL_MS: number = 100;
 /**
  * 正常 drain 超时并 abort 活跃 update 后，等待 handler 响应取消的附加预算。
  * 所属模块：app/lifecycle/maintenance.ts。

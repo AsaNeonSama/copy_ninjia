@@ -31,7 +31,10 @@ function postMirroredAiMemories(): void {
   }
   for (const chatId of dropped) requestAiMemoryDelete(chatId, false);
   if (dropped.length > 0) {
-    logger.log(`Dropping the persisted AI memory of ${dropped.length} chat(s) with AI chat disabled: ${dropped.join(", ")}.`);
+    logger.info("Dropping persisted AI memory for chats with AI chat disabled.", {
+      count: dropped.length,
+      chatIds: dropped,
+    });
   }
   if (enabledMemories.size > 0) {
     postAiChatOrThrow({ type: "hydrate", memories: enabledMemories });

@@ -6,6 +6,7 @@
 import {
   blocklistIdentityMutationRunner,
   blocklistParticipantInvalidQueue,
+  pendingParticipantInvalidUnblocks,
 } from "../../cache/main/blocklist";
 import {
   BLOCKLIST_PARTICIPANT_INVALID_LIMIT,
@@ -37,22 +38,38 @@ function allIdentityPoliciesCached(ids: readonly number[]): boolean {
 }
 
 /**
- * 校验缓存条目未变化后解除已判定销号用户的黑名单记录。
+ * 校验当前解除尝试未被后续计数清零/改写覆盖，且黑名单关键字段（`blockedAt`、`participantInvalidCount`）
+ * 未变化后解除已判定销号用户的黑名单记录（即使期间条目曾被 LRU 淘汰重读亦可通过）。
  *
  * @param userId 已达到连续 `PARTICIPANT_ID_INVALID` 阈值的用户 ID。
  * @param expected 触发自动解除拉黑时观测到的黑名单条目快照。
+ * @param token 本次自动解除尝试的独占令牌。
  */
 async function unblockDeletedAccount(
   userId: number,
-  expected: Readonly<BlocklistEntryData>
+  expected: Readonly<BlocklistEntryData>,
+  token: symbol
 ): Promise<void> {
-  if (!await prefetchIdentityPolicies([userId])) return;
-  if (!isIdentityPolicyCached(userId) || cachedBlocklistEntry(userId) !== expected) return;
-  unblockUser(userId);
-  logger.log(
-    `Removed blocklisted user ${userId} after ${BLOCKLIST_PARTICIPANT_INVALID_LIMIT} consecutive ` +
-    "PARTICIPANT_ID_INVALID sweep results; treating the account as deleted."
-  );
+  try {
+    if (pendingParticipantInvalidUnblocks.get(userId) !== token) return;
+    if (!await prefetchIdentityPolicies([userId])) return;
+    if (pendingParticipantInvalidUnblocks.get(userId) !== token) return;
+    const current: Readonly<BlocklistEntryData> | undefined = cachedBlocklistEntry(userId);
+    if (
+      !isIdentityPolicyCached(userId) ||
+      current?.blockedAt !== expected.blockedAt ||
+      current?.participantInvalidCount !== expected.participantInvalidCount
+    ) return;
+    unblockUser(userId);
+    logger.info(
+      "Removed blocklisted user after consecutive PARTICIPANT_ID_INVALID sweep results.",
+      { userId, consecutiveLimit: BLOCKLIST_PARTICIPANT_INVALID_LIMIT }
+    );
+  } finally {
+    if (pendingParticipantInvalidUnblocks.get(userId) === token) {
+      pendingParticipantInvalidUnblocks.delete(userId);
+    }
+  }
 }
 
 /**
@@ -66,6 +83,7 @@ function applyParticipantReadability(
   resettableUserIds: readonly number[]
 ): void {
   for (const userId of resettableUserIds) {
+    pendingParticipantInvalidUnblocks.delete(userId);
     const entry: Readonly<BlocklistEntryData> | undefined = cachedBlocklistEntry(userId);
     if (entry?.participantInvalidCount === undefined) continue;
     queueIdentityPolicyWrite("blocklist", userId, {
@@ -78,6 +96,7 @@ function applyParticipantReadability(
     if (entry === undefined) continue;
     const count: number = (entry.participantInvalidCount ?? 0) + 1;
     if (count < BLOCKLIST_PARTICIPANT_INVALID_LIMIT) {
+      pendingParticipantInvalidUnblocks.delete(userId);
       queueIdentityPolicyWrite("blocklist", userId, {
         blockedAt: entry.blockedAt,
         meta: entry.meta,
@@ -85,11 +104,13 @@ function applyParticipantReadability(
       });
       continue;
     }
+    const token: symbol = Symbol("participant-invalid-unblock");
+    pendingParticipantInvalidUnblocks.set(userId, token);
     void blocklistIdentityMutationRunner.run(
       userId,
-      (): Promise<void> => unblockDeletedAccount(userId, entry)
+      (): Promise<void> => unblockDeletedAccount(userId, entry, token)
     ).catch((error: unknown): void => {
-      logger.error(`Failed to remove deleted account ${userId} from the blocklist:`, error);
+      logger.error("Failed to remove deleted account from the blocklist:", { userId }, error);
     });
   }
 }
@@ -116,8 +137,12 @@ async function settleParticipantReadability(
     }
   }
   logger.error(
-    `Skipped blocklist PARTICIPANT_ID_INVALID counts for removal ${event.removalId} in chat ` +
-    `${event.chatId}: identities left the policy cache before ${BLOCKLIST_PARTICIPANT_INVALID_WRITE_ATTEMPTS} write attempts.`
+    "Skipped blocklist PARTICIPANT_ID_INVALID counts; identities left policy cache before write attempts completed.",
+    {
+      removalId: event.removalId,
+      chatId: event.chatId,
+      maxAttempts: BLOCKLIST_PARTICIPANT_INVALID_WRITE_ATTEMPTS,
+    }
   );
 }
 
@@ -135,8 +160,8 @@ export function recordBlocklistParticipantReadability(
   );
   blocklistParticipantInvalidQueue.current = step.catch((error: unknown): void => {
     logger.error(
-      `Failed to update blocklist PARTICIPANT_ID_INVALID counts for removal ${event.removalId} ` +
-      `in chat ${event.chatId}:`,
+      "Failed to update blocklist PARTICIPANT_ID_INVALID counts:",
+      { removalId: event.removalId, chatId: event.chatId },
       error
     );
   });

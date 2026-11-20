@@ -97,7 +97,7 @@ WantedBy=multi-user.target
 > [!WARNING]
 > **Data Isolation in Multi-Tenant Environments**:
 > New files under `memory/` are created with `PERSISTED_FILE_MODE` (`packages/consts/diskIO/common.ts`, `0644`). If parent directories leave `other` read/traverse bits open, other local accounts on a shared host can read group records. On multi-user hosts, tighten the data root and `memory/` to `0750` and existing files to `0600` or `0640` (runtime code preserves existing file modes).
-> Configure `database/` up to `IDENTITY_DATABASE_DIRECTORY_MODE` (`02770` with `setgid` when shared across a service group); the main database and WAL/SHM sidecars are created with `IDENTITY_DATABASE_FILE_MODE`. **Never run recursive `chmod 0750` across the entire data root**, because `database/` must retain group write access when shared by a service group. Keep `config/` read-only.
+> Configure `database/` up to `IDENTITY_DATABASE_DIRECTORY_MODE` (`02770` with `setgid` when shared across a service group); the main database and WAL/SHM sidecars are created with `IDENTITY_DATABASE_FILE_MODE`. **Never run recursive `chmod 0750` across the entire data root**, because `database/` must retain group write access when shared by a service group. Keep `config/` read-only by default; if Mini App online config editing is used, grant the service user write and atomic-rename access on `config/dynamic/` and/or `config/static/` (newly created optional files default to `0600`), and configure polkit `restart` authorization permitting the service user to restart `copy-ninjia.service` when using non-`root` online static-config restarts (see [10 Mini App](10-mini-app.md)).
 
 - **Automated crash recovery**: On an unexpected crash or non-zero exit, systemd restarts the process (`Restart=on-failure`). Pending join verifications, lockdown timers, identity writes, AI conversation memory, and unacknowledged Telegram updates recover deterministically per [04 Runtime Invariants](04-invariants.md#persistence).
 
@@ -196,7 +196,7 @@ Accompanied while open by SQLite WAL (`-wal`) and shared-memory (`-shm`) sidecar
   - **Coverage**: Tracks every capability in `AGENT_CAPABILITY_NAMES`.
 
 ### 8. Logs and Instance Lock: `logs/` and `bot.lock`
-- **`logs/`**: English structured error logs written asynchronously in batches by the Disk I/O Worker.
+- **`logs/`**: English structured runtime logs filtered by optional `log_level` in `config/static/bot.json` (`info` / `operation` / `warn` / `error`, defaulting to `"operation"` when omitted). Each record uses `{ level, message, args? }` (`message` joins string args while `args` stores non-string structured context / expanded `Error` objects and is omitted when absent); `info` / `operation` / `warn` logs batch-buffer on the main thread (up to 32 entries or 30 seconds) before being appended asynchronously in batches by the Disk I/O Worker, while `error` logs flush immediately.
 - **`bot.lock`** (plus `.guard` / `.recovery`): Linux `/proc`-backed single-instance lock guaranteeing at most one active process per data root.
 
 ---
@@ -353,32 +353,30 @@ Instance locking uses Linux `/proc` with exact line format `BOT_LOCK_LINE_PATTER
 
 ### Key Log Characteristics and Troubleshooting
 
-- **Structured English logs**: Batched asynchronously into `logs/` by the Disk I/O Worker for straightforward `grep` and log-shipper filtering.
+- **Structured English logs**: Console output prepends `[INFO]` / `[OPERATION]` / `[WARN]` / `[ERROR]` (`CONSOLE_PREFIX_BY_LOG_LEVEL`), while disk writes filter by optional `log_level` in `config/static/bot.json` (defaulting to `"operation"` when omitted) and store `{ level, message, args? }` entries in `logs/<YYYY-MM-DD>.json` via the Disk I/O Worker (main-thread batch/30-second buffering for `info` / `operation` / `warn`, immediate flush for `error`). Static English summaries paired with camelCase context objects make `grep`, `jq`, and log-shipper filtering straightforward.
 - **Worker crash self-healing**: Unexpected Worker exits trigger rate-limited respawn and automatic snapshot re-hydration from the main thread.
 - **Fail-fast storage exits**: Persistent disk write failures that exhaust bounded retries exit non-zero so systemd restarts cleanly from durable state rather than running with diverged memory.
 
 #### Common Log Patterns
 
-- `Cron task "<name>" action #<n> (<type>) failed after <k> attempt(s)`:
-  Scheduled action exhausted retries:
+- `Cron task action failed; skipping the remaining actions for this chat.` / `Cron task action failed; skipping the remaining actions of this run.` (`{ task, actionIndex, actionType, chatId?, attempts, detail }`):
+  Scheduled action exhausted retries; inspect `detail`:
   - `403`: Bot was kicked or lacks access in the target chat/channel.
   - `400`: Invalid remote media URL or unsupported image/audio format.
   - `local file ... is missing`: Configured local file path does not exist.
   - `speech synthesis failed: ...`: TTS failure (`tts unconfigured` / `tts unsupported` = config mismatch; `worker unavailable` = AI Worker still starting; `synthesis failed` / `timed out` = upstream provider/network failure; `daily limit reached` = daily quota exhausted).
-- `/send TTS for chat <id> produced no voice: <reason>`:
+- `/send TTS produced no voice.` (`{ chatId, reason }`):
   Superadmin private `/send` voice synthesis failed for the reasons above; the error is reported in DM and the relay session stays open.
-- `AI reply voice was not sent (chat <id>): <reason>`:
+- `AI reply voice was not sent.` (`{ chatId, reason }`):
   `send_voice` failed during a group AI turn (timeout, quota exhaustion, etc.); text replies in the turn still deliver normally.
-- `Failed to probe chat membership ... PARTICIPANT_ID_INVALID`:
+- `Telegram API call failed.` (`{ action: "probe chat membership", chatId, userId, errorCode: 400, description }` with `PARTICIPANT_ID_INVALID` in `description`):
   Blocklist sweep hit a deleted Telegram account; after `BLOCKLIST_PARTICIPANT_INVALID_LIMIT` consecutive `PARTICIPANT_ID_INVALID` responses, the ID is automatically removed from the blocklist.
-- `Chat <id> was upgraded to supergroup <newId>; tearing down the old chat.`:
+- `Chat upgraded to supergroup; tearing down the old chat.` (`{ chatId, supergroupChatId }`):
   A managed basic group upgraded to a supergroup; the old chat ID was torn down as `gone` (state purged, slot freed). Run `/init enable` in the new supergroup.
-- `Chat <id> was gone|departed in <n> lookups <ms>ms apart; tearing it down.`:
+- `Chat confirmed unreachable; tearing it down.` (`{ chatId, reason, attempts, intervalMs }`, with `reason` equal to `"gone"` or `"departed"`):
   Startup title refresh confirmed across repeated lookups that a chat no longer exists (`gone`) or the bot left (`departed`), tearing it down (unrestored private-lockdown state on a `departed` chat is retained and restored once the bot rejoins with member-restriction rights).
-- `Chat <id> looked gone|departed at startup but lookup <n> disagreed; keeping it.`:
+- `Chat absence check disagreed on retry; keeping chat.` (`{ chatId, initialReason, attempt }`):
   Initial startup lookup failed transiently while a follow-up check disagreed; teardown is skipped and re-evaluated on the next boot.
-- `Gemini context cache API ... create rejected (<n>/<max>): 400`:
-  Gemini rejected context-cache creation with HTTP 400 (typically below minimum token count or unsupported parameters). Retries back off for `GEMINI_CONTEXT_CACHE_REJECTION_RETRY_AFTER_MS` and stop for that payload after `GEMINI_CONTEXT_CACHE_MAX_REJECTIONS` rejections while uncached chat calls continue uninterrupted.
 
 ---
 

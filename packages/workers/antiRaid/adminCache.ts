@@ -83,7 +83,7 @@ export async function isChatAdmin(
   try {
     return (await fetchAdminIds(chatId)).has(userId);
   } catch (error: unknown) {
-    logger.error(`Failed to check admin exemption for ${context} ${userId} in chat ${chatId}:`, error);
+    logger.error("Failed to check admin exemption:", { chatId, userId, context }, error);
     return undefined;
   }
 }

@@ -34,6 +34,8 @@ const restoreOutcomes: (false | "denied" | "aborted")[] = [];
 const restoreCalls: number[] = [];
 /** 经 sendTemporaryMessageFromMain 发出的公告正文，按发送顺序。 */
 const sentNotices: string[] = [];
+/** 模拟解锁公告发送失败的错误；缺省按发送成功。 */
+let unlockNoticeError: Error | null = null;
 const loggerError = mock((..._args: unknown[]): void => {});
 const loggerWarn = mock((..._args: unknown[]): void => {});
 
@@ -74,6 +76,7 @@ mock.module("../../../packages/infra/telegram", () => ({
 }));
 mock.module("../../../packages/infra/telegram/workerClient", () => ({
   sendTemporaryMessageFromMain: ({ text }: { text: string }): Promise<undefined> => {
+    if (unlockNoticeError !== null) return Promise.reject(unlockNoticeError);
     sentNotices.push(text);
     return Promise.resolve(undefined);
   },
@@ -84,6 +87,7 @@ mock.module("../../../packages/workers/antiRaid/taskTracker", () => ({
 
 const { lockdownApiChains, lockdownEntries } =
   await import("../../../packages/cache/workers/antiRaid/lockdown");
+const { nextLockdownIntentId } = await import("../../../packages/workers/antiRaid/lockdownApi");
 const {
   adoptLockdowns,
   deactivateLockdownChat,
@@ -120,6 +124,7 @@ beforeEach((): void => {
   restoreCalls.length = 0;
   restoreOutcomes.length = 0;
   sentNotices.length = 0;
+  unlockNoticeError = null;
   loggerError.mockClear();
   loggerWarn.mockClear();
   // reportUnlock 走 `self.postMessage`；基准线程没有 Worker 通道，替掉即可。
@@ -318,5 +323,42 @@ describe("私密模式 timer 接线", (): void => {
 
     expect(entry.retryTimer).toBe(timer);
     expect(restoreCalls).toHaveLength(1);
+  });
+
+  test("Worker 重建接管未来墙钟的 intentId 后，即使时钟回拨，后续新意图号仍严格递增不碰撞", (): void => {
+    jest.useFakeTimers({ now: BASE_MS });
+    const adoptedIntentId: number = BASE_MS + 600_000;
+    adoptLockdowns([{
+      chatId: CHAT_ID,
+      phase: "active",
+      intentId: adoptedIntentId,
+      originalPermissions: ORIGINAL_PERMISSIONS,
+      announced: true,
+      announcementMessageId: 7001,
+      persisted: true,
+      remainingMs: REMAINING_MS,
+    }]);
+
+    expect(nextLockdownIntentId()).toBeGreaterThan(adoptedIntentId);
+  });
+
+  test("解锁公告发送抛出普通异常时记错误日志，AbortError 静默收场", async (): Promise<void> => {
+    jest.useFakeTimers({ now: BASE_MS });
+    const noticeFailure: Error = new Error("unlock notice failed");
+    unlockNoticeError = noticeFailure;
+    await enterRestoring();
+    await Promise.resolve();
+    expect(loggerError).toHaveBeenCalledTimes(1);
+    expect(loggerError).toHaveBeenCalledWith(
+      "Failed to send lockdown unlock announcement:",
+      { chatId: CHAT_ID, reason: "expired" },
+      noticeFailure
+    );
+
+    loggerError.mockClear();
+    unlockNoticeError = new DOMException("aborted", "AbortError");
+    await enterRestoring();
+    await Promise.resolve();
+    expect(loggerError).not.toHaveBeenCalled();
   });
 });

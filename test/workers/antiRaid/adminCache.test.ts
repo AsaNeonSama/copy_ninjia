@@ -8,7 +8,7 @@ import { loggerStub } from "../../helpers/loggerMock";
  * 真实语义由本文件直接覆盖。
  */
 
-const errorLogs: string[] = [];
+const errorLogs: unknown[][] = [];
 const cachedAdmins = new Map<number, Set<number>>();
 const fetchedAdmins = new Map<number, Set<number>>();
 /** 返回里的机器人管理员（本机器人自己，或请求带 return_bots 时的其他机器人）。 */
@@ -17,7 +17,7 @@ const fetchOptions: unknown[] = [];
 let fetchCalls: number = 0;
 
 mock.module("../../../packages/infra/logger", () => ({
-  logger: loggerStub({ error(message: unknown): void { errorLogs.push(String(message)); } }),
+  logger: loggerStub({ error(...args: unknown[]): void { errorLogs.push(args); } }),
 }));
 mock.module("../../../packages/infra/telegram", () => ({
   telegramApi: {
@@ -87,12 +87,20 @@ describe("处置前的管理员身份闸", () => {
 
   test("拉取失败返回 undefined 而不是 false：确证不了一律不处置", async () => {
     expect(await isChatAdmin(-1001, 7, "flooding user")).toBeUndefined();
-    expect(errorLogs[0]).toContain("Failed to check admin exemption for flooding user 7 in chat -1001");
+    expect(errorLogs[0]).toEqual([
+      "Failed to check admin exemption:",
+      { chatId: -1001, userId: 7, context: "flooding user" },
+      expect.any(Error),
+    ]);
   });
 
   test("失败日志带上调用方的处置名，两条链路分得清是谁没查出来", async () => {
     await isChatAdmin(-1002, 9, "sender");
 
-    expect(errorLogs[0]).toContain("Failed to check admin exemption for sender 9 in chat -1002");
+    expect(errorLogs[0]).toEqual([
+      "Failed to check admin exemption:",
+      { chatId: -1002, userId: 9, context: "sender" },
+      expect.any(Error),
+    ]);
   });
 });

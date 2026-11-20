@@ -25,7 +25,7 @@ export const IMAGE_GENERATION_DEFAULT_REFERENCE_IMAGES: number = 1;
 /** AI Worker 相册缓存最多保留的相册数，属 cache/workers/aiChat/imageReferenceAlbums.ts；满额淘汰最久未使用的一组。 */
 export const IMAGE_REFERENCE_ALBUM_CACHE_MAX: number = 256;
 
-/** 生图模型接受的全部官方宽高比，供归一校验（aiChat/ai/utils/aspectRatio.ts）与工具说明共用。 */
+/** 生图模型接受的全部官方宽高比，供归一校验（workers/aiChat/ai/utils/aspectRatio.ts）与工具说明共用。 */
 export const IMAGE_GENERATION_ASPECT_RATIOS: readonly ImageGenerationAspectRatio[] = exhaustiveList<ImageGenerationAspectRatio>()([
   "1:1",
   "3:2",

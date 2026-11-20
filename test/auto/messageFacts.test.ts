@@ -27,6 +27,7 @@ import type { AiBotInfo } from "../../packages/types/aiChat/protocol";
 import { createMessageTriggerContext } from "../../packages/auto/message/triggerContext";
 import {
   hasCopyableContent,
+  isCopyableTargetMessage,
   isReplyToSelf,
   pickAnimationVisionSource,
   resolveForwardOrigin,
@@ -508,6 +509,20 @@ describe("auto/message/facts", () => {
     expect(hasCopyableContent(message({ game: { title: "g", description: "d", photo: [] } }))).toBe(false);
     expect(hasCopyableContent(message({ checklist: { title: "c", tasks: [] } }))).toBe(false);
     expect(hasCopyableContent(message({ new_chat_members: [alice] }))).toBe(false);
+  });
+
+  test("指定目标复读过滤服务消息，同时保留 checklist/game/live_photo/rich_message 等可复制新类型", () => {
+    expect(isCopyableTargetMessage(message({ text: "hello" }))).toBe(true);
+    expect(isCopyableTargetMessage(message({ checklist: { title: "c", tasks: [] } }))).toBe(true);
+    expect(isCopyableTargetMessage(message({ game: { title: "g", description: "d", photo: [] } }))).toBe(true);
+    expect(isCopyableTargetMessage(message({ live_photo: {} }))).toBe(true);
+    expect(isCopyableTargetMessage(message({ rich_message: {} }))).toBe(true);
+    expect(isCopyableTargetMessage(message({ paid_media: { star_count: 5, paid_media: [] }, caption: "付费图注" }))).toBe(true);
+    expect(isCopyableTargetMessage(message({ paid_media: { star_count: 5, paid_media: [] } }))).toBe(false);
+    expect(isCopyableTargetMessage(message({ new_chat_members: [alice] }))).toBe(false);
+    expect(isCopyableTargetMessage(message({ pinned_message: message({ text: "hi" }) }))).toBe(false);
+    expect(isCopyableTargetMessage(message({ forum_topic_created: { name: "话题", icon_color: 0 } }))).toBe(false);
+    expect(isCopyableTargetMessage(message({ invoice: { title: "t", description: "d", start_parameter: "s", currency: "USD", total_amount: 1 } }))).toBe(false);
   });
 });
 

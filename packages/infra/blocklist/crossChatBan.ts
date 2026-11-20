@@ -34,6 +34,8 @@ interface RunManagedChatBatchParams<T> {
   readonly chatIds: readonly number[];
   /** 异常日志中的动作描述。 */
   readonly action: string;
+  /** 被操作的用户或频道身份 ID。 */
+  readonly identityId: number;
   /** 单群处置执行函数。 */
   readonly execute: (chatId: number) => Promise<T>;
   /** 单群抛出未预期异常时的回退返回值。 */
@@ -49,6 +51,7 @@ interface RunManagedChatBatchParams<T> {
 async function runManagedChatBatch<T>({
   chatIds,
   action,
+  identityId,
   execute,
   onUnexpectedFailure,
 }: RunManagedChatBatchParams<T>): Promise<readonly ManagedChatOutcome<T>[]> {
@@ -64,8 +67,8 @@ async function runManagedChatBatch<T>({
   for (const settlement of settlements) {
     if (settlement.status === "rejected") {
       logger.error(
-        `Unexpected error while running ${action} in chat ${settlement.item} ` +
-        `(batch index ${settlement.index}):`,
+        "Unexpected error while running managed chat blocklist action:",
+        { action, identityId, chatId: settlement.item, batchIndex: settlement.index },
         settlement.reason
       );
     }
@@ -104,7 +107,8 @@ export async function banBlockedIdentityInManagedChats({
 }: ManagedChatIdentityBanParams): Promise<number> {
   const outcomes: readonly ManagedChatOutcome<boolean>[] = await runManagedChatBatch<boolean>({
     chatIds,
-    action: `ban blocked identity ${identityId}`,
+    action: "ban blocked identity",
+    identityId,
     onUnexpectedFailure: false,
     execute: (chatId: number): Promise<boolean> => {
       if (botCanRestrictMembersIn(chatId) === false) return Promise.resolve(false);
@@ -134,7 +138,8 @@ export async function liftBlockedIdentityBanInManagedChats({
 }: ManagedChatIdentityBanParams): Promise<number> {
   const outcomes: readonly ManagedChatOutcome<boolean>[] = await runManagedChatBatch<boolean>({
     chatIds,
-    action: `lift the ban on identity ${identityId}`,
+    action: "lift the ban on identity",
+    identityId,
     onUnexpectedFailure: false,
     execute: (chatId: number): Promise<boolean> => {
       if (botCanRestrictMembersIn(chatId) === false) return Promise.resolve(false);

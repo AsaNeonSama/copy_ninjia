@@ -1,8 +1,8 @@
 /** AI 闲聊 Worker 侧的部署配置热重载接管入口。 */
-import { ensureStickerCatalogs, pruneStickerCatalogs } from "../../aiChat/ai/stickers/catalog";
-import { pruneStickerSets } from "../../aiChat/ai/stickers/sets";
-import { refreshMood } from "../../aiChat/ai/mood";
-import { reloadAgentDeploymentConfig } from "../../aiChat/provider";
+import { ensureStickerCatalogs, pruneStickerCatalogs } from "./ai/stickers/catalog";
+import { pruneStickerSets } from "./ai/stickers/sets";
+import { refreshMood } from "./ai/mood";
+import { reloadAgentDeploymentConfig } from "./provider";
 import { invalidateStickerMenu } from "../../cache/workers/aiChat/stickers/menu";
 import { aiChatWorkerQuiescing } from "../../cache/workers/aiChat/worker";
 import { adoptMoodConfig } from "../../config/mood";

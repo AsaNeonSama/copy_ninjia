@@ -25,7 +25,7 @@ import type { VoiceLanguagePrompts } from "../../../types/aiChat/voiceMessage";
  * 运行时状态区块里「本轮工具状态」段的段首标签。段内每个按轮有条件的工具各占一行、
  * 只写事实（能不能用、是否冷却、还剩几次），怎么据此行动由系统提示词「行动与停止」段
  * （VOICE_LANGUAGE_PROMPTS 的 replyActionInstruction）与各工具说明规定；工具清单本身每轮恒定。
- * 所属模块：aiChat/ai/tools/replyToolset/toolStatus.ts。
+ * 所属模块：workers/aiChat/ai/tools/replyToolset/toolStatus.ts。
  */
 export const TOOL_STATUS_BLOCK_LABEL: string = "【本轮工具状态】";
 
@@ -67,7 +67,7 @@ export const SEND_STICKER_TOOL_INSTRUCTION: string =
  * send_message 工具的模型可见使用说明，按台词语言各拼一份注册进 VOICE_LANGUAGE_PROMPTS。手滑轮与
  * 普通轮共用这段文案，文案不提「出错/手滑」：手滑规则只存在于抽中时拼进回复任务的
  * TYPO_REQUIRED_INSTRUCTION；恒声明的两个可选字段的说明只写「回复任务要求时才填」
- * （见 aiChat/ai/tools/replyToolset/definitions.ts）。
+ * （见 workers/aiChat/ai/tools/replyToolset/definitions.ts）。
  * @param voiceDuplicateRule 随台词语言变化的语音去重判定，接在「也不要再用 text 发一遍：」之后。
  * @returns send_message 工具的完整模型可见使用说明文本。
  */
@@ -182,7 +182,7 @@ const VOICE_TONE_DESCRIPTION_TAIL: string = "会追加在固定的基础声线�
 
 /**
  * 本轮工具状态里的语音余量行，只在部署了语音合成（send_voice 恒挂）时出现（见
- * aiChat/ai/tools/replyToolset/toolStatus.ts）。
+ * workers/aiChat/ai/tools/replyToolset/toolStatus.ts）。
  * @param remaining 模型可见的剩余次数，不小于 0。
  * @param dailyLimit AI 语音工具的每日上限，即 `agent.tts` 的 `daily_limit - daily_reserve_quota`。
  * @returns 本轮工具状态中的语音余量说明行。
@@ -227,7 +227,7 @@ export function groupQaToolStatus(count: number): string {
     : `${GROUP_QA_QUERY_TOOL} / ${GROUP_QA_ANSWER_TOOL}：本群没有登记问答`;
 }
 
-/** 独立 web_search 的本轮函数调用上限；来自构造执行器时的同一配置快照。所属模块：aiChat/ai/tools/replyToolset/toolStatus.ts。
+/** 独立 web_search 的本轮函数调用上限；来自构造执行器时的同一配置快照。所属模块：workers/aiChat/ai/tools/replyToolset/toolStatus.ts。
  * @param maxCallsPerUse 本轮允许调用 web_search 工具的最大次数。
  * @returns 本轮工具状态中的联网搜索调用上限说明行。
  */
@@ -272,8 +272,8 @@ function replyActionInstruction(voiceDuplicateRule: string): string {
 
 /**
  * 按 `agent.tts.bot_language` 注册的语音相关提示词与合成朗读语言说明，键与 TtsBotLanguage 一一对应。
- * prompt/voice_tool.md 存在时 send_voice 的说明改用其正文（见 aiChat/ai/tools/replyToolset/voiceMessage.ts 的 buildSendVoiceToolDefinition）。
- * 所属模块：aiChat/ai/tools/replyToolset/orchestrator.ts。
+ * prompt/voice_tool.md 存在时 send_voice 的说明改用其正文（见 workers/aiChat/ai/tools/replyToolset/voiceMessage.ts 的 buildSendVoiceToolDefinition）。
+ * 所属模块：workers/aiChat/ai/tools/replyToolset/orchestrator.ts。
  */
 export const VOICE_LANGUAGE_PROMPTS: Readonly<Record<TtsBotLanguage, Readonly<VoiceLanguagePrompts>>> = {
   en: {

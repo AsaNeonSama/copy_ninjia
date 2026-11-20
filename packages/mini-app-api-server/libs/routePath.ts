@@ -12,19 +12,21 @@ export interface NormalizedRoutePath {
 }
 
 /**
- * 从 `mini_app` 配置派生归一化后的基础路径前缀与小写公网主机名。
+ * 从 `mini_app` 配置派生归一化后的基础路径前缀、小写公网主机名与完整 `https:` 源站。
  * @param config `mini_app` 部署配置或覆盖配置。
- * @returns 归一化后的 `{ basePath, host }`；配置缺失或 URL 解析失败时返回 `{ basePath: "/", host: "" }`。
+ * @returns 归一化后的 `{ basePath, host, origin }`；配置缺失或 URL 解析失败时返回 `{ basePath: "/", host: "", origin: "" }`，非 `https:` URL 时 `origin` 为空串。
  */
 export function deriveMiniAppPublicUrlParts(
   config: Readonly<BotMiniAppConfig> | undefined
 ): Readonly<MiniAppPublicUrlParts> {
   const parsed: URL | null = config === undefined ? null : URL.parse(config.url);
-  if (parsed === null) return { basePath: "/", host: "" };
+  if (parsed === null) return { basePath: "/", host: "", origin: "" };
   const pathname: string = parsed.pathname.replace(/\/+$/u, "");
+  const host: string = parsed.host.toLowerCase();
   return {
     basePath: pathname.length > 0 ? pathname : "/",
-    host: parsed.host.toLowerCase(),
+    host,
+    origin: parsed.protocol === "https:" ? `https://${host}` : "",
   };
 }
 

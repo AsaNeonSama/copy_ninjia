@@ -10,8 +10,8 @@ import { invalidInput } from "../libs/inputValidation";
 import type { TimeZoneState } from "../types/time";
 
 /**
- * 接管主线程已严格校验的启动时区；格式器在当前 isolate 构造一次并复用。UTC 偏移区段以空区段
- * 起步，由 libs/time.ts 的首次日历运算填充；换时区时连同区段整体替换。
+ * 接管主线程已严格校验的启动时区；格式器在当前 isolate 构造一次并复用。UTC 偏移区段以空区段起步、
+ * 日期前缀单槽缓存以 `NaN` 起步，由 libs/time.ts 的首次对应运算填充；换时区时整份状态一起替换重建。
  * @param timeZone 已通过校验的 IANA 时区名称。
  */
 export function adoptTimeZone(timeZone: string): void {
@@ -28,6 +28,8 @@ export function adoptTimeZone(timeZone: string): void {
     offsetMs: 0,
     dateDay: Number.NaN,
     datePrefix: "",
+    logDateDay: Number.NaN,
+    logDatePrefix: "",
   };
 }
 

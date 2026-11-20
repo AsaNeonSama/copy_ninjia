@@ -22,7 +22,7 @@ import { useMiniAppStore } from "../store/app";
 import type { MiniAppUiStoreState } from "../store/app";
 import { createTotpStore } from "../store/totp";
 import type { MiniAppTotpStore, MiniAppTotpStoreState } from "../store/totp";
-import type { MiniAppLanguage } from "../types/miniApp";
+import type { MiniAppLanguage } from "../types/miniApp/ui";
 import type { MiniAppTotpSetupResponse } from "../types/miniAppTotp";
 
 /** `TotpPage` 组件属性。 */

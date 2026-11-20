@@ -1,4 +1,4 @@
-import type { MiniAppMoodMutationResult } from "../types/miniApp";
+import type { MiniAppMoodMutationResult } from "../types/miniApp/status";
 import { miniAppFetchJson } from "./request";
 
 /**

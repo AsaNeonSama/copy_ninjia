@@ -150,7 +150,7 @@ export class StateStore {
     maxAttempts = STATE_SAVE_MAX_ATTEMPTS,
     backgroundDelayMs = STATE_BACKGROUND_SAVE_DELAY_MS,
     onRetryError = (attempt: number, error: unknown): void => {
-      logger.error(`Failed to persist state (attempt ${attempt}):`, error);
+      logger.error("Failed to persist state:", { attempt }, error);
     },
     onFlushError = (error: unknown): void => {
       logger.error("Failed to flush state to disk on shutdown:", error);

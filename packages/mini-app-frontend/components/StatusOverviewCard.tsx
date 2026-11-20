@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, useState } from "react";
 import type React from "react";
 import { MINI_APP_CPU_RING_CIRCUMFERENCE } from "../consts/miniApp";
 import type { MiniAppTranslations } from "../i18n";
@@ -7,10 +7,10 @@ import {
   formatMemoryMb,
   formatUptime,
 } from "../libs/formatters";
-import type {
-  MiniAppLanguage,
-  MiniAppStatusView,
-} from "../types/miniApp";
+import { DEFAULT_STATUS_QUAD_MOSAIC, generateStatusQuadMosaic } from "../libs/statusQuadMosaic";
+import type { MiniAppStatusView } from "../types/miniApp/status";
+import type { MiniAppLanguage } from "../types/miniApp/ui";
+import type { StatusQuadMosaicLayout } from "../types/statusMosaic";
 
 /** `StatusOverviewCard` 顶部资源概览卡片的属性参数。 */
 export interface StatusOverviewCardProps {
@@ -20,19 +20,29 @@ export interface StatusOverviewCardProps {
   readonly t: Readonly<MiniAppTranslations>;
   /** 当前界面语言（默认 `"zh"`）。 */
   readonly language?: MiniAppLanguage;
+  /** 顶部四象限拼块的随机多边形裁剪布局（缺省时组件挂载自行生成一份稳定布局）。 */
+  readonly quadMosaic?: Readonly<StatusQuadMosaicLayout>;
 }
 
 /**
- * 渲染顶部进程资源、活跃会话、出站门控与内存占用的概览卡片。
+ * 渲染顶部进程资源（`.status-overview-card` 内外矩形内分离不规则四象限拼块 `.stat-quad-mosaic`、受管群白黑名单与活跃会话 `.stat-sub-chips` 独立胶囊）、出站门控与内存占用的概览卡片。
  *
- * @param props 状态快照、翻译字典与语言参数
+ * @param props 状态快照、翻译字典、语言与四象限拼块裁剪布局参数
  * @returns React 节点
  */
 function StatusOverviewCardView({
   status,
   t,
   language = "zh",
+  quadMosaic,
 }: StatusOverviewCardProps): React.JSX.Element {
+  const fallbackMosaic: Readonly<StatusQuadMosaicLayout> | null = useState<
+    Readonly<StatusQuadMosaicLayout> | null
+  >((): Readonly<StatusQuadMosaicLayout> | null =>
+    quadMosaic === undefined ? generateStatusQuadMosaic() : null
+  )[0];
+  const resolvedMosaic: Readonly<StatusQuadMosaicLayout> =
+    quadMosaic ?? fallbackMosaic ?? DEFAULT_STATUS_QUAD_MOSAIC;
   const cpuClampedPercent: number = Math.min(
     100,
     Math.max(
@@ -71,25 +81,16 @@ function StatusOverviewCardView({
     Math.max(0, 100 - memoryProcessBarWidth),
     status.memoryOtherBytes > 0 ? Math.max(memoryOtherPercent, 3) : 0
   );
-  const outboundMax: number = Math.max(
-    1,
-    status.telegramOutbound.maxConcurrency
-  );
-  const outboundActivePercent: number = Math.min(
-    100,
-    Math.max(0, (status.telegramOutbound.inFlight / outboundMax) * 100)
-  );
   const outboundRetryMax: number = Math.max(
     1,
     status.telegramOutbound.retryQueueMax
   );
-  const outboundQueuedTotal: number =
-    status.telegramOutbound.waiting +
-    status.telegramOutbound.retryQueueSize;
   const outboundQueuePercent: number = Math.min(
     100,
-    Math.max(0, (outboundQueuedTotal / outboundRetryMax) * 100)
+    Math.max(0, (status.telegramOutbound.retryWaiting / outboundRetryMax) * 100)
   );
+  const [whitelistSub, blocklistSub]: readonly [string, string] =
+    t.status.managedChatsSub(status.whitelistCount, status.blocklistCount);
   const [gagSub, wedSub, verifySub, qaSub]: readonly [
     string,
     string,
@@ -101,7 +102,7 @@ function StatusOverviewCardView({
   );
 
   return (
-    <div className="card">
+    <div className="card status-overview-card">
       <div className="card-title">
         <span>{t.tabs.status}</span>
         <span className="badge ok">
@@ -109,84 +110,96 @@ function StatusOverviewCardView({
         </span>
       </div>
       <div className="grid-2">
-        <div className="stat-box">
-          <div className="stat-label">{t.status.uptimeLabel}</div>
+        <div className="stat-quad-mosaic">
           <div
-            className={`stat-value ${status.uptimeMs > 0 ? "stat-value-active" : ""}`}
+            className="stat-box stat-quad-tile stat-quad-q1"
+            style={{ "--stat-quad-clip": resolvedMosaic.q1Clip } as React.CSSProperties}
           >
-            {formatUptime(status.uptimeMs)}
+            <div className="stat-label">{t.status.uptimeLabel}</div>
+            <div
+              className={`stat-value ${status.uptimeMs > 0 ? "stat-value-active" : ""}`}
+            >
+              {formatUptime(status.uptimeMs)}
+            </div>
+            <div className="stat-sub">
+              {updatedAtText}
+            </div>
           </div>
-          <div className="stat-sub">
-            {updatedAtText}
-          </div>
-        </div>
-        <div className="stat-box stat-box-cpu">
-          <div className="stat-cpu-row">
-            <div className="stat-cpu-main">
-              <div className="stat-label">{t.status.cpuLoadLabel}</div>
-              <div
-                className={`stat-value ${status.cpuAveragePercent > 0 ? "stat-value-active" : ""}`}
-              >
-                {status.cpuAveragePercent.toFixed(2)}%
+          <div
+            className="stat-box stat-box-cpu stat-quad-tile stat-quad-q2"
+            style={{ "--stat-quad-clip": resolvedMosaic.q2Clip } as React.CSSProperties}
+          >
+            <div className="stat-cpu-row">
+              <div className="stat-cpu-main">
+                <div className="stat-label">{t.status.cpuLoadLabel}</div>
+                <div
+                  className={`stat-value ${status.cpuAveragePercent > 0 ? "stat-value-active" : ""}`}
+                >
+                  {status.cpuAveragePercent.toFixed(2)}%
+                </div>
+                <div className="stat-sub">{t.status.cpuLoadSub}</div>
               </div>
-              <div className="stat-sub">{t.status.cpuLoadSub}</div>
+              <div className="cpu-ring-wrap" aria-hidden="true">
+                <svg
+                  className="cpu-ring-svg"
+                  width={48}
+                  height={48}
+                  viewBox="0 0 44 44"
+                >
+                  <circle
+                    className="cpu-ring-track"
+                    cx={22}
+                    cy={22}
+                    r={17.5}
+                  />
+                  <circle
+                    className={`cpu-ring-fill ${cpuClampedPercent >= 80 ? "high" : ""}`}
+                    cx={22}
+                    cy={22}
+                    r={17.5}
+                    strokeDasharray={String(MINI_APP_CPU_RING_CIRCUMFERENCE)}
+                    strokeDashoffset={cpuRingOffset}
+                  />
+                </svg>
+                <span className="cpu-ring-text">
+                  {Math.round(cpuClampedPercent)}%
+                </span>
+              </div>
             </div>
-            <div className="cpu-ring-wrap" aria-hidden="true">
-              <svg
-                className="cpu-ring-svg"
-                width={48}
-                height={48}
-                viewBox="0 0 44 44"
-              >
-                <circle
-                  className="cpu-ring-track"
-                  cx={22}
-                  cy={22}
-                  r={17.5}
-                />
-                <circle
-                  className={`cpu-ring-fill ${cpuClampedPercent >= 80 ? "high" : ""}`}
-                  cx={22}
-                  cy={22}
-                  r={17.5}
-                  strokeDasharray={String(MINI_APP_CPU_RING_CIRCUMFERENCE)}
-                  strokeDashoffset={cpuRingOffset}
-                />
-              </svg>
-              <span className="cpu-ring-text">
-                {Math.round(cpuClampedPercent)}%
-              </span>
-            </div>
-          </div>
-        </div>
-        <div className="stat-box">
-          <div className="stat-label">{t.status.managedChatsLabel}</div>
-          <div
-            className={`stat-value ${status.managedChatCount > 0 ? "stat-value-active" : ""}`}
-          >
-            {status.managedChatCount}
-          </div>
-          <div className="stat-sub">
-            {t.status.managedChatsSub(
-              status.whitelistCount,
-              status.blocklistCount
-            )}
-          </div>
-        </div>
-        <div className="stat-box">
-          <div className="stat-label">
-            {t.status.activeSessionsLabel}
           </div>
           <div
-            className={`stat-value ${status.activeSessions.total > 0 ? "stat-value-active" : ""}`}
+            className="stat-box stat-quad-tile stat-quad-q3"
+            style={{ "--stat-quad-clip": resolvedMosaic.q3Clip } as React.CSSProperties}
           >
-            {status.activeSessions.total}
+            <div className="stat-label">{t.status.managedChatsLabel}</div>
+            <div
+              className={`stat-value ${status.managedChatCount > 0 ? "stat-value-active" : ""}`}
+            >
+              {status.managedChatCount}
+            </div>
+            <div className="stat-sub stat-sub-chips">
+              <span className="stat-sub-chip">{whitelistSub}</span>
+              <span className="stat-sub-chip">{blocklistSub}</span>
+            </div>
           </div>
-          <div className="stat-sub stat-sub-grid">
-            <span>{gagSub}</span>
-            <span>{wedSub}</span>
-            <span>{verifySub}</span>
-            <span>{qaSub}</span>
+          <div
+            className="stat-box stat-quad-tile stat-quad-q4"
+            style={{ "--stat-quad-clip": resolvedMosaic.q4Clip } as React.CSSProperties}
+          >
+            <div className="stat-label">
+              {t.status.activeSessionsLabel}
+            </div>
+            <div
+              className={`stat-value ${status.activeSessions.total > 0 ? "stat-value-active" : ""}`}
+            >
+              {status.activeSessions.total}
+            </div>
+            <div className="stat-sub stat-sub-grid stat-sub-chips">
+              <span className="stat-sub-chip">{gagSub}</span>
+              <span className="stat-sub-chip">{wedSub}</span>
+              <span className="stat-sub-chip">{verifySub}</span>
+              <span className="stat-sub-chip">{qaSub}</span>
+            </div>
           </div>
         </div>
         <div className="stat-box stat-box-outbound">
@@ -195,7 +208,7 @@ function StatusOverviewCardView({
               {t.status.outboundGateLabel}
             </div>
             <span className="stat-outbound-pill">
-              {outboundActivePercent.toFixed(0)}%
+              {outboundQueuePercent.toFixed(0)}%
             </span>
           </div>
           <div className="stat-value">
@@ -205,31 +218,19 @@ function StatusOverviewCardView({
               }
             >
               {status.telegramOutbound.inFlight}
-            </span>{" "}
-            / {status.telegramOutbound.maxConcurrency}
+            </span>
           </div>
           <div className="stat-bar-track" aria-hidden="true">
             <div
               className="stat-bar-fill"
               style={{
-                width: `${Math.max(outboundActivePercent, status.telegramOutbound.inFlight > 0 ? 6 : 0).toFixed(1)}%`,
+                width: `${Math.max(outboundQueuePercent, status.telegramOutbound.retryWaiting > 0 ? 5 : 0).toFixed(1)}%`,
               }}
             />
-            {outboundQueuedTotal > 0
-              ? (
-                <div
-                  className="stat-bar-queue"
-                  style={{
-                    width: `${Math.max(outboundQueuePercent, 5).toFixed(1)}%`,
-                  }}
-                />
-              )
-              : null}
           </div>
           <div className="stat-sub">
             {t.status.outboundGateSub(
-              status.telegramOutbound.waiting,
-              status.telegramOutbound.retryQueueSize,
+              status.telegramOutbound.retryWaiting,
               status.telegramOutbound.retryQueueMax
             )}
           </div>
@@ -315,7 +316,7 @@ function StatusOverviewCardView({
   );
 }
 
-/** 按属性浅比较跳过重渲染的顶部进程资源、活跃会话、出站门控与内存占用概览卡片组件。 */
+/** 按属性浅比较跳过重渲染的顶部分离四象限拼块进程资源、活跃会话、出站门控与内存占用概览卡片组件（`.status-overview-card`）。 */
 export const StatusOverviewCard: React.MemoExoticComponent<
   typeof StatusOverviewCardView
 > = memo(StatusOverviewCardView);

@@ -3,7 +3,6 @@ import {
   telegramOutboundAccepting,
   telegramOutboundGateState,
 } from "../../cache/main/telegram";
-import { TELEGRAM_429_RETRY_QUEUE_MAX } from "../../consts/telegram";
 import type { FlushResult } from "../../types/lifecycle";
 import type {
   TelegramOutboundJob,
@@ -89,12 +88,11 @@ function abortTelegramOutbound(): void {
 
 /**
  * 当前 Telegram 出站闸门的轻量状态快照。
- * @returns 当前活跃数、退避等待数、队列容量与消息车道统计快照。
+ * @returns 当前活跃数、退避等待数与消息车道统计快照。
  */
 export function telegramOutboundStats(): Readonly<{
   active: number;
   pending: number;
-  capacity: number;
   messageActive: number;
   messageRetryPending: number;
 }> {
@@ -102,7 +100,6 @@ export function telegramOutboundStats(): Readonly<{
   return {
     active: telegramOutboundGateState.activeCount,
     pending: telegramOutboundGateState.retryPendingCount,
-    capacity: TELEGRAM_429_RETRY_QUEUE_MAX,
     messageActive: messageLane.activeCount,
     messageRetryPending: messageLane.pendingCount,
   };

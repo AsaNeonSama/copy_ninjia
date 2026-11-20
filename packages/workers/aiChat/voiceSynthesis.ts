@@ -5,7 +5,7 @@
 
 import { voiceSynthesisRequests } from "../../cache/workers/aiChat/voiceSynthesis";
 import { logger } from "../../infra/logger";
-import { resolveSpeechSynthesizer, synthesizeVoiceMessage } from "../../aiChat/ai/voiceSynthesis";
+import { resolveSpeechSynthesizer, synthesizeVoiceMessage } from "./ai/voiceSynthesis";
 import type {
   AiCancelVoiceSynthesisMessage,
   AiSynthesizeVoiceMessage,
@@ -28,14 +28,14 @@ async function synthesize(msg: AiSynthesizeVoiceMessage, signal: AbortSignal): P
   try {
     synthesizer = resolveSpeechSynthesizer();
   } catch (error: unknown) {
-    logger.error(`Speech synthesizer lookup for main-thread request ${msg.requestId} threw:`, error);
+    logger.error("Speech synthesizer lookup threw:", { requestId: msg.requestId }, error);
     return { ok: false, reason: "synthesis failed" };
   }
   if (!synthesizer.ok) return { ok: false, reason: synthesizer.reason };
   return await synthesizeVoiceMessage(
     synthesizer.synthesize,
     { text: msg.text, tone: msg.tone, quota: "operator", signal },
-    `main-thread request ${msg.requestId}`
+    { requestId: msg.requestId }
   );
 }
 

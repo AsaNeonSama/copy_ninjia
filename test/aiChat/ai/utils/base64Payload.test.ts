@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { decodeBase64Payload } from "../../../../packages/aiChat/ai/utils/base64Payload";
+import { decodeBase64Payload } from "../../../../packages/workers/aiChat/ai/utils/base64Payload";
 
 test.each([
   "Zh==", "Zm9=", "Zg", "Zg=", "Zg===", "====", "AA=A", "=AAA", "AA==AAAA",

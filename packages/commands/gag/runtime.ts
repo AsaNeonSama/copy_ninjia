@@ -13,6 +13,7 @@ import {
 import { trackBackgroundTask } from "../../infra/backgroundTasks";
 import { registerChatTeardown } from "../../infra/chatTeardownRegistry";
 import { logger } from "../../infra/logger";
+import { runOutsideUpdateScope } from "../../infra/updateContext";
 import { isChatUnreachable } from "../../libs/chatTeardown";
 import { settleWithinBudget } from "../../libs/inflight";
 import { sendCommandMessage } from "../../infra/telegram";
@@ -209,10 +210,12 @@ function scheduleCleanupRetry(session: GagSession): void {
     GAG_CLEANUP_RETRY_DELAYS_MS[session.cleanupRetryIndex];
   if (delayMs === undefined) return;
   session.cleanupRetryIndex++;
-  const timer: ReturnType<typeof setTimeout> = setTimeout(
-    retryGagCleanupFromTimer,
-    delayMs,
-    session
+  const timer: ReturnType<typeof setTimeout> = runOutsideUpdateScope((): ReturnType<typeof setTimeout> =>
+    setTimeout(
+      retryGagCleanupFromTimer,
+      delayMs,
+      session
+    )
   );
   timer.unref();
   session.cleanupTimer = timer;
@@ -250,11 +253,13 @@ async function retryGagCleanup(
 }
 
 /**
- * 命令旁路触发一次清理重试，并纳入停机可观测的后台任务集合。
+ * 命令旁路在脱离触发 update 作用域的边界内触发一次清理重试，并纳入停机可观测的后台任务集合。
  * @param session 处于 ending 阶段的 gag 会话。
  */
 export function requestGagCleanupRetry(session: GagSession): void {
-  observeGagTask(retryGagCleanup(session));
+  runOutsideUpdateScope((): void => {
+    observeGagTask(retryGagCleanup(session));
+  });
 }
 
 /**
@@ -291,9 +296,8 @@ export async function finishGag(
           chatId: session.chatId,
           text: atmosphere.NOTICE_TEXTS.gagEndedNotice(reasonText, session.targetLabel, session.tool),
           replyToMessageId,
-          // 解除回执落在入口所在话题（见 types/gag.ts 的同名字段）；到期路径没有
-          // 可回复的消息，靠它定位话题。
-          messageThreadId: session.speakNoticeThreadId,
+          // `/ungag` 省略该键由统一边界落到命令所在话题；到期解除无触发消息，显式落在入口所在话题。
+          ...(reason === "timeout" ? { messageThreadId: session.speakNoticeThreadId } : {}),
         });
       }
     } finally {
@@ -312,15 +316,17 @@ export async function finishGag(
 }
 
 /**
- * active 会话到点时同步认领，再把 Telegram 收尾登记为后台任务。
+ * active 会话到点时脱离当前 update 作用域认领结束，再把 Telegram 收尾登记为后台任务。
  * @param session 到期的 gag 会话。
  */
 export function expireGag(session: GagSession): void {
-  observeGagTask(finishGag(session, "timeout"));
+  runOutsideUpdateScope((): void => {
+    observeGagTask(finishGag(session, "timeout"));
+  });
 }
 
 /**
- * 激活预约并安装不会阻止进程退出的到期 timer。
+ * 激活预约并在脱离触发 update 作用域的边界内安装不会阻止进程退出的到期 timer。
  * @param session 待激活的 gag 会话。
  */
 function activateGag(session: GagSession): void {
@@ -328,10 +334,12 @@ function activateGag(session: GagSession): void {
   session.expiresAt = now + session.durationMinutes * DURATION_UNIT_MS.m;
   session.lastTargetMessageAt = now;
   session.phase = "active";
-  session.timer = setTimeout(
-    expireGag,
-    session.durationMinutes * DURATION_UNIT_MS.m,
-    session
+  session.timer = runOutsideUpdateScope((): ReturnType<typeof setTimeout> =>
+    setTimeout(
+      expireGag,
+      session.durationMinutes * DURATION_UNIT_MS.m,
+      session
+    )
   );
   session.timer.unref();
   scheduleGagSpeakNoticeRefresh(session);
@@ -368,8 +376,6 @@ export async function failGagNotice(session: GagSession): Promise<void> {
  *
  * 同步执行，早于调用方的任何 await：停机 abort 打断发送时，会话仍持有该 message id，
  * 由排空按 ending 路径删除。
- *
- * 幂等：正常路径上拿到发送返回值后会再调一次。
  * @param session 当前 gag 会话。
  * @param noticeMessageId 已发出的公开状态提示消息 ID。
  */

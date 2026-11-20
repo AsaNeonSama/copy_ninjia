@@ -5,8 +5,9 @@
 
 import { mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import type { LogEnvelope } from "../../types/diskIO/messages";
+import type { LogEnvelope, LogLevel } from "../../types/diskIO/messages";
 import type { DayFileState, BufferedLogEntry } from "../../types/diskIO/storage";
+import { LOG_LEVELS } from "../../consts/logger";
 import { LOGS_DIR } from "../../consts/paths";
 import {
   DAY_FILE_PATTERN,
@@ -29,13 +30,13 @@ import type { RepairableAppendOnlyInspection } from "./appendOnlyDayFile";
 
 /** 单条持久化日志记录结构。 */
 interface LogRecord {
-  /** 日志级别标识（如 `INFO`、`WARN`、`ERROR`）。 */
-  level: string;
+  /** 日志级别标识（"info" | "operation" | "warn" | "error"）。 */
+  level: LogLevel;
   /** 格式化后的主日志消息文本。 */
   message: string;
   /**
-   * 原始参数列表。存在非字符串参数（展开后的 Error 对象等结构化数据）时为完整
-   * 参数列表，否则为 undefined；undefined 不写入日志文件。
+   * 非字符串结构化参数列表（如上下文对象、展开后的 Error 对象）。不存在非字符串参数时为
+   * undefined；undefined 不写入日志文件。
    */
   args: unknown[] | undefined;
 }
@@ -53,10 +54,11 @@ function assertLogFileSchema(path: string, parsed: unknown): void {
     if (
       !isPlainRecord(value) ||
       typeof value.level !== "string" ||
+      !(LOG_LEVELS as readonly unknown[]).includes(value.level) ||
       typeof value.message !== "string" ||
       (value.args !== undefined && !Array.isArray(value.args))
     ) {
-      throw new AppendOnlyFileFormatError(path, `entry[${index}] must be a log record with string level and message and optional array args.`);
+      throw new AppendOnlyFileFormatError(path, `entry[${index}] must be a log record with valid level (info, operation, warn, or error), string message, and optional array args.`);
     }
   }
 }
@@ -228,23 +230,31 @@ export async function flushLogBuffer(): Promise<boolean> {
 }
 
 /**
- * 处理一条日志消息：只入内存 buffer。调用方（diskIOWorker.ts 的诊断批）消费完整批后
- * 必定调用 flushLogBuffer，因此 buffer 不跨批累积，也不需要阈值或定时落盘。
+ * 处理一条日志消息：拆出字符串参数拼成 `message`、非字符串结构化参数存入 `args` 后入内存 buffer。
+ * 调用方（diskIOWorker.ts 的诊断批）消费完整批后必定调用 flushLogBuffer，因此 buffer 不跨批累积，
+ * 也不需要阈值或定时落盘。
  * @param msg 单条日志消息信封。
  */
 export function handleLogMessage(msg: LogEnvelope): void {
-  // message 只拼字符串参数；存在非字符串参数（展开后的 Error 对象等）时，完整
-  // 参数列表只写进 args。全是字符串参数时 args 为 undefined，落盘时省略。
-  const stringArgs: string[] = [];
-  let hasStructuredArgs: boolean = false;
+  // message 只拼字符串参数；非字符串参数（上下文对象、展开后的 Error 对象等）写入 args，
+  // 全是字符串参数时 args 为 undefined，落盘时省略。
+  let message: string = "";
+  let hasStringArg: boolean = false;
+  let structuredArgs: unknown[] | undefined;
   for (const arg of msg.args) {
-    if (typeof arg === "string") stringArgs.push(arg);
-    else hasStructuredArgs = true;
+    if (typeof arg === "string") {
+      message = hasStringArg ? `${message} ${arg}` : arg;
+      hasStringArg = true;
+    } else if (structuredArgs === undefined) {
+      structuredArgs = [arg];
+    } else {
+      structuredArgs.push(arg);
+    }
   }
   const record: LogRecord = {
     level: msg.level,
-    message: stringArgs.join(" "),
-    args: hasStructuredArgs ? msg.args : undefined,
+    message,
+    args: structuredArgs,
   };
   // key 以配置时区的日期时间为前缀，主线程入队时生成的 id 区分重复本地时间与同一
   // 毫秒内的日志，整批重投时保持不变；由诊断批尾的 flushLogBuffer 落盘。

@@ -1,4 +1,4 @@
-import type { TelegramWebApp, TelegramWindow } from "../types/miniApp";
+import type { TelegramWebApp, TelegramWindow } from "../types/miniApp/host";
 
 /**
  * 读取浏览器全局注入的 `Telegram.WebApp` 实例。

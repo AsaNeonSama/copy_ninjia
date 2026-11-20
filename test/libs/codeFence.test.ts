@@ -62,6 +62,48 @@ describe("captureFencedText", () => {
 
     expect(captureFencedText({ text, entities, start: 3, end: text.length })).toBe("粗体");
   });
+
+  test("pre 前后紧贴同行文本或连续 pre 实体时两侧补换行，渲染可无损还原", () => {
+    const bothSides: string = "答案 code 后";
+    const capturedBoth: string = captureFencedText({
+      text: bothSides,
+      entities: [{ type: "pre", offset: 3, length: 4 }],
+      start: 0,
+      end: bothSides.length,
+    });
+    expect(capturedBoth).toBe("答案 \n```\ncode\n```\n 后");
+    const renderedBoth: RichTextMessage = renderFencedText(capturedBoth);
+    expect(renderedBoth.entities).toEqual([{ type: "pre", offset: 4, length: 4, language: undefined }]);
+    expect(renderedBoth.text.slice(4, 8)).toBe("code");
+
+    const trailingOnly: string = "code 后";
+    const capturedTrailing: string = captureFencedText({
+      text: trailingOnly,
+      entities: [{ type: "pre", offset: 0, length: 4, language: "ts" }],
+      start: 0,
+      end: trailingOnly.length,
+    });
+    expect(capturedTrailing).toBe("```ts\ncode\n```\n 后");
+    expect(renderFencedText(capturedTrailing).entities).toEqual([
+      { type: "pre", offset: 0, length: 4, language: "ts" },
+    ]);
+
+    const adjacent: string = "ab";
+    const capturedAdjacent: string = captureFencedText({
+      text: adjacent,
+      entities: [
+        { type: "pre", offset: 0, length: 1, language: "js" },
+        { type: "pre", offset: 1, length: 1, language: "py" },
+      ],
+      start: 0,
+      end: adjacent.length,
+    });
+    expect(capturedAdjacent).toBe("```js\na\n```\n```py\nb\n```");
+    expect(renderFencedText(capturedAdjacent).entities).toEqual([
+      { type: "pre", offset: 0, length: 1, language: "js" },
+      { type: "pre", offset: 2, length: 1, language: "py" },
+    ]);
+  });
 });
 
 describe("renderFencedText", () => {

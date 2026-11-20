@@ -113,16 +113,19 @@ describe("Disk I/O Worker 午夜维护编排", (): void => {
 
   test("单领域失败不会阻断后续维护", async (): Promise<void> => {
     const errorLog = spyOn(console, "error").mockImplementation((): void => {});
-    maintainLuckForDay.mockImplementationOnce((): void => {
-      throw new Error("injected luck maintenance failure");
-    });
+    try {
+      maintainLuckForDay.mockImplementationOnce((): void => {
+        throw new Error("injected luck maintenance failure");
+      });
 
-    await runDiskIOMidnightMaintenance(reply, DAY);
+      await runDiskIOMidnightMaintenance(reply, DAY);
 
-    expect(maintainLogRetention).toHaveBeenCalledTimes(1);
-    expect(maintainVerificationDayForToday).toHaveBeenCalledTimes(1);
-    expect(maintainTemporaryAdBypassActivities).toHaveBeenCalledWith(reply);
-    expect(errorLog).toHaveBeenCalledTimes(1);
-    errorLog.mockRestore();
+      expect(maintainLogRetention).toHaveBeenCalledTimes(1);
+      expect(maintainVerificationDayForToday).toHaveBeenCalledTimes(1);
+      expect(maintainTemporaryAdBypassActivities).toHaveBeenCalledWith(reply);
+      expect(errorLog).toHaveBeenCalledTimes(1);
+    } finally {
+      errorLog.mockRestore();
+    }
   });
 });

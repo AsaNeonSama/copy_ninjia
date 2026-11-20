@@ -14,6 +14,7 @@ import {
 } from "./lockdownApi";
 import { sendTemporaryMessageFromMain } from "../../infra/telegram/workerClient";
 import { logger } from "../../infra/logger";
+import { isAbortError } from "../../libs/abortSignal";
 import { MINUTE_MS } from "../../consts/time";
 import {
   LOCKDOWN_MS,
@@ -196,7 +197,7 @@ function runLockdownEffects(chatId: number, effects: readonly LockdownEffect[]):
       case "prefetchAdmins":
         if (!effect.onlyIfCold || freshAdminIds(chatId) === undefined) {
           void fetchAdminIds(chatId).catch((error: unknown): void => {
-            logger.error(`Error prefetching chat admins for lockdown in chat ${chatId}:`, error);
+            logger.error("Error prefetching chat admins for lockdown:", { chatId }, error);
           });
         }
         break;
@@ -259,6 +260,14 @@ function runLockdownEffects(chatId: number, effects: readonly LockdownEffect[]):
             text: effect.reason === "expired"
               ? workerAtmosphere().NOTICE_TEXTS.lockdownEnded(LOCKDOWN_MS / MINUTE_MS)
               : workerAtmosphere().NOTICE_TEXTS.lockdownLifted,
+          }).catch((error: unknown): void => {
+            if (!isAbortError(error)) {
+              logger.error(
+                "Failed to send lockdown unlock announcement:",
+                { chatId, reason: effect.reason },
+                error
+              );
+            }
           }),
         });
         break;
@@ -340,7 +349,8 @@ export function stopLockdownRuntime(): void {
 }
 
 /**
- * 接管上一个（已崩溃的）Worker / 上一个进程留下的私密模式（背景见 antiRaid/workerBridge/controller.ts）。
+ * 接管上一个（已崩溃的）Worker / 上一个进程留下的私密模式（背景见 antiRaid/workerBridge/controller.ts），
+ * 并把 `lastLockdownIntentId` 推进到已接管条目中的最大 `intentId`，防止墙钟回拨后新意图号碰撞。
  * @param lockdowns 待接管的私密模式恢复快照列表。
  */
 export function adoptLockdowns(lockdowns: AdoptableLockdown[]): void {
@@ -356,6 +366,9 @@ export function adoptLockdowns(lockdowns: AdoptableLockdown[]): void {
       persisted,
     } of lockdowns
   ) {
+    if (intentId > lastLockdownIntentId.current) {
+      lastLockdownIntentId.current = intentId;
+    }
     dispatchLockdown(chatId, {
       type: "adopt",
       phase,

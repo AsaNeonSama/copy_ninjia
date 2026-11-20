@@ -1,7 +1,7 @@
 import type { BotImageOrigin } from "../../../types/aiChat/memory";
 import { COMPACT_BATCH_SIZE } from "../memory";
 
-/** 群聊转录行内标注与区块名的共享模板。拼装侧（aiChat/ai/utils/chatTranscript.ts 的
+/** 群聊转录行内标注与区块名的共享模板。拼装侧（workers/aiChat/ai/utils/chatTranscript.ts 的
  * formatReplyReference/formatForwardTag 与各区块标题）与说明文案侧（本目录 memory.ts 的
  * SUMMARY_SYSTEM_PROMPT、转录段首格式说明、记忆仲裁与禁言指令）共用同一模板；
  * 说明里引用的占位形态直接以「…」代入模板生成，参照
@@ -32,7 +32,7 @@ export function replyTagTemplate(parts: ReplyTagTemplateParams): string {
 
 /** 转发来源标注模板。origin 在压缩摘要那条路上是预格式化的来源身份（见
  * auto/message/facts.ts 的 resolveForwardOrigin），在回复转录里是来源名册
- * 里的编号（f1、f2……，见 aiChat/ai/utils/chatTranscript.ts 的
+ * 里的编号（f1、f2……，见 workers/aiChat/ai/utils/chatTranscript.ts 的
  * buildTieredVerbatimTranscript）——两侧共用同一个外壳，模型只需认一种形状。
  * @param origin 转发来源身份或来源名册编号。
  * @returns 格式化后的转发来源标注字符串。
@@ -81,27 +81,27 @@ export const HOT_MEMORY_BLOCK_NAME: string = blockTitle(HOT_MEMORY_TIER_NAME);
 export const EARLIER_VERBATIM_BLOCK_NAME: string = blockTitle(EARLIER_VERBATIM_TIER_NAME);
 /** 冷记忆的区块名；引用方同 HOT_MEMORY_BLOCK_NAME，另作冷记忆为空时的占位开头。 */
 export const COLD_MEMORY_BLOCK_NAME: string = blockTitle(COLD_MEMORY_TIER_NAME);
-/** 发言人名册的区块名；拼装侧（aiChat/ai/utils/chatTranscript.ts 的 buildRosterBlock）与 memory.ts 的说明文案共用。 */
+/** 发言人名册的区块名；拼装侧（workers/aiChat/ai/utils/chatTranscript.ts 的 buildRosterBlock）与 memory.ts 的说明文案共用。 */
 export const SPEAKER_ROSTER_BLOCK_NAME: string = blockTitle("发言人名册");
 /** 转发来源名册的区块名；共用方同 SPEAKER_ROSTER_BLOCK_NAME。 */
 export const FORWARD_ROSTER_BLOCK_NAME: string = blockTitle("转发来源名册");
 
 /**
  * 较早逐字记录区块的标题与读法，其后紧跟该段转录行；只在逐字缓存超出一个压缩块时出现。
- * 所属模块：aiChat/ai/utils/chatTranscript.ts 的 buildTieredVerbatimTranscript。
+ * 所属模块：workers/aiChat/ai/utils/chatTranscript.ts 的 buildTieredVerbatimTranscript。
  */
 export const EARLIER_VERBATIM_BLOCK_HEADER: string =
   `${blockTitle(EARLIER_VERBATIM_TIER_NAME, "次要背景")}这些记录仍是原文，但判断当前话题和应答对象时应让位于下方${HOT_MEMORY_TIER_NAME}：\n`;
 /**
  * 最热记忆区块的标题与读法，其后紧跟该段转录行；标题里的条数与分层边界的上限
- * COMPACT_BATCH_SIZE 一致。所属模块：aiChat/ai/utils/chatTranscript.ts 的 buildTieredVerbatimTranscript。
+ * COMPACT_BATCH_SIZE 一致。所属模块：workers/aiChat/ai/utils/chatTranscript.ts 的 buildTieredVerbatimTranscript。
  */
 export const HOT_MEMORY_BLOCK_HEADER: string =
   `${blockTitle(HOT_MEMORY_TIER_NAME, `重要判断标准，最新最多 ${COMPACT_BATCH_SIZE} 条`)}这是滑动缓存里最新、最应优先关注的逐字消息。` +
   "判断当前话题、人物指代、@对象、情绪和该回应谁时，必须优先依据本段；最后一条是最新消息：\n";
 /**
  * 冷记忆区块的标题与读法，其后紧跟按时间从旧到新编号的摘要。
- * 所属模块：aiChat/ai/utils/chatTranscript.ts 的 buildColdMemoryBlock。
+ * 所属模块：workers/aiChat/ai/utils/chatTranscript.ts 的 buildColdMemoryBlock。
  */
 export const COLD_MEMORY_BLOCK_HEADER: string =
   `${blockTitle(COLD_MEMORY_TIER_NAME, "长期背景")}下列内容是更早对话的压缩摘要（按时间从旧到新），只用于理解长期话题、称呼、人物关系和前因后果，不用于判断当前状态；` +
@@ -174,17 +174,17 @@ export function forwardPathTemplate(origin: string, forwarder: string): string {
 }
 
 /** 自包含转录行的占位形态：压缩摘要那条路用的格式（本目录 memory.ts 的
- * SUMMARY_SYSTEM_PROMPT），实际拼装见 aiChat/ai/utils/chatTranscript.ts 的
+ * SUMMARY_SYSTEM_PROMPT），实际拼装见 workers/aiChat/ai/utils/chatTranscript.ts 的
  * formatBufferedMessageLine。两侧共用同一字符串。 */
 export const TRANSCRIPT_LINE_FORMAT_HINT: string =
   "「[年/月/日 时:分:秒] [message_id:消息ID] [id:用户ID] [username:@公开用户名] 名字：内容」";
 
 /** 一个人的完整身份段占位形态。名册条目用它，回复任务里点名唤起者也用它
- * （见 aiChat/ai/utils/chatTranscript.ts 的 formatSpeakerIdentity）。 */
+ * （见 workers/aiChat/ai/utils/chatTranscript.ts 的 formatSpeakerIdentity）。 */
 export const TRANSCRIPT_IDENTITY_FORMAT_HINT: string = "[id:用户ID] [username:@公开用户名] 名字";
 
 /** 紧凑转录行的占位形态：身份退化成名册编号，日期上提到分隔行，消息号按需出现。
- * 实际拼装见 aiChat/ai/utils/chatTranscript.ts 的 buildTieredVerbatimTranscript。 */
+ * 实际拼装见 workers/aiChat/ai/utils/chatTranscript.ts 的 buildTieredVerbatimTranscript。 */
 export const COMPACT_LINE_FORMAT_HINT: string = "「[时:分:秒] #消息号 发言人编号：内容」";
 
 /** 说明文案里引用的消息号占位形态。 */
@@ -206,8 +206,8 @@ export const FORWARD_TAG_HINT: string = forwardTagTemplate("…");
 
 /**
  * 机器人自己动作在转录里的记号——这些行由**执行侧在动作真正落地之后**写入
- * （见 aiChat/ai/tools/replyToolset/imageGeneration.ts、aiChat/ai/stickers/describe.ts、
- * aiChat/ai/tools/replyToolset/voiceMessage.ts 与 workers/aiChat/botImages.ts 的自录），
+ * （见 workers/aiChat/ai/tools/replyToolset/imageGeneration.ts、aiChat/stickerDescribe.ts、
+ * workers/aiChat/ai/tools/replyToolset/voiceMessage.ts 与 workers/aiChat/botImages.ts 的自录），
  * 模型只能读到、绝不能自己产出。
  *
  * 这些模板与下面的 SELF_ACTION_TAG_MARKERS 必须共用同一份字面量：记号是
@@ -279,7 +279,7 @@ export const SELF_ACTION_TAG_MARKERS: readonly string[] = [
 ];
 
 /**
- * 拦截 send_message 正文中伪造执行侧动作记号的正则列表（见 aiChat/ai/tools/replyToolset/modelAuthoredText.ts）。
+ * 拦截 send_message 正文中伪造执行侧动作记号的正则列表（见 workers/aiChat/ai/tools/replyToolset/modelAuthoredText.ts）。
  */
 export const SELF_ACTION_TAG_PATTERNS: readonly RegExp[] = [
   new RegExp(`（[^）]{0,20}${SELF_STICKER_TAG_MARKER}(?:：|）)`),

@@ -138,8 +138,8 @@ Bot がグループ・DM に送信する固定文言とプロンプトはすべ�
 ## AI ツールの追加
 
 1. **ツール名定数の宣言**：[`packages/consts/tools.ts`](../../packages/consts/tools.ts) にツール名定数を追加し、グループ内で可視副作用（発言・画像・スタンプ・リアクション・音声）を伴うツールは `ACTION_TOOL_NAMES` にも登録します。
-2. **スキーマ定義**：読み取り専用の照会ツールは `TOOL_DECLARATIONS` に追加し、返信アクションツールは `packages/aiChat/ai/tools/replyToolset/` に definition builder を作成します（中立な `AiToolDefinition` から各ベンダーの専用スキーマへ自動変換されます）。
-3. **実行ロジックの実装**：`packages/aiChat/ai/tools/` 配下に処理を実装し、Telegram 操作が必要な場合は Worker IPC 経由でメインスレッドへ委譲します。
+2. **スキーマ定義**：読み取り専用の照会ツールは `TOOL_DECLARATIONS` に追加し、返信アクションツールは `packages/workers/aiChat/ai/tools/replyToolset/` に definition builder を作成します（中立な `AiToolDefinition` から各ベンダーの専用スキーマへ自動変換されます）。
+3. **実行ロジックの実装**：`packages/workers/aiChat/ai/tools/` 配下に処理を実装し、Telegram 操作が必要な場合は Worker IPC 経由でメインスレッドへ委譲します。
 4. **ディスパッチ接続**：照会ツールは `tools/index.ts` の `callTool`、アクションツールは `replyToolset/orchestrator.ts` のアセンブラおよび `execute` ディスパッチャーに接続します。
 5. **アクション予算の適用**：可視副作用を持つツールは 1 返信あたりの総アクション予算（実行側ハード上限 `HARD_MAX_ACTIONS_PER_REPLY`）に従わせ、個別上限は明確なドメイン枠（`MAX_STICKERS_PER_REPLY`、`MAX_GENERATED_IMAGES_PER_REPLY`、`MAX_VOICES_PER_REPLY`）がある場合にのみ設けます。
 6. **プロンプト説明の追加**：`packages/consts/aiChat/prompts/` に使い方の指針を追記し、メッセージ履歴を参照する場合は `transcript.ts` の書式を再利用します。

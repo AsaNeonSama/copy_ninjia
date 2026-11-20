@@ -31,6 +31,28 @@ interface AsyncMeasuredResultOptions {
   readonly run: () => Promise<number>;
 }
 
+/** 单次样本结果纯组装函数的入参。 */
+interface AssembleMeasuredResultOptions {
+  /** 被测算子名称。 */
+  readonly operation: BenchmarkOperation;
+  /** 本样本包含的逻辑操作总数。 */
+  readonly operations: number;
+  /** 本样本包含的批次或事务总数。 */
+  readonly batches: number;
+  /** 被测区间实测耗时（毫秒）。 */
+  readonly elapsedMs: number;
+  /** 被测前强制 GC 耗时（毫秒）。 */
+  readonly gcBeforeMs: number;
+  /** 被测后强制 GC 耗时（毫秒）。 */
+  readonly gcAfterMs: number;
+  /** 被测前堆快照。 */
+  readonly before: HeapSnapshot;
+  /** 被测后堆快照。 */
+  readonly retained: HeapSnapshot;
+  /** 被测算子返回的校验和。 */
+  readonly checksum: number;
+}
+
 /**
  * 触发一次同步完整 GC 并返回其耗时（毫秒）。
  * @returns 本次强制 GC 的耗时（毫秒）。
@@ -39,6 +61,41 @@ function forceGc(): number {
   const startedAt: number = performance.now();
   Bun.gc(true);
   return performance.now() - startedAt;
+}
+
+/**
+ * 根据实测耗时、前后 GC 耗时与前后堆快照组装单次基准样本结果。
+ * @param options 算子规模、计时读数、堆快照与校验和。
+ * @returns 单次样本的完整测量结果。
+ */
+function assembleMeasuredResult({
+  operation,
+  operations,
+  batches,
+  elapsedMs,
+  gcBeforeMs,
+  gcAfterMs,
+  before,
+  retained,
+  checksum,
+}: AssembleMeasuredResultOptions): ChildResult {
+  return {
+    operation,
+    bunVersion: Bun.version,
+    bunRevision: Bun.revision,
+    operations,
+    batches,
+    elapsedMs,
+    throughputPerSecond: operations * 1_000 / elapsedMs,
+    meanBatchLatencyMs: elapsedMs / batches,
+    retainedHeapDelta: retained.heapSize - before.heapSize,
+    retainedExtraMemoryDelta:
+      retained.extraMemorySize - before.extraMemorySize,
+    retainedObjectDelta: retained.objectCount - before.objectCount,
+    gcBeforeMs,
+    gcAfterMs,
+    checksum,
+  };
 }
 
 /**
@@ -59,23 +116,17 @@ export function measuredResult({
   const elapsedMs: number = performance.now() - startedAt;
   const gcAfterMs: number = forceGc();
   const retained: HeapSnapshot = snapshotHeap();
-  return {
+  return assembleMeasuredResult({
     operation,
-    bunVersion: Bun.version,
-    bunRevision: Bun.revision,
     operations,
     batches,
     elapsedMs,
-    throughputPerSecond: operations * 1_000 / elapsedMs,
-    meanBatchLatencyMs: elapsedMs / batches,
-    retainedHeapDelta: retained.heapSize - before.heapSize,
-    retainedExtraMemoryDelta:
-      retained.extraMemorySize - before.extraMemorySize,
-    retainedObjectDelta: retained.objectCount - before.objectCount,
     gcBeforeMs,
     gcAfterMs,
+    before,
+    retained,
     checksum,
-  };
+  });
 }
 
 /**
@@ -96,23 +147,17 @@ export async function measuredResultAsync({
   const elapsedMs: number = performance.now() - startedAt;
   const gcAfterMs: number = forceGc();
   const retained: HeapSnapshot = snapshotHeap();
-  return {
+  return assembleMeasuredResult({
     operation,
-    bunVersion: Bun.version,
-    bunRevision: Bun.revision,
     operations,
     batches,
     elapsedMs,
-    throughputPerSecond: operations * 1_000 / elapsedMs,
-    meanBatchLatencyMs: elapsedMs / batches,
-    retainedHeapDelta: retained.heapSize - before.heapSize,
-    retainedExtraMemoryDelta:
-      retained.extraMemorySize - before.extraMemorySize,
-    retainedObjectDelta: retained.objectCount - before.objectCount,
     gcBeforeMs,
     gcAfterMs,
+    before,
+    retained,
     checksum,
-  };
+  });
 }
 
 /**

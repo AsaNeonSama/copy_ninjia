@@ -75,7 +75,7 @@ interface MutateWhitelistEntryPermissionsParams {
   readonly changedMessage: string;
   /** 权限值未变化时的回执编码。 */
   readonly unchangedMessage: string;
-  /** 持久化失败时的英文错误日志前缀。 */
+  /** 持久化失败时的英文错误日志静态摘要（含冒号）。 */
   readonly failureLog: string;
 }
 
@@ -102,7 +102,8 @@ export async function listWhitelistEntries(
 }
 
 /**
- * 新增或移除白名单成员（与 `/white` 共享同一互斥临界区与 Disk I/O 落盘确认）。
+ * 新增或移除白名单成员（与 `/white` 共享同一互斥临界区与 Disk I/O 落盘确认；
+ * 重复添加时同样以 `retryUnacknowledged=true` 确认落盘后再回执）。
  * @param params 目标身份 ID、启用开关与可选展示资料。
  * @returns 操作结果与回执文案。
  */
@@ -196,6 +197,7 @@ export async function setWhitelistEntryMembership({
       };
     }
     if (outcome.kind === "duplicate") {
+      await confirmIdentityPolicyPersisted("whitelist", id, true);
       return {
         ok: true,
         changed: false,
@@ -221,7 +223,8 @@ export async function setWhitelistEntryMembership({
     };
   } catch (error: unknown) {
     logger.error(
-      `Failed to persist the whitelist membership change for identity ${id}:`,
+      "Failed to persist the whitelist membership change:",
+      { identityId: id },
       error
     );
     return {
@@ -306,7 +309,7 @@ async function mutateWhitelistEntryPermissions({
       message: outcome.result.changed ? changedMessage : unchangedMessage,
     };
   } catch (error: unknown) {
-    logger.error(`${failureLog} for identity ${id}:`, error);
+    logger.error(failureLog, { identityId: id }, error);
     return {
       ok: false,
       changed: false,
@@ -334,7 +337,7 @@ export async function setWhitelistEntryPermission({
     echo: { key, value },
     changedMessage: "PERMISSION_UPDATED",
     unchangedMessage: "PERMISSION_UNCHANGED",
-    failureLog: "Failed to persist the whitelist permission change",
+    failureLog: "Failed to persist the whitelist permission change:",
   });
 }
 
@@ -352,6 +355,6 @@ export async function enableAllWhitelistEntryPermissions(
     echo: {},
     changedMessage: "ALL_PERMISSIONS_ENABLED",
     unchangedMessage: "ALL_PERMISSIONS_UNCHANGED",
-    failureLog: "Failed to persist enable-all permissions",
+    failureLog: "Failed to persist enable-all permissions:",
   });
 }

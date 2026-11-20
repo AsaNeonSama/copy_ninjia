@@ -7,6 +7,7 @@ import { mkdirSync, rmSync } from "node:fs";
 import {
   buildSignedTestInitData,
   buildSuperAdminHeaders,
+  ensureReusableTestSession,
   installMiniAppTestDiskIOMock,
   resetMiniAppTestDiskIOState,
 } from "../helpers/miniAppInitData";
@@ -19,6 +20,7 @@ const { resetIdentityStorageCache } = await import(
   "../../packages/cache/main/identityStorage"
 );
 const {
+  miniAppAuthHandshakes,
   miniAppAuthSessions,
   miniAppPasswordGuardHolder,
   miniAppTotpRecordHolder,
@@ -35,14 +37,18 @@ const {
   MINI_APP_SESSION_EXPIRES_AT_HEADER,
   MINI_APP_SESSION_HEADER,
   MINI_APP_SESSION_MAX,
-  MINI_APP_SESSION_REFRESH_THRESHOLD_MS,
+  MINI_APP_SESSION_PREVIOUS_GRACE_MS,
+  MINI_APP_SESSION_REFRESH_MAX_MS,
   MINI_APP_SESSION_TTL_MS,
 } = await import("../../packages/consts/miniApp");
+const {
+  MINI_APP_MAX_ENCRYPTED_JSON_BODY_BYTES,
+  MINI_APP_SESSION_KEY_HEADER,
+} = await import("../../packages/consts/miniAppCrypto");
 const {
   MINI_APP_TOTP_FILE_PATH,
   MINI_APP_TOTP_MEMORY_DIR,
 } = await import("../../packages/consts/paths");
-const { deriveMiniAppAssetToken } = await import("../../packages/libs/miniAppAuth");
 const { generateMiniAppTotpCodeAt } = await import("../../packages/libs/miniAppTotp");
 const { formatLocalTime } = await import("../../packages/libs/time");
 const {
@@ -59,11 +65,23 @@ const {
   issueMiniAppAuthSession,
   stopMiniAppServer,
 } = await import("../../packages/mini-app-api-server");
-const { dispatchMiniAppTestRequest: handleMiniAppHttpRequest } = await import(
-  "../helpers/miniAppRequest"
+const { ensureMiniAppRuntimeSigningKeyPair } = await import(
+  "../../packages/mini-app-api-server/auth/handshake"
 );
+const { verifyMiniAppHandshakeOfferDetailed } = await import(
+  "../../packages/mini-app-frontend/libs/handshakeCrypto"
+);
+const { setMiniAppServerSigningPublicKeyForTest } = await import(
+  "../../packages/mini-app-frontend/libs/signingKey"
+);
+const {
+  dispatchMiniAppTestRequest: handleMiniAppHttpRequest,
+  dispatchRawMiniAppTestRequest,
+  performMiniAppTestEcdhLogin,
+} = await import("../helpers/miniAppRequest");
 import type {
   MiniAppAccessDiagnostics,
+  MiniAppAuthPrecheckResponse,
   MiniAppLoginSuccessResponse,
 } from "../../packages/types/miniApp/auth";
 import type { MiniAppStatusView } from "../../packages/types/miniApp/server";
@@ -92,7 +110,7 @@ function superAdminHeaders(): Record<string, string> {
   return buildSuperAdminHeaders({
     botToken: BOT_TOKEN,
     superAdminUserId: SUPER_ADMIN_USER_ID,
-    sessionToken: issueMiniAppAuthSession().token,
+    sessionToken: ensureReusableTestSession(issueMiniAppAuthSession).token,
     username: "super_admin",
   });
 }
@@ -105,6 +123,7 @@ afterEach(async (): Promise<void> => {
   resetChatStateCache();
   latestAiMemories.clear();
   miniAppAuthSessions.clear();
+  miniAppAuthHandshakes.clear();
   telegramApiState.current = null;
   sendMessageStub.mockClear();
   setSystemTime();
@@ -176,12 +195,24 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
       })
     );
     expect(precheckOkRes.status).toBe(200);
-    expect(await precheckOkRes.json()).toEqual({
+    const precheckOkBody: MiniAppAuthPrecheckResponse =
+      (await precheckOkRes.json()) as MiniAppAuthPrecheckResponse;
+    expect(precheckOkBody).toMatchObject({
       ok: true,
       ttlMs: MINI_APP_SESSION_TTL_MS,
       totpEnabled: false,
       authMode: "password",
     });
+    expect(precheckOkBody.handshake).toBeDefined();
+    const runtimeSigningKey = await ensureMiniAppRuntimeSigningKeyPair();
+    setMiniAppServerSigningPublicKeyForTest(runtimeSigningKey.publicKeyBase64);
+    try {
+      expect(
+        (await verifyMiniAppHandshakeOfferDetailed(precheckOkBody.handshake)).ok
+      ).toBeTrue();
+    } finally {
+      setMiniAppServerSigningPublicKeyForTest(null);
+    }
 
     const missingPasswordSessionRes: Response = await handleMiniAppHttpRequest(
       new Request("http://127.0.0.1:3000/api/status", {
@@ -193,47 +224,41 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
       ((await missingPasswordSessionRes.json()) as MiniAppAccessDiagnostics).code
     ).toBe("PASSWORD_REQUIRED");
 
-    const wrongLoginRes: Response = await handleMiniAppHttpRequest(
-      new Request("http://127.0.0.1:3000/api/auth/login", {
-        method: "POST",
-        headers: {
-          [MINI_APP_INIT_DATA_HEADER]: adminInitData,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ password: "wrong-password" }),
-      })
-    );
-    expect(wrongLoginRes.status).toBe(403);
-    expect(((await wrongLoginRes.json()) as MiniAppAccessDiagnostics).code).toBe(
+    const wrongLogin = await performMiniAppTestEcdhLogin({
+      initData: adminInitData,
+      credentialPayload: { password: "wrong-password" },
+    });
+    expect(wrongLogin.status).toBe(403);
+    expect((wrongLogin.payload as unknown as MiniAppAccessDiagnostics).code).toBe(
       "INVALID_PASSWORD"
     );
 
     const configuredPassword: string = getBotMiniAppConfig()!.password;
-    const okLoginRes: Response = await handleMiniAppHttpRequest(
-      new Request("http://127.0.0.1:3000/api/auth/login", {
-        method: "POST",
-        headers: {
-          [MINI_APP_INIT_DATA_HEADER]: adminInitData,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ password: configuredPassword }),
-      })
-    );
+    const {
+      precheckResponse: okPrecheckRes,
+      handshake,
+      loginResponse: okLoginRes,
+      payload: rawSessionPayload,
+    } = await performMiniAppTestEcdhLogin({
+      initData: adminInitData,
+      credentialPayload: { password: configuredPassword },
+    });
+    expect(okPrecheckRes?.status).toBe(200);
     expect(okLoginRes.status).toBe(200);
-    const loginBody: MiniAppLoginSuccessResponse =
-      (await okLoginRes.json()) as MiniAppLoginSuccessResponse;
-    expect(loginBody.ok).toBeTrue();
-    expect(loginBody.sessionToken).toMatch(/^[0-9a-f]{64}$/);
-    expect(loginBody.ttlMs).toBe(MINI_APP_SESSION_TTL_MS);
-    expect(loginBody.assetToken).toBe(
-      deriveMiniAppAssetToken(BOT_TOKEN, SUPER_ADMIN_USER_ID)
-    );
+    expect(handshake.handshakeId).toMatch(/^[0-9a-f]{32}$/);
+    expect(miniAppAuthHandshakes.has(handshake.handshakeId)).toBeFalse();
+    const sessionBody: MiniAppLoginSuccessResponse =
+      rawSessionPayload as unknown as MiniAppLoginSuccessResponse;
+    expect(sessionBody.ok).toBeTrue();
+    expect(sessionBody.sessionToken).toMatch(/^[0-9a-f]{64}$/);
+    expect(sessionBody.sessionKey).toMatch(/^[0-9a-f]{64}$/);
+    expect(sessionBody.ttlMs).toBe(MINI_APP_SESSION_TTL_MS);
 
     const resumedPrecheckRes: Response = await handleMiniAppHttpRequest(
       new Request("http://127.0.0.1:3000/api/auth/precheck", {
         headers: {
           [MINI_APP_INIT_DATA_HEADER]: adminInitData,
-          [MINI_APP_SESSION_HEADER]: loginBody.sessionToken,
+          [MINI_APP_SESSION_HEADER]: sessionBody.sessionToken,
         },
       })
     );
@@ -244,13 +269,12 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
       ttlMs: MINI_APP_SESSION_TTL_MS,
       totpEnabled: false,
       authMode: "password",
-      assetToken: deriveMiniAppAssetToken(BOT_TOKEN, SUPER_ADMIN_USER_ID),
       sessionValid: true,
-      sessionExpiresAt: loginBody.expiresAt,
+      sessionExpiresAt: sessionBody.expiresAt,
     });
 
     const agedSession = issueMiniAppAuthSession(
-      Date.now() - MINI_APP_SESSION_REFRESH_THRESHOLD_MS - 1_000
+      Date.now() - MINI_APP_SESSION_REFRESH_MAX_MS - 1_000
     );
     const agedAuthDateInitData: string = buildSignedTestInitData({
       botToken: BOT_TOKEN,
@@ -278,7 +302,21 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
     expect(refreshedToken).toMatch(/^[0-9a-f]{64}$/);
     expect(refreshedToken).not.toBe(agedSession.token);
     expect(Number(refreshedExpiresAtHeader)).toBeGreaterThan(agedSession.expiresAt);
-    // 刚刷新的新令牌未满 5 分钟阈值，再次访问不会重复换发令牌
+    // 客户端尚未确认新令牌前，5 分钟并发宽限期内携带旧令牌的请求仍可通行，不再重复轮换，只原样重新附带同一新令牌与同一轮换密文
+    const graceStatusRes: Response = await handleMiniAppHttpRequest(
+      new Request("http://127.0.0.1:3000/api/status", {
+        headers: {
+          [MINI_APP_INIT_DATA_HEADER]: agedAuthDateInitData,
+          [MINI_APP_SESSION_HEADER]: agedSession.token,
+        },
+      })
+    );
+    expect(graceStatusRes.status).toBe(200);
+    expect(graceStatusRes.headers.get(MINI_APP_SESSION_HEADER)).toBe(refreshedToken);
+    expect(graceStatusRes.headers.get(MINI_APP_SESSION_KEY_HEADER)).toBe(
+      refreshStatusRes.headers.get(MINI_APP_SESSION_KEY_HEADER)
+    );
+    // 客户端首次携带新令牌到达后确认替换成功（不重复换发令牌），旧令牌立即作废
     const followUpStatusRes: Response = await handleMiniAppHttpRequest(
       new Request("http://127.0.0.1:3000/api/status", {
         headers: {
@@ -289,8 +327,7 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
     );
     expect(followUpStatusRes.status).toBe(200);
     expect(followUpStatusRes.headers.get(MINI_APP_SESSION_HEADER)).toBeNull();
-    // 5 分钟并发宽限期内携带旧令牌的在途请求仍可通行并收到最新令牌响应头
-    const graceStatusRes: Response = await handleMiniAppHttpRequest(
+    const invalidatedOldRes: Response = await handleMiniAppHttpRequest(
       new Request("http://127.0.0.1:3000/api/status", {
         headers: {
           [MINI_APP_INIT_DATA_HEADER]: agedAuthDateInitData,
@@ -298,10 +335,7 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
         },
       })
     );
-    expect(graceStatusRes.status).toBe(200);
-    expect(graceStatusRes.headers.get(MINI_APP_SESSION_HEADER)).toBe(
-      refreshedToken
-    );
+    expect(invalidatedOldRes.status).toBe(401);
 
     const expiredSession = issueMiniAppAuthSession(
       Date.now() - MINI_APP_SESSION_TTL_MS - 1_000
@@ -321,20 +355,18 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
 
     installTelegramSendMessageStub();
     for (let attempt: number = 1; attempt <= MINI_APP_PASSWORD_MAX_ATTEMPTS; attempt++) {
-      const failRes: Response = await handleMiniAppHttpRequest(
-        new Request("http://127.0.0.1:3000/api/auth/login", {
-          method: "POST",
-          headers: {
-            [MINI_APP_INIT_DATA_HEADER]: adminInitData,
-            "Content-Type": "application/json",
-            "cf-connecting-ip": "203.0.113.42",
-          },
-          body: JSON.stringify({ password: `bad-password-${attempt}` }),
-        })
-      );
-      expect(failRes.status).toBe(403);
+      const failAttempt = await performMiniAppTestEcdhLogin({
+        initData: adminInitData,
+        credentialPayload: { password: `bad-password-${attempt}` },
+        send: (request: Request): Promise<Response> => {
+          const headers: Headers = new Headers(request.headers);
+          headers.set("cf-connecting-ip", "203.0.113.42");
+          return handleMiniAppHttpRequest(new Request(request, { headers }));
+        },
+      });
+      expect(failAttempt.status).toBe(403);
       const failDiag: MiniAppAccessDiagnostics =
-        (await failRes.json()) as MiniAppAccessDiagnostics;
+        failAttempt.payload as unknown as MiniAppAccessDiagnostics;
       if (attempt < MINI_APP_PASSWORD_MAX_ATTEMPTS) {
         expect(failDiag.code).toBe("INVALID_PASSWORD");
       } else {
@@ -391,72 +423,6 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
     expect(miniAppPasswordGuardHolder.current).toBeNull();
   });
 
-  test("同一 initData 并发登录在锁定后不再比对凭据，正确密码同样按失败计数并顺延锁定，锁定告警只发一次", async () => {
-    const adminInitData: string = buildSignedTestInitData({
-      botToken: BOT_TOKEN,
-      authDate: Math.floor(Date.now() / 1000),
-      user: { id: SUPER_ADMIN_USER_ID, first_name: "SuperAdmin" },
-    });
-    const burstSize: number = MINI_APP_PASSWORD_MAX_ATTEMPTS * 8;
-    const burstStartMs: number = Date.now();
-    const bodyEncoder: TextEncoder = new TextEncoder();
-    const bodyControllers: ReadableStreamDefaultController<Uint8Array>[] = [];
-    installTelegramSendMessageStub();
-    // 全部请求在调用时同步越过中间件锁定闸门、停在读取请求体处；请求体由测试按序放行。
-    const pending: Promise<Response>[] = [];
-    for (let index: number = 0; index < burstSize; index++) {
-      pending.push(
-        handleMiniAppHttpRequest(
-          new Request("http://127.0.0.1:3000/api/auth/login", {
-            method: "POST",
-            headers: {
-              [MINI_APP_INIT_DATA_HEADER]: adminInitData,
-              "Content-Type": "application/json",
-            },
-            body: new ReadableStream<Uint8Array>({
-              start(controller: ReadableStreamDefaultController<Uint8Array>): void {
-                bodyControllers.push(controller);
-              },
-            }),
-          })
-        )
-      );
-    }
-    for (let index: number = 0; index < burstSize - 1; index++) {
-      bodyControllers[index]?.enqueue(
-        bodyEncoder.encode(JSON.stringify({ password: `bad-password-${index}` }))
-      );
-      bodyControllers[index]?.close();
-    }
-    await Promise.allSettled(pending.slice(0, burstSize - 1));
-    // 错误密码全部结算、锁定已生效后才放行最后一个请求的正确密码。
-    bodyControllers[burstSize - 1]?.enqueue(
-      bodyEncoder.encode(JSON.stringify({ password: getBotMiniAppConfig()!.password }))
-    );
-    bodyControllers[burstSize - 1]?.close();
-    const settled: PromiseSettledResult<Response>[] = await Promise.allSettled(pending);
-    const codes: string[] = [];
-    for (const result of settled) {
-      if (result.status !== "fulfilled") throw result.reason;
-      expect(result.value.status).toBe(403);
-      codes.push(((await result.value.json()) as MiniAppAccessDiagnostics).code);
-    }
-
-    expect(codes.filter((code: string): boolean => code === "INVALID_PASSWORD").length).toBe(
-      MINI_APP_PASSWORD_MAX_ATTEMPTS - 1
-    );
-    expect(codes.filter((code: string): boolean => code === "PASSWORD_LOCKED").length).toBe(
-      burstSize - (MINI_APP_PASSWORD_MAX_ATTEMPTS - 1)
-    );
-    expect(codes[burstSize - 1]).toBe("PASSWORD_LOCKED");
-    expect(miniAppAuthSessions.size).toBe(0);
-    expect(miniAppPasswordGuardHolder.current?.failedAttempts).toBe(burstSize);
-    expect(miniAppPasswordGuardHolder.current?.lockedUntil ?? 0).toBeGreaterThanOrEqual(
-      burstStartMs + MINI_APP_PASSWORD_LOCKOUT_MS
-    );
-    expect(sendMessageStub).toHaveBeenCalledTimes(1);
-  });
-
   test("GET /api/status 返回实时状态快照", async () => {
     const state = getOrCreateChatState(-1001001);
     state.isInitEnabled = true;
@@ -477,6 +443,14 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
     expect(body.memoryCurrentRssBytes + body.memoryOtherBytes).toBeLessThanOrEqual(
       body.memoryTotalBytes
     );
+    expect(Object.keys(body.telegramOutbound).toSorted()).toEqual([
+      "inFlight",
+      "retryQueueMax",
+      "retryWaiting",
+    ]);
+    expect(body.telegramOutbound.inFlight).toBe(0);
+    expect(body.telegramOutbound.retryWaiting).toBe(0);
+    expect(body.telegramOutbound.retryQueueMax).toBeGreaterThan(0);
     expect(Array.isArray(body.capabilities)).toBeTrue();
     expect(body.capabilities.length).toBe(6);
     expect(body.capabilities[0]?.key).toBe("agent");
@@ -564,33 +538,32 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
         headers: { [MINI_APP_INIT_DATA_HEADER]: adminInitData },
       })
     );
-    expect(await precheckTotpRes.json()).toEqual({
+    const precheckTotpBody: MiniAppAuthPrecheckResponse =
+      (await precheckTotpRes.json()) as MiniAppAuthPrecheckResponse;
+    expect(precheckTotpBody).toMatchObject({
       ok: true,
       ttlMs: MINI_APP_SESSION_TTL_MS,
       totpEnabled: true,
       authMode: "totp",
     });
+    expect(precheckTotpBody.handshake).toBeDefined();
 
-    const passwordRejectedWhenTotpEnabled: Response = await handleMiniAppHttpRequest(
-      new Request("http://127.0.0.1:3000/api/auth/login", {
-        method: "POST",
-        headers: { [MINI_APP_INIT_DATA_HEADER]: adminInitData, "Content-Type": "application/json" },
-        body: JSON.stringify({ password: getBotMiniAppConfig()!.password }),
-      })
-    );
+    const passwordRejectedWhenTotpEnabled = await performMiniAppTestEcdhLogin({
+      initData: adminInitData,
+      credentialPayload: { password: getBotMiniAppConfig()!.password },
+    });
     expect(passwordRejectedWhenTotpEnabled.status).toBe(403);
-    expect(((await passwordRejectedWhenTotpEnabled.json()) as MiniAppAccessDiagnostics).code).toBe("INVALID_TOTP_CODE");
+    expect(
+      (passwordRejectedWhenTotpEnabled.payload as unknown as MiniAppAccessDiagnostics).code
+    ).toBe("INVALID_TOTP_CODE");
 
-    const totpLoginRes: Response = await handleMiniAppHttpRequest(
-      new Request("http://127.0.0.1:3000/api/auth/login", {
-        method: "POST",
-        headers: { [MINI_APP_INIT_DATA_HEADER]: adminInitData, "Content-Type": "application/json" },
-        body: JSON.stringify({ totpCode: generateMiniAppTotpCodeAt(setup1.secret) }),
-      })
-    );
-    expect(totpLoginRes.status).toBe(200);
-    const totpLoginBody: MiniAppLoginSuccessResponse = (await totpLoginRes.json()) as MiniAppLoginSuccessResponse;
-    expect(totpLoginBody.ok).toBeTrue();
+    const totpCompleted = await performMiniAppTestEcdhLogin({
+      initData: adminInitData,
+      credentialPayload: { totpCode: generateMiniAppTotpCodeAt(setup1.secret) },
+    });
+    expect(totpCompleted.precheckResponse?.status).toBe(200);
+    expect(totpCompleted.status).toBe(200);
+    expect(totpCompleted.payload.ok).toBeTrue();
 
     const setup2Res: Response = await handleMiniAppHttpRequest(
       new Request("http://127.0.0.1:3000/api/totp/setup", { method: "POST", headers })
@@ -619,14 +592,12 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
     expect(deleteBody.status.enabled).toBeFalse();
     expect(await Bun.file(MINI_APP_TOTP_FILE_PATH).exists()).toBeFalse();
 
-    const passwordRestoredLoginRes: Response = await handleMiniAppHttpRequest(
-      new Request("http://127.0.0.1:3000/api/auth/login", {
-        method: "POST",
-        headers: { [MINI_APP_INIT_DATA_HEADER]: adminInitData, "Content-Type": "application/json" },
-        body: JSON.stringify({ password: getBotMiniAppConfig()!.password }),
-      })
-    );
-    expect(passwordRestoredLoginRes.status).toBe(200);
+    const passwordRestoredCompleted = await performMiniAppTestEcdhLogin({
+      initData: adminInitData,
+      credentialPayload: { password: getBotMiniAppConfig()!.password },
+    });
+    expect(passwordRestoredCompleted.precheckResponse?.status).toBe(200);
+    expect(passwordRestoredCompleted.status).toBe(200);
 
     const setup3Res: Response = await handleMiniAppHttpRequest(
       new Request("http://127.0.0.1:3000/api/totp/setup", { method: "POST", headers })
@@ -649,7 +620,7 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
     }
   });
 
-  test("满表时刷新最早会话不会自淘汰旧令牌宽限别名，会将刷新会话移至最新端，且宽限期过后旧令牌失效", async () => {
+  test("满表时刷新最早会话不会自淘汰旧令牌宽限别名，会将刷新会话移至最新端使新签发淘汰其它最早会话，且宽限期过后旧令牌失效", async () => {
     miniAppAuthSessions.clear();
     const baseNowMs: number = Date.now();
     const agedAuthDateInitData: string = buildSignedTestInitData({
@@ -662,7 +633,7 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
     });
 
     const oldestSession = issueMiniAppAuthSession(
-      baseNowMs - MINI_APP_SESSION_REFRESH_THRESHOLD_MS - 1_000
+      baseNowMs - MINI_APP_SESSION_REFRESH_MAX_MS - 1_000
     );
     const otherSessions = Array.from(
       { length: MINI_APP_SESSION_MAX - 1 },
@@ -699,14 +670,18 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
     );
     expect(graceRes.status).toBe(200);
     expect(graceRes.headers.get(MINI_APP_SESSION_HEADER)).toBe(refreshedToken);
+    expect(graceRes.headers.get(MINI_APP_SESSION_KEY_HEADER)).toBe(
+      refreshRes.headers.get(MINI_APP_SESSION_KEY_HEADER)
+    );
 
-    const extraSession = issueMiniAppAuthSession(baseNowMs);
+    // 刷新会话已移至最新端：满表时新签发淘汰的是最早签发的其它会话，而不是刚轮换的会话。
+    const issuedAfterRefresh = issueMiniAppAuthSession(baseNowMs);
     expect(miniAppAuthSessions.size).toBe(MINI_APP_SESSION_MAX);
     expect(miniAppAuthSessions.has(otherSessions[0]!.token)).toBeFalse();
     expect(miniAppAuthSessions.has(refreshedToken!)).toBeTrue();
-    expect(miniAppAuthSessions.has(extraSession.token)).toBeTrue();
+    expect(miniAppAuthSessions.has(issuedAfterRefresh.token)).toBeTrue();
 
-    setSystemTime(new Date(baseNowMs + MINI_APP_SESSION_REFRESH_THRESHOLD_MS + 2_000));
+    setSystemTime(new Date(baseNowMs + MINI_APP_SESSION_PREVIOUS_GRACE_MS + 2_000));
     const expiredAliasRes: Response = await handleMiniAppHttpRequest(
       new Request("http://127.0.0.1:3000/api/status", {
         headers: {
@@ -745,7 +720,7 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
     expect(await repeatedLogoutRes.json()).toEqual({ ok: true, revoked: false });
 
     const agedSession = issueMiniAppAuthSession(
-      Date.now() - MINI_APP_SESSION_REFRESH_THRESHOLD_MS - 1_000
+      Date.now() - MINI_APP_SESSION_REFRESH_MAX_MS - 1_000
     );
     const agedHeaders: Record<string, string> = {
       [MINI_APP_INIT_DATA_HEADER]: headers[MINI_APP_INIT_DATA_HEADER]!,
@@ -785,7 +760,7 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
       handleMiniAppHttpRequest(
         new Request("http://127.0.0.1:3000/api/totp", { method: "DELETE", headers })
       )
-    ).rejects.toThrow();
+    ).rejects.toThrow(/EISDIR/u);
     expect(miniAppTotpRecordHolder.current?.secret).toBe("JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP");
 
     const precheckRes: Response = await handleMiniAppHttpRequest(
@@ -796,13 +771,13 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
     expect(((await precheckRes.json()) as { readonly authMode: string }).authMode).toBe("totp");
   });
 
-  test("JSON 请求体按 MINI_APP_MAX_JSON_BODY_BYTES 流式有界读取：Content-Length 超限零 pull 拒绝，流式越界首块取消，恰等于上限正常解析", async () => {
+  test("外层加密信封与内层明文 JSON 请求体均流式有界读取：Content-Length 超限零 pull 拒绝，流式越界首块取消，恰等于上限正常解析", async () => {
     const headers: Record<string, string> = {
       ...superAdminHeaders(),
       "Content-Type": "application/json",
     };
 
-    // 1. Content-Length 超限时直接提前拒绝并取消流，pull 次数为 0。
+    // 1. 外层加密请求体 Content-Length 超限时直接提前拒绝并取消流，pull 次数为 0。
     let declaredPulls: number = 0;
     let declaredCancelled: boolean = false;
     const declaredTooLargeReq: Request = new Request(
@@ -811,7 +786,7 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
         method: "POST",
         headers: {
           ...headers,
-          "Content-Length": String(MINI_APP_MAX_JSON_BODY_BYTES + 1),
+          "Content-Length": String(MINI_APP_MAX_ENCRYPTED_JSON_BODY_BYTES + 1),
         },
         body: new ReadableStream<Uint8Array>(
           {
@@ -827,7 +802,7 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
         ),
       }
     );
-    const declaredRes: Response = await handleMiniAppHttpRequest(declaredTooLargeReq);
+    const declaredRes: Response = await dispatchRawMiniAppTestRequest(declaredTooLargeReq);
     expect(declaredRes.status).toBe(400);
     expect(declaredPulls).toBe(0);
     expect(declaredCancelled).toBeTrue();
@@ -836,7 +811,7 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
     let streamPulls: number = 0;
     let streamCancelled: boolean = false;
     const halfChunk: Uint8Array = new Uint8Array(
-      Math.floor(MINI_APP_MAX_JSON_BODY_BYTES / 2) + 1
+      Math.floor(MINI_APP_MAX_ENCRYPTED_JSON_BODY_BYTES / 2) + 1
     ).fill(0x20);
     const streamingTooLargeReq: Request = new Request(
       "http://127.0.0.1:3000/api/identities/whitelist",
@@ -857,12 +832,12 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
         ),
       }
     );
-    const streamRes: Response = await handleMiniAppHttpRequest(streamingTooLargeReq);
+    const streamRes: Response = await dispatchRawMiniAppTestRequest(streamingTooLargeReq);
     expect(streamRes.status).toBe(400);
     expect(streamPulls).toBe(2);
     expect(streamCancelled).toBeTrue();
 
-    // 3. 请求体字节数恰好等于 MINI_APP_MAX_JSON_BODY_BYTES 时正常解析执行。
+    // 3. 内层明文请求体字节数恰好等于 MINI_APP_MAX_JSON_BODY_BYTES 时经会话加密后正常解密解析执行。
     const prefix: string = '{"id":88999,"enabled":true,"pad":"';
     const suffix: string = '"}';
     const exactBody: string =
@@ -901,7 +876,6 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
       new Request("http://127.0.0.1:3000/api/auth/precheck", {
         headers: {
           "x-forwarded-host": "a.example, 1.2.3.4",
-          origin: "https://a.example",
         },
       })
     );
@@ -910,6 +884,46 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
       (await multiHopHostRes.json()) as MiniAppAccessDiagnostics;
     expect(multiHopDiag.code).toBe("MISSING_INIT_DATA");
     expect(multiHopDiag.host).toBe("a.example");
+
+    // 伪造未受信任的 x-forwarded-host 或 host 与跨源 Origin 时，必须严格拒绝 403 CROSS_SITE_FORBIDDEN；
+    // 仅允许匹配 configHost（miniapp.example.com）或本机回环 reqUrlHost。
+    const spoofedForwardedOriginRes: Response = await handleMiniAppHttpRequest(
+      new Request("http://127.0.0.1:3000/api/auth/precheck", {
+        headers: {
+          "x-forwarded-host": "a.example, 1.2.3.4",
+          host: "a.example",
+          origin: "https://a.example",
+        },
+      })
+    );
+    expect(spoofedForwardedOriginRes.status).toBe(403);
+    expect(
+      ((await spoofedForwardedOriginRes.json()) as MiniAppAccessDiagnostics).code
+    ).toBe("CROSS_SITE_FORBIDDEN");
+
+    const loopbackOriginRes: Response = await handleMiniAppHttpRequest(
+      new Request("http://127.0.0.1:3000/api/auth/precheck", {
+        headers: {
+          origin: "http://127.0.0.1:3000",
+        },
+      })
+    );
+    expect(loopbackOriginRes.status).toBe(401);
+    expect(((await loopbackOriginRes.json()) as MiniAppAccessDiagnostics).code).toBe(
+      "MISSING_INIT_DATA"
+    );
+
+    const nonLoopbackSpoofRes: Response = await handleMiniAppHttpRequest(
+      new Request("https://evil.example/api/auth/precheck", {
+        headers: {
+          origin: "https://evil.example",
+        },
+      })
+    );
+    expect(nonLoopbackSpoofRes.status).toBe(403);
+    expect(
+      ((await nonLoopbackSpoofRes.json()) as MiniAppAccessDiagnostics).code
+    ).toBe("CROSS_SITE_FORBIDDEN");
 
     const blankForwardedHostRes: Response = await handleMiniAppHttpRequest(
       new Request("http://127.0.0.1:3000/api/auth/precheck", {

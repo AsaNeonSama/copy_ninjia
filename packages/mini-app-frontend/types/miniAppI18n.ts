@@ -1,19 +1,24 @@
 import type { WhitelistPermissionKey } from "./identityPolicy";
 import type {
-  MiniAppActiveSessionCounts,
   MiniAppBatchKickCompletion,
-  MiniAppCapabilityDetailItem,
-  MiniAppCapabilityStatus,
   MiniAppChatDetail,
   MiniAppChatTargetKind,
   MiniAppFeatureDisplayMeta,
   MiniAppFeatureKey,
+  MiniAppTranslateLanguage,
+} from "./miniApp/chats";
+import type {
   MiniAppIdentityAddMode,
   MiniAppIdentitySubTabKey,
   MiniAppPickerTargetList,
-  MiniAppTabKey,
-  MiniAppTranslateLanguage,
-} from "./miniApp";
+} from "./miniApp/identities";
+import type {
+  MiniAppActiveSessionCounts,
+  MiniAppCapabilityDetailItem,
+  MiniAppCapabilityStatus,
+} from "./miniApp/status";
+import type { MiniAppTabKey } from "./miniApp/ui";
+import type { MiniAppConfigFileName } from "./miniAppConfigs";
 
 /** 服务端英文状态码映射为多语言提示时的可选插值参数。 */
 export interface MiniAppServerNoticeParams {
@@ -57,6 +62,37 @@ export interface MiniAppServerNoticeParams {
   readonly hours?: number;
   /** 批量踢人回溯窗口命中的入群记录条数（仅 `BATCH_KICK_*` 使用）。 */
   readonly recordCount?: number;
+  /** 配置语法解析、结构校验或服务重启失败时的详细错误原因（仅配置编辑状态码使用）。 */
+  readonly errorDetail?: string;
+}
+
+/** 配置编辑页面（动态配置 / 静态配置 / JSON 代码高亮编辑器）的多语言文案结构。 */
+export interface MiniAppConfigsTranslations {
+  readonly dynamicTab: string;
+  readonly staticTab: string;
+  readonly refreshButton: string;
+  readonly fileSelectorAria: string;
+  readonly fileExistsBadge: string;
+  readonly fileMissingBadge: string;
+  readonly dirtyBadge: string;
+  readonly missingFileHint: (fileName: string) => string;
+  readonly editorAriaLabel: (fileName: string) => string;
+  readonly editorPlaceholder: string;
+  readonly lineStatsText: (lineCount: number, byteLength: number) => string;
+  readonly syntaxValidBadge: string;
+  readonly syntaxErrorBadge: (line: number, column: number) => string;
+  readonly syntaxErrorDetail: (line: number, column: number, reason: string) => string;
+  readonly emptyJsonError: string;
+  readonly contentTooLargeError: (maxBytes: number) => string;
+  readonly errorBannerTitle: string;
+  readonly formatButton: string;
+  readonly resetButton: string;
+  readonly saveButton: string;
+  readonly confirmDiscardChanges: (fileName: string) => string;
+  readonly confirmRestartAfterSave: (fileName: string) => string;
+  readonly restartConfirmCancelButton: string;
+  readonly restartConfirmAcceptButton: string;
+  readonly fileDescriptions: Readonly<Record<MiniAppConfigFileName, string>>;
 }
 
 /** Mini App 界面三语言（中/日/英）杂鱼语气文案结构定义。 */
@@ -164,13 +200,13 @@ export interface MiniAppTranslations {
     readonly memoryOtherUsedLabel: string;
     readonly memoryTotalUsedLabel: string;
     readonly managedChatsLabel: string;
-    readonly managedChatsSub: (whitelistCount: number, blocklistCount: number) => string;
+    readonly managedChatsSub: (whitelistCount: number, blocklistCount: number) => readonly [string, string];
     readonly activeSessionsLabel: string;
     readonly activeSessionsSub: (
       sessions: Readonly<MiniAppActiveSessionCounts>
     ) => readonly [string, string, string, string];
     readonly outboundGateLabel: string;
-    readonly outboundGateSub: (waiting: number, retrySize: number, retryMax: number) => string;
+    readonly outboundGateSub: (retryWaiting: number, retryQueueMax: number) => string;
     readonly capabilitiesSectionTitle: string;
     readonly capabilityReadyBadge: string;
     readonly capabilityMissingBadge: string;
@@ -316,7 +352,6 @@ export interface MiniAppTranslations {
     readonly uploadingButton: string;
     readonly uploadButton: string;
     readonly directoryMissingText: (directory: string) => string;
-    readonly directoryReadyText: (directory: string) => string;
     readonly previewTitle: (shortName: string) => string;
     readonly downloadButton: string;
     readonly downloadingButton: string;
@@ -329,4 +364,6 @@ export interface MiniAppTranslations {
     readonly emptyMissingDirHint: string;
     readonly emptyGalleryHint: string;
   }>;
+
+  readonly configs: Readonly<MiniAppConfigsTranslations>;
 }

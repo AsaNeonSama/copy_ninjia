@@ -3,9 +3,10 @@
  * 都经 handleAntiRaidWorkerEvent 交给各自的下游 owner，且不回投 Worker。
  */
 
-import { beforeEach, expect, mock, test } from "bun:test";
+import { beforeEach, expect, mock, spyOn, test } from "bun:test";
+import { logger } from "../../packages/infra/logger";
 import type { AdDetectedEvent, AdVerdictTrueEvent } from "../../packages/types/antiRaid/adDetect";
-import type { BlockedMembersRemovedEvent } from "../../packages/types/antiRaid/events";
+import type { BlockedMembersRemovedEvent, LockdownEvent } from "../../packages/types/antiRaid/events";
 
 const settleBlockedRemoval = mock((_event: BlockedMembersRemovedEvent): void => {});
 const recordBlocklistParticipantReadability = mock((_event: BlockedMembersRemovedEvent): void => {});
@@ -15,6 +16,10 @@ const handleAdVerdictTrue = mock((_event: AdVerdictTrueEvent): void => {});
 const realSweep = await import("../../packages/infra/blocklist/sweep");
 const realParticipantInvalid = await import("../../packages/infra/blocklist/participantInvalid");
 const realAdDetect = await import("../../packages/antiRaid/adDetect");
+const realChatStateStorage = await import("../../packages/infra/chatStateStorage");
+const getOrCreateChatState = mock(
+  (chatId: number) => realChatStateStorage.getOrCreateChatState(chatId)
+);
 mock.module("../../packages/infra/blocklist/sweep", () => ({ ...realSweep, settleBlockedRemoval }));
 mock.module("../../packages/infra/blocklist/participantInvalid", () => ({
   ...realParticipantInvalid,
@@ -24,6 +29,10 @@ mock.module("../../packages/antiRaid/adDetect", () => ({
   ...realAdDetect,
   handleAdDetected,
   handleAdVerdictTrue,
+}));
+mock.module("../../packages/infra/chatStateStorage", () => ({
+  ...realChatStateStorage,
+  getOrCreateChatState,
 }));
 
 const { handleAntiRaidWorkerEvent } = await import("../../packages/antiRaid/workerBridge/events");
@@ -65,4 +74,67 @@ test("广告确证交给 handleAdDetected，ad=true 判定交给 handleAdVerdict
   expect(handleAdVerdictTrue.mock.calls).toEqual([[verdict]]);
   expect(settleBlockedRemoval).not.toHaveBeenCalled();
   expect(posted).toEqual([]);
+});
+
+test("lockdown 分支写入主线程状态抛容量异常时捕获并回发 lockdownPersistFailed，不逃逸事件循环", () => {
+  const loggerError = spyOn(logger, "error").mockImplementation((): void => {});
+  getOrCreateChatState.mockImplementationOnce((): never => {
+    throw new RangeError("Chat state capacity exceeded.");
+  });
+  const event: LockdownEvent = {
+    type: "lockdown",
+    chatId: -1001,
+    phase: "applying",
+    intentId: 7,
+    originalPermissions: { can_invite_users: true },
+    announced: false,
+    expiresAt: Date.now() + 60_000,
+  };
+  try {
+    expect((): void => {
+      handleAntiRaidWorkerEvent(event, postToWorker);
+    }).not.toThrow();
+    expect(loggerError).toHaveBeenCalledTimes(1);
+    expect(posted).toEqual([{
+      type: "lockdownPersistFailed",
+      chatId: -1001,
+      phase: "applying",
+      intentId: 7,
+    }]);
+  } finally {
+    loggerError.mockRestore();
+  }
+});
+
+test("lockdown 异常恢复路径回发 lockdownPersistFailed 抛错时独立捕获并记录，不逃逸事件循环", () => {
+  const loggerError = spyOn(logger, "error").mockImplementation((): void => {});
+  getOrCreateChatState.mockImplementationOnce((): never => {
+    throw new RangeError("Chat state capacity exceeded.");
+  });
+  const postError: Error = new Error("Anti-Raid Worker is not running.");
+  const throwingPost = (): never => {
+    throw postError;
+  };
+  const event: LockdownEvent = {
+    type: "lockdown",
+    chatId: -1001,
+    phase: "applying",
+    intentId: 9,
+    originalPermissions: { can_invite_users: true },
+    announced: false,
+    expiresAt: Date.now() + 60_000,
+  };
+  try {
+    expect((): void => {
+      handleAntiRaidWorkerEvent(event, throwingPost);
+    }).not.toThrow();
+    expect(loggerError).toHaveBeenCalledTimes(2);
+    expect(loggerError).toHaveBeenLastCalledWith(
+      "Failed to notify Anti-Raid Worker of abandoned lockdown intent:",
+      { chatId: -1001, phase: "applying", intentId: 9 },
+      postError
+    );
+  } finally {
+    loggerError.mockRestore();
+  }
 });

@@ -1,22 +1,25 @@
 import { createStore } from "zustand";
 import type { StoreApi } from "zustand";
+import { classifyMiniAppAuthError } from "../api/authError";
 import { fetchMiniAppMood } from "../api/mood";
 import { switchMiniAppMood } from "../api/moodSwitch";
-import { isMiniAppAuthErrorMessage } from "../api/request";
 import { fetchMiniAppStatus } from "../api/status";
 import {
   MINI_APP_STATUS_POLL_INTERVAL_MS,
   MINI_APP_STATUS_SNAPSHOT_HOLD_AFTER_TOGGLE_MS,
 } from "../consts/miniApp";
+import { STATUS_QUAD_HISTORY_MAX } from "../consts/statusMosaic";
 import { extractServerNoticeParams, getMiniAppTranslations } from "../i18n";
 import { errorMessage } from "../libs/errorMessage";
 import { waitMinimumLoadingDuration } from "../libs/loading";
+import { generateStatusQuadMosaic } from "../libs/statusQuadMosaic";
 import { isMiniAppForeground, subscribeMiniAppForeground } from "../libs/telegram";
 import type {
   MiniAppMoodMutationResult,
   MiniAppMoodView,
   MiniAppStatusView,
-} from "../types/miniApp";
+} from "../types/miniApp/status";
+import type { StatusQuadMosaicLayout } from "../types/statusMosaic";
 import { notifyMiniAppIfAuthError, useMiniAppStore } from "./app";
 
 /** `StatusPage` 实时状态看板的状态与动作接口。 */
@@ -35,6 +38,10 @@ export interface MiniAppStatusStoreState {
   readonly currentMood: string | null;
   /** 是否正在请求切换全局 AI 情绪。 */
   readonly switchingMood: boolean;
+  /** 当前页面进入或手动刷新周期生效的四象限随机折线拼块布局（骨架屏与加载完成态共享，后台轮询期间保持不变）。 */
+  readonly quadMosaic: Readonly<StatusQuadMosaicLayout>;
+  /** 最近若干轮已生效的四象限随机折线拼块布局历史（按时间升序，最多保留 `STATUS_QUAD_HISTORY_MAX` 条，供手动刷新排重与位移校验）。 */
+  readonly quadMosaicHistory: readonly Readonly<StatusQuadMosaicLayout>[];
 
   /**
    * 查询当前全局 AI 情绪（只采纳最后一次情绪查询或切换的结果；异常不影响主状态看板）。
@@ -43,7 +50,7 @@ export interface MiniAppStatusStoreState {
   readonly loadMood: () => Promise<void>;
   /**
    * 拉取状态快照；只采纳最后一次发起的请求结果，成功时通知根 store 状态已就绪，并在结算时合并提交暂存情绪与加载标志。
-   * 手动刷新（`showErrorToast`）或首次加载时保证骨架屏最短展示时长，手动刷新同时重查情绪并以 Toast 报错。
+   * 手动刷新（`showErrorToast`）时基于 `quadMosaicHistory` 重抽不与最近历史重复且位移达标的 `quadMosaic`、追加更新滑动历史窗口，并在首次加载或手动刷新时保证骨架屏最短展示时长，同时重查情绪并以 Toast 报错；后台轮询（`showErrorToast === false`）保持现有 `quadMosaic` 与 `quadMosaicHistory` 不变。
    * 成功取得的快照若落在 `toggleCapability` 开启的暂缓时段内，等该时段结束后再写入。
    */
   readonly loadStatus: (showErrorToast: boolean) => Promise<void>;
@@ -128,6 +135,8 @@ export function createStatusStore(): MiniAppStatusStore {
         }
       };
 
+      const initialMosaic: StatusQuadMosaicLayout = generateStatusQuadMosaic();
+
       return {
         status: null,
         loading: true,
@@ -136,6 +145,8 @@ export function createStatusStore(): MiniAppStatusStore {
         expandedCapKeys: {},
         currentMood: null,
         switchingMood: false,
+        quadMosaic: initialMosaic,
+        quadMosaicHistory: [initialMosaic],
 
         loadMood: async (): Promise<void> => {
           const reqId: number = ++moodReqSeq;
@@ -168,7 +179,18 @@ export function createStatusStore(): MiniAppStatusStore {
             skeletonLoadReqId = reqId;
           }
           if (showErrorToast) {
-            set({ refreshing: true });
+            const prevHistory: readonly Readonly<StatusQuadMosaicLayout>[] =
+              get().quadMosaicHistory;
+            const nextMosaic: StatusQuadMosaicLayout = generateStatusQuadMosaic({
+              previousHistory: prevHistory,
+            });
+            set({
+              refreshing: true,
+              quadMosaic: nextMosaic,
+              quadMosaicHistory: [...prevHistory, nextMosaic].slice(
+                -STATUS_QUAD_HISTORY_MAX
+              ),
+            });
             void get().loadMood();
           }
           try {
@@ -197,6 +219,7 @@ export function createStatusStore(): MiniAppStatusStore {
               await waitMinimumLoadingDuration(startedAt);
             }
             if (reqId !== requestSeq) {
+              notifyMiniAppIfAuthError(error);
               return;
             }
             skeletonLoadReqId = 0;
@@ -212,7 +235,7 @@ export function createStatusStore(): MiniAppStatusStore {
               loading: false,
               refreshing: false,
             });
-            if (showErrorToast || isMiniAppAuthErrorMessage(rawMessage)) {
+            if (showErrorToast || classifyMiniAppAuthError(rawMessage, error) !== null) {
               useMiniAppStore.getState().notify(rawMessage, "info", error);
             }
           }

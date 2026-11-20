@@ -26,7 +26,7 @@ export interface AdDetectionMessageContext {
 export interface AdDetectJsonRequestParams {
   /** 模型名来自 config/dynamic/agent.json 的 agent.ad_detect。 */
   readonly model: string;
-  /** 判定规则与部署示例段，不含系统事实；Gemini 路径的系统指令与显式缓存内容，Anthropic 路径带缓存断点的首个系统块。 */
+  /** 判定规则与部署示例段，不含系统事实；Gemini 路径的系统指令，Anthropic 路径带缓存断点的首个系统块。 */
   readonly instructions: string;
   /** 本次的系统事实一行；Gemini 路径把它作为 user 轮里排在 userContent 之前的独立 part，Anthropic 路径作为缓存断点之后的第二个系统块。 */
   readonly fact: string;
@@ -157,6 +157,8 @@ export interface AdCandidateEntry extends AdSampleContext {
   seq: number;
   /** 当次用户姓名与已限长的正文、落地页、引用上下文；参与整串送检预算。 */
   text: string;
+  /** 本条发送者姓名与经过限长/链接拼接的正文（不含 quote/replyTo），供警告结算重算引文去重。 */
+  readonly senderText: string;
   /** 当前发送者本人的姓名与正文；转发消息只保留转发者姓名，用于直接广告归因。 */
   directText: string;
   /**

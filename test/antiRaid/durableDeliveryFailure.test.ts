@@ -19,6 +19,9 @@ let diskResult: FlushResult | Error = "flushed";
 let stateResult: FlushResult | Error = "flushed";
 /** 每收到一条 drain 就推进一次持久化代数，模拟副作用又发布了新镜像。 */
 let bumpPersistenceOnDrain: boolean = false;
+/** 首轮 flush 期间模拟落盘回执推进镜像版本，验证版本快照位置先于落盘。 */
+let bumpOnFirstFlush: boolean = false;
+let flushDiskIOCalls: number = 0;
 /** postAntiRaid 的结局；false 代表「消息压根没进信箱」。 */
 let deliverable: boolean = true;
 /** 屏障回执；不是 flushed 时按「收到了但没落定」处理。 */
@@ -31,6 +34,11 @@ const realDiskIO = await import("../../packages/infra/diskIO");
 mock.module("../../packages/infra/diskIO", () => ({
   ...realDiskIO,
   flushDiskIO: async (): Promise<FlushResult> => {
+    flushDiskIOCalls++;
+    if (bumpOnFirstFlush) {
+      bumpOnFirstFlush = false;
+      antiRaidRuntimeState.verificationVersion++;
+    }
     if (diskResult instanceof Error) throw diskResult;
     return diskResult;
   },
@@ -73,6 +81,8 @@ beforeEach((): void => {
   diskResult = "flushed";
   stateResult = "flushed";
   bumpPersistenceOnDrain = false;
+  bumpOnFirstFlush = false;
+  flushDiskIOCalls = 0;
   deliverable = true;
   barrierResult = "flushed";
   loggerErrors.length = 0;
@@ -137,8 +147,10 @@ test("排空在上限轮数内不收敛时按 failed 收场并记录", async () 
 
   expect(await drainAntiRaid(60_000)).toBe("failed");
   expect(loggerErrors).toHaveLength(1);
-  expect(String(loggerErrors[0]?.[0]))
-    .toContain(`${ANTI_RAID_DRAIN_MAX_ROUNDS} persistence rounds`);
+  expect(loggerErrors[0]).toEqual([
+    "Anti-Raid drain did not converge after max persistence rounds.",
+    { maxRounds: ANTI_RAID_DRAIN_MAX_ROUNDS },
+  ]);
 });
 
 test("落盘领域报 failed 时排空原样上报，不当成收敛", async () => {
@@ -146,4 +158,11 @@ test("落盘领域报 failed 时排空原样上报，不当成收敛", async () 
 
   expect(await drainAntiRaid(60_000)).toBe("failed");
   expect(loggerErrors).toHaveLength(0);
+});
+
+test("落盘回执推进镜像版本时，排空会检测到变化并再执行一轮持久化", async () => {
+  bumpOnFirstFlush = true;
+
+  expect(await drainAntiRaid(60_000)).toBe("flushed");
+  expect(flushDiskIOCalls).toBe(2);
 });

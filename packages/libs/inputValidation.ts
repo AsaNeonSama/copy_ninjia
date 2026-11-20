@@ -1,5 +1,6 @@
 import { lstat } from "node:fs/promises";
 import type { Stats } from "node:fs";
+import { LOCAL_TIMESTAMP_PATTERN } from "../consts/time";
 import { isErrno } from "./errno";
 
 /**
@@ -103,6 +104,36 @@ export function optionalTimestampField(
     return invalidInput(source, `${path}.${key}`, "a non-negative safe integer timestamp");
   }
   return field;
+}
+
+/**
+ * 断言字段值为格式严格且公历日期时间合法的本地时间戳（`YYYY/MM/DD HH:mm:ss`）。
+ *
+ * 先按 `LOCAL_TIMESTAMP_PATTERN` 核对字面形态，再经 `Temporal.PlainDateTime.from(..., { overflow: "reject" })`
+ * 往返校验，拒绝 `2026/02/29`、`2026/13/45`、`24:00:00` 等不存在的公历日期时间。
+ * @param value 待校验的未知字段值。
+ * @param source 输入来源标识。
+ * @param field 字段路径。
+ * @returns 无返回值；合法时将参数收窄为字符串，非法时抛出 `InputValidationError`。
+ */
+export function assertLocalTimestamp(
+  value: unknown,
+  source: string,
+  field: string
+): asserts value is string {
+  const expected: string = "a valid local calendar time in YYYY/MM/DD HH:mm:ss format";
+  if (typeof value !== "string" || !LOCAL_TIMESTAMP_PATTERN.test(value)) {
+    invalidInput(source, field, expected);
+  }
+  try {
+    const normalized: string = value.replaceAll("/", "-").replace(" ", "T");
+    const local: Temporal.PlainDateTime = Temporal.PlainDateTime.from(normalized, { overflow: "reject" });
+    if (local.toString({ fractionalSecondDigits: 0 }) !== normalized) {
+      invalidInput(source, field, expected);
+    }
+  } catch {
+    invalidInput(source, field, expected);
+  }
 }
 
 const STRICT_UTF8_DECODER: TextDecoder = new TextDecoder("utf-8", {

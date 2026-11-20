@@ -3,14 +3,16 @@
 import { botConfigCache } from "../cache/perThread/config";
 import { BOT_CONFIG_PATH } from "../consts/paths";
 import { loadBotConfig } from "./botInput";
-import { assertDeploymentConfigLayout } from "./layout";
+import { assertNoLegacyOrMisplacedBotConfig } from "./layout";
 import type { BotConfig, BotMiniAppConfig } from "../types/config";
+import { adoptLogLevel } from "./logLevel";
 import { adoptTimeZone } from "./time";
 
-await assertDeploymentConfigLayout();
+await assertNoLegacyOrMisplacedBotConfig();
 const INITIAL_BOT_CONFIG: BotConfig = await loadBotConfig();
 botConfigCache.current = INITIAL_BOT_CONFIG;
 adoptTimeZone(INITIAL_BOT_CONFIG.timeZone);
+adoptLogLevel(INITIAL_BOT_CONFIG.logLevel);
 
 /**
  * 读取异步模块初始化已经严格校验的 Bot 配置。

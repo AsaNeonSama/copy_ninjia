@@ -419,7 +419,10 @@ describe("消息 ingress 与待删队列", () => {
     const deleted: number[] = deletionCalls().flatMap(([, messageIds]: readonly [number, readonly number[]]): readonly number[] => messageIds);
     expect(deleted).toEqual(range(1, DELETE_MESSAGE_QUEUE_MAX + 1));
     expect(loggerWarn).toHaveBeenCalledTimes(2);
-    expect(String(loggerWarn.mock.calls[1]![0])).toContain("Dropped 3 ");
+    expect(loggerWarn.mock.calls[1]).toEqual([
+      "Dropped target message deletions while the queue was full.",
+      { dropped: 3 },
+    ]);
   });
 
   test("消费循环在队列自己的取消上下文里运行，不继承触发它的 update", async () => {
@@ -501,7 +504,10 @@ describe("停机排空", () => {
     expect(deleteMessageQueue.size).toBe(0);
     expect(deleteMessageQueueRuntime.controller.signal.aborted).toBeTrue();
     expect(loggerError).toHaveBeenCalledTimes(1);
-    expect(String(loggerError.mock.calls[0]![0])).toContain("dropped 2 ");
+    expect(loggerError.mock.calls[0]).toEqual([
+      "Target message deletion drain timed out; dropped queued deletions.",
+      { dropped: 2 },
+    ]);
 
     // 目标的消息仍被认领，但不再入队。
     expect(handleDeleteMessageIngress(groupMessage({ messageId: 4 }))).toBeTrue();

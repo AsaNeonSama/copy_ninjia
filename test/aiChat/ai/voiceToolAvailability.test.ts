@@ -18,9 +18,9 @@ async function synthesizeSpeechStub(..._args: unknown[]): Promise<SpeechSynthesi
 const synthesizeSpeech = mock(synthesizeSpeechStub);
 const ttsAiProvider = mock((): unknown => ({ name: "google", synthesizeSpeech }));
 const realTelegram = await import("../../../packages/infra/telegram");
-const realProvider = await import("../../../packages/aiChat/provider");
+const realProvider = await import("../../../packages/workers/aiChat/provider");
 
-mock.module("../../../packages/aiChat/provider", () => ({ ...realProvider, ttsAiProvider }));
+mock.module("../../../packages/workers/aiChat/provider", () => ({ ...realProvider, ttsAiProvider }));
 mock.module("../../../packages/infra/logger", () => ({ logger: loggerStub() }));
 // 投递前按音频时长补「正在录音」的停顿不真的等。
 mock.module("../../../packages/libs/sleep", () => ({ sleep: async (): Promise<void> => {} }));
@@ -29,7 +29,7 @@ mock.module("../../../packages/infra/telegram", () => ({
   telegramApi: { getStickerSet: mock(async (): Promise<null> => null) },
 }));
 
-const { createReplyToolset } = await import("../../../packages/aiChat/ai/tools/replyToolset/orchestrator");
+const { createReplyToolset } = await import("../../../packages/workers/aiChat/ai/tools/replyToolset/orchestrator");
 const { ACTION_TOOL_NAMES, SEND_VOICE_TOOL } = await import("../../../packages/consts/tools");
 
 function buildContext(overrides: Partial<ReplyToolContext> = {}): ReplyToolContext {

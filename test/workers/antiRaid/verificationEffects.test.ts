@@ -157,7 +157,7 @@ describe("管理员拉人豁免的异步核查", () => {
 
     expect(dispatched).toEqual([]);
     expect(deletedMessageIds).toEqual([11]);
-    expect(loggedErrors[0]).toContain(`Error fetching chat admins for admin-invite exemption in chat ${CHAT_ID}`);
+    expect(loggedErrors[0]).toBe("Error fetching chat admins for admin-invite exemption:");
   });
 
   test("已经离开 pending 的成员不再发起核查", async () => {
@@ -166,6 +166,24 @@ describe("管理员拉人豁免的异步核查", () => {
     await run([{ kind: "startAdminCheck", actorId: INVITER_ID }]);
     await Bun.sleep(0);
 
+    expect(getChatAdministrators).not.toHaveBeenCalled();
+    expect(dispatched).toEqual([]);
+  });
+
+  test("前置 await 期间状态被新 pending 替换时，尾随的 startAdminCheck 不再向新状态发起核查", async () => {
+    setState(pendingState());
+    getChatAdministrators.mockResolvedValueOnce([{ user: { id: INVITER_ID }, is_anonymous: false }]);
+
+    const effectRun: Promise<void> = run([
+      { kind: "deleteMessage", messageId: 12 },
+      { kind: "startAdminCheck", actorId: INVITER_ID },
+    ]);
+    // 挂在 await deleteMessage 上时替换成新一轮 pending 状态。
+    setState(pendingState());
+    await effectRun;
+    await Bun.sleep(0);
+
+    expect(deletedMessageIds).toEqual([12]);
     expect(getChatAdministrators).not.toHaveBeenCalled();
     expect(dispatched).toEqual([]);
   });
@@ -211,7 +229,7 @@ describe("超时踢人前的拉人者最终复核", () => {
       expect(verificationEntries.get(KEY)?.state).toBe(state);
       expect(state).toMatchObject({ kind: "checkingInviter", executionStarted: false });
       expect(delays).toEqual([VERIFICATION_TERMINAL_RETRY_MS]);
-      expect(loggedErrors[0]).toContain("Failed to check admin exemption for verification inviter");
+      expect(loggedErrors[0]).toBe("Failed to check admin exemption:");
 
       getChatAdministrators.mockResolvedValueOnce([{ user: { id: INVITER_ID }, is_anonymous: false }]);
       await run([{ kind: "recheckInviter", inviterId: INVITER_ID, snapshot: expelSnapshot }]);
@@ -322,6 +340,67 @@ describe("同步副作用的逐条执行", () => {
     ]]);
     expect(sentTexts[1]).toContain("管理员");
     expect(sentTexts[1]).not.toContain("白名单");
+  });
+
+  test("换题补发批次在 deleteReminders 期间成员发言切为回复式提醒时，尾随 sendReminder 不取消在途回复提醒", async () => {
+    const state: VerificationState = setState(pendingState());
+    const effectRun: Promise<void> = run([
+      { kind: "answerCallback", callbackQueryId: "cb-refresh", reply: "challengeRefreshed" },
+      { kind: "deleteReminders", reminderMessageId: 10 },
+      { kind: "sendReminder", label: "待验证成员", isBot: false },
+    ]);
+    // 模拟前置 await 期间成员在群内发言，原地置位 reminderSuperseded 并挂上回复式提醒 owner。
+    if (state.kind === "pending") {
+      state.reminderSuperseded = true;
+      state.replyReminderRequested = true;
+      state.welcomeAnchorMessageId = 77;
+    }
+    const existingReplyDelivery = {
+      key: KEY,
+      chatId: CHAT_ID,
+      userId: USER_ID,
+      kind: "reply" as const,
+      label: "待验证成员",
+      isBot: false,
+      replyToMessageId: 77,
+      expectedState: state,
+      challenge: undefined,
+      attempts: 0,
+      timer: undefined,
+      inFlight: true,
+    };
+    reminderDeliveries.set(KEY, existingReplyDelivery as never);
+
+    await effectRun;
+    await Bun.sleep(0);
+
+    expect(callbackTexts).toHaveLength(1);
+    expect(deletedMessageIds).toEqual([10]);
+    expect(sentTexts).toEqual([]);
+    expect(reminderDeliveries.get(KEY)).toBe(existingReplyDelivery as never);
+  });
+
+  test("前置 await 期间状态被替换时，尾随 sendReminder 与 sendReplyReminder 均跳过且不触碰新状态", async () => {
+    setState(pendingState());
+    const firstRun: Promise<void> = run([
+      { kind: "deleteMessage", messageId: 15 },
+      { kind: "sendReminder", label: "旧入群", isBot: false },
+    ]);
+    setState(pendingState());
+    await firstRun;
+
+    setState(pendingState());
+    const secondRun: Promise<void> = run([
+      { kind: "deleteMessage", messageId: 16 },
+      { kind: "sendReplyReminder", label: "旧发言", isBot: false, targetMessageId: 88 },
+    ]);
+    setState(pendingState());
+    await secondRun;
+    await Bun.sleep(0);
+
+    expect(deletedMessageIds).toEqual([15, 16]);
+    expect(sentTexts).toEqual([]);
+    expect(reminderDeliveries.size).toBe(0);
   });
 
   test("先删两条提醒再踢人，欢迎语落地后安排自动删除", async () => {

@@ -12,7 +12,7 @@ import { updateTopicOf } from "../libs/forumTopic";
 
 /**
  * 每次只取一条更新，middleware 成功完成后才发起下一次取数。
- * stop 取消取数与退避并唤醒当前等待；在途 middleware 由生命周期按 size() 排空。
+ * stop 取消取数与退避并唤醒当前等待；在途 middleware 由生命周期按 activeTask() 与 size() 排空。
  * @see ../../docs/cn/04-invariants.md
  * @param bot 负责处理更新的 grammY Bot 实例。
  * @param allowedUpdates 允许接收的 Telegram 更新类型列表。
@@ -29,6 +29,7 @@ export function runAcknowledgedUpdateBatches(
   // 取数循环在上一条 middleware 结算前不再取数，停机后也不再开始新的一条，
   // 因此在途 update 至多一条。
   let activeUpdateController: AbortController | null = null;
+  let activeUpdateTask: Promise<void> | null = null;
   let currentAbortController: AbortController | null = null;
   let resolveStop: (() => void) | undefined;
 
@@ -49,7 +50,9 @@ export function runAcknowledgedUpdateBatches(
    */
   const handleUpdate = async (update: Update): Promise<void> => {
     const updateController: AbortController = new AbortController();
+    const settled: PromiseWithResolvers<void> = Promise.withResolvers<void>();
     activeUpdateController = updateController;
+    activeUpdateTask = settled.promise;
     try {
       await runWithUpdateAbortSignal(
         updateController.signal,
@@ -77,7 +80,11 @@ export function runAcknowledgedUpdateBatches(
       // 应用生命周期停止进程，由 Telegram 在重启后重新投递。
       throw error;
     } finally {
-      if (activeUpdateController === updateController) activeUpdateController = null;
+      if (activeUpdateController === updateController) {
+        activeUpdateController = null;
+        activeUpdateTask = null;
+      }
+      settled.resolve();
     }
   };
 
@@ -128,6 +135,7 @@ export function runAcknowledgedUpdateBatches(
       await task;
     },
     task: (): Promise<void> => task,
+    activeTask: (): Promise<void> | null => activeUpdateTask,
     size: (): number => activeUpdateController === null ? 0 : 1,
     hasFailedUpdate: (): boolean => failedUpdate,
     abortActive: (): number => abortActiveUpdate(new DOMException(

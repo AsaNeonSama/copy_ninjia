@@ -127,19 +127,12 @@ export function enqueueAdCandidate(
   now: number = message.observedAt
 ): void {
   const existing: AdMessageBundle | undefined = pendingAdBundle(message.chatId, message.senderId);
-  if (
-    existing === undefined &&
-    !message.blocked &&
-    !message.isChannel &&
-    rejectNewAdBundleAtCapacity()
-  ) return;
   let key: string | undefined = existing?.key;
   const recentlyDisposed: boolean = recentlyDisposedAdKeys.size > 0 &&
     hasActiveAdDisposalMarker(key ??= verificationKey(message.chatId, message.senderId));
   if (
     existing === undefined &&
     !message.blocked &&
-    message.isChannel &&
     !recentlyDisposed &&
     rejectNewAdBundleAtCapacity()
   ) return;
@@ -217,6 +210,7 @@ export function enqueueAdCandidate(
     messageId: message.messageId,
     seq: bundle.nextSeq++,
     text,
+    senderText: text.length === 0 ? "" : senderText,
     directText,
     receivedAt: now,
     withinReferencedWarning: referencedAdWarningStates.size > 0 &&

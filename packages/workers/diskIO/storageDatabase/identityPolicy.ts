@@ -153,11 +153,41 @@ export function hasEffectiveBlocklistIdentity(id: number): boolean {
 }
 
 /**
+ * 判断叠加未提交变更后是否存在 `excludeId` 以外的有效黑名单身份。
+ *
+ * 与分页页大小解耦：待写删除较多时只按已缓冲删除条目数 + 2 为上界读取 SQLite 最小主键切片，
+ * 不受 `BLOCKLIST_SWEEP_PENDING_DELTA_MAX_ENTRIES` 限制。
+ * @param excludeId 判定时排除的身份 ID；为 `null` 时检查整个有效黑名单是否非空。
+ * @returns 是否至少存在一个有效的非排除黑名单身份。
+ */
+function hasEffectiveBlocklistIdentityExcept(excludeId: number | null): boolean {
+  let pendingDeletes: number = 0;
+  for (const [id, pending] of pendingBlocklistWrites) {
+    if (pending.data === null) {
+      pendingDeletes++;
+    } else if (id !== excludeId) {
+      return true;
+    }
+  }
+  const storedIds: readonly number[] = readStoredIdentityIdPage(
+    requireStorageDatabase(),
+    "blocklist",
+    { afterId: null, limit: pendingDeletes + 2 }
+  );
+  for (const id of storedIds) {
+    if (id === excludeId) continue;
+    if (pendingBlocklistWrites.get(id)?.data === null) continue;
+    return true;
+  }
+  return false;
+}
+
+/**
  * 判断叠加未提交变更后的有效黑名单是否非空。
  * @returns 有效黑名单中是否至少包含一个身份
  */
 export function hasAnyEffectiveBlocklistIdentity(): boolean {
-  return effectiveIdentityIdPage("blocklist", null).ids.length > 0;
+  return hasEffectiveBlocklistIdentityExcept(null);
 }
 
 /**
@@ -264,7 +294,7 @@ function assertBlocklistDeletionUnreferenced(id: number): void {
     }
   }
   if (!hasProbeRow) return;
-  if (!effectiveIdentityIdPage("blocklist", null).ids.some((other: number): boolean => other !== id)) {
+  if (!hasEffectiveBlocklistIdentityExcept(id)) {
     throw new Error(
       `Deleting blocklist identity ${id} would leave pending sweep rows without any blocklist entry.`
     );

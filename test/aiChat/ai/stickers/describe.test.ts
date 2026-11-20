@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
-const { describeStickerForContext, pickStickerVisionSource } = await import("../../../../packages/aiChat/ai/stickers/describe");
+const { describeStickerForContext, pickStickerVisionSource } = await import("../../../../packages/aiChat/stickerDescribe");
 
-describe("aiChat/ai/stickers/describe describeStickerForContext", () => {
+describe("aiChat/stickerDescribe describeStickerForContext", () => {
   test("emoji + 包名都有时按顺序拼接", () => {
     expect(describeStickerForContext({ emoji: "😂", set_name: "test_pack" })).toBe("（发了一枚贴纸：情绪含义 😂，来自贴纸包「test_pack」）");
   });
@@ -22,7 +22,7 @@ describe("aiChat/ai/stickers/describe describeStickerForContext", () => {
   });
 });
 
-describe("aiChat/ai/stickers/describe pickStickerVisionSource", () => {
+describe("aiChat/stickerDescribe pickStickerVisionSource", () => {
   test("静态贴纸直接用本体 file_id，file_unique_id 是贴纸自身的", () => {
     const sticker: any = { file_id: "body-id", file_unique_id: "sticker-uid", width: 512, height: 384, is_animated: false, is_video: false };
     expect(pickStickerVisionSource(sticker)).toEqual({ fileId: "body-id", fileUniqueId: "sticker-uid", width: 512, height: 384 });

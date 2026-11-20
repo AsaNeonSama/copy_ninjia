@@ -6,11 +6,11 @@ import { GET_TOKYO_WEATHER_TOOL, TOOL_DECLARATIONS } from "../../../packages/con
 import { TOKYO_TIME_ZONE } from "../../../packages/consts/time";
 import { adoptTimeZone, getTimeZone } from "../../../packages/config/time";
 import { parseBotConfig } from "../../../packages/config/botInput";
-import { callTool } from "../../../packages/aiChat/ai/tools";
+import { callTool } from "../../../packages/workers/aiChat/ai/tools";
 import type { AiToolDefinition } from "../../../packages/types/aiChat/provider";
 import type { ReplyToolContext, ReplyToolset } from "../../../packages/types/aiChat/replies";
 
-const { createReplyToolset } = await import("../../../packages/aiChat/ai/tools/replyToolset/orchestrator");
+const { createReplyToolset } = await import("../../../packages/workers/aiChat/ai/tools/replyToolset/orchestrator");
 const INITIAL_TIME_ZONE: string = getTimeZone();
 
 beforeEach((): void => {
@@ -52,6 +52,7 @@ describe("AI 静态查询工具", () => {
     adoptTimeZone(parseBotConfig({
       bot_token: "token:fixture",
       super_admin_user_id: 7,
+      log_level: "operation",
       time_zone: timeZone,
     }).timeZone);
     weatherCache.current = {

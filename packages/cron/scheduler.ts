@@ -45,7 +45,7 @@ function cancelSchedule(schedule: CronTaskSchedule): void {
  */
 async function trackRound(runtime: CronRuntime, schedule: CronTaskSchedule): Promise<void> {
   const round: Promise<void> = runCronRound(schedule, runtime.controller.signal).catch((error: unknown): void => {
-    logger.error(`Cron task "${schedule.task.name}" run failed unexpectedly:`, error);
+    logger.error("Cron task run failed unexpectedly:", { task: schedule.task.name }, error);
   });
   runtime.runs.add(round);
   try {
@@ -126,11 +126,14 @@ export function reconcileCronSchedule(): void {
   const config: CronConfig = getCronConfig();
   const next: Map<string, Readonly<CronTask>> = new Map();
   for (const task of config) next.set(task.name, task);
+  let removedCount: number = 0;
+  let addedCount: number = 0;
   for (const [name, schedule] of runtime.schedules) {
     const task: Readonly<CronTask> | undefined = next.get(name);
     if (task !== undefined && Bun.deepEquals(task, schedule.task)) continue;
     cancelSchedule(schedule);
     runtime.schedules.delete(name);
+    removedCount++;
   }
   for (const task of config) {
     // 当前任务表里的 just_once 名字每轮刷新 LRU 位置；转为周期任务即清除记录。
@@ -138,6 +141,14 @@ export function reconcileCronSchedule(): void {
     else if (runtime.justOnceRecords.get(task.name) === true) continue;
     if (runtime.schedules.has(task.name)) continue;
     runtime.schedules.set(task.name, registerSchedule(task));
+    addedCount++;
+  }
+  if (addedCount > 0 || removedCount > 0) {
+    logger.info("Reconciled cron schedules.", {
+      active: runtime.schedules.size,
+      added: addedCount,
+      removed: removedCount,
+    });
   }
 }
 

@@ -1,4 +1,4 @@
-/** owner: workers/aiChat。白名单贴纸包目录与生成状态（packages/aiChat/ai/stickers/catalog.ts）。 */
+/** owner: workers/aiChat。白名单贴纸包目录与生成状态（packages/workers/aiChat/ai/stickers/catalog.ts）。 */
 
 import type { StickerCatalogEntry } from "../../../../types/stickers/catalog";
 
@@ -12,7 +12,7 @@ import type { StickerCatalogEntry } from "../../../../types/stickers/catalog";
 export const catalogs: Map<string, Map<string, StickerCatalogEntry>> = new Map();
 
 /**
- * packShortName -> AI 生成的整包简介（供 aiChat/ai/tools/stickers.ts 只读挑包，缺项表示尚未生成或生成失败）。
+ * packShortName -> AI 生成的整包简介（供 workers/aiChat/ai/tools/stickers.ts 只读挑包，缺项表示尚未生成或生成失败）。
  * 填充：generatePackCatalog 或主线程镜像 hydrate 写入；清理、不设 TTL 淘汰、重建与容量同 catalogs。
  */
 export const packSummaries: Map<string, string> = new Map();

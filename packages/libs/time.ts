@@ -204,6 +204,7 @@ export function formatLocalTime(timestampMs: number): string {
 
 /**
  * 配置时区的 YYYY-MM-DD HH:mm:ss.SSS；用于落盘日志条目的 key 前缀。
+ * 日期段按本线程 TimeZoneState 的 logDateDay / logDatePrefix 单槽复用，只在日序号变化时重算。
  * @param timestampMs Unix 毫秒时间戳。
  * @returns `YYYY-MM-DD HH:mm:ss.SSS` 格式的日志时间戳字符串。
  */
@@ -211,12 +212,17 @@ export function formatLogTimestamp(timestampMs: number): string {
   validateFormatTimestamp(timestampMs);
   const shifted: number = timestampMs + localOffsetMs(timestampMs);
   const days: number = Math.floor(shifted / DAY_MS);
+  const state: TimeZoneState = getTimeZoneState();
+  if (state.logDateDay !== days) {
+    state.logDatePrefix = `${formatCivilDate(days, "-")} `;
+    state.logDateDay = days;
+  }
   const millisecondOfDay: number = shifted - days * DAY_MS;
   const millisecond: number = millisecondOfDay % 1_000;
   const millisecondText: string = millisecond < 10
     ? `00${millisecond}`
     : millisecond < 100 ? `0${millisecond}` : `${millisecond}`;
-  return `${formatCivilDate(days, "-")} ${formatSecondOfDay((millisecondOfDay / 1_000) | 0)}.${millisecondText}`;
+  return `${state.logDatePrefix}${formatSecondOfDay((millisecondOfDay / 1_000) | 0)}.${millisecondText}`;
 }
 
 /**

@@ -40,6 +40,7 @@ export type ChatTargetsQaEditorFormSlice = Pick<
 export type ChatTargetsMemberAddFormSlice = Pick<
   MiniAppChatsStoreState,
   | "mutatingTargets"
+  | "preparingPickerMode"
   | "targetAddMenuOpen"
   | "targetIdFormOpen"
   | "deleteTargetInput"

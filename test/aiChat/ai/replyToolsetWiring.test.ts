@@ -22,7 +22,7 @@ import type { AgentDeploymentConfig, TtsBotLanguage } from "../../../packages/ty
 import type { AiMeteredSpeechRequest, AiWebSearchResult } from "../../../packages/types/aiChat/provider";
 import type { SpeechSynthesisAttempt } from "../../../packages/types/aiChat/voiceMessage";
 import type { ReplyToolset } from "../../../packages/types/aiChat/replies";
-import type * as AiProviderModule from "../../../packages/aiChat/provider";
+import type * as AiProviderModule from "../../../packages/workers/aiChat/provider";
 
 const {
   ACTION_TOOL_NAMES,
@@ -50,9 +50,9 @@ const {
   webSearchToolStatus,
 } = await import("../../../packages/consts/aiChat/prompts/tools");
 const { TTS_BOT_LANGUAGES, TTS_DEFAULT_BOT_LANGUAGE } = await import("../../../packages/consts/aiChat/voiceMessage");
-const { createReplyToolset } = await import("../../../packages/aiChat/ai/tools/replyToolset/orchestrator");
-const { createAddReactionExecutor } = await import("../../../packages/aiChat/ai/tools/replyToolset/reaction");
-const providerModule: typeof AiProviderModule = await import("../../../packages/aiChat/provider");
+const { createReplyToolset } = await import("../../../packages/workers/aiChat/ai/tools/replyToolset/orchestrator");
+const { createAddReactionExecutor } = await import("../../../packages/workers/aiChat/ai/tools/replyToolset/reaction");
+const providerModule: typeof AiProviderModule = await import("../../../packages/workers/aiChat/provider");
 const { stickerMenuCache, stickerMenuRevision } =
   await import("../../../packages/cache/workers/aiChat/stickers/menu");
 

@@ -38,8 +38,9 @@ export interface CaptureFencedTextParams {
 /**
  * 把区间内的 `pre` 实体还原成字面 CODE_FENCE 围栏，取出可直接落盘的文本。
  *
- * 只认完整落在区间内的 `pre` 实体；跨越区间边界的实体按普通文本取出。区间内没有
- * `pre` 实体时返回的就是 `text.slice(start, end)`，不产生额外拼接。
+ * 只认完整落在区间内的 `pre` 实体；跨越区间边界的实体按普通文本取出。当 `pre` 前后紧贴同行文本
+ * （或紧邻另一个 `pre` 实体）时，自动在围栏外侧补齐换行符，保证开栏与闭栏各占独立一行以便
+ * `renderFencedText` 完整还原。区间内没有 `pre` 实体时返回的就是 `text.slice(start, end)`，不产生额外拼接。
  * @param params 消息正文、实体表与截取起止区间。
  * @returns 还原字面代码块围栏后的区间文本。
  */
@@ -59,8 +60,10 @@ export function captureFencedText({
     // 越界或与前一个实体重叠的实体一律跳过，cursor 不回退。
     if (from < cursor || to > end) continue;
     captured += text.slice(cursor, from);
+    if (captured.length > 0 && !captured.endsWith("\n")) captured += "\n";
     captured +=
       `${CODE_FENCE}${storableFenceLanguage(entity.language)}\n${text.slice(from, to)}\n${CODE_FENCE}`;
+    if (to < end && text[to] !== "\n") captured += "\n";
     cursor = to;
   }
   if (cursor === start) return text.slice(start, end);

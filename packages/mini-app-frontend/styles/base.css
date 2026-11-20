@@ -234,11 +234,14 @@ body,
   --ease-exit: cubic-bezier(0.32, 0, 0.67, 0);
   width: 100%;
   min-width: 100%;
-  min-height: 100vh;
-  overflow-x: hidden;
   overflow-anchor: none;
   scrollbar-width: none;
   -ms-overflow-style: none;
+}
+
+html, body {
+  min-height: var(--tg-viewport-height, var(--tg-viewport-stable-height, 100dvh));
+  overflow-x: hidden;
 }
 
 html:has(.chat-targets-backdrop),
@@ -262,7 +265,10 @@ body {
   background-size: 16px 16px;
   background-position: 0 0;
   color: var(--text);
-  padding: 10px 10px calc(36px + var(--tg-safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)));
+  padding:
+    calc(10px + var(--tg-safe-area-inset-top, env(safe-area-inset-top, 0px)) + var(--tg-content-safe-area-inset-top, 0px))
+    10px
+    calc(36px + var(--tg-safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)));
   line-height: 1.45;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;

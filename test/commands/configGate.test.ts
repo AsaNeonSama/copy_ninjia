@@ -107,7 +107,15 @@ describe("部署配置写坏时的 enable 拒绝", () => {
       replyToMessageId: 7,
     });
     // 用户回执为中文文案，日志记录英文定位信息。
-    expect(loggerError).toHaveBeenCalledWith(expect.stringContaining("Invalid config/dynamic/mood.json"));
+    expect(loggerError).toHaveBeenCalledWith(
+      "Feature is unavailable because its configuration is unusable.",
+      expect.objectContaining({
+        feature: "AI chat",
+        chatId: -1001,
+        file: "config/dynamic/mood.json",
+        reason: expect.stringContaining("Invalid config/dynamic/mood.json"),
+      })
+    );
   });
 
   test("/ai_chat disable 不受配置影响：坏掉之后仍要能清残留开关", async () => {
@@ -216,7 +224,13 @@ describe("refuseIfConfigBroken", () => {
       text: (file: string): string => `坏了：${file}`,
     })).resolves.toBe(true);
     expect(loggerError.mock.calls).toEqual([[
-      "Test feature is unavailable in chat -1001: config/agent.json is unusable — Invalid config/agent.json: boom",
+      "Feature is unavailable because its configuration is unusable.",
+      {
+        feature: "Test feature",
+        chatId: -1001,
+        file: "config/agent.json",
+        reason: "Invalid config/agent.json: boom",
+      },
     ]]);
     expect(sendMessage.mock.calls).toEqual([[{ chatId: -1001, text: "坏了：config/agent.json", replyToMessageId: 7 }]]);
   });

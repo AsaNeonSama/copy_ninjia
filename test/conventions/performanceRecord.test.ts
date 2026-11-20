@@ -169,6 +169,6 @@ describe("全量性能记录约定", () => {
 
   test("performance-result.json 不是合法 JSON 时门禁直接抛错", async (): Promise<void> => {
     const root: string = await recordFixture({ pages: [], result: "{ fullSuite: " });
-    await expect(collectPerformanceRecordProblems(root)).rejects.toThrow();
+    await expect(collectPerformanceRecordProblems(root)).rejects.toThrow(SyntaxError);
   });
 });

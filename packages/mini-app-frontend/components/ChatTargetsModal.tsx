@@ -19,8 +19,8 @@ import type {
   MiniAppChatDetail,
   MiniAppChatTargetKind,
   MiniAppChatTargetsView,
-  MiniAppLanguage,
-} from "../types/miniApp";
+} from "../types/miniApp/chats";
+import type { MiniAppLanguage } from "../types/miniApp/ui";
 import type {
   ChatTargetsMemberAddFormSlice,
   ChatTargetsMemberPanelsSlice,
@@ -245,6 +245,7 @@ function selectMemberAddFormSlice(
 ): ChatTargetsMemberAddFormSlice {
   return {
     mutatingTargets: state.mutatingTargets,
+    preparingPickerMode: state.preparingPickerMode,
     targetAddMenuOpen: state.targetAddMenuOpen,
     targetIdFormOpen: state.targetIdFormOpen,
     deleteTargetInput: state.deleteTargetInput,

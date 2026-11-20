@@ -18,7 +18,6 @@ export {
   confirmIdentityPolicyPersisted,
   queueBlocklistDeletion,
   queueIdentityPolicyWrite,
-  requeueUnacknowledgedIdentityWrite,
 } from "./identityStorage/write";
 export {
   hasAnyBlockedIdentity,

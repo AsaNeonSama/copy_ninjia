@@ -1,4 +1,4 @@
-import type { MiniAppBlocklistPage } from "../types/miniApp";
+import type { MiniAppBlocklistPage } from "../types/miniApp/identities";
 import { miniAppFetchJson } from "./request";
 
 /**

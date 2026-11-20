@@ -16,11 +16,12 @@ const create = mock(async (..._args: unknown[]): Promise<unknown> => ({}));
 const getGeminiClient = mock((_capability: string): unknown => ({ interactions: { create } }));
 const loggerError = mock((..._args: unknown[]): void => {});
 
-mock.module("../../../packages/aiChat/gemini/client", () => ({ getGeminiClient }));
+mock.module("../../../packages/workers/aiChat/gemini/client", () => ({ getGeminiClient }));
 mock.module("../../../packages/infra/logger", () => ({ logger: loggerStub({ error: loggerError }) }));
 
-const { synthesizeGeminiSpeech } = await import("../../../packages/aiChat/gemini/speech");
+const { synthesizeGeminiSpeech } = await import("../../../packages/workers/aiChat/gemini/speech");
 const {
+  GEMINI_SPEECH_ERROR_LABEL,
   GEMINI_SPEECH_REQUEST_ATTEMPTS,
   GEMINI_SPEECH_REQUEST_TIMEOUT_MS,
   GEMINI_SPEECH_TEMPERATURE,
@@ -174,7 +175,11 @@ describe("Gemini 语音合成适配器", () => {
   test("请求失败归一成 null 并记英文日志", async () => {
     create.mockRejectedValueOnce(new Error("boom"));
     await expect(synthesizeGeminiSpeech({ text: "p" })).resolves.toBeNull();
-    expect(loggerError).toHaveBeenCalledWith("Error calling Gemini speech synthesis API:", expect.any(Error));
+    expect(loggerError).toHaveBeenCalledWith(
+      "Error calling speech synthesis API:",
+      { errorLabel: GEMINI_SPEECH_ERROR_LABEL },
+      expect.any(Error)
+    );
   });
 
   test("没有音频或载荷不合格时带原因记日志", async () => {
@@ -191,9 +196,16 @@ describe("Gemini 语音合成适配器", () => {
     }));
     await expect(synthesizeGeminiSpeech({ text: "p" })).resolves.toBeNull();
 
-    const messages: string[] = loggerError.mock.calls.map((call: unknown[]): string => String(call[0]));
-    expect(messages[0]).toBe("Gemini speech synthesis API returned no audio payload.");
-    expect(messages[1]).toContain("missing audio mime type");
-    expect(messages[2]).toContain("exceeds the size limit");
+    expect(loggerError.mock.calls).toEqual([
+      ["Provider speech synthesis returned no audio payload.", { errorLabel: GEMINI_SPEECH_ERROR_LABEL }],
+      [
+        "Speech synthesis API returned an unusable audio payload.",
+        { errorLabel: GEMINI_SPEECH_ERROR_LABEL, reason: "missing audio mime type" },
+      ],
+      [
+        "Speech synthesis API returned an unusable audio payload.",
+        { errorLabel: GEMINI_SPEECH_ERROR_LABEL, reason: expect.stringContaining("exceeds the size limit") },
+      ],
+    ]);
   });
 });

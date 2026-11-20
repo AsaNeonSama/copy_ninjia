@@ -4,21 +4,21 @@
  *
  * 系统提示词分段携带判定规则与部署示例（params.instructions，配置缓存断点）及系统事实（params.fact）；
  * 输出经 `output_config.format`（json_schema）约束为 AD_DETECT_JSON_SCHEMA。客户端构造、拒答回退、
- * 用量上报与回退诊断复用 aiChat/anthropic/sdkClient.ts，单例持有于 cache/workers/antiRaid/anthropic.ts。
+ * 用量上报与回退诊断复用 aiProviders/anthropic/sdkClient.ts，单例持有于 cache/workers/antiRaid/anthropic.ts。
  */
 
 import Anthropic, { BetaFallbackState } from "@anthropic-ai/sdk";
+import { adDetectStopping } from "../../../../cache/workers/antiRaid/adDetect";
 import { adDetectAnthropicClientHolder } from "../../../../cache/workers/antiRaid/anthropic";
 import { logger } from "../../../../infra/logger";
 import { reportAnthropicUsage } from "../../../../infra/aiCacheUsage";
-import { diagnosticWithDetails } from "../../../../aiChat/ai/utils/finishDetails";
-import { anthropicStopDetailsJson, messageText } from "../../../../aiChat/anthropic/response";
+import { anthropicStopDetailsJson, messageText } from "../../../../aiProviders/anthropic/response";
 import {
   anthropicServedModel,
   createAnthropicClient,
   logAnthropicFallback,
   pinnedFallbackIndex,
-} from "../../../../aiChat/anthropic/sdkClient";
+} from "../../../../aiProviders/anthropic/sdkClient";
 import { getAdDetectAgentConfig } from "../../../../config/agent";
 import {
   AD_DETECT_ANTHROPIC_REQUEST_MAX_RETRIES,
@@ -56,10 +56,10 @@ interface AnthropicAdDetectAttempt {
   readonly unusable: boolean;
   /** 实际服务本次响应的模型 ID。 */
   readonly model: string;
-  /** 响应结束原因（`stop_reason`）；缺失时为 `"?"`。 */
-  readonly stopReason: string;
-  /** `stop_details` 去掉回退额度令牌后的诊断串（见 aiChat/anthropic/response.ts 的 anthropicStopDetailsJson）；没有详情时为 undefined。 */
-  readonly stopDetails: string | undefined;
+  /** 响应结束原因（`stop_reason`）；缺失时为 null。 */
+  readonly stopReason: string | null;
+  /** `stop_details` 去掉回退额度令牌后的诊断串（见 aiProviders/anthropic/response.ts 的 anthropicStopDetailsJson）；没有详情时为 null。 */
+  readonly stopDetails: string | null;
 }
 
 /**
@@ -102,17 +102,20 @@ async function attemptAnthropicAdDetectJson({
       refused: message.stop_reason === "refusal",
       unusable: message.stop_reason === "max_tokens" || message.stop_reason === "model_context_window_exceeded",
       model: message.model,
-      stopReason: message.stop_reason ?? "?",
-      stopDetails: anthropicStopDetailsJson(message),
+      stopReason: message.stop_reason ?? null,
+      stopDetails: anthropicStopDetailsJson(message) ?? null,
     };
   } catch (error: unknown) {
     if (client !== undefined) {
       logAnthropicFallback({ errorLabel, client, requestedModel: model, indexBefore, fallbackState, message: undefined });
     }
     if (error instanceof Anthropic.APIError) {
-      logger.error(`${errorLabel} failed: ${error.message}`);
+      logger.error(
+        "Ad detection API request failed.",
+        { errorLabel, errorMessage: error.message }
+      );
     } else {
-      logger.error(`Error calling ${errorLabel}:`, error);
+      logger.error("Ad detection request failed:", { errorLabel }, error);
     }
     return null;
   }
@@ -132,11 +135,19 @@ export async function requestAnthropicAdDetectJson(
     extractUsableBody: (result: AnthropicAdDetectAttempt): string | null =>
       !result.refused && !result.unusable && result.body.trim().length > 0 ? result.body : null,
     canRetry: (result: AnthropicAdDetectAttempt): boolean => !result.refused,
+    shouldContinue: (): boolean => !adDetectStopping.current,
     logExhausted: (result: AnthropicAdDetectAttempt, attempts: number): void => {
       logger.error(
-        `${params.errorLabel} produced no usable body in ${attempts} attempt(s) ` +
-        `(${diagnosticWithDetails(`model=${result.model}, stop_reason=${result.stopReason}`, result.stopDetails)}, ` +
-        `hasPartialText=${result.body.length > 0}, max_tokens=${params.maxOutputTokens}).`
+        "Ad detection request produced no usable body.",
+        {
+          errorLabel: params.errorLabel,
+          attempts,
+          model: result.model,
+          stopReason: result.stopReason,
+          stopDetails: result.stopDetails,
+          hasPartialText: result.body.length > 0,
+          maxTokens: params.maxOutputTokens,
+        }
       );
     },
   });

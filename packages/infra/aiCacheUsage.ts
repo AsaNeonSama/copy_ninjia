@@ -89,7 +89,7 @@ export function warnAiUsageUnavailable(
   const key: AiUsageWarningKey = `${capability}/${provider}/${reason}`;
   if (aiUsageWarningKeys.has(key)) return;
   aiUsageWarningKeys.add(key);
-  logger.warn(`AI token usage unavailable: capability=${capability}, provider=${provider}, reason=${reason}.`);
+  logger.warn("AI token usage unavailable.", { capability, provider, reason });
 }
 
 /**

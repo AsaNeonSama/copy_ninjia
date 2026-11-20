@@ -1,4 +1,4 @@
-/** owner: workers/aiChat。非贴纸目录媒体的临时视觉/语音描述缓存（packages/aiChat/ai/imageDescription.ts）。 */
+/** owner: workers/aiChat。非贴纸目录媒体的临时视觉/语音描述缓存（packages/workers/aiChat/ai/imageDescription.ts）。 */
 
 import type { SharedResult } from "../../../libs/sharedResult";
 import { LruCache } from "../../../libs/lruCache";

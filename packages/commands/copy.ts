@@ -141,7 +141,7 @@ async function stopCopyOwnedByChat(chatId: number, reason: ChatTeardownReason): 
   if (globalCopy.copiedUser === null || globalCopy.copyChatId !== chatId) return;
   clearCopyTarget();
   await persistGlobalState("copy teardown");
-  logger.log(`Stopped the copy owned by chat ${chatId} after teardown (${reason}).`);
+  logger.info("Stopped the copy owned by chat after teardown.", { chatId, reason });
   queueAvatarUpdate({ chatId, target: { kind: "default" }, source: "copy", silent: true });
 }
 

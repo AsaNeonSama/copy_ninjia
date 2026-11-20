@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { decodeWavPcm } from "../../../../packages/aiChat/ai/utils/wavPcm";
+import { decodeWavPcm } from "../../../../packages/workers/aiChat/ai/utils/wavPcm";
 import type { WavPcmDecodeFailure, WavPcmDecodeResult } from "../../../../packages/types/aiChat/voiceMessage";
 import { dataChunk, fmtChunk, wav } from "../../../helpers/wav";
 import type { WavChunk } from "../../../helpers/wav";

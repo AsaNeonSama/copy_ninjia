@@ -27,22 +27,25 @@
     - 発言制限・削除・おみくじ：`/gag` は入口を `gag.ts`、ライフサイクル・インライン・通知・更新・純粋描画を `gag/runtime.ts`、`gag/inline.ts`、`gag/notices.ts`、`gag/refresh.ts`、`gag/rendering.ts` に分離。`/delete_message` はコマンドとメッセージ ingress を `deleteMessage.ts`、削除キューと停止時ドレインを `deleteMessage/queue.ts` が担当。インラインおみくじは `luckChallenge/`（`cache.ts`、`draw.ts`、`key.ts`、`rateLimit.ts`、`receipt.ts`、`rendering.ts`、`telegramAdapter.ts`。`index.ts` は薄い公開ファサード）が担当。
 - **`packages/mini-app-api-server/`**
   - **責務**：スーパー管理者専用の Telegram Mini App 管理コンソールのサーバー側。`packages/` 配下の定数・型・機能モジュールを bot サービスと共有します：
-    - **機能とデータビュー**：実行状態と AI 機嫌切替、初期化済みグループ管理（1–24 時間ローリング参加人数集計・`/batch_kick` 一括退会・カスタム Q&A・発言削除対象・翻訳対象）、ホット 256 メッセージ、ホワイトリスト／ブラックリストと権限、画像庫ビュー、Google Authenticator (TOTP) 2FA の永続化、ネイティブ連絡先／チャンネルピッカーセッション（ホワイトリスト・ブラックリスト・削除対象・翻訳対象のインポート）、ならびに `/favicon.ico` と未認可時の独立 `reject.html`。
-    - **ルーティングと層構造**：`server/serve.ts` がローカル `Bun.serve` の起動・停止を担当。領域別の `routes/` 断片を `server/register.ts` が統合し（サブパスプレフィックス設定時は `${basePath}` 付きエイリアスも登録）、末尾スラッシュのリダイレクト、フロントエンド静的アセットのゲート配信、保護画像拡張子パスの認証、未知パス／メソッド不一致のフォールバックを担います。ハンドラは `handlers/`、同期認証パイプラインとルートポリシーは `middleware/`、ゲート Cookie・パスワードセッション・ロック・TOTP は `auth/`、ピッカーは `picker/`、データビューは `view/`、共通のリクエスト／レスポンス／パス／ファイル名処理は `libs/` に配置。
-    - **フロントエンド配信ゲート**：`server/register.ts` が `packages/mini-app-frontend/index.html` を HTML import で取り込み（サーバーからフロントエンドへの唯一の参照）、スーパー管理者ゲート通過後にのみフロントエンド成果物をオンデマンドで実体化して配信し、未認可の単一ページ要求には `resource/reject.html` を返します。
-  - **代表ファイル**：`server/`（`serve.ts`、`register.ts`）、`routes/`（`page.ts`、`auth.ts`、`status.ts`、`totp.ts`、`chats.ts`、`identities.ts`、`gallery.ts`）、`handlers/`（`routes/` と同名の領域別ハンドラ）、`middleware/`（`pipeline.ts`、`headerGuard.ts`、`initData.ts`、`sessionToken.ts`）、`auth/`（`pageGate.ts`、`session.ts`、`totpStorage.ts`）、`picker/`（`sessions.ts`、`prepare.ts`、`sharedMessage.ts`）、`view/`（`status.ts`、`gallery.ts`、`messages.ts`）とその配下の `chats/`（`query.ts`、`toggle.ts`、`batchKick.ts`、`targets.ts`、`targetInput.ts`）・`identities/`（`whitelist.ts`、`blocklist.ts`、`page.ts`、`metadata.ts`）、`libs/`（`request.ts`、`response.ts`、`routePath.ts`、`downloadFileName.ts`）、`resource/`（`favicon.ico`、`reject.html`）。`index.ts` は薄い公開ファサードを提供。
+    - **機能とデータビュー**：256-bit 一時セッション鍵と AES-256-GCM 業務ペイロード暗号化通信、実行状態と AI 機嫌切替、初期化済みグループ管理（1–24 時間ローリング参加人数集計・`/batch_kick` 一括退会・カスタム Q&A・発言削除対象・翻訳対象）、ホット 256 メッセージ、ホワイトリスト／ブラックリストと権限、オンラインのデプロイ JSON 設定編集（`config/{dynamic,static}/*.json`）とサービス再起動、画像庫ビュー、Google Authenticator (TOTP) 2FA の永続化、ネイティブ連絡先／チャンネルピッカーセッション（ホワイトリスト・ブラックリスト・削除対象・翻訳対象のインポート）、ならびに `/favicon.ico` と未認可時の独立 `reject.html`。
+    - **ルーティングと層構造**：`server/serve.ts` がローカル `Bun.serve` の起動・停止を担当。領域別の `routes/` 断片を `server/register.ts` が統合し（サブパスプレフィックス設定時は `${basePath}` 付きエイリアスも登録）、末尾スラッシュのリダイレクト、フロントエンド静的アセットのゲート配信、保護画像拡張子パスの認証、未知パス／メソッド不一致のフォールバックを担います。ハンドラは `handlers/`、同期認証・暗号化リクエスト復号・AES-256-GCM 封筒パイプラインとルートポリシーは `middleware/`、ゲート Cookie・TLS モード一時 X25519 ハンドシェイクと起動時メモリ生成 Ed25519 署名検証・一時セッション鍵・ダウンロードチケット・ロック・TOTP は `auth/`、ピッカーは `picker/`、データビューと設定検証・保存は `view/`、AES-GCM・ハンドシェイク暗号化と共通のリクエスト／レスポンス／パス／ファイル名処理は `libs/` に配置。
+    - **フロントエンド配信ゲート**：`server/register.ts` が `packages/mini-app-frontend/index.html` を HTML import で取り込み（サーバーからフロントエンドへの唯一の参照）、スーパー管理者ゲート通過後にのみ起動時メモリ生成 Ed25519 公開鍵を注入したフロントエンド成果物をオンデマンドで実体化して配信し、未認可の単一ページ要求には `resource/reject.html` を返します。
+  - **代表ファイル**：`server/`（`serve.ts`、`register.ts`）、`routes/`（`page.ts`、`auth.ts`、`status.ts`、`totp.ts`、`chats.ts`、`configs.ts`、`identities.ts`、`gallery.ts`）、`handlers/`（`routes/` と同名の領域別ハンドラ）、`middleware/`（`pipeline.ts`、`encryptedRequest.ts`、`headerGuard.ts`、`initData.ts`、`sessionToken.ts`）、`auth/`（`handshake.ts`、`lockout.ts`、`pageGate.ts`、`session.ts`、`sessionLookup.ts`、`sessionCommit.ts`、`sessionLifecycle.ts`、`downloadTicket.ts`、`totpStorage.ts`）、`picker/`（`sessions.ts`、`prepare.ts`、`sharedMessage.ts`）、`view/`（`status.ts`、`gallery.ts`、`messages.ts`）とその配下の `chats/`（`query.ts`、`toggle.ts`、`batchKick.ts`、`targets.ts`、`targetInput.ts`）・`configs/`（`storage.ts`、`validate.ts`）・`identities/`（`whitelist.ts`、`blocklist.ts`、`page.ts`、`metadata.ts`）、`libs/`（`crypto.ts`、`handshakeCrypto.ts`、`request.ts`、`response.ts`、`routePath.ts`、`downloadFileName.ts`）、`resource/`（`favicon.ico`、`reject.html`）。`index.ts` は薄い公開ファサードを提供。
 - **`packages/mini-app-frontend/`**
   - **責務**：中・日・英 3 言語とライト／ダークテーマに対応した Mini App の React + Zustand WebApp フロントエンド：
-    - **データと描画の分離**：`api/` はエンドポイントごとに 1 ファイル（共通認証ヘッダーと JSON リクエストは `api/request.ts`）、`store/` はページ・領域単位で状態と非同期アクションを保持（`app.ts` はグローバル単一インスタンス、他はマウント時に `libs/componentStore.ts` で専有生成しアンマウントで破棄）、`pages/` はトップレベル画面、`components/` は UI ブロック（読み込みスケルトンは `components/skeletons/`）、3 言語文言は `i18n/languages/`（`i18n/index.ts` が唯一のエントリ）に配置。
-    - **アニメーションと折りたたみエンジン**：`components/animations/` に CSS 連携トランジション、バネ感スライダー、遅延アンマウント通知ラッパー（`InlineNoticeCollapse`）、および単一のフレーム時計でパネルの高さ・位置・透明度・縦 Flex 間隔補間補正・物理ピクセル整列（`devicePixelRatio`）された追従／復帰スクロールを同期駆動する折りたたみエンジンを配置。
+    - **データと描画の分離**：`api/` はエンドポイントごとに 1 ファイル（共通認証ヘッダー・AES-256-GCM 封筒暗号化／復号・スライディング更新は `api/request.ts`）、`store/` はページ・領域単位で状態と非同期アクションを保持（`app.ts` はグローバル単一インスタンス、他はマウント時に `libs/componentStore.ts` で専有生成しアンマウントで破棄）、`pages/` はトップレベル画面、`components/` は UI ブロック（`JsonCodeEditor.tsx` や `ConfigFileSelector.tsx` を含み、読み込みスケルトンは `components/skeletons/`）、3 言語文言は `i18n/languages/` と `i18n/configs/`（`i18n/index.ts` が唯一のエントリ）に配置。
+    - **アニメーションと折りたたみエンジン**：`components/animations/` に CSS 連携トランジション、バネ感スライダー、遅延アンマウント通知ラッパー（`InlineNoticeCollapse`）、および単一のフレーム時計でパネルの高さ・位置・透明度・縦 Flex 間隔補間補正・物理ピクセル整列（`devicePixelRatio`）された追従／復帰スクロールを同期駆動する折りたたみエンジン（`flipCollapse.ts`、`flipCollapseGeometry.ts`、`flipCollapseTransition.ts`）を配置。
     - **外部非依存の境界と整合検証**：このディレクトリ外のファイルを一切参照せず（`import type` や HTML／CSS リソース参照を含む）、npm 依存のみルート `package.json` を共用します。フロントエンド固有定数（`consts/animation.ts` など）およびサーバーと重なる定数・型・関数・`favicon.ico` の複製は `consts/`、`types/`、`libs/`、`resource/` に置き、`test/mini-app-frontend/frontendParity.test.ts` が CSP SHA-256 ハッシュや `reject.html` のスタイル・文言を含めて完全一致を検証し、`bun run check:conventions` が import 境界を強制します。
-  - **代表ファイル**：`index.html`、`main.tsx`、`App.tsx`、`styles.css` と `styles/`（`base.css`、`shell.css`、`primitives.css`、`skeletons.css`、`status.css`、`chats.css`、`chats-detail.css`、`chats-targets.css`、`identities.css`、`overlays.css`、`pagination.css`、`gallery.css`、`auth.css`）、`api/`、`store/`（`app.ts`、`status.ts`、`chats.ts`、`chatTargetsActions.ts`、`messages.ts`、`identities.ts`、`permissionDrawer.ts`、`gallery.ts`、`totp.ts`）、`pages/`（`StatusPage.tsx`、`ChatsPage.tsx`、`IdentitiesPage.tsx`、`GalleryPage.tsx`、`TotpPage.tsx`、`AuthGatePage.tsx`, `AccessDeniedPage.tsx`）、`components/`（`skeletons/` と `animations/` を含む）、`libs/`（`componentStore.ts`、`credentials.ts`、`telegram.ts`、`formatters.ts`、`loading.ts`、`errorMessage.ts` など）、`i18n/`（`index.ts` と `languages/`）、`consts/`（`miniApp.ts`、`animation.ts`、`whitelist.ts`、`memory.ts`、`time.ts`、`exhaustiveList.ts`）、`types/`、`resource/`（`favicon.ico`、`index.ts` と `icons/`）。
+  - **代表ファイル**：`index.html`、`main.tsx`、`App.tsx`、`styles.css` と `styles/`（`base.css`、`shell.css`、`primitives.css`、`skeletons.css`、`status.css`、`chats.css`、`chats-detail.css`、`chats-targets.css`、`configs.css`、`identities.css`、`overlays.css`、`pagination.css`、`gallery.css`、`auth.css`）、`api/`、`store/`（`app.ts`、`appGateActions.ts`、`status.ts`、`chats.ts`、`chatMutationActions.ts`、`chatTargetsActions.ts`、`chatTargetsMutations.ts`、`messages.ts`、`configs.ts`、`configsHelpers.ts`、`configsPersistence.ts`、`identities.ts`、`identitiesMutations.ts`、`nativePicker.ts`、`permissionDrawer.ts`、`gallery.ts`、`totp.ts`）、`pages/`（`StatusPage.tsx`、`ChatsPage.tsx`、`ConfigsPage.tsx`、`IdentitiesPage.tsx`、`GalleryPage.tsx`、`TotpPage.tsx`、`AuthGatePage.tsx`, `AccessDeniedPage.tsx`）、`components/`（`ConfigFileSelector.tsx`、`JsonCodeEditor.tsx`、`skeletons/`、`animations/` を含む）、`libs/`（`componentStore.ts`、`credentials.ts`、`sessionKeyStorage.ts`、`crypto.ts`、`handshakeCrypto.ts`、`signingKey.ts`、`galleryImageCache.ts`、`useGalleryImageUrls.ts`、`jsonHighlight.ts`、`jsonLexer.ts`、`statusQuadGeometry.ts`、`statusQuadMosaic.ts`、`telegram.ts`、`formatters.ts`、`loading.ts`、`errorMessage.ts` など）、`i18n/`（`index.ts`、`languages/`、`configs/`）、`consts/`（`miniApp.ts` と `miniApp/` 配下の `animation.ts`/`auth.ts`/`chats.ts`/`gallery.ts`/`ui.ts`、`miniAppConfig.ts`、`miniAppCrypto.ts`、`animation.ts`、`statusMosaic.ts`、`whitelist.ts`、`memory.ts`、`time.ts`、`exhaustiveList.ts`）、`types/`（テスト互換バレル `miniApp.ts` と `miniApp/` 配下の `auth.ts`/`chats.ts`/`gallery.ts`/`host.ts`/`identities.ts`/`status.ts`/`ui.ts`、`miniAppConfigs.ts`、`statusMosaic.ts` を含む）、`resource/`（`favicon.ico`、`index.ts` と `icons/`）。
 - **`packages/auto/`**
   - **責務**：リピート、AI トリガーおよび文字起こし、リアクション同期など、明示的なスラッシュコマンド以外の自動応答パイプライン。
   - **代表ファイル**：`message/`（発火ポリシーの `triggerPolicy.ts` を含む）、`reactionSync.ts`。
 - **`packages/aiChat/`**
-  - **責務**：メインスレッド側の AI 会話プロキシおよびモデル機能の抽象化。Worker 監視、メモリミラー、起動時・ホットリロード時のステート投入、利用可能判定、プロバイダ実装（`gemini/`、`openai/`、`anthropic/`）のルーティング、スタンプ、ツール、メディア処理。
-  - **代表ファイル**：`workerBridge.ts`、`hydration.ts`、`messageIngress.ts`、`abuseMark.ts`、`botImages.ts`（Bot 自身の送信画像のプレースホルダー自己記録）、`voiceSynthesis.ts`（`/send` や cron からの音声合成ジョブ待機・解決）、`webDigest.ts`（cron による Web ダイジェスト生成待機・解決）、`memoryMirror.ts`、`stickerMirror.ts`（スタンプ目録スナップショットのメインスレッドミラー）、`workerJob.ts`（AI Worker へのキャンセル可能ジョブ発行基盤）、`availability.ts`、`provider.ts`、`providerFacades.ts`（機能ごとのプロバイダファサード）、`providerLanes.ts`（プロトコル・エンドポイント別のクォータレーン管理）、`capabilityClient.ts`（共通クライアント基盤）、`gemini/`、`openai/`、`anthropic/`、`ai/`。`index.ts` は薄い公開エクスポートのみ提供。
+  - **責務**：メインスレッド側の AI 会話プロキシとスレッド横断の純粋ヘルパー。Worker 監視、メモリおよびスタンプ目録のミラー、起動時・ホットリロード時のステート投入、利用可能判定、音声合成・Web ダイジェスト委託プロキシ、ならびにメインスレッドと AI Worker が共用する純粋整形・自己記録ビルダーを担当。
+  - **代表ファイル**：`workerBridge.ts`、`hydration.ts`、`messageIngress.ts`、`abuseMark.ts`、`botImages.ts`（Bot 自身の送信画像のプレースホルダー自己記録）、`voiceSynthesis.ts`（`/send` や cron からの音声合成ジョブ待機・解決）、`webDigest.ts`（cron による Web ダイジェスト生成待機・解決）、`memoryMirror.ts`、`stickerMirror.ts`（スタンプ目録スナップショットのメインスレッドミラー）、`workerJob.ts`（AI Worker へのキャンセル可能ジョブ発行基盤）、`availability.ts`、`selfRecord.ts`、`stickerDescribe.ts`。`index.ts` は薄い公開エクスポートのみ提供。
+- **`packages/aiProviders/`**
+  - **責務**：AI 会話 Worker と Anti-Raid 広告検出 Worker の両スレッドが共用するモデルプロバイダ SDK 構築・拒否フォールバックログ・応答パース補助（スレッド専有キャッシュを持たず、特定 Worker やメインスレッドプロキシにも依存しない）。
+  - **代表ファイル**：`finishDetails.ts`、`anthropic/`（`response.ts`、`sdkClient.ts`）、`gemini/`（`response.ts`）。
 - **`packages/antiRaid/`**
   - **責務**：メインスレッド側の Anti-Raid プロキシ。Worker 監視、確実なメッセージ配信（durable delivery）、update 受付、広告候補の収集・判定・処分、ブラックリスト／認証／スパム（flood）防御のオーケストレーション。
   - **代表ファイル**：`workerBridge/`（`controller.ts`、`events.ts`、`observers.ts`、`replay.ts`）、`durableDelivery.ts`、`updateIngress.ts`、`adCandidate.ts`、`adDetect.ts`、`adPunishment.ts`。`index.ts` は薄い公開エクスポートのみ提供。
@@ -63,22 +66,22 @@
   - **代表ファイル**：`verification.ts` と `verification/`（`join` / `pending` / `terminal` / `disable` フェーズ、永続化スナップショットから状態を再構築する `adopt.ts`）、`lockdown.ts` と `lockdown/`（`apply` / `persistence` / `restore` / `announcement` / `adopt` フェーズ）、`replyAdmission.ts`、`adDetectAdmission.ts`、`adPunishment.ts`、`adReferenceWarning.ts`、`temporaryAdBypass.ts`、`mediaInputSupport.ts`。
 - **`packages/config/`**
   - **責務**：デプロイ設定 `config/{static,dynamic}/*.json` の厳格なスキーマ検証、プロセススナップショット作成、ホットリロード判定、機能ごとの readiness（利用可能）判定。ID ポリシーの永続化データは扱いません。
-  - **代表ファイル**：`bot.ts`、`botInput.ts`、`layout.ts`、`agent.ts`、`agentCapability.ts`、`agentTts.ts`、`assets.ts`、`cron.ts`、`cronAction.ts`、`mood.ts`、`persona.ts`、`promptFile.ts`、`stickers.ts`、`stickerPackNames.ts`、`adDetectConfig.ts`、`googleAuth.ts`、`time.ts`、`timeZoneInput.ts`、`urlPolicy.ts`、`snapshotHolder.ts`、`readiness.ts`、`reload.ts`。
+  - **代表ファイル**：`bot.ts`、`botInput.ts`、`logLevel.ts`、`layout.ts`、`agent.ts`、`agentCapability.ts`、`agentTts.ts`、`assets.ts`、`cron.ts`、`cronAction.ts`、`mood.ts`、`persona.ts`、`promptFile.ts`、`stickers.ts`、`stickerPackNames.ts`、`adDetectConfig.ts`、`googleAuth.ts`、`time.ts`、`timeZoneInput.ts`、`urlPolicy.ts`、`snapshotHolder.ts`、`readiness.ts`、`reload.ts`。
 - **`packages/database/`**
   - **責務**：共有 SQLite（identity ポリシーとグループ状態）のスキーマ定義、codec、行バリデーション、Drizzle 接続境界。ランタイムハンドルは Disk I/O Worker のみが排他的に所有。
   - **代表ディレクトリ・ファイル**：`schema/`（`migrations/` を含む）、`codec/identity.ts`、`codec/chatState.ts`、`codec/chatQa.ts`、`codec/temporaryAdBypass.ts`、`interact/`（`connection.ts`、`reader.ts`、`transaction.ts`、`identityPolicy.ts`、`chatState.ts`、`chatQa.ts`、`temporaryAdBypass.ts`、`aiContext.ts`、`migration.ts`、`initialization.ts`、`inspection.ts`、`validation.ts`）、`validation/storageRows.ts`。
 - **`packages/libs/`**
-  - **責務**：アトミックファイル操作、有界キュー、並行制御など、ドメインに依存しない共通ユーティリティ群。
-  - **代表ファイル**：`flushBarrier.ts`、`linkedQueue.ts`、`fifoMap.ts` と `lruCache.ts`（挿入順 FIFO と、それを継承する LRU）、`boundedMap.ts`、`acknowledgedBatchQueue.ts`、`boundedResponse.ts`、`boundedSettledBatch.ts`、`monotonicDeadline.ts`、`digestEqual.ts`、`miniAppAuth.ts`、`miniAppTotpFile.ts`、`stateFileCodec.ts`、`text.ts`、`errorMessage.ts`（catch した `unknown` を文面または Error に正規化する唯一の境界）、`telegramMarkdown.ts`（Telegram MarkdownV2 エスケープの唯一の境界）、`webDigest.ts` と `webDigestMarkdown.ts`（Web ダイジェスト JSON のデコードと MarkdownV2 整形）、`webDigestUrls.ts`（ダイジェスト用 URL 許可リスト）、`workerRequestTable.ts`（メインスレッドから Worker へのリクエスト管理テーブル：リクエスト ID、待機プロミス、タイムアウト、キャンセル、Worker 異常終了時の解決）。
+  - **責務**：アトミックファイル操作、有界キュー、純粋なメディア形式判定、並行制御など、ドメインに依存しない共通ユーティリティ群。
+  - **代表ファイル**：`flushBarrier.ts`、`linkedQueue.ts`、`fifoMap.ts` と `lruCache.ts`（挿入順 FIFO と、それを継承する LRU）、`boundedMap.ts`、`acknowledgedBatchQueue.ts`、`boundedResponse.ts`、`boundedSettledBatch.ts`、`monotonicDeadline.ts`、`digestEqual.ts`、`avatarPhotoType.ts`、`imageFormat.ts`、`video.ts`、`miniAppAuth.ts`、`miniAppTotpFile.ts`、`stateFileCodec.ts`、`text.ts`、`errorMessage.ts`（catch した `unknown` を文面または Error に正規化する唯一の境界）、`telegramMarkdown.ts`（Telegram MarkdownV2 エスケープの唯一の境界）、`webDigest.ts` と `webDigestMarkdown.ts`（Web ダイジェスト JSON のデコードと MarkdownV2 整形）、`webDigestUrls.ts`（ダイジェスト用 URL 許可リスト）、`workerRequestTable.ts`（メインスレッドから Worker へのリクエスト管理テーブル：リクエスト ID、待機プロミス、タイムアウト、キャンセル、Worker 異常終了時の解決）。
 - **`packages/workers/`**
   - **責務**：3 つの Worker スレッド内部の実装ロジック。
   - **代表ファイル**：`aiChatWorker.ts`、`antiRaidWorker.ts`、`diskIOWorker.ts`、`businessWorkerPort.ts`（業務 Worker 共通のスレッド通信ポート：Telegram プロキシ、双方向出站、受信ルーティング）、`aiChat/`、`antiRaid/verificationEffects/`、`diskIO/storageDatabase.ts` と `diskIO/storageDatabase/`（`flushHold.ts` を含む）、`diskIO/verification{Codec,Recovery,Writes}.ts`。
-- **`packages/aiChat/ai/`**
-  - **責務**：各機能に帰属するモデルとツールの実装。
-  - **代表ファイル**：`tools/replyToolset/`、`tools/webSearch.ts`（`web_search` 関数ツールのエグゼキューター）、`webDigest.ts`（cron ダイジェスト生成）、`mediaInputSupport.ts`、`utils/`、`stickers/`、`voiceSynthesis.ts`（音声合成の実装）、`ttsUsage.ts`（音声合成の日次利用カウント）。各モデルベンダーの直接通信はここではなく、`packages/aiChat/{gemini,openai,anthropic}/` に配置。
+- **`packages/workers/aiChat/`**
+  - **責務**：AI 会話 Worker 内部のローリングメモリ、返信オーケストレーション、モデルプロバイダルーティング（`provider.ts`、`providerFacades.ts`、`providerLanes.ts`、`capabilityClient.ts`）、ベンダー別クライアント（`gemini/`、`openai/`、`anthropic/`）、および `ai/` 配下のツール・メディア・スタンプ・天気・音声合成の実装。
+  - **代表ファイル**：`rollingMemory.ts`、`replyPipeline.ts`、`replyRound.ts`、`replyModel.ts`、`provider.ts`、`providerFacades.ts`、`providerLanes.ts`、`capabilityClient.ts`、`gemini/`、`openai/`、`anthropic/`、`ai/`（`tools/replyToolset/`、`tools/webSearch.ts`、`webDigest.ts`、`mediaInputSupport.ts`、`utils/`、`stickers/`、`voiceSynthesis.ts`、`ttsUsage.ts`）。
 - **`packages/workers/antiRaid/adDetect/`**
   - **責務**：プロバイダルーティングされる広告判定パイプライン。バッチキュー、送信者ごとのメッセージバンドル、分類判定、命中時の処分実行。
-  - **代表ファイル**：`queue.ts`、`queueState.ts`、`verdict.ts`（判定と処分のオーケストレーション）、`bundle.ts`、`classifier.ts`、`disposal.ts`、`referencePolicy.ts`、`config.ts`（メインスレッドからの設定スナップショット受信）、`ai/`（`provider.ts` が設定に応じて `google.ts`、`openai.ts`、`anthropic.ts` のいずれかを選択し、空本文の再試行は `emptyBodyRetry.ts` が担う）。
+  - **代表ファイル**：`queue.ts`、`queueState.ts`、`verdict.ts`（判定と処分のオーケストレーション）、`blacklistFastPath.ts`、`bundle.ts`、`classifier.ts`、`disposal.ts`、`referencePolicy.ts`、`config.ts`（メインスレッドからの設定スナップショット受信）、`ai/`（`provider.ts` が設定に応じて `google.ts`、`openai.ts`、`anthropic.ts` のいずれかを選択し、空本文の再試行は `emptyBodyRetry.ts` が担う）。
 - **`packages/infra/`**
   - **責務**：メインスレッド側の唯一の Telegram クライアントと送信ゲート、管理対象グループの権限およびランタイム解体オーケストレーション、`chat_states` のホットキャッシュ・永続化ファサード、Worker 監視ホスト、ロガー、メインスレッド I/O プロキシ、画像ライブラリ・ファイル管理。
   - **代表ディレクトリ・ファイル**：
@@ -89,15 +92,14 @@
     - `logger.ts` と `logger/`（`forwarding.ts`、`redaction.ts`、`serialization.ts`）
     - `supervisedWorker.ts`、`workerSupervisor.ts`
     - `aiCacheUsage.ts`（Prompt キャッシュ消費量集計）
-    - `geminiContextCache.ts`（Gemini コンテキストキャッシュ再利用ロジック）
-    - `imageGallery.ts`、`mediaGroups.ts`
+    - `imageGallery.ts` と `imageGallery/`（`cache.ts`、`inspection.ts`、`operations.ts`）、`mediaGroups.ts`
     - `telegram/fileDownload.ts`、`telegram/commandPhotos.ts`、`commandExecutor.ts`
 - **`packages/infra/identityPolicy/`**
   - **責務**：ホワイトリスト権限、一時広告免除、ブラックリスト排他制御を司るメインスレッド側の読み取り境界。
   - **代表ファイル**：`whitelist.ts`、`temporaryAdBypass.ts`、`coordination.ts`。
 - **`packages/infra/blocklist/`**
   - **責務**：メインスレッド側ブラックリスト基盤。身元判定、同期メンバーシップ、durable outbox、グループ定期クリーンアップ、退会アカウント検知。
-  - **代表ファイル**：`membership.ts`、`outbox.ts`、`participantInvalid.ts`、`sweep.ts`、`sweepEligibility.ts`、`sweepReplay.ts`、`sweepRetryState.ts`、`sweepScheduler.ts`。
+  - **代表ファイル**：`membership.ts`、`outbox.ts`、`participantInvalid.ts`、`sweep.ts`、`sweepEligibility.ts`、`sweepReplay.ts`、`sweepRetryState.ts`、`sweepScheduler.ts`、`sweepSettlement.ts`。
 - **`packages/infra/storage/`**
   - **責務**：データルート事前検査、インスタンス排他ロック、グローバル状態ファサード（`memory/global/state.json`：グローバルの `copy` と `ttsUsage` のみを保持、データルート直下の旧 `state.json` の拒否を含む）、起動時クリーンアップ。グループ別の `chat_states` キャッシュと永続化は `packages/infra/chatStateStorage.ts` が独立して担当。
   - **代表ファイル**：`dataRoot.ts`、`instanceLock.ts`、`stateStore.ts`、`statePersistence.ts`、`cleanup.ts`。`stateStore.ts` は業務メモリとスナップショット、`statePersistence.ts` は厳格デコード、最新値専用書き込み、リトライ、flush を担当。
@@ -106,10 +108,10 @@
   - **代表ディレクトリ**：`main/`、`workers/aiChat/`、`workers/antiRaid/`、`workers/diskIO/`、`perThread/`。
 - **`packages/consts/`**
   - **責務**：リテラル定数、設定しきい値、UI メッセージ文字列テーブルをドメイン別に集約。
-  - **代表ファイル**：`atmosphere/{teasing,plain}/`、`commands.ts`、`configUrl.ts`、`whitelist.ts`、`aiChat/rateLimit.ts`、`antiRaid/`、`diskIO/`。
+  - **代表ファイル**：`atmosphere/{teasing,plain}/`、`commands.ts`、`configUrl.ts`、`whitelist.ts`、`miniApp.ts` と `miniApp/`（`auth.ts`、`features.ts`、`http.ts`）、`miniAppConfig.ts`、`miniAppCrypto.ts`、`aiChat/rateLimit.ts`、`antiRaid/`、`diskIO/`。
 - **`packages/types/`**
   - **責務**：モジュール間インターフェース型、ドメイン型、`types/states/` のステートマシン契約型。
-  - **代表ファイル**：`chatState.ts`、`commands.ts`、`lifecycle.ts`、`diskIO/`（`messages.ts`、`replies.ts`）、`miniApp.ts`（状態を持たない互換型再エクスポート）および `miniApp/`（`auth.ts`、`chats.ts`、`gallery.ts`、`identities.ts`、`server.ts`）。
+  - **代表ファイル**：`chatState.ts`、`commands.ts`、`lifecycle.ts`、`diskIO/`（`messages.ts`、`replies.ts`）、`miniApp.ts`（状態を持たない互換型再エクスポート）および `miniApp/`（`auth.ts`、`chats.ts`、`configs.ts`、`gallery.ts`、`identities.ts`、`server.ts`）。
 - **`test/`**
   - **責務**：`packages/` と 1 対 1 で対応する Bun 単体テスト・結合テストスイート。
 - **`scripts/`**
@@ -155,11 +157,11 @@
 
 `main/antiRaid/` と `workers/antiRaid/` は**メモリを共有しない全く別の状態**です：公式なステートマシンは Worker 内にのみ存在し、メインスレッド側はクラッシュ復旧用の純粋なデータミラーのみを保持します。`bun run check:conventions` が実際のモジュール依存グラフに基づき帰属を検証し（詳細は [04 実行時の正式な不変条件](04-invariants.md#スレッドと状態の帰属) を参照）、違反時は import チェーン全体を出力します。
 
-複数スレッドで再利用されるドメインモジュール（`packages/aiChat/ai/` など）では、純粋関数とスレッド専有キャッシュを分離する必要があります：たとえば [`packages/aiChat/ai/stickers/describe.ts`](../../packages/aiChat/ai/stickers/describe.ts) はメインスレッドのメッセージパイプラインから直接呼び出され、`sets.ts` のスタンプセットキャッシュは AI Worker が専有します。
+複数スレッドで再利用されるドメインモジュールでは、純粋関数とスレッド専有キャッシュを分離する必要があります：たとえば [`packages/aiChat/stickerDescribe.ts`](../../packages/aiChat/stickerDescribe.ts) はメインスレッドのメッセージパイプラインと AI Worker の双方から呼び出され、[`packages/workers/aiChat/ai/stickers/sets.ts`](../../packages/workers/aiChat/ai/stickers/sets.ts) のスタンプセットキャッシュは AI Worker が専有します。AI Worker と Anti-Raid Worker が共用するプロバイダ補助は `packages/aiProviders/` に集約されます。
 
 ## 互換エントリ（barrel）の規約
 
-肥大化したファイルを複数のサブモジュールに分割した際、移行元のファイルは状態を持たない薄い互換 export エントリとして残すことができます（例：`packages/infra/telegram/actions/` に対する `packages/infra/telegram/actions.ts`、`packages/workers/diskIO/storageDatabase/` に対する `packages/workers/diskIO/storageDatabase.ts`）。その際の運用規則は以下のとおりです：
+肥大化したファイルを複数のサブモジュールに分割した際、移行元のファイルは状態を持たない薄い互換 export エントリとして残すことができます（例：`packages/workers/diskIO/storageDatabase/` に対する `packages/workers/diskIO/storageDatabase.ts`）。その際の運用規則は以下のとおりです：
 
 - 互換エントリは、既存の import を段階的に移行するためにのみ存在します。**新規コードを作成する際は、必ず対象ドメインの具体的なサブファイルを直接 import してください。**
 - 互換エントリ自体が可変状態を保持したり、設定ファイルをパースしたり、モジュール import 時に副作用を発生させてはなりません。

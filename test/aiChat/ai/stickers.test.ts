@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
-import { parseToolArguments, readIndexField } from "../../../packages/aiChat/ai/utils/toolArgs";
+import { parseToolArguments, readIndexField } from "../../../packages/workers/aiChat/ai/utils/toolArgs";
 
 /**
  * infra/telegram 的 sendSticker 替换为测试可控的假实现，只覆盖 stickers.ts
@@ -30,11 +30,11 @@ const {
   readStickerIntent,
   sendStickerTool,
   viewStickerPackTool,
-} = await import("../../../packages/aiChat/ai/tools/stickers");
+} = await import("../../../packages/workers/aiChat/ai/tools/stickers");
 const { REPLY_INVALIDATED_TOOL_ERROR, SEND_STICKER_TOOL, VIEW_STICKER_PACK_TOOL } = await import("../../../packages/consts/tools");
 const { MAX_STICKER_PACK_VIEWS_PER_REPLY, STICKER_INTENT_MAX_CHARS } = await import("../../../packages/consts/aiChat/stickers");
 const { VIEW_STICKER_PACK_TOOL_INSTRUCTION } = await import("../../../packages/consts/aiChat/prompts/tools");
-const { createDirectPacing, createSimulatedPause } = await import("../../../packages/aiChat/ai/tools/replyToolset/pacing");
+const { createDirectPacing, createSimulatedPause } = await import("../../../packages/workers/aiChat/ai/tools/replyToolset/pacing");
 
 function candidate(fileId: string, emoji: string, description: string): any {
   return { sticker: { file_id: fileId, file_unique_id: `${fileId}-uid`, emoji }, emoji, description };
@@ -91,7 +91,7 @@ function sendStickerForTest({
   return Promise.resolve(typeof execution === "string" ? execution : execution.run(chatAction, pause));
 }
 
-describe("aiChat/ai/stickers readIndexField", () => {
+describe("workers/aiChat/ai/stickers readIndexField", () => {
   test("合法 JSON 参数原样解析", () => {
     expect(readIndexField(parseToolArguments('{"pack_index": 2}'), "pack_index", 5)).toBe(2);
     expect(readIndexField(parseToolArguments('{"sticker_index": 1}'), "sticker_index", 1)).toBe(1);
@@ -116,7 +116,7 @@ describe("aiChat/ai/stickers readIndexField", () => {
   });
 });
 
-describe("aiChat/ai/stickers readStickerIntent", () => {
+describe("workers/aiChat/ai/stickers readStickerIntent", () => {
   test("规范空白后返回非空意图", () => {
     expect(readStickerIntent(parseToolArguments('{"intent":"  表达无语，  但不要显得生气\\n"}'))).toBe("表达无语， 但不要显得生气");
   });
@@ -129,7 +129,7 @@ describe("aiChat/ai/stickers readStickerIntent", () => {
   });
 });
 
-describe("aiChat/ai/stickers 工具定义组装", () => {
+describe("workers/aiChat/ai/stickers 工具定义组装", () => {
   test("菜单为空时两层工具都不提供（返回 null）", () => {
     expect(buildViewStickerPackToolDefinition([])).toBeNull();
     expect(buildSendStickerToolDefinition([])).toBeNull();
@@ -154,7 +154,7 @@ describe("aiChat/ai/stickers 工具定义组装", () => {
   });
 });
 
-describe("aiChat/ai/stickers viewStickerPackTool", () => {
+describe("workers/aiChat/ai/stickers viewStickerPackTool", () => {
   test("合法调用返回意图和包内清单，按包记录意图", async () => {
     const state = createStickerRoundState();
     const result = JSON.parse(await viewStickerPackTool({ menu: MENU, argumentsJson: '{"pack_index": 1, "intent":"表达被逗笑，但不要显得在嘲讽对方"}', state }));
@@ -232,7 +232,7 @@ describe("aiChat/ai/stickers viewStickerPackTool", () => {
   });
 });
 
-describe("aiChat/ai/stickers sendStickerTool", () => {
+describe("workers/aiChat/ai/stickers sendStickerTool", () => {
   test("编号非法时不调用 sendSticker，返回错误结果，不切换挡位", async () => {
     const chatAction = chatActionMock();
     const result = await sendStickerForTest({
@@ -333,7 +333,7 @@ describe("aiChat/ai/stickers sendStickerTool", () => {
   });
 });
 
-describe("aiChat/ai/stickers 跨轮", () => {
+describe("workers/aiChat/ai/stickers 跨轮", () => {
   test("同群的两轮各自持有限额，都能发出贴纸", async () => {
     expect(JSON.parse(await sendStickerForTest({
       argumentsJson: '{"pack_index": 1, "sticker_index": 1}',

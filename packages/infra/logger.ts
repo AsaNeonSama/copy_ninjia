@@ -1,9 +1,15 @@
 /**
- * 统一日志门面：所有级别经脱敏序列化后输出到控制台；`error` 级别在主线程经 `logRelaySink`
+ * 统一日志门面：低于当前 `log_level` 阈值的日志直接忽略；达到或高于阈值的日志经脱敏序列化后，
+ * 在控制台前置对应级别标签（`CONSOLE_PREFIX_BY_LOG_LEVEL`）输出，并在主线程经 `logRelaySink`
  * 送交 Disk I/O Worker 落盘，在业务 Worker 线程经 `ForwardedLogBatch` 有界单批 ACK 通道转发回主线程。
  */
 
-import { logRelaySink } from "../cache/perThread/logger";
+import { logLevelState, logRelaySink } from "../cache/perThread/logger";
+import {
+  CONSOLE_METHOD_BY_LOG_LEVEL,
+  CONSOLE_PREFIX_BY_LOG_LEVEL,
+  LOG_LEVEL_PRIORITY,
+} from "../consts/logger";
 import { serializeLogArgs } from "./logger/serialization";
 import {
   acceptForwardedLogBatch as acceptForwardedLogBatchInternal,
@@ -18,7 +24,7 @@ import type {
 
 declare const self: Worker;
 
-// 是否运行在主线程：决定 error 日志是直接转投落盘线程，还是包上信封向上
+// 是否运行在主线程：决定已启用级别（>= log_level）的日志是直接转投落盘线程，还是包上信封向上
 // 转发给拥有本 Worker 的主线程模块。
 const isMainThread: boolean = Bun.isMainThread;
 
@@ -42,18 +48,22 @@ export function acceptForwardedLogBatch(message: unknown): boolean {
 }
 
 /**
- * 脱敏序列化日志参数后输出到控制台，并在 `error` 级别下投递或转发持久化。
+ * 先按当前线程的 `log_level` 阈值过滤，再脱敏序列化日志参数；向控制台输出时前置级别标签前缀，
+ * 持久化消息保留原始已序列化参数并投递或转发落盘。
  * @param level 日志级别。
  * @param args 原始日志参数列表。
  */
 function emit(level: LogLevel, args: unknown[]): void {
+  if (LOG_LEVEL_PRIORITY[level] < LOG_LEVEL_PRIORITY[logLevelState.current]) return;
   const serializedArgs: unknown[] = serializeLogArgs(args);
   try {
-    console[level](...serializedArgs);
+    console[CONSOLE_METHOD_BY_LOG_LEVEL[level]](
+      CONSOLE_PREFIX_BY_LOG_LEVEL[level],
+      ...serializedArgs
+    );
   } catch {
     // console 抛错时忽略，emit 不向调用方抛出。
   }
-  if (level !== "error") return;
   const message: LogMessage = {
     timestamp: Date.now(),
     level,
@@ -69,16 +79,16 @@ function emit(level: LogLevel, args: unknown[]): void {
 
 /** 主线程与 Worker 共用的日志门面接口。 */
 interface Logger {
-  log: (...args: unknown[]) => void;
   info: (...args: unknown[]) => void;
+  operation: (...args: unknown[]) => void;
   warn: (...args: unknown[]) => void;
   error: (...args: unknown[]) => void;
 }
 
-/** 主线程与 Worker 共用的统一日志出口；`error` 级别自动转投或转发至落盘线程。 */
+/** 主线程与 Worker 共用的统一日志出口；达到 `log_level` 阈值的日志输出并自动转投或转发至落盘线程。 */
 export const logger: Logger = {
-  log: (...args: unknown[]): void => emit("log", args),
   info: (...args: unknown[]): void => emit("info", args),
+  operation: (...args: unknown[]): void => emit("operation", args),
   warn: (...args: unknown[]): void => emit("warn", args),
   error: (...args: unknown[]): void => emit("error", args),
 };

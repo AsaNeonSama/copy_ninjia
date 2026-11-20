@@ -3,15 +3,18 @@ export {
   ArrowLeftSvgIcon,
   ChevronDownSvgIcon,
   CloseSvgIcon,
+  CodeFormatSvgIcon,
   DownloadSvgIcon,
   PlusSvgIcon,
   RefreshSvgIcon,
+  SaveSvgIcon,
   SearchSvgIcon,
   TrashSvgIcon,
   UploadSvgIcon,
 } from "./icons/actionIcons";
 export {
   ChatsSvgIcon,
+  ConfigsSvgIcon,
   GallerySvgIcon,
   IdentitiesSvgIcon,
   LockSvgIcon,
@@ -20,9 +23,6 @@ export {
   TabSvgIcon,
 } from "./icons/navigationIcons";
 export {
-  GlobeCnSvgIcon,
-  GlobeEnSvgIcon,
-  GlobeJaSvgIcon,
   GlobeSvgIcon,
   MoonSvgIcon,
   SunSvgIcon,
@@ -32,8 +32,3 @@ export {
   HashtagSvgIcon,
   UserSvgIcon,
 } from "./icons/subjectIcons";
-export type {
-  MiniAppGlobeIconProps,
-  MiniAppIconProps,
-  MiniAppTabIconProps,
-} from "../types/miniApp";

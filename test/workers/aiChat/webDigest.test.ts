@@ -23,7 +23,7 @@ function composeWebDigestStub(): Promise<WebDigestCompositionResult> {
   return Promise.resolve({ ok: true, text: "digest" });
 }
 const composeWebDigest = mock<ComposeWebDigest>(composeWebDigestStub);
-mock.module("../../../packages/aiChat/ai/webDigest", () => ({ composeWebDigest }));
+mock.module("../../../packages/workers/aiChat/ai/webDigest", () => ({ composeWebDigest }));
 const loggerError = mock((..._args: unknown[]): void => {});
 mock.module("../../../packages/infra/logger", () => ({ logger: loggerStub({ error: loggerError }) }));
 
@@ -114,7 +114,11 @@ describe("AI Worker 摘要组稿", () => {
     await settled;
     expect(posted).toEqual([{ type: "webDigestComposed", requestId: 4, result: { ok: false, reason: "compose failed" } }]);
     expect(loggerError).toHaveBeenCalledTimes(1);
-    expect(String(loggerError.mock.calls[0]?.[0])).toContain("request 4");
+    expect(loggerError).toHaveBeenCalledWith(
+      "Web digest composition threw:",
+      { requestId: 4 },
+      expect.any(Error)
+    );
     expect(webDigestRequests.size).toBe(0);
   });
 

@@ -68,6 +68,7 @@ function createCapacityBundle(index: number): AdMessageBundle {
       messageId,
       seq: 1,
       text: `capacity benchmark message ${messageId}`,
+      senderText: `capacity benchmark message ${messageId}`,
       directText: `capacity benchmark message ${messageId}`,
       receivedAt: BENCHMARK_EPOCH_MS,
       withinReferencedWarning: false,

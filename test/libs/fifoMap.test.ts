@@ -119,4 +119,89 @@ describe("FifoMap 插入序与容量", () => {
       expect(() => new FifoMap(invalid)).toThrow(RangeError);
     }
   });
+
+  test("容量为 1 的满容节点复用及随机操作序列（含迭代中删当前项）与参照 Map 完全一致", () => {
+    const single = new FifoMap<string, number>(1);
+    single.set("a", 1);
+    single.set("b", 2);
+    single.set("b", 20);
+    single.set("c", 3);
+    expect([...single]).toEqual([["c", 3]]);
+    expect(single.oldestKey()).toBe("c");
+    expect(single.get("a")).toBeUndefined();
+    expect(single.get("c")).toBe(3);
+
+    let seed: number = 0x51a7_29c3;
+    const nextInt = (max: number): number => {
+      seed = (Math.imul(seed, 1_664_525) + 1_013_904_223) >>> 0;
+      return seed % max;
+    };
+
+    for (const capacity of [1, 2, 3, 7, 16]) {
+      const fifo = new FifoMap<number, number | undefined>(capacity);
+      const ref: Map<number, number | undefined> = new Map<number, number | undefined>();
+      const keySpace: number = capacity * 3 + 2;
+
+      for (let step: number = 0; step < 500; step += 1) {
+        const op: number = nextInt(100);
+        const key: number = nextInt(keySpace);
+        if (op < 45) {
+          const val: number | undefined = nextInt(10) === 0 ? undefined : step;
+          fifo.set(key, val);
+          if (ref.has(key)) {
+            ref.set(key, val);
+          } else {
+            if (ref.size >= capacity) {
+              const firstKey: number | undefined = ref.keys().next().value;
+              if (firstKey !== undefined) ref.delete(firstKey);
+            }
+            ref.set(key, val);
+          }
+        } else if (op < 60) {
+          expect(fifo.get(key)).toBe(ref.get(key));
+        } else if (op < 70) {
+          expect(fifo.has(key)).toBe(ref.has(key));
+        } else if (op < 82) {
+          expect(fifo.delete(key)).toBe(ref.delete(key));
+        } else if (op < 87) {
+          fifo.clear();
+          ref.clear();
+        } else if (op < 95) {
+          const mode: number = nextInt(3);
+          const seenFifo: number[] = [];
+          const seenRef: number[] = [];
+          const deleteMod: number = 2 + nextInt(3);
+          if (mode === 0) {
+            for (const itemKey of fifo.keys()) {
+              seenFifo.push(itemKey);
+              if (itemKey % deleteMod === 0) fifo.delete(itemKey);
+            }
+          } else if (mode === 1) {
+            for (const [itemKey] of fifo.entries()) {
+              seenFifo.push(itemKey);
+              if (itemKey % deleteMod === 0) fifo.delete(itemKey);
+            }
+          } else {
+            fifo.forEach((_value: number | undefined, itemKey: number): void => {
+              seenFifo.push(itemKey);
+              if (itemKey % deleteMod === 0) fifo.delete(itemKey);
+            });
+          }
+          for (const itemKey of [...ref.keys()]) {
+            seenRef.push(itemKey);
+            if (itemKey % deleteMod === 0) ref.delete(itemKey);
+          }
+          expect(seenFifo).toEqual(seenRef);
+        } else {
+          expect([...fifo.values()]).toEqual([...ref.values()]);
+        }
+        expect(fifo.size).toBe(ref.size);
+        expect(fifo.oldestKey()).toBe(ref.keys().next().value);
+        if (step % 25 === 0) {
+          expect([...fifo.entries()]).toEqual([...ref.entries()]);
+        }
+      }
+      expect([...fifo.entries()]).toEqual([...ref.entries()]);
+    }
+  });
 });

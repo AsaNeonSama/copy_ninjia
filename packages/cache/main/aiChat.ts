@@ -10,6 +10,7 @@ import type { AiBotInfo, AiInitMessage } from "../../types/aiChat/protocol";
 import type {
   AiMemoryDeleteWaiter,
   AiMemoryTeardown,
+  MoodResponseEventType,
 } from "../../types/aiChat/waiters";
 import type { VoiceSynthesisResult } from "../../types/aiChat/voiceMessage";
 import type { WebDigestCompositionResult } from "../../types/webDigest";
@@ -122,7 +123,7 @@ export const purgedAiMemoryChats: Set<number> = new Set();
  * 请求发出前登记；收到回执、超时、投递被拒或 AI Worker 崩溃重建 / 放弃 / 终止时结算并删除，
  * Worker 重建不重放。容量受并发 `/mood` 命令数约束；计数器进程重启后从初值重建。
  */
-export const moodRequests: WorkerRequestTable<WorkerRequestOutcome<string>> = {
+export const moodRequests: WorkerRequestTable<WorkerRequestOutcome<string>, MoodResponseEventType> = {
   waiters: new Map(),
   counter: { current: 0 },
 };

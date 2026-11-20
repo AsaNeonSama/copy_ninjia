@@ -80,7 +80,7 @@ export const readIdentityIdPage = mock(
 export const loggerError = mock((..._args: unknown[]): void => {});
 export const loggerLog = mock((..._args: unknown[]): void => {});
 mock.module("../../packages/infra/logger", () => ({
-  logger: loggerStub({ error: loggerError, log: loggerLog }),
+  logger: loggerStub({ error: loggerError, info: loggerLog }),
 }));
 mock.module("../../packages/infra/telegram/mainClient", () => ({
   bot: { botInfo: { id: 99 }, api: { getChatMember } },

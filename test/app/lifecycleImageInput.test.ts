@@ -2,7 +2,10 @@ import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { TEST_DATA_ROOT } from "../preloadEnv";
-import { ensureRandomImageDirectory } from "../../packages/infra/imageGallery";
+import {
+  adoptRandomImageDirectory,
+  inspectRandomImageDirectory,
+} from "../../packages/infra/imageGallery";
 import { installLifecycleFixtureHooks, lifecycleFixture } from "../helpers/lifecycleFixture";
 
 installLifecycleFixtureHooks();
@@ -14,7 +17,9 @@ test("专用图库非法时启动非零退出，外部连接与 Worker 均未发
   await Bun.write(join(directory, "ordinary.png"), "preserve");
   const { prepareRandomImageDirectory, ApplicationLifecycle, testDependencies, initDiskIO,
     initTelegramClients, botInit } = lifecycleFixture;
-  prepareRandomImageDirectory.mockImplementationOnce((): Promise<void> => ensureRandomImageDirectory(directory));
+  prepareRandomImageDirectory.mockImplementationOnce(async (): Promise<void> => {
+    adoptRandomImageDirectory(directory, await inspectRandomImageDirectory(directory));
+  });
   try {
     const lifecycle = new ApplicationLifecycle(testDependencies);
     await lifecycle.run("main");

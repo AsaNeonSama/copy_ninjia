@@ -43,7 +43,13 @@ mock.module("../../packages/consts/paths", () => ({
   CRON_CONFIG_PATH: CRON_PATH,
   BOT_CONFIG_PATH: join(testRoot, "bot.json"),
 }));
-const BOT_CONFIG: BotConfig = { timeZone: getTimeZone(), atmosphere: "mesugaki", botToken: "telegram-token", superAdminUserId: 1 };
+const BOT_CONFIG: BotConfig = {
+  timeZone: getTimeZone(),
+  atmosphere: "mesugaki",
+  logLevel: "operation",
+  botToken: "telegram-token",
+  superAdminUserId: 1,
+};
 const botConfigState: { current: BotConfig } = { current: BOT_CONFIG };
 mock.module("../../packages/config/bot", () => ({
   getBotConfig: (): BotConfig => botConfigState.current,

@@ -1,15 +1,22 @@
-/** `migrate:wed-member-window` 冷迁移脚本的正常滑窗截断、中断保留与非法输入拒绝测试。 */
-import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdirSync, symlinkSync } from "node:fs";
+/** `migrate:wed-member-window` 冷迁移脚本的正常滑窗截断、中断保留、篡改拦截与 CLI 入口测试。 */
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
+import { chmodSync, mkdirSync, symlinkSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { STATE_MANAGED_CHAT_LIMIT } from "../../packages/consts/storage";
 import { WED_MEMBER_LIMIT } from "../../packages/consts/wed";
+import { InputValidationError } from "../../packages/libs/inputValidation";
 import { parseWedMemberFile } from "../../packages/libs/wedMemberFile";
 import type { WedMemberEntry } from "../../packages/types/wed";
-import { STAGING_FILE_MODE, prepareWedMemberWindowMigration } from "../../scripts/migrateWedMemberWindow";
+import {
+  STAGING_FILE_MODE,
+  prepareWedMemberWindowMigration,
+  runWedMemberWindowMigrationCli,
+} from "../../scripts/migrateWedMemberWindow";
 import type { WedMemberWindowMigrationResult } from "../../scripts/migrateWedMemberWindow";
 import { WED_MEMBER_WINDOW_SOURCE_LIMIT } from "../../scripts/migrations/wedMemberWindow/members";
+import { runCapturedCommand } from "../../scripts/fixtures/subprocess";
+import type { CapturedCommandResult } from "../../scripts/fixtures/subprocess";
 import { TEST_DATA_ROOT } from "../preloadEnv";
 
 let root: string;
@@ -113,7 +120,8 @@ test("成员目录缺失、目录或文件为符号链接时拒绝", async () =>
   await expect(prepareWedMemberWindowMigration({ sourceRoot: source, outputRoot: join(root, "file-link") }))
     .rejects.toThrow("a regular file without symbolic links");
   await rm(wed, { recursive: true });
-  await expect(prepareWedMemberWindowMigration({ sourceRoot: source, outputRoot: join(root, "missing") })).rejects.toThrow();
+  await expect(prepareWedMemberWindowMigration({ sourceRoot: source, outputRoot: join(root, "missing") }))
+    .rejects.toThrow("ENOENT");
   mkdirSync(join(root, "elsewhere"));
   symlinkSync(join(root, "elsewhere"), wed);
   await expect(prepareWedMemberWindowMigration({ sourceRoot: source, outputRoot: join(root, "directory-link") }))
@@ -130,7 +138,8 @@ test("已迁移的产物不能再次作为源", async () => {
 test("不覆盖既有输出，中断后在新输出目录重跑", async () => {
   mkdirSync(join(root, "interrupted"));
   await Bun.write(join(root, "interrupted/incomplete.json"), "preserve");
-  await expect(prepareWedMemberWindowMigration({ sourceRoot: source, outputRoot: join(root, "interrupted") })).rejects.toThrow();
+  await expect(prepareWedMemberWindowMigration({ sourceRoot: source, outputRoot: join(root, "interrupted") }))
+    .rejects.toThrow("EEXIST");
   expect(await Bun.file(join(root, "interrupted/incomplete.json")).text()).toBe("preserve");
   await expect(prepareWedMemberWindowMigration({ sourceRoot: source, outputRoot: join(root, "retry") }))
     .resolves.toMatchObject({ chatCount: 1, keptMembers: 2 });
@@ -141,4 +150,75 @@ test("输出目录不得位于源备份内部，源备份也不得位于输出�
     .rejects.toThrow("a new directory outside the source backup");
   await expect(prepareWedMemberWindowMigration({ sourceRoot: wed, outputRoot: source }))
     .rejects.toThrow("a new directory outside the source backup");
+});
+
+test("迁移途中源目录元数据发生变动时拒绝生成 ready.json 并保留 incomplete.json", async () => {
+  const memberFile: string = join(wed, "-1001.json");
+  chmodSync(memberFile, 0o644);
+  const realNow: () => number = Date.now;
+  const nowSpy = spyOn(Date, "now").mockImplementationOnce((): number => {
+    chmodSync(memberFile, 0o600);
+    return realNow();
+  });
+  const output: string = join(root, "tampered");
+  try {
+    await expect(prepareWedMemberWindowMigration({ sourceRoot: source, outputRoot: output }))
+      .rejects.toThrow(InputValidationError);
+  } finally {
+    nowSpy.mockRestore();
+  }
+  const nowSpy2 = spyOn(Date, "now").mockImplementationOnce((): number => {
+    chmodSync(memberFile, 0o644);
+    return realNow();
+  });
+  const output2: string = join(root, "tampered-msg");
+  try {
+    await expect(prepareWedMemberWindowMigration({ sourceRoot: source, outputRoot: output2 }))
+      .rejects.toThrow("$snapshot must be an unchanged cold backup including metadata.");
+  } finally {
+    nowSpy2.mockRestore();
+  }
+  expect(await Bun.file(join(output, "ready.json")).exists()).toBeFalse();
+  expect(await Bun.file(join(output, "incomplete.json")).exists()).toBeTrue();
+});
+
+test("CLI 入口覆盖 --help、正常迁移输出、InputValidationError 与非校验错误退出码", async () => {
+  const logSpy = spyOn(console, "log").mockImplementation((): void => {});
+  const errorSpy = spyOn(console, "error").mockImplementation((): void => {});
+  try {
+    expect(await runWedMemberWindowMigrationCli(["--help"])).toBe(0);
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    expect(logSpy.mock.calls[0]![0]).toContain("bun run migrate:wed-member-window --source-root <cold-backup> --output-root <new-directory>");
+    expect(logSpy.mock.calls[0]![0]).toContain(`Each chat keeps its last ${WED_MEMBER_LIMIT} member IDs in order`);
+
+    logSpy.mockClear();
+    const cliOutput: string = join(root, "cli-out");
+    expect(await runWedMemberWindowMigrationCli(["--source-root", source, "--output-root", cliOutput])).toBe(0);
+    expect(logSpy).toHaveBeenCalledWith(
+      `Wed member window migration prepared: ${cliOutput}/ready.json. Manual replacement while stopped is required.`
+    );
+    expect(await Bun.file(join(cliOutput, "ready.json")).exists()).toBeTrue();
+
+    // 校验错误：输出具体 InputValidationError 诊断并返回 1。
+    expect(await runWedMemberWindowMigrationCli([])).toBe(1);
+    expect(errorSpy).toHaveBeenCalledWith("arguments: $ must be both required path options.");
+
+    // 通用系统错误（输出目录已存在触发 EEXIST）：输出统一安全提示并返回 1，不泄露底层系统错误。
+    errorSpy.mockClear();
+    expect(await runWedMemberWindowMigrationCli(["--source-root", source, "--output-root", cliOutput])).toBe(1);
+    expect(errorSpy).toHaveBeenCalledWith(
+      "Wed member window migration failed; source backup and incomplete output are retained. No deployment files were replaced."
+    );
+  } finally {
+    logSpy.mockRestore();
+    errorSpy.mockRestore();
+  }
+
+  // 直接以子进程入口运行 --help，核对 import.meta.main 路径退出码与帮助输出。
+  const helpRun: CapturedCommandResult = await runCapturedCommand({
+    cmd: [Bun.argv[0]!, join(import.meta.dir, "../../scripts/migrateWedMemberWindow.ts"), "--help"],
+    cwd: root,
+  });
+  expect(helpRun.exitCode).toBe(0);
+  expect(helpRun.stdout).toContain("bun run migrate:wed-member-window");
 });

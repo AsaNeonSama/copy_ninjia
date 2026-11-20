@@ -1,11 +1,11 @@
 /**
- * 黑名单补扫的主线程状态机：退避、权限闩锁、分页推进与回执结算，参见 docs/cn/04-invariants.md。
+ * 黑名单补扫的主线程准备与分页派发状态机：claim 准备、批量投递、游标推进与回执入口；
+ * 权限闩锁与终局结算拆分在 `./sweepSettlement.ts`，参见 docs/cn/04-invariants.md。
  */
 
 import {
   blockedMemberRemoverHolder,
   blocklistSweepPages,
-  blocklistSweepSchedulerState,
   blocklistSweepState,
   pendingBlockedRemovals,
 } from "../../cache/main/blocklist";
@@ -23,9 +23,9 @@ import { canClaimSweep, isManagedAdminChat } from "./sweepEligibility";
 import {
   forgetSupersededChatSweepBatches,
   materializeRemovalParams,
-  queueBlocklistRemovalWrite,
   trackBlockedRemoval,
 } from "./outbox";
+import { settleRemovalOutcome } from "./sweepSettlement";
 import type { BlockedMembersRemovedEvent } from
   "../../types/antiRaid/events";
 import type {
@@ -37,18 +37,15 @@ import type {
 import type { ChatState } from "../../types/chatState";
 import type { IdentityIdPage } from "../../types/identityStorage";
 import {
-  nextFailedSweeps,
   noteSweepAttemptFailed,
   recordPendingRemovalFailure,
-  requestBlocklistResweep,
   sweepRetryDelayMs,
 } from "./sweepRetryState";
-import { replayPendingBlockedRemovalsForChat } from "./sweepReplay";
 
 export { requestBlocklistResweep } from "./sweepRetryState";
 export { replayPendingBlockedRemovals } from "./sweepReplay";
-
 export { quiesceBlocklistSweepScheduler } from "./sweepScheduler";
+export { noteBanPermissionObserved } from "./sweepSettlement";
 
 /** 以当前墙钟时间触发一次受管群黑名单补扫的调度回调。 */
 const runScheduledBlocklistSweep: () => Promise<void> = (): Promise<void> =>
@@ -57,64 +54,6 @@ const runScheduledBlocklistSweep: () => Promise<void> = (): Promise<void> =>
 /** 启动恢复完成后初始化补扫调度器。 */
 export function initBlocklistSweepScheduler(): void {
   initSweepScheduler(runScheduledBlocklistSweep);
-}
-
-/**
- * 记录群缺少封禁权限并置位权限闩锁；指名批次直接销账，补扫批次标记为 missing-permission。
- *
- * @param chatId 缺少封禁权限的群 ID。
- * @param removalId 触发权限拒绝回执的待踢任务编号。
- */
-function notePermissionBlocked(chatId: number, removalId: number): void {
-  const progress: BlocklistSweepRecord | undefined = blocklistSweepState.get(chatId);
-  if (progress?.permissionBlocked !== true) {
-    logger.error(
-      `Blocklist removal ${removalId} for chat ${chatId} is blocked by missing ban rights; ` +
-      "removals there wait for the bot's permissions to change."
-    );
-  }
-  if (pendingBlockedRemovals.get(removalId)?.params.probeMembership === false) {
-    pendingBlockedRemovals.delete(removalId);
-    if (!queueBlocklistRemovalWrite(removalId)) {
-      logger.error(`Failed to queue permission-blocked blocklist removal cleanup ${removalId}.`);
-    }
-  } else {
-    recordPendingRemovalFailure(removalId, chatId, "missing-permission");
-  }
-  blocklistSweepState.set(chatId, progress === undefined
-    ? {
-      removalId: null,
-      sweptAt: null,
-      nextRetryAt: Date.now(),
-      resweepRequested: false,
-      failedSweeps: 0,
-      permissionBlocked: true,
-    }
-    : { ...progress, permissionBlocked: true });
-  armBlocklistSweepScheduler();
-}
-
-/**
- * 观测到封禁权限恢复时解除群权限闩锁、重排补扫调度并重投冻结批次。
- *
- * @param chatId 被观测到权限变更的群 ID。
- * @param canRestrict 机器人当前是否具备封禁/限制成员权限。
- */
-export function noteBanPermissionObserved(chatId: number, canRestrict: boolean): void {
-  if (!canRestrict) return;
-  const progress: BlocklistSweepRecord | undefined = blocklistSweepState.get(chatId);
-  if (progress?.permissionBlocked !== true) return;
-  logger.log(`Ban rights restored in chat ${chatId}; re-arming the blocklist sweep.`);
-  blocklistSweepState.set(chatId, {
-    removalId: null,
-    sweptAt: null,
-    nextRetryAt: Date.now(),
-    resweepRequested: false,
-    failedSweeps: 0,
-    permissionBlocked: false,
-  });
-  armBlocklistSweepScheduler();
-  replayPendingBlockedRemovalsForChat(chatId);
 }
 
 /** 已登记群级补扫 claim 与首张游标页的准备上下文。 */
@@ -146,7 +85,7 @@ function prepareBlocklistSweep(
   try {
     params = trackBlockedRemoval({ chatId, probeMembership: true }, page.ids);
   } catch (error: unknown) {
-    logger.error(`Failed to queue the blocklist sweep of chat ${chatId}:`, error);
+    logger.error("Failed to queue blocklist sweep:", { chatId }, error);
     noteSweepAttemptFailed(chatId, failedSweeps, now);
     return null;
   }
@@ -218,8 +157,8 @@ async function deliverPreparedSweeps(
   if (deliveredCount > 0) return;
   abandonPreparedSweeps(sweeps);
   logger.error(
-    `Blocklist sweep delivery posted nothing for ${sweeps.length} chat(s); ` +
-    "the batches stay in the durable outbox and the sweeps were rescheduled."
+    "Blocklist sweep delivery posted nothing; batches stay in durable outbox and sweeps were rescheduled.",
+    { chatCount: sweeps.length }
   );
 }
 
@@ -346,7 +285,7 @@ async function continueBlocklistSweep(
     }
     if (page.ids.length === 0) {
       blocklistSweepPages.delete(removalId);
-      settleBlockedRemoval({
+      settleRemovalOutcome({
         type: "blockedMembersRemoved",
         chatId,
         removalId,
@@ -384,7 +323,8 @@ async function continueBlocklistSweep(
       noteSweepAttemptFailed(chatId, progress.failedSweeps, Date.now());
     }
     logger.error(
-      `Failed to continue blocklist sweep ${removalId} for chat ${chatId}:`,
+      "Failed to continue blocklist sweep:",
+      { removalId, chatId },
       error
     );
   }
@@ -436,7 +376,8 @@ function advanceSweepPage(event: BlockedMembersRemovedEvent): boolean {
       Date.now()
     );
     logger.error(
-      `Non-final blocklist sweep ${event.removalId} is missing its next cursor.`
+      "Non-final blocklist sweep is missing its next cursor.",
+      { removalId: event.removalId, chatId: event.chatId }
     );
     return true;
   }
@@ -450,62 +391,4 @@ function advanceSweepPage(event: BlockedMembersRemovedEvent): boolean {
     page.nextCursor
   );
   return true;
-}
-
-/**
- * 结算整批处置结果：销账、置位权限闩锁或记录失败，并更新群补扫状态与调度器。
- *
- * @param event Anti-Raid Worker 上报的黑名单成员处置完成事件。
- */
-function settleRemovalOutcome(event: BlockedMembersRemovedEvent): void {
-  if (
-    !pendingBlockedRemovals.has(event.removalId) &&
-    !blocklistSweepState.has(event.chatId)
-  ) {
-    return;
-  }
-  if (event.complete) {
-    if (
-      pendingBlockedRemovals.delete(event.removalId) &&
-      !queueBlocklistRemovalWrite(event.removalId)
-    ) {
-      logger.error(`Failed to queue completed blocklist removal cleanup ${event.removalId}.`);
-    }
-  } else if (event.permissionDenied === true) {
-    notePermissionBlocked(event.chatId, event.removalId);
-  } else {
-    const message: string =
-      `Blocklist removal ${event.removalId} for chat ${event.chatId} did not fully settle; ` +
-      "it will be retried.";
-    if (blocklistSweepSchedulerState.accepting) logger.error(message);
-    else logger.log(message);
-    recordPendingRemovalFailure(event.removalId, event.chatId, "side-effect-incomplete");
-  }
-
-  const progress: BlocklistSweepRecord | undefined = blocklistSweepState.get(event.chatId);
-  if (progress?.removalId !== event.removalId) {
-    if ((!event.complete || event.targetIsAdmin === true) && event.permissionDenied !== true) {
-      requestBlocklistResweep(
-        event.chatId,
-        Date.now() + sweepRetryDelayMs(progress?.failedSweeps ?? 0)
-      );
-    }
-    armBlocklistSweepScheduler();
-    return;
-  }
-
-  const stillOwesSweep: boolean =
-    progress.resweepRequested || event.targetIsAdmin === true;
-  const failedSweeps: number = event.complete && !stillOwesSweep
-    ? 0
-    : nextFailedSweeps(progress.failedSweeps);
-  blocklistSweepState.set(event.chatId, {
-    removalId: null,
-    sweptAt: event.complete && !stillOwesSweep ? Date.now() : null,
-    nextRetryAt: progress.nextRetryAt,
-    resweepRequested: false,
-    failedSweeps,
-    permissionBlocked: blocklistSweepState.get(event.chatId)?.permissionBlocked === true,
-  });
-  armBlocklistSweepScheduler();
 }

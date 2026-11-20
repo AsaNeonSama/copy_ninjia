@@ -12,6 +12,7 @@ import {
   VERIFY_SELF_CALLBACK_PREFIX,
 } from "../../../packages/consts/antiRaid/verification";
 import type { VerificationChallenge } from "../../../packages/types/antiRaid/verification";
+import type { PendingState } from "../../../packages/types/states/verification";
 import { formatMinSec } from "../../../packages/libs/time";
 import type { AtmosphereTexts } from "../../../packages/types/atmosphere";
 import { loggerStub } from "../../helpers/loggerMock";
@@ -44,13 +45,26 @@ const CHAT_ID: number = -1001;
 const USER_ID: number = 42;
 const KEY: string = `${CHAT_ID}:${USER_ID}`;
 
-function pendingState(isBot: boolean = false): never {
+function pendingState(
+  isBot: boolean = false,
+  overrides: Partial<PendingState> = {}
+): PendingState {
   return {
     kind: "pending",
     label: "待验证成员",
     isBot,
+    announcementMessageId: undefined,
+    trackedMessageTimes: [],
+    invitedBy: undefined,
+    reminderMessageId: undefined,
+    replyReminderMessageId: undefined,
+    replyReminderRequested: false,
+    welcomeAnchorMessageId: undefined,
+    reminderSuperseded: false,
+    joinedAt: Date.now(),
     expiresAt: Date.now() + 60_000,
-  } as never;
+    ...overrides,
+  };
 }
 
 async function settleAntiRaidTasks(): Promise<void> {
@@ -70,13 +84,15 @@ afterEach(() => {
 });
 
 test("提醒发送期间成员状态已被替换：迟到落地的提醒自删，不派发 reminderLanded", async () => {
-  verificationEntries.set(KEY, { state: pendingState() } as never);
+  const state: PendingState = pendingState();
+  verificationEntries.set(KEY, { state } as never);
   const dispatchVerification = mock((..._args: unknown[]): void => {});
   sendVerificationReminder({
     chatId: CHAT_ID,
     userId: USER_ID,
     label: "待验证成员",
     isBot: false,
+    expectedState: state,
     dispatchVerification,
   });
   expect(sendMessage).toHaveBeenCalledTimes(1);
@@ -91,13 +107,15 @@ test("提醒发送期间成员状态已被替换：迟到落地的提醒自删�
 });
 
 test("状态未变时落地的提醒交回状态机登记，不删除", async () => {
-  verificationEntries.set(KEY, { state: pendingState() } as never);
+  const state: PendingState = pendingState();
+  verificationEntries.set(KEY, { state } as never);
   const dispatchVerification = mock((..._args: unknown[]): void => {});
   sendVerificationReminder({
     chatId: CHAT_ID,
     userId: USER_ID,
     label: "待验证成员",
     isBot: false,
+    expectedState: state,
     dispatchVerification,
   });
 
@@ -114,7 +132,8 @@ test("状态未变时落地的提醒交回状态机登记，不删除", async ()
 });
 
 test("回复式提醒：isBot 为 true 时改用机器人提醒文案与单颗通过按钮，并回复到 targetMessageId", async () => {
-  verificationEntries.set(KEY, { state: pendingState(true) } as never);
+  const state: PendingState = pendingState(true);
+  verificationEntries.set(KEY, { state } as never);
   const dispatchVerification = mock((..._args: unknown[]): void => {});
   const atmosphere: AtmosphereTexts = workerAtmosphere();
   sendReplyReminder({
@@ -123,6 +142,7 @@ test("回复式提醒：isBot 为 true 时改用机器人提醒文案与单颗�
     label: "待验证机器人",
     isBot: true,
     targetMessageId: 777,
+    expectedState: state,
     dispatchVerification,
   });
 
@@ -148,7 +168,8 @@ test("回复式提醒：isBot 为 true 时改用机器人提醒文案与单颗�
 
 test("回复式提醒：isBot 为 false 时渲染真人回复式提醒、作答选项行与「通过」行，并沿用条目上的算术题", async () => {
   const challenge: VerificationChallenge = { question: "9 - 4", answer: 5, options: [6, 5, 3] };
-  verificationEntries.set(KEY, { state: pendingState(false), challenge } as never);
+  const state: PendingState = pendingState(false);
+  verificationEntries.set(KEY, { state, challenge } as never);
   const dispatchVerification = mock((..._args: unknown[]): void => {});
   const atmosphere: AtmosphereTexts = workerAtmosphere();
   sendReplyReminder({
@@ -157,6 +178,7 @@ test("回复式提醒：isBot 为 false 时渲染真人回复式提醒、作答�
     label: "待验证成员",
     isBot: false,
     targetMessageId: 778,
+    expectedState: state,
     dispatchVerification,
   });
 
@@ -187,20 +209,113 @@ test("回复式提醒：isBot 为 false 时渲染真人回复式提醒、作答�
 });
 
 test("真人原始提醒首次登记时生成算术题并挂到条目上，机器人提醒不生成", async () => {
-  const entry: { state: unknown; challenge?: VerificationChallenge } = { state: pendingState(false) };
+  const humanState: PendingState = pendingState(false);
+  const entry: { state: PendingState; challenge?: VerificationChallenge } = { state: humanState };
   verificationEntries.set(KEY, entry as never);
   const dispatchVerification = mock((..._args: unknown[]): void => {});
-  sendVerificationReminder({ chatId: CHAT_ID, userId: USER_ID, label: "待验证成员", isBot: false, dispatchVerification });
+  sendVerificationReminder({
+    chatId: CHAT_ID,
+    userId: USER_ID,
+    label: "待验证成员",
+    isBot: false,
+    expectedState: humanState,
+    dispatchVerification,
+  });
   const challenge: VerificationChallenge | undefined = entry.challenge;
   if (challenge === undefined) throw new Error("challenge was not cached on the entry");
   expect(challenge.options).toContain(challenge.answer);
   releaseSend(559);
   await settleAntiRaidTasks();
 
-  const botEntry: { state: unknown; challenge?: VerificationChallenge } = { state: pendingState(true) };
+  const botState: PendingState = pendingState(true);
+  const botEntry: { state: PendingState; challenge?: VerificationChallenge } = { state: botState };
   verificationEntries.set(KEY, botEntry as never);
-  sendVerificationReminder({ chatId: CHAT_ID, userId: USER_ID, label: "待验证机器人", isBot: true, dispatchVerification });
+  sendVerificationReminder({
+    chatId: CHAT_ID,
+    userId: USER_ID,
+    label: "待验证机器人",
+    isBot: true,
+    expectedState: botState,
+    dispatchVerification,
+  });
   expect(botEntry.challenge).toBeUndefined();
   releaseSend(560);
   await settleAntiRaidTasks();
+});
+
+test("expectedState 已换代、原始提醒已被发言取代或同形态提醒已落地时放弃发送且不取消现有 owner", async () => {
+  const dispatchVerification = mock((..._args: unknown[]): void => {});
+
+  const oldState: PendingState = pendingState(false);
+  const newState: PendingState = pendingState(false);
+  verificationEntries.set(KEY, { state: newState } as never);
+  sendVerificationReminder({
+    chatId: CHAT_ID,
+    userId: USER_ID,
+    label: "旧状态",
+    isBot: false,
+    expectedState: oldState,
+    dispatchVerification,
+  });
+  sendReplyReminder({
+    chatId: CHAT_ID,
+    userId: USER_ID,
+    label: "旧状态",
+    isBot: false,
+    targetMessageId: 800,
+    expectedState: oldState,
+    dispatchVerification,
+  });
+  expect(sendMessage).not.toHaveBeenCalled();
+
+  const supersededState: PendingState = pendingState(false, { reminderSuperseded: true });
+  verificationEntries.set(KEY, { state: supersededState } as never);
+  sendReplyReminder({
+    chatId: CHAT_ID,
+    userId: USER_ID,
+    label: "待验证成员",
+    isBot: false,
+    targetMessageId: 801,
+    expectedState: supersededState,
+    dispatchVerification,
+  });
+  expect(sendMessage).toHaveBeenCalledTimes(1);
+  const activeReplyOwner = reminderDeliveries.get(KEY);
+  sendVerificationReminder({
+    chatId: CHAT_ID,
+    userId: USER_ID,
+    label: "待验证成员",
+    isBot: false,
+    expectedState: supersededState,
+    dispatchVerification,
+  });
+  expect(sendMessage).toHaveBeenCalledTimes(1);
+  expect(reminderDeliveries.get(KEY)).toBe(activeReplyOwner);
+  releaseSend(561);
+  await settleAntiRaidTasks();
+
+  const landedOriginal: PendingState = pendingState(false, { reminderMessageId: 901 });
+  verificationEntries.set(KEY, { state: landedOriginal } as never);
+  sendVerificationReminder({
+    chatId: CHAT_ID,
+    userId: USER_ID,
+    label: "待验证成员",
+    isBot: false,
+    expectedState: landedOriginal,
+    dispatchVerification,
+  });
+  expect(sendMessage).toHaveBeenCalledTimes(1);
+
+  const landedReply: PendingState = pendingState(false, { replyReminderMessageId: 902 });
+  verificationEntries.set(KEY, { state: landedReply } as never);
+  sendReplyReminder({
+    chatId: CHAT_ID,
+    userId: USER_ID,
+    label: "待验证成员",
+    isBot: false,
+    targetMessageId: 802,
+    expectedState: landedReply,
+    dispatchVerification,
+  });
+  expect(sendMessage).toHaveBeenCalledTimes(1);
 });

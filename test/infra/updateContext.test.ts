@@ -3,6 +3,7 @@ import {
   currentUpdateAbortSignal,
   currentUpdateTopic,
   refreshUpdateNow,
+  runOutsideUpdateScope,
   runWithUpdateAbortSignal,
   updateNow,
   updateTopicThreadIdFor,
@@ -149,5 +150,34 @@ describe("本条 update 的触发话题", () => {
     }, { chatId: -1001, threadId: 5 });
     expect(currentUpdateTopic()).toBeUndefined();
     expect(updateTopicThreadIdFor(-1001)).toBeUndefined();
+  });
+
+  test("runOutsideUpdateScope 在同步、异步与 timer 内彻底脱离当前 update 作用域，退出后外层完好", async () => {
+    const outer: AbortSignal = new AbortController().signal;
+    await runWithUpdateAbortSignal(outer, async (): Promise<void> => {
+      const observations: [string, AbortSignal | undefined, unknown][] = [];
+
+      const timerDone: Promise<void> = runOutsideUpdateScope(async (): Promise<void> => {
+        observations.push(["sync", currentUpdateAbortSignal(), currentUpdateTopic()]);
+        await Promise.resolve();
+        observations.push(["async", currentUpdateAbortSignal(), currentUpdateTopic()]);
+        await new Promise<void>((resolve: () => void): void => {
+          setTimeout((): void => {
+            observations.push(["timer", currentUpdateAbortSignal(), currentUpdateTopic()]);
+            resolve();
+          }, 0);
+        });
+      });
+
+      expect(currentUpdateAbortSignal()).toBe(outer);
+      expect(currentUpdateTopic()).toEqual({ chatId: -1001, threadId: 7 });
+      await timerDone;
+      expect(currentUpdateAbortSignal()).toBe(outer);
+      expect(observations).toEqual([
+        ["sync", undefined, undefined],
+        ["async", undefined, undefined],
+        ["timer", undefined, undefined],
+      ]);
+    }, { chatId: -1001, threadId: 7 });
   });
 });

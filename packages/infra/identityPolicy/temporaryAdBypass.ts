@@ -29,20 +29,6 @@ import type {
 import type { TemporaryAdBypassActivity } from "../../types/states/temporaryAdBypass";
 
 /**
- * 查询墙钟当前时刻仍有效的临时广告免检成员关系。只在缓存确有免检记录时才读墙钟，负缓存与
- * 未获免检的常态查询不取时钟；调用方已捕获时刻时改用 hasActiveTemporaryAdBypassAt。
- *
- * @param id 待查询的用户或频道身份 ID。
- * @returns 当前时刻拥有有效临时广告免检资格时返回 `true`，否则返回 `false`。
- */
-export function hasActiveTemporaryAdBypass(id: number): boolean {
-  const activity: Readonly<TemporaryAdBypassActivity> | null | undefined =
-    identityPolicyCache.get(id)?.temporaryAdBypass;
-  if (!activity?.adBypass) return false;
-  return isTemporaryAdBypassActive(activity, Date.now());
-}
-
-/**
  * 使用同一消息已经捕获的墙钟值查询临时广告免检成员关系。
  *
  * @param id 待查询的用户或频道身份 ID。
@@ -160,7 +146,8 @@ function queueTemporaryAdBypassWrite(
   unacknowledgedTemporaryAdBypassWrites.set(id, { activity, revision });
   if (diskIO.postDiskIO(message)) return true;
   logger.error(
-    `Failed to queue temporary ad bypass identity ${id}; retaining revision ${revision} for replay.`
+    "Failed to queue temporary ad bypass write; retaining revision for replay.",
+    { identityId: id, revision }
   );
   return false;
 }

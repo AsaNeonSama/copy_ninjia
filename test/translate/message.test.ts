@@ -47,6 +47,7 @@ mock.module("../../packages/infra/chatStateStorage", () => ({
   persistChatState: async (): Promise<void> => {},
 }));
 const { activeTranslateStateIn, queueTranslateMessage } = await import("../../packages/translate/message");
+const { currentUpdateAbortSignal, runWithUpdateAbortSignal } = await import("../../packages/infra/updateContext");
 const { DEFAULT_CHAT_STATE } = await import("../../packages/libs/chatState");
 const { stopTranslation, setTranslateState } = await import("../../packages/translate/state");
 
@@ -90,12 +91,14 @@ function holdNextTranslation(): { readonly result: PromiseWithResolvers<string |
 }
 
 beforeEach(() => {
+  translateRuntime.controller = new AbortController();
   translateStates.clear();
   chatStateFor(-1001);
   enabled = true;
   configured = true;
   copyMessage.mockClear();
-  sendMessage.mockClear();
+  sendMessage.mockReset();
+  sendMessage.mockResolvedValue(11);
   loggerError.mockClear();
   translateText.mockReset();
   translateText.mockResolvedValue("translated");
@@ -240,7 +243,7 @@ describe("独立翻译消息", () => {
     expect(copyMessage).not.toHaveBeenCalled();
     expect(sendMessage).not.toHaveBeenCalled();
     expect(loggerError).toHaveBeenCalledTimes(1);
-    expect(loggerError).toHaveBeenCalledWith("Failed to translate a message in chat -1001:", unexpected);
+    expect(loggerError).toHaveBeenCalledWith("Failed to translate a message:", { chatId: -1001 }, unexpected);
   });
 
   test("译文与原文逐字相同时视为同语种，不发送", async () => {
@@ -313,5 +316,50 @@ describe("独立翻译消息", () => {
     expect(translateText).toHaveBeenNthCalledWith(2, "第二条", "ja");
     expect(sendMessage).toHaveBeenCalledTimes(2);
     expect(translateMessageBacklogs.get(-1001)).toBeUndefined();
+  });
+
+  test("触发 update 中止后后台翻译仍继续完成，且改绑定 translateRuntime 自身信号而非触发 update 信号", async (): Promise<void> => {
+    const updateController: AbortController = new AbortController();
+    const observedSignals: (AbortSignal | undefined)[] = [];
+    const result: PromiseWithResolvers<string | null> = Promise.withResolvers<string | null>();
+    const requested: PromiseWithResolvers<void> = Promise.withResolvers<void>();
+    const input = params("你好", "ja");
+    translateText.mockImplementationOnce((): Promise<string | null> => {
+      observedSignals.push(currentUpdateAbortSignal());
+      requested.resolve();
+      return result.promise;
+    });
+    sendMessage.mockImplementationOnce(async (): Promise<number> => {
+      observedSignals.push(currentUpdateAbortSignal());
+      return 11;
+    });
+
+    await runWithUpdateAbortSignal(updateController.signal, async (): Promise<void> => {
+      queueTranslateMessage(input);
+      await requested.promise;
+      updateController.abort(new DOMException("update aborted", "AbortError"));
+    }, { chatId: -1001, threadId: 99 });
+
+    result.resolve("こんにちは");
+    await Promise.allSettled([...translateRuntime.tasks]);
+
+    const runtimeSignal: AbortSignal = translateRuntime.controller.signal;
+    expect(observedSignals).toEqual([runtimeSignal, runtimeSignal]);
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  test("translateRuntime.controller 中止后取消在途翻译结果发送", async (): Promise<void> => {
+    const { result, requested }: ReturnType<typeof holdNextTranslation> = holdNextTranslation();
+    const input = params("你好", "ja");
+    queueTranslateMessage(input);
+    await requested;
+
+    translateRuntime.controller.abort(
+      new DOMException("translate shutdown", "AbortError")
+    );
+    result.resolve("こんにちは");
+    await Promise.allSettled([...translateRuntime.tasks]);
+
+    expect(sendMessage).not.toHaveBeenCalled();
   });
 });

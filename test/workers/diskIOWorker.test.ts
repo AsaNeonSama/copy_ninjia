@@ -433,6 +433,43 @@ describe("Disk I/O Worker protocol router", () => {
     rejectedStorageDomains.clear();
   });
 
+  test("aiMemory 校验拒收在线只记领域拒收，重放区间内上报 recoveryReplayFailed", async () => {
+    const aiMessage: DiskIOMessage = {
+      type: "aiMemory",
+      chatId: -1,
+      revision: 1,
+      snapshot: "{bad",
+      persistImmediately: false,
+    };
+    const originalConsoleError = console.error;
+    console.error = consoleError as unknown as typeof console.error;
+    try {
+      markAiMemorySnapshotDirty.mockImplementationOnce((): void => {
+        throw new Error("aiMemory snapshot invalid");
+      });
+      await route(aiMessage);
+      expect([...rejectedStorageDomains]).toEqual(["aiMemory"]);
+      expect(postMessage).not.toHaveBeenCalled();
+
+      rejectedStorageDomains.clear();
+      markAiMemorySnapshotDirty.mockImplementationOnce((): void => {
+        throw new Error("aiMemory snapshot invalid");
+      });
+      await route({ type: "recoveryReplay", active: true });
+      await route(aiMessage);
+      await route({ type: "recoveryReplay", active: false });
+    } finally {
+      console.error = originalConsoleError;
+    }
+
+    expect(postMessage).toHaveBeenCalledWith({
+      type: "recoveryReplayFailed",
+      domain: "aiMemory",
+      error: "aiMemory snapshot invalid",
+    });
+    rejectedStorageDomains.clear();
+  });
+
   test("入群日志查询总有显式成功或失败回执", async () => {
     await route({
       type: "readJoinLog",

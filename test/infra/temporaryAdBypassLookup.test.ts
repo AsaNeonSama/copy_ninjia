@@ -1,11 +1,11 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
 
 import { DAY_MS } from "../../packages/consts/time";
+import { hasActiveTemporaryAdBypassAt } from "../../packages/infra/identityPolicy/temporaryAdBypass";
 import {
-  hasActiveTemporaryAdBypass,
-  hasActiveTemporaryAdBypassAt,
-} from "../../packages/infra/identityPolicy/temporaryAdBypass";
-import { getEffectiveWhitelistPermissions } from "../../packages/infra/identityPolicy/whitelist";
+  getEffectiveWhitelistPermissions,
+  readWhitelistPermissionOrBlocked,
+} from "../../packages/infra/identityPolicy/whitelist";
 import { identityFieldView } from "../helpers/identityCacheView";
 import type { IdentityFieldView } from "../helpers/identityCacheView";
 
@@ -32,11 +32,11 @@ test("缺省时刻时只在缓存确有免检记录时读墙钟，负缓存查�
   temporaryAdBypassField.set(8, null);
   const clock = spyOn(Date, "now");
   try {
-    expect(hasActiveTemporaryAdBypass(8)).toBeFalse();
     expect(getEffectiveWhitelistPermissions(8)).toBeUndefined();
+    expect(readWhitelistPermissionOrBlocked(8, "isCanBypassAdDetection")).toBe("none");
     expect(clock).not.toHaveBeenCalled();
-    expect(hasActiveTemporaryAdBypass(7)).toBeTrue();
     expect(getEffectiveWhitelistPermissions(7)).toBeDefined();
+    expect(readWhitelistPermissionOrBlocked(7, "isCanBypassAdDetection")).toBe("allowed");
     expect(clock).toHaveBeenCalledTimes(2);
   } finally {
     clock.mockRestore();

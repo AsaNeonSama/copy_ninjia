@@ -208,20 +208,32 @@ async function verifyActionLocalSources(
 }
 
 /**
- * 读取并严格解析 cron.json，再核对全部本地来源；模块 import 本身不访问文件系统。
- * @returns 已通过形态与本机路径存在性校验的定时任务配置。
+ * 核对已解析的定时任务配置中引用的全部本机文件或目录来源是否存在且类型匹配。
+ * @param config 已通过词法解析的定时任务配置列表。
+ * @param sourcePath 配置文件路径，用于构造致命错误诊断。
  */
-export async function loadCronConfig(): Promise<CronConfig> {
-  const config: CronConfig = parseCronConfig(await readJsonInput(CRON_CONFIG_PATH), CRON_CONFIG_PATH);
+export async function verifyCronConfigLocalSources(
+  config: CronConfig,
+  sourcePath: string = CRON_CONFIG_PATH
+): Promise<void> {
   for (let taskIndex: number = 0; taskIndex < config.length; taskIndex++) {
     const actions: readonly Readonly<CronAction>[] = config[taskIndex]!.actions;
     for (let actionIndex: number = 0; actionIndex < actions.length; actionIndex++) {
       const action: Readonly<CronAction> = actions[actionIndex]!;
       if (action.type === "send_message" || action.type === "send_voice" || action.type === "send_web_digest") continue;
-      const context: InputFieldContext = { source: CRON_CONFIG_PATH, path: `$[${taskIndex}].actions[${actionIndex}].payload.path` };
+      const context: InputFieldContext = { source: sourcePath, path: `$[${taskIndex}].actions[${actionIndex}].payload.path` };
       await verifyActionLocalSources(action.source, context);
     }
   }
+}
+
+/**
+ * 读取并严格解析 cron.json，再核对全部本地来源；模块 import 本身不访问文件系统。
+ * @returns 已通过形态与本机路径存在性校验的定时任务配置。
+ */
+export async function loadCronConfig(): Promise<CronConfig> {
+  const config: CronConfig = parseCronConfig(await readJsonInput(CRON_CONFIG_PATH), CRON_CONFIG_PATH);
+  await verifyCronConfigLocalSources(config, CRON_CONFIG_PATH);
   return config;
 }
 

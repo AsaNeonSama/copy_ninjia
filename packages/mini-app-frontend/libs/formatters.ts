@@ -1,17 +1,21 @@
-import { MINI_APP_BIDI_CONTROL_CHARS_PATTERN } from "../consts/miniApp";
+import {
+  MINI_APP_BIDI_CONTROL_CHARS_PATTERN,
+  MINI_APP_BIDI_CONTROL_CHARS_TEST_PATTERN,
+} from "../consts/miniApp";
 import type {
   MiniAppCapabilityDetailItem,
   MiniAppCapabilityStatus,
-  MiniAppLanguage,
-} from "../types/miniApp";
+} from "../types/miniApp/status";
+import type { MiniAppLanguage } from "../types/miniApp/ui";
 
 /**
- * 剔除昵称或用户名中的 Unicode 双向文本控制字符（RLO/LRO/PDF 等）。
+ * 剔除昵称或用户名中的 Unicode 双向文本控制字符（RLO/LRO/PDF 等）；先用非全局正则检测，不含双向控制字符时原样返回。
  *
  * @param raw 原始文本
  * @returns 剥离双向控制字符后的安全展示文本
  */
 export function sanitizeBidiText(raw: string): string {
+  if (!MINI_APP_BIDI_CONTROL_CHARS_TEST_PATTERN.test(raw)) return raw;
   return raw.replace(MINI_APP_BIDI_CONTROL_CHARS_PATTERN, "");
 }
 
@@ -194,6 +198,18 @@ const JA_JP_CLOCK_TIME_FORMATTER: Intl.DateTimeFormat = new Intl.DateTimeFormat(
 );
 
 /**
+ * 将给定时刻格式化为诊断载荷使用的 `YYYY-MM-DD HH:MM:SS UTC` 字符串；传入非有限时间戳时回退到当前时刻。
+ *
+ * @param timestampMs 可选 Unix 毫秒时间戳（缺省取 `Date.now()`）
+ * @returns `YYYY-MM-DD HH:MM:SS UTC` 格式的 UTC 时间文本
+ */
+export function formatUtcTimestamp(timestampMs: number = Date.now()): string {
+  const date: Date = new Date(timestampMs);
+  const safeDate: Date = Number.isNaN(date.getTime()) ? new Date() : date;
+  return `${safeDate.toISOString().slice(0, 19).replace("T", " ")} UTC`;
+}
+
+/**
  * 将 Unix 毫秒时间戳格式化为指定语言区域的 24 小时制本地日期时间字符串。
  *
  * @param timestampMs Unix 毫秒时间戳
@@ -279,7 +295,7 @@ export interface DomCurrentTargetEventParams {
 }
 
 /** 浏览器文件选择 `<input type="file">` 事件目标的最小类型接口。 */
-export interface FileInputEventTarget {
+interface FileInputEventTarget {
   /** 当前选中的文件伪数组。 */
   readonly files?: ArrayLike<File> | null;
   /** 输入框当前值（置空可允许重复选择同一文件）。 */

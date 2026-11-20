@@ -1,17 +1,23 @@
 import { MINI_APP_HTML_TITLE } from "../../consts/miniApp";
 import type {
-  MiniAppActiveSessionCounts,
   MiniAppBatchKickCompletion,
-  MiniAppCapabilityDetailItem,
-  MiniAppCapabilityStatus,
   MiniAppChatDetail,
   MiniAppFeatureKey,
-  MiniAppIdentitySubTabKey,
-} from "../../types/miniApp";
+} from "../../types/miniApp/chats";
+import type { MiniAppIdentitySubTabKey } from "../../types/miniApp/identities";
+import type {
+  MiniAppActiveSessionCounts,
+  MiniAppCapabilityDetailItem,
+  MiniAppCapabilityStatus,
+} from "../../types/miniApp/status";
 import type {
   MiniAppServerNoticeParams,
   MiniAppTranslations,
 } from "../../types/miniAppI18n";
+import {
+  formatZhConfigServerNotice,
+  getZhConfigsTranslations,
+} from "../configs/zh";
 
 /**
  * 返回简体中文（杂鱼语气）的 Mini App 界面文案字典。
@@ -169,8 +175,15 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
         return `杂鱼♡，ID ${idText} 原本就不在白名单里哦。`;
       case "WHITELIST_PERSIST_FAILED":
         return "啧，白名单变更落盘失败了，杂鱼快去检查数据库写入状态♡";
-      case "BLOCKLIST_DUPLICATE":
-        return `笨蛋杂鱼♡，ID ${idText} 早就已经在黑名单里啦，不许重复添加！`;
+      case "BLOCKLIST_DUPLICATE": {
+        const fanOutNote: string =
+          params?.totalChats !== undefined && params.totalChats > 0
+            ? `（已重新在 ${params.affectedChats ?? 0}/${params.totalChats} 个受管群执行封禁）`
+            : "";
+        const persistNote: string =
+          params?.persisted === false ? "（注意：磁盘持久化确认未完成）" : "";
+        return `笨蛋杂鱼♡，ID ${idText} 早就已经在黑名单里啦，不许重复添加！${fanOutNote}${persistNote}`;
+      }
       case "BLOCKLIST_ADDED": {
         const fanOutNote: string =
           params?.totalChats !== undefined && params.totalChats > 0
@@ -267,11 +280,9 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
       case "QA_STORAGE_FAILED":
         return "啧，问答对落盘失败了，杂鱼快去检查数据库写入状态♡";
       case "TARGET_REQUIRED":
-        return "笨蛋杂鱼♡，还没输入目标 @username 或数字 ID 呢！";
+        return "笨蛋杂鱼♡，还没输入目标数字 ID 呢！";
       case "TARGET_INVALID":
-        return "笨蛋杂鱼♡，目标格式不对哦，请输入 @username、用户正整数 ID 或 -100... 频道 ID！";
-      case "TARGET_USERNAME_NOT_FOUND":
-        return "啧，缓存里还没见过这个 @username 发言呢，杂鱼改填数字 ID 或者等 TA 在群里发条消息吧♡";
+        return "笨蛋杂鱼♡，目标格式不对哦，请输入用户正整数 ID 或 -100... 频道 ID！";
       case "TARGET_NOT_IN_CHAT":
         return "杂鱼♡，这个人根本不在这个群里呢，没法加进目标名单哦！";
       case "TARGET_SELF_FORBIDDEN":
@@ -313,7 +324,7 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
       case "INVALID_CHAT_TARGETS_PARAMS":
         return "笨蛋杂鱼♡，目标管理请求参数格式不对哦！";
       default:
-        return code;
+        return formatZhConfigServerNotice(code, params) ?? code;
     }
   };
   return {
@@ -335,6 +346,7 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
       status: "实时状态",
       chats: "受管群聊",
       identities: "权限控制",
+      configs: "配置编辑",
       gallery: "色图图库",
       totp: "验证器",
     },
@@ -342,6 +354,7 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
       status: "CPU、内存、出站门控与子系统状态",
       chats: "已 /init 群开关与热 256 条发言",
       identities: "白名单 18 项权限与黑名单管理",
+      configs: "动态热重载与静态启动 JSON 配置编辑",
       gallery: "/h_image 图库预览、上传与删除",
       totp: "谷歌验证器 (TOTP) 绑定、替换与删除",
     },
@@ -438,8 +451,10 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
       memoryOtherUsedLabel: "其他进程内存占用",
       memoryTotalUsedLabel: "总占用",
       managedChatsLabel: "已 /init 受管群",
-      managedChatsSub: (whitelistCount: number, blocklistCount: number): string =>
-        `白名单 ${whitelistCount} · 黑名单 ${blocklistCount}`,
+      managedChatsSub: (whitelistCount: number, blocklistCount: number): readonly [string, string] => [
+        `白名单 ${whitelistCount}`,
+        `黑名单 ${blocklistCount}`,
+      ],
       activeSessionsLabel: "活跃交互会话",
       activeSessionsSub: (
         sessions: Readonly<MiniAppActiveSessionCounts>
@@ -450,8 +465,8 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
         `问答 ${sessions.qaSet}`,
       ],
       outboundGateLabel: "Telegram 出站门控",
-      outboundGateSub: (waiting: number, retrySize: number, retryMax: number): string =>
-        `排队 ${waiting} · 重试队列 ${retrySize}/${retryMax}`,
+      outboundGateSub: (retryWaiting: number, retryQueueMax: number): string =>
+        `退避重试队列 ${retryWaiting}/${retryQueueMax}`,
       capabilitiesSectionTitle: "功能配置与子系统就绪度",
       capabilityReadyBadge: "已就绪",
       capabilityMissingBadge: "未配置",
@@ -506,14 +521,14 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
       confirmDeleteQa: (q: string): string =>
         `杂鱼♡，确定要删掉问答对「${q}」吗？`,
       qaEmptyHint: "点击上方按钮即可新增问答对♡",
-      deleteTargetInputPlaceholder: "@username、用户 ID 或频道 ID",
+      deleteTargetInputPlaceholder: "快写，杂鱼",
       deleteTargetAddButton: "添加删发言目标",
       deleteTargetAddingButton: "添加中…",
       deleteTargetRemoveButton: "移除",
       confirmRemoveDeleteTarget: (displayName: string, id: number): string =>
         `杂鱼，确定要把 ${displayName} (${id}) 从删发言目标名单移出吗？`,
       deleteTargetEmptyHint: "点击上方按钮添加删发言目标♡",
-      translateTargetInputPlaceholder: "@username、用户 ID 或频道 ID",
+      translateTargetInputPlaceholder: "快写，杂鱼",
       translateLanguageLabels: {
         ja: "日语 (ja)",
         cn: "中文 (cn)",
@@ -608,7 +623,7 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
     identities: {
       whitelistTab: "权限",
       blocklistTab: "黑名单",
-      searchPlaceholder: "id/name",
+      searchPlaceholder: "写清楚，杂鱼",
       searchClearAria: "清空搜索词",
       addFoldButton: "添加用户",
       addModes: {
@@ -621,7 +636,7 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
         users: "唤起 Telegram 原生联系人多选器挑选好友",
         channel: "唤起 Telegram 原生频道选择器挑选广播频道",
       },
-      idInputPlaceholder: "输入用户正整数 ID 或 -100... 频道 ID",
+      idInputPlaceholder: "快写，杂鱼",
       idConfirmButton: "确认塞进去",
       idCancelButton: "收起",
       invalidIdToast: "笨蛋杂鱼，连非零整数 ID 都不会填吗（例如 123456789 或 -1001234567890）！",
@@ -706,8 +721,6 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
       uploadButton: "上传新图",
       directoryMissingText: (_directory: string): string =>
         "图库存储尚未就绪，本天才不会自动建目录哦",
-      directoryReadyText: (_directory: string): string =>
-        "图库存储已就绪 · 支持 JPEG / PNG / WebP (≤ 10 MiB)",
       previewTitle: (shortName: string): string => `大图预览 · ${shortName}`,
       downloadButton: "下载图片",
       downloadingButton: "下载中…",
@@ -725,5 +738,6 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
       emptyGalleryHint:
         "图库目录里连一张图都没有呢，杂鱼快点右上角「上传新图」塞几张进来吧♡",
     },
+    configs: getZhConfigsTranslations(),
   };
 }

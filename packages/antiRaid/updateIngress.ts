@@ -13,7 +13,7 @@ import type {
 } from "grammy/types";
 import { logger } from "../infra/logger";
 import { recordJoinLog } from "../infra/joinLog";
-import { answerCallbackQuery } from "../infra/telegram/actions";
+import { answerCallbackQuery } from "../infra/telegram/actions/messages";
 import {
   cachedBotAdminStatus,
   resolveBotAdminStatus,
@@ -186,15 +186,15 @@ function noteAdCandidatePost(chatId: number, posted: boolean): void {
   if (posted) {
     if (adCandidatePostRejected.current) {
       adCandidatePostRejected.current = false;
-      logger.log("Anti-Raid Worker accepts ad detection candidates again.");
+      logger.info("Anti-Raid Worker accepts ad detection candidates again.");
     }
     return;
   }
   if (adCandidatePostRejected.current) return;
   adCandidatePostRejected.current = true;
   logger.error(
-    `Anti-Raid Worker rejected an ad detection candidate from chat ${chatId}; ` +
-    "further rejections are not logged until a candidate is accepted again."
+    "Anti-Raid Worker rejected an ad detection candidate; further rejections are not logged until a candidate is accepted again.",
+    { chatId }
   );
 }
 

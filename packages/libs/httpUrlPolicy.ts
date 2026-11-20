@@ -31,6 +31,17 @@ function isAllowedHostname(hostname: string, allowedSuffixes: readonly string[])
 }
 
 /**
+ * 解析不含用户名与密码的 HTTPS URL（不做首尾空白裁剪，裁剪、长度与空白策略由调用方自行判定）。
+ * @param input 待解析的原始 URL 字符串或 URL 实例。
+ * @returns 合法且不带凭据的 HTTPS `URL` 实例；解析失败、非 `https:` 协议或带凭据时返回 `null`。
+ */
+export function parseHttpsUrlWithoutCredentials(input: string | URL): URL | null {
+  const url: URL | null = URL.parse(typeof input === "string" ? input : input.href);
+  if (url?.protocol !== "https:" || url.username !== "" || url.password !== "") return null;
+  return url;
+}
+
+/**
  * 只接受 allowlist 内的 HTTPS URL。origin 规则精确匹配；hostname suffix
  * 规则按 DNS label 边界匹配且拒绝自定义端口。
  * @param params 待校验的 URL 输入与白名单策略。
@@ -40,8 +51,8 @@ export function parseAllowedHttpsUrl({
   input,
   policy,
 }: ParseAllowedHttpsUrlParams): URL | null {
-  const url: URL | null = URL.parse(typeof input === "string" ? input : input.href);
-  if (url?.protocol !== "https:" || url.username !== "" || url.password !== "") return null;
+  const url: URL | null = parseHttpsUrlWithoutCredentials(input);
+  if (url === null) return null;
 
   if (policy.allowedOrigins?.includes(url.origin) === true) return url;
   if (

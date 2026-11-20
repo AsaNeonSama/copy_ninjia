@@ -11,6 +11,7 @@ import { SECOND_MS } from "../consts/time";
 import { chatAtmosphere } from "../infra/atmosphere";
 import { isUserBlocked } from "../infra/blocklist/membership";
 import { logger } from "../infra/logger";
+import { botCanRestrictMembersIn } from "../infra/botAdmin";
 import {
   banChatMemberWithOutcome,
   kickChatMemberWithOutcome,
@@ -78,12 +79,26 @@ function formatInChatAdNotice(
 
 /**
  * 在触发群禁言广告发送者：限时禁言沿用 `/mute` 的派发截止契约（时长减去 MUTE_DISPATCH_MIN_REMAINING_MS），
- * 永久禁言不带 `until_date`。
+ * 永久禁言不带 `until_date`。权限快照确证缺限制成员权限或群类型为普通群时直接短路失败。
  * @param event Worker 上报的广告命中事件。
  * @param durationMs 禁言时长（毫秒）；null 表示永久禁言。
  * @returns 禁言请求确认生效时返回 true。
  */
 async function muteAdSender(event: AdDetectedEvent, durationMs: number | null): Promise<boolean> {
+  if (botCanRestrictMembersIn(event.chatId) === false) {
+    logger.error(
+      "Ad detection could not mute sender; the bot is known to lack can_restrict_members there.",
+      { chatId: event.chatId, senderId: event.senderId }
+    );
+    return false;
+  }
+  if (chatIsSupergroupById.get(event.chatId) === false) {
+    logger.error(
+      "Ad detection could not mute sender; basic groups do not support restrictChatMember.",
+      { chatId: event.chatId, senderId: event.senderId }
+    );
+    return false;
+  }
   const outcome: MuteChatMemberOutcome = durationMs === null
     ? await muteChatMemberPermanentlyWithOutcome({ chatId: event.chatId, userId: event.senderId })
     : await muteChatMemberWithOutcome({
@@ -93,48 +108,66 @@ async function muteAdSender(event: AdDetectedEvent, durationMs: number | null): 
       dispatchTimeoutMs: durationMs - MUTE_DISPATCH_MIN_REMAINING_MS,
     });
   if (outcome === "muted") {
-    logger.log(
-      `Ad detection muted sender ${event.senderId} in chat ${event.chatId} ` +
-      `${durationMs === null ? "permanently" : `for ${Math.round(durationMs / SECOND_MS)}s`}.`
+    logger.info(
+      "Ad detection muted sender.",
+      {
+        chatId: event.chatId,
+        senderId: event.senderId,
+        permanent: durationMs === null,
+        durationSeconds: durationMs === null ? null : Math.round(durationMs / SECOND_MS),
+      }
     );
     return true;
   }
-  logger.error(`Ad detection could not mute sender ${event.senderId} in chat ${event.chatId}: ${outcome}.`);
+  logger.error(
+    "Ad detection could not mute sender.",
+    { chatId: event.chatId, senderId: event.senderId, outcome }
+  );
   return false;
 }
 
 /**
  * 把广告发送者移出触发群但不封禁。超级群的「只踢不封」走 `unbanChatMember`，对已封禁身份有解除封禁语义：
- * 发送者已在永久黑名单时交给黑名单封禁，不再踢；踢前先确认目标仍在群（见 docs/cn/04-invariants.md）。
+ * 发送者已在永久黑名单时交给黑名单封禁，不再踢；权限快照确证缺限制成员权限时短路失败；踢前先确认目标仍在群（见 docs/cn/04-invariants.md）。
  * 群类型读主线程 chatIsSupergroupById，未知时不猜测移出接口。
  * @param event Worker 上报的广告命中事件。
  * @returns 已移出或确认目标已不在群时返回 true。
  */
 async function kickAdSender(event: AdDetectedEvent): Promise<boolean> {
   if (isUserBlocked(event.senderId)) {
-    logger.log(
-      `Ad detection left sender ${event.senderId} in chat ${event.chatId} to the blocklist ban: ` +
-      "the identity is already on the permanent blocklist."
+    logger.info(
+      "Ad detection left sender to the blocklist ban; the identity is already on the permanent blocklist.",
+      { chatId: event.chatId, senderId: event.senderId }
     );
     return true;
+  }
+  if (botCanRestrictMembersIn(event.chatId) === false) {
+    logger.error(
+      "Ad detection could not kick sender; the bot is known to lack can_restrict_members there.",
+      { chatId: event.chatId, senderId: event.senderId }
+    );
+    return false;
   }
   const isSupergroup: boolean | undefined = chatIsSupergroupById.get(event.chatId);
   if (isSupergroup === undefined) {
     logger.error(
-      `Ad detection could not kick sender ${event.senderId} in chat ${event.chatId}: ` +
-      "the chat kind is unknown, so no removal API is guessed."
+      "Ad detection could not kick sender; the chat kind is unknown, so no removal API is guessed.",
+      { chatId: event.chatId, senderId: event.senderId }
     );
     return false;
   }
   const present: boolean | undefined = await probeChatMembership(event.chatId, event.senderId);
   if (present === false) {
-    logger.log(`Ad detection found sender ${event.senderId} already gone from chat ${event.chatId}; nothing to kick.`);
+    logger.info(
+      "Ad detection found sender already gone from chat; nothing to kick.",
+      { chatId: event.chatId, senderId: event.senderId }
+    );
     return true;
   }
   if (present === undefined) {
     logger.error(
-      `Ad detection could not kick sender ${event.senderId} in chat ${event.chatId}: ` +
-      "membership could not be confirmed, so no removal was issued."
+      "Ad detection could not kick sender; membership could not be confirmed, so no removal was issued.",
+      { chatId: event.chatId, senderId: event.senderId }
     );
     return false;
   }
@@ -144,25 +177,44 @@ async function kickAdSender(event: AdDetectedEvent): Promise<boolean> {
     isSupergroup,
   });
   if (outcome === "kicked" || outcome === "absent") {
-    logger.log(`Ad detection kicked sender ${event.senderId} from chat ${event.chatId} without a ban.`);
+    logger.info(
+      "Ad detection kicked sender from chat without a ban.",
+      { chatId: event.chatId, senderId: event.senderId }
+    );
     return true;
   }
-  logger.error(`Ad detection could not kick sender ${event.senderId} in chat ${event.chatId}: ${outcome}.`);
+  logger.error(
+    "Ad detection could not kick sender.",
+    { chatId: event.chatId, senderId: event.senderId, outcome }
+  );
   return false;
 }
 
 /**
- * 只在触发群封禁广告发送者（banChatMember 带 `revoke_messages`），不写永久黑名单。
+ * 只在触发群封禁广告发送者（banChatMember 带 `revoke_messages`），不写永久黑名单；权限快照确证缺限制成员权限时短路失败。
  * @param event Worker 上报的广告命中事件。
  * @returns 封禁请求确认生效时返回 true。
  */
 async function banAdSenderInChat(event: AdDetectedEvent): Promise<boolean> {
+  if (botCanRestrictMembersIn(event.chatId) === false) {
+    logger.error(
+      "Ad detection could not ban sender; the bot is known to lack can_restrict_members there.",
+      { chatId: event.chatId, senderId: event.senderId }
+    );
+    return false;
+  }
   const outcome: BanChatMemberOutcome = await banChatMemberWithOutcome(event.chatId, event.senderId);
   if (outcome === "banned") {
-    logger.log(`Ad detection banned sender ${event.senderId} in chat ${event.chatId} only.`);
+    logger.info(
+      "Ad detection banned sender in chat only.",
+      { chatId: event.chatId, senderId: event.senderId }
+    );
     return true;
   }
-  logger.error(`Ad detection could not ban sender ${event.senderId} in chat ${event.chatId}: ${outcome}.`);
+  logger.error(
+    "Ad detection could not ban sender.",
+    { chatId: event.chatId, senderId: event.senderId, outcome }
+  );
   return false;
 }
 
@@ -179,9 +231,9 @@ async function runInChatAdPunishment(
   if (action.kind === "mute") return await muteAdSender(event, action.durationMs);
   if (action.kind === "kick") return await kickAdSender(event);
   if (action.kind === "banChat") return await banAdSenderInChat(event);
-  logger.log(
-    `Ad detection only deleted the messages of channel sender ${event.senderId} in chat ${event.chatId}: ` +
-    "the configured punishment cannot apply to a channel identity."
+  logger.info(
+    "Ad detection only deleted the messages of channel sender; the configured punishment cannot apply to a channel identity.",
+    { chatId: event.chatId, senderId: event.senderId }
   );
   return true;
 }

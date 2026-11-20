@@ -29,8 +29,7 @@ import {
 } from "./constants";
 import { AGENT_API_KEY_PLACEHOLDERS } from
   "../../../packages/consts/agent";
-import { MINI_APP_PASSWORD_PLACEHOLDER } from
-  "../../../packages/consts/miniApp";
+import { MINI_APP_PASSWORD_PLACEHOLDER } from "../../../packages/consts/miniApp";
 import { RUNTIME_DATA_ROOT_MAX_MODE } from
   "../../../packages/consts/storage";
 import { TELEGRAM_BOT_TOKEN_PLACEHOLDER } from

@@ -2,7 +2,7 @@
  * 模型返回的 base64 二进制载荷的公共解码契约，生图与语音合成共用。
  *
  * 两条链路的门禁各自独立（生图核对 PNG/JPEG 字节签名，语音合成由
- * aiChat/ai/voiceEncoding.ts 按 MIME 判定容器）；「规范性 + 大小上限 + 解码一次」
+ * workers/aiChat/ai/voiceEncoding.ts 按 MIME 判定容器）；「规范性 + 大小上限 + 解码一次」
  * 与载荷类型无关，由本契约承担。失败原因为公共原因加各自的领域专属原因。
  */
 

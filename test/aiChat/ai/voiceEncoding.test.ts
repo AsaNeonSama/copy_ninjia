@@ -17,8 +17,8 @@ import { OPUS_HEAD_MAGIC } from "../../../packages/consts/audio";
 const loggerError = mock((..._args: unknown[]): void => {});
 mock.module("../../../packages/infra/logger", () => ({ logger: loggerStub({ error: loggerError }) }));
 
-const { encodeVoiceMessage } = await import("../../../packages/aiChat/ai/voiceEncoding");
-const { decodeWavPcm } = await import("../../../packages/aiChat/ai/utils/wavPcm");
+const { encodeVoiceMessage } = await import("../../../packages/workers/aiChat/ai/voiceEncoding");
+const { decodeWavPcm } = await import("../../../packages/workers/aiChat/ai/utils/wavPcm");
 const {
   VOICE_MP3_FILE_NAME,
   VOICE_OGG_FILE_NAME,

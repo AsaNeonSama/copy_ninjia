@@ -49,8 +49,11 @@ function admitDailyLuckEntry(cacheKey: string, draw: LuckDraw): boolean {
     if (!dailyLuckCacheSaturated.current) {
       dailyLuckCacheSaturated.current = true;
       logger.error(
-        `Daily luck cache reached its ${DAILY_LUCK_CACHE_MAX}-entry ceiling for ${luckCacheState.dayKey}; ` +
-        "further confirmed draws will not be remembered or persisted until the configured local day rolls over."
+        "Daily luck cache reached its entry ceiling; further confirmed draws will not be remembered or persisted until the configured local day rolls over.",
+        {
+          dayKey: luckCacheState.dayKey,
+          maxEntries: DAILY_LUCK_CACHE_MAX,
+        }
       );
     }
     return false;
@@ -207,8 +210,11 @@ export function promotePendingDraw(cacheKey: string, confirmedForToday: boolean 
     fortunePercent: draw.fortunePercent,
   })) {
     logger.error(
-      `Daily luck draw for key ${cacheKey} on ${luckCacheState.dayKey} was not handed to the persistence Worker; ` +
-      `it is only in memory until the Worker respawns and the cache is replayed.`
+      "Daily luck draw was not handed to the persistence Worker; it is only in memory until the Worker respawns and the cache is replayed.",
+      {
+        cacheKey,
+        dayKey: luckCacheState.dayKey,
+      }
     );
   }
 }
@@ -241,9 +247,13 @@ function initializeRespawnRecovery(): void {
   // workers/diskIO/luckFiles.ts。
   onDiskIOReply("luckAppendStalled", (reply: LuckAppendStalledReply): void => {
     logger.error(
-      `Daily luck appends for ${reply.day} have failed ${reply.consecutiveFailures} times in a row; ` +
-      `${reply.pendingEntries} confirmed draw(s) are stuck in the persistence Worker and are not on disk. ` +
-      `Last error: ${reply.error}`
+      "Daily luck appends are stalled in the persistence Worker.",
+      {
+        day: reply.day,
+        consecutiveFailures: reply.consecutiveFailures,
+        pendingEntries: reply.pendingEntries,
+        lastError: reply.error,
+      }
     );
   });
 }
@@ -259,8 +269,11 @@ export function restoreLuckState(secret: LuckReceiptSecret, loaded: LuckDayCache
   if (secret.day !== todayKey) {
     // 跨过配置时区日界时丢弃过期凭据与快照，置位 daySwitchedInProcess，首次使用时由 ensureLuckCacheFreshForToday 重取当天密钥。
     logger.warn(
-      `Loaded luck receipt secret is for ${secret.day} but the configured local day already rolled over to ${todayKey}; ` +
-      "discarding it and re-deriving today's secret on first use."
+      "Loaded luck receipt secret is from a previous local day; discarding it and re-deriving today's secret on first use.",
+      {
+        secretDay: secret.day,
+        todayKey,
+      }
     );
     luckRuntimeState.daySwitchedInProcess = true;
     return;

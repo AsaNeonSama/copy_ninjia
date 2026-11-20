@@ -20,12 +20,34 @@ installMiniAppTestDiskIOMock();
 const { aiChatBotInfo } = await import("../../packages/cache/main/aiChat");
 const { blocklistSweepState } = await import("../../packages/cache/main/blocklist");
 const { resetChatStateCache } = await import("../../packages/cache/main/chatState");
-const { resetIdentityStorageCache } = await import("../../packages/cache/main/identityStorage");
+const {
+  identityPolicyCache,
+  resetIdentityStorageCache,
+  unacknowledgedBlocklistWrites,
+  unacknowledgedWhitelistWrites,
+} = await import("../../packages/cache/main/identityStorage");
+const {
+  identityById,
+  senderUsernameCache,
+  userCache,
+} = await import("../../packages/cache/main/senderIdentity");
 const { telegramApiState } = await import("../../packages/cache/perThread/telegramApi");
 const { SUPER_ADMIN_USER_ID } = await import("../../packages/config/bot");
+const { blockUser } = await import("../../packages/infra/blocklist/membership");
+const diskIO = await import("../../packages/infra/diskIO");
+const { prefetchIdentityPolicies } = await import("../../packages/infra/identityStorage");
+const { setWhitelistMembership } = await import("../../packages/infra/identityPolicy/whitelist");
 const { logger } = await import("../../packages/infra/logger");
 const { getOrCreateChatState } = await import("../../packages/infra/chatStateStorage");
 const {
+  resolveUsernameTarget,
+  updateCachedIdentity,
+} = await import("../../packages/users/senderIdentity");
+const { resolveIdentityMetadataForMiniApp } = await import(
+  "../../packages/mini-app-api-server/view/identities/metadata"
+);
+const {
+  enableAllWhitelistEntryPermissions,
   setWhitelistEntryMembership,
   setWhitelistEntryPermission,
 } = await import("../../packages/mini-app-api-server/view/identities/whitelist");
@@ -80,6 +102,9 @@ afterEach((): void => {
   resetIdentityStorageCache();
   resetChatStateCache();
   blocklistSweepState.clear();
+  userCache.clear();
+  senderUsernameCache.clear();
+  identityById.clear();
   aiChatBotInfo.current = null;
   telegramApiState.current = null;
 });
@@ -292,5 +317,243 @@ describe("Mini App 黑名单成员变更护栏与跨群处置", () => {
       { chatId: unbannedChat, onlyIfBanned: true },
     ]);
     expect(blocklistSweepState.size).toBe(0);
+  });
+
+  test("黑白名单重复添加（D2）：前一次写入未落盘确认时补投确认，黑名单并重新派发跨群封禁", async () => {
+    const postSpy = spyOn(diskIO, "postDiskIO");
+    try {
+      // 1. 白名单已在内存缓存但上次落盘未 ACK：重复添加须补投（retryUnacknowledged=true）并等待确认落盘。
+      const dupWhitelistId: number = 50_031;
+      await prefetchIdentityPolicies([dupWhitelistId]);
+      setWhitelistMembership({ id: dupWhitelistId, enabled: true, meta: { firstName: "Pending", lastName: "", username: "" } });
+      postSpy.mockClear();
+      expect(whitelistRows.has(dupWhitelistId)).toBeFalse();
+      expect(unacknowledgedWhitelistWrites.has(dupWhitelistId)).toBeTrue();
+
+      const whitelistDup: Readonly<MiniAppIdentityMutationResult> =
+        await setWhitelistEntryMembership({ id: dupWhitelistId, enabled: true });
+      expect(whitelistDup).toMatchObject({
+        ok: true,
+        changed: false,
+        duplicate: true,
+        id: dupWhitelistId,
+        message: "WHITELIST_DUPLICATE",
+      });
+      expect(postSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "identityPolicyWrite", table: "whitelist", id: dupWhitelistId })
+      );
+      expect(whitelistRows.has(dupWhitelistId)).toBeTrue();
+      expect(unacknowledgedWhitelistWrites.has(dupWhitelistId)).toBeFalse();
+
+      // 2. 黑名单已在内存缓存但上次落盘未 ACK：重复添加须补投确认并重新对受管群派发封禁。
+      const dupBlocklistId: number = 60_031;
+      seedManagedAdminChat(MANAGED_CHAT_ID, true);
+      const rebanCalls: number[] = [];
+      telegramApiState.current = {
+        banChatMember: async (chatId: number): Promise<true> => {
+          rebanCalls.push(chatId);
+          return true;
+        },
+      } as unknown as InstalledTelegramApi;
+      await prefetchIdentityPolicies([dupBlocklistId]);
+      blockUser(dupBlocklistId, { firstName: "PendingBlock", lastName: "", username: "" });
+      postSpy.mockClear();
+      expect(blocklistRows.has(dupBlocklistId)).toBeFalse();
+      expect(unacknowledgedBlocklistWrites.has(dupBlocklistId)).toBeTrue();
+
+      const blocklistDup: Readonly<MiniAppIdentityMutationResult> =
+        await setBlocklistEntryMembership({ id: dupBlocklistId, enabled: true });
+      expect(blocklistDup).toMatchObject({
+        ok: true,
+        changed: false,
+        duplicate: true,
+        id: dupBlocklistId,
+        persisted: true,
+        affectedChats: 1,
+        totalChats: 1,
+        message: "BLOCKLIST_DUPLICATE",
+      });
+      expect(postSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "identityPolicyWrite", table: "blocklist", id: dupBlocklistId })
+      );
+      expect(blocklistRows.has(dupBlocklistId)).toBeTrue();
+      expect(unacknowledgedBlocklistWrites.has(dupBlocklistId)).toBeFalse();
+      expect(rebanCalls).toEqual([MANAGED_CHAT_ID]);
+    } finally {
+      postSpy.mockRestore();
+    }
+  });
+
+  test("身份元数据补齐依次命中主线程发送者缓存、静默 getChat 探测（用户与频道）及空探测兜底", async () => {
+    // 1. 命中主线程发送者缓存时直接返回缓存资料，不调用 getChat。
+    let getChatCalls: number = 0;
+    telegramApiState.current = {
+      getChat: async (): Promise<unknown> => {
+        getChatCalls += 1;
+        return undefined;
+      },
+    } as unknown as InstalledTelegramApi;
+    updateCachedIdentity({
+      id: 70_001,
+      username: "cached_user",
+      first_name: "Cached",
+      last_name: "Name",
+    });
+    const cachedMeta = await resolveIdentityMetadataForMiniApp(70_001);
+    expect(cachedMeta).toEqual({
+      firstName: "Cached",
+      lastName: "Name",
+      username: "cached_user",
+    });
+    expect(getChatCalls).toBe(0);
+
+    // 2. 缓存未命中时经 getChat 探测私聊用户（first_name/last_name/username）并回填发送者缓存。
+    telegramApiState.current = {
+      getChat: async (targetId: number): Promise<unknown> => {
+        getChatCalls += 1;
+        if (targetId === 70_002) {
+          return {
+            id: targetId,
+            type: "private",
+            first_name: "  ProbeFirst ",
+            last_name: " ProbeLast ",
+            username: " probed_user ",
+          };
+        }
+        if (targetId === -10070003) {
+          return {
+            id: targetId,
+            type: "channel",
+            title: " ProbeChannel ",
+            username: "probed_chan",
+          };
+        }
+        return { id: targetId, type: "private", first_name: "   ", username: "  " };
+      },
+    } as unknown as InstalledTelegramApi;
+
+    const probedUser = await resolveIdentityMetadataForMiniApp(70_002);
+    expect(probedUser).toEqual({
+      firstName: "ProbeFirst",
+      lastName: "ProbeLast",
+      username: "probed_user",
+    });
+    expect(resolveUsernameTarget("probed_user")?.id).toBe(70_002);
+
+    // 3. 缓存未命中时经 getChat 探测频道（title/username）并回填频道缓存。
+    const probedChannel = await resolveIdentityMetadataForMiniApp(-10070003);
+    expect(probedChannel).toEqual({
+      firstName: "ProbeChannel",
+      lastName: "",
+      username: "probed_chan",
+    });
+    expect(resolveUsernameTarget("probed_chan")?.id).toBe(-10070003);
+
+    // 4. getChat 返回空白字段时回退为空元数据。
+    const emptyProbe = await resolveIdentityMetadataForMiniApp(70_004);
+    expect(emptyProbe).toEqual({
+      firstName: "",
+      lastName: "",
+      username: "",
+    });
+    expect(getChatCalls).toBe(3);
+  });
+
+  test("临界区内缓存被挤出且重新预取失败返回 IDENTITY_STORAGE_UNAVAILABLE，持久化异常返回对应失败码", async () => {
+    const flushSpy = spyOn(diskIO, "flushDiskIODomain");
+    try {
+      // 1. 白名单成员变更：外层预取成功后，元数据探测窗口内缓存被清空且临界区内补预取失败。
+      telegramApiState.current = {
+        getChat: async (): Promise<unknown> => {
+          identityPolicyCache.clear();
+          failNextIdentityRead();
+          return undefined;
+        },
+      } as unknown as InstalledTelegramApi;
+      expectRejected(
+        await setWhitelistEntryMembership({ id: 71_001, enabled: true }),
+        "IDENTITY_STORAGE_UNAVAILABLE"
+      );
+
+      // 2. 白名单成员变更落盘确认抛错 -> WHITELIST_PERSIST_FAILED。
+      telegramApiState.current = null;
+      flushSpy.mockImplementationOnce(async (): Promise<never> => {
+        throw new Error("whitelist flush failed");
+      });
+      expectRejected(
+        await setWhitelistEntryMembership({
+          id: 71_002,
+          enabled: true,
+          meta: { firstName: "PersistFail", lastName: "", username: "" },
+        }),
+        "WHITELIST_PERSIST_FAILED"
+      );
+
+      // 3. 白名单权限修改（单项与一键全开）：临界区内缓存缺失且补预取失败 -> IDENTITY_STORAGE_UNAVAILABLE；落盘失败 -> PERMISSION_PERSIST_FAILED。
+      const permId: number = 71_003;
+      whitelistRows.set(permId, JSON.stringify({
+        permissions: DEFAULT_WHITELIST_PERMISSIONS,
+        meta: { firstName: "PermTarget", lastName: "", username: "" },
+      }));
+      const coordination = await import("../../packages/infra/identityPolicy/coordination");
+      const gate: PromiseWithResolvers<void> = Promise.withResolvers<void>();
+      const blocker: Promise<void> = coordination.runProtectedIdentityMutation(
+        async (): Promise<void> => {
+          await gate.promise;
+        }
+      );
+      const pendingPerm = setWhitelistEntryPermission({
+        id: permId,
+        key: "isCanMute",
+        value: true,
+      });
+      await Bun.sleep(0);
+      identityPolicyCache.clear();
+      failNextIdentityRead();
+      gate.resolve();
+      await blocker;
+      expectRejected(await pendingPerm, "IDENTITY_STORAGE_UNAVAILABLE");
+
+      flushSpy.mockImplementationOnce(async (): Promise<never> => {
+        throw new Error("permission flush failed");
+      });
+      expectRejected(
+        await enableAllWhitelistEntryPermissions(permId),
+        "PERMISSION_PERSIST_FAILED"
+      );
+
+      // 4. 黑名单加入与解除：临界区内缓存被清空且补预取失败 -> IDENTITY_STORAGE_UNAVAILABLE。
+      telegramApiState.current = {
+        getChat: async (): Promise<unknown> => {
+          identityPolicyCache.clear();
+          failNextIdentityRead();
+          return undefined;
+        },
+      } as unknown as InstalledTelegramApi;
+      expectRejected(
+        await setBlocklistEntryMembership({ id: 71_004, enabled: true }),
+        "IDENTITY_STORAGE_UNAVAILABLE"
+      );
+
+      telegramApiState.current = null;
+      const unblockGate: PromiseWithResolvers<void> = Promise.withResolvers<void>();
+      const unblockBlocker: Promise<void> = coordination.runProtectedIdentityMutation(
+        async (): Promise<void> => {
+          await unblockGate.promise;
+        }
+      );
+      const pendingUnblock = setBlocklistEntryMembership({
+        id: 71_005,
+        enabled: false,
+      });
+      await Bun.sleep(0);
+      identityPolicyCache.clear();
+      failNextIdentityRead();
+      unblockGate.resolve();
+      await unblockBlocker;
+      expectRejected(await pendingUnblock, "IDENTITY_STORAGE_UNAVAILABLE");
+    } finally {
+      flushSpy.mockRestore();
+    }
   });
 });

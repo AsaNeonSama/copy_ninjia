@@ -1,4 +1,12 @@
 import { chatQaEntries } from "../../../cache/main/qa";
+import {
+  addDeleteMessageTargetId,
+  removeDeleteMessageTargetId,
+} from "../../../commands/deleteMessage/targets";
+import type {
+  AddDeleteMessageTargetOutcome,
+  RemoveDeleteMessageTargetOutcome,
+} from "../../../commands/deleteMessage/targets";
 import { answerRejectionOf, questionRejectionOf } from "../../../commands/qa/fieldRules";
 import { SUPER_ADMIN_USER_ID } from "../../../config/bot";
 import { translateConfigReadiness } from "../../../config/readiness";
@@ -297,14 +305,16 @@ async function addDeleteMessageTarget(
   }
   const latestState: ChatState | undefined = initializedChatState(chatId);
   if (latestState === undefined) return chatNotFound();
-  const current: readonly number[] = latestState.deleteMessageTargets ?? [];
-  if (current.includes(verified.user.id)) {
-    return buildMutationResult(chatId, true, "DELETE_TARGET_ALREADY_EXISTS");
+  const addition: AddDeleteMessageTargetOutcome = addDeleteMessageTargetId(
+    latestState.deleteMessageTargets,
+    verified.user.id
+  );
+  if (!addition.ok) {
+    return addition.reason === "exists"
+      ? buildMutationResult(chatId, true, "DELETE_TARGET_ALREADY_EXISTS")
+      : buildMutationResult(chatId, false, "DELETE_TARGET_LIMIT_REACHED");
   }
-  if (current.length >= DELETE_MESSAGE_CHAT_TARGET_MAX) {
-    return buildMutationResult(chatId, false, "DELETE_TARGET_LIMIT_REACHED");
-  }
-  latestState.deleteMessageTargets = [...current, verified.user.id];
+  latestState.deleteMessageTargets = addition.next;
   await persistChatState(chatId, "delete_message target added via Mini App");
   return buildMutationResult(chatId, true, "DELETE_TARGET_ADDED");
 }
@@ -325,12 +335,14 @@ async function removeDeleteMessageTarget(
   if (targetId === undefined) {
     return buildMutationResult(chatId, false, "TARGET_INVALID");
   }
-  const current: readonly number[] = state.deleteMessageTargets ?? [];
-  if (!current.includes(targetId)) {
+  const removal: RemoveDeleteMessageTargetOutcome = removeDeleteMessageTargetId(
+    state.deleteMessageTargets,
+    targetId
+  );
+  if (!removal.ok) {
     return buildMutationResult(chatId, true, "DELETE_TARGET_NOT_FOUND");
   }
-  const next: number[] = current.filter((id: number): boolean => id !== targetId);
-  state.deleteMessageTargets = next.length > 0 ? next : undefined;
+  state.deleteMessageTargets = removal.next;
   await persistChatState(chatId, "delete_message target removed via Mini App");
   return buildMutationResult(chatId, true, "DELETE_TARGET_REMOVED");
 }

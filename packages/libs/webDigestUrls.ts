@@ -3,6 +3,7 @@ import {
   WEB_DIGEST_RESEARCH_URL_TRAILING_PUNCTUATION_PATTERN,
   WEB_DIGEST_URL_MAX_CHARS,
 } from "../consts/webDigest";
+import { parseHttpsUrlWithoutCredentials } from "./httpUrlPolicy";
 import type { AiWebSearchResult } from "../types/aiChat/provider";
 
 /** 检索段交回的正文与来源元数据。 */
@@ -48,8 +49,7 @@ function cleanResearchUrl(matched: string, preceding: string | undefined): strin
     url = url.replace(WEB_DIGEST_RESEARCH_URL_TRAILING_PUNCTUATION_PATTERN, "");
   }
   if (url.length > WEB_DIGEST_URL_MAX_CHARS) return undefined;
-  const parsed: URL | null = URL.parse(url);
-  if (parsed?.protocol !== "https:" || parsed.username.length > 0 || parsed.password.length > 0) return undefined;
+  if (parseHttpsUrlWithoutCredentials(url) === null) return undefined;
   return url;
 }
 

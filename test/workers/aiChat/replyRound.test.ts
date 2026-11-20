@@ -60,8 +60,8 @@ const recordChatMessage = mock((..._args: unknown[]): BufferedMessage | null => 
 const pushBufferedMessage = mock((..._args: unknown[]): void => {});
 const logError = mock((..._args: unknown[]): void => {});
 
-mock.module("../../../packages/aiChat/ai/chatActionHeartbeat", () => ({ startChatActionHeartbeat }));
-mock.module("../../../packages/aiChat/ai/tools/replyToolset/orchestrator", () => ({ createReplyToolset }));
+mock.module("../../../packages/workers/aiChat/ai/chatActionHeartbeat", () => ({ startChatActionHeartbeat }));
+mock.module("../../../packages/workers/aiChat/ai/tools/replyToolset/orchestrator", () => ({ createReplyToolset }));
 mock.module("../../../packages/workers/aiChat/replyModel", () => ({ generateReply }));
 mock.module("../../../packages/workers/aiChat/promptContext", () => ({ buildReplyPromptSections }));
 mock.module("../../../packages/workers/aiChat/rollingMemory", () => ({ recordChatMessage, pushBufferedMessage }));
@@ -327,7 +327,8 @@ describe("AI 单轮回复生命周期", () => {
     execute.mockImplementationOnce((): string => JSON.stringify({ error: "send failed" }));
     await runRound();
     expect(zeroActionLogs()).toEqual([[
-      "AI reply round ended with zero actions (chat -1001, trigger=direct, finalText=unsent).",
+      "AI reply round ended with zero actions.",
+      { chatId: -1001, trigger: "direct", finalText: "unsent" },
     ]]);
   });
 
@@ -684,5 +685,16 @@ describe("AI 单轮回复生命周期", () => {
     } finally {
       Reflect.set(globalThis, "postMessage", originalPostMessage);
     }
+  });
+
+  test("媒体准备返回 null（视觉不可用）早退时回滚本次预占位的时间戳", async () => {
+    expect(longTriggerTimes.get(-1001)?.size ?? 0).toBe(0);
+    await expect(runRound({
+      mediaPreparation: Promise.resolve(null),
+      isRandomTrigger: true,
+    })).resolves.toBe(-1001);
+
+    expect(createReplyToolset).not.toHaveBeenCalled();
+    expect(longTriggerTimes.get(-1001)?.size ?? 0).toBe(0);
   });
 });

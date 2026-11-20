@@ -55,8 +55,11 @@ export async function handleReaction(ctx: Context): Promise<void> {
 
   const nowMs: number = Date.now();
   const deliveryMs: number = Math.max(0, startedAtMs - reaction.date * TELEGRAM_DATE_UNIT_MS);
-  logger.log(
-    `Reaction synced (chat ${reaction.chat.id}, msg ${reaction.message_id}): ` +
-    `delivery ${(deliveryMs / 1000).toFixed(1)}s, queue ${((nowMs - startedAtMs) / 1000).toFixed(1)}s`
-  );
+  const queueMs: number = Math.max(0, nowMs - startedAtMs);
+  logger.info("Reaction synced.", {
+    chatId: reaction.chat.id,
+    messageId: reaction.message_id,
+    deliveryMs,
+    queueMs,
+  });
 }

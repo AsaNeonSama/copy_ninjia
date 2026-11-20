@@ -2,7 +2,6 @@
 
 import { repliedBotImageBackfills, resetAiChatBotImageCache } from "./botImages";
 import { resetAiChatCompactionCache } from "./compaction";
-import { geminiReplyLastRequestAt, resetGeminiContextCache } from "./geminiContextCache";
 import { clearChatHeartbeatCache, resetAiChatHeartbeatCache } from "./heartbeat";
 import { resetAiChatIdentityCache } from "./identity";
 import { resetImageGenerationCache } from "./imageGeneration";
@@ -14,7 +13,7 @@ import { invalidateChatReplyCache, resetAiChatReplyCache } from "./replies";
 import { resetReplyPrefixCache } from "./replyPrefix";
 
 /**
- * 清理指定群的回复轮、聊天动作心跳、识图回填等待与 Gemini 最近回复请求时间缓存。
+ * 清理指定群的回复轮、聊天动作心跳与识图回填等待缓存。
  *
  * @param chatId 群聊 ID
  */
@@ -22,7 +21,6 @@ export function invalidateChatRuntimeCache(chatId: number): void {
   invalidateChatReplyCache(chatId);
   clearChatHeartbeatCache(chatId);
   repliedBotImageBackfills.delete(chatId);
-  geminiReplyLastRequestAt.delete(chatId);
 }
 
 /** 重置本模块聚合的 AI 闲聊 Worker 各子领域缓存（测试隔离用）。 */
@@ -30,7 +28,6 @@ export function resetAiChatWorkerCache(): void {
   resetAiChatHeartbeatCache();
   resetAiChatBotImageCache();
   resetAiChatCompactionCache();
-  resetGeminiContextCache();
   resetAiChatIdentityCache();
   resetImageGenerationCache();
   resetImageReferenceAlbumCache();

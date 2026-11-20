@@ -1,6 +1,8 @@
 import { mkdir } from "node:fs/promises";
 import {
+  miniAppLastConsumedTotpStepHolder,
   miniAppPendingTotpSetupHolder,
+  miniAppTotpMutationChainHolder,
   miniAppTotpRecordHolder,
 } from "../../cache/main/miniApp";
 import { MINI_APP_PASSWORD_MAX_ATTEMPTS } from "../../consts/miniApp";
@@ -16,6 +18,7 @@ import {
 import { RUNTIME_DATA_ROOT_MAX_MODE } from "../../consts/storage";
 import { atomicWriteText, syncDirectory } from "../../libs/atomicFile";
 import { isErrno } from "../../libs/errno";
+import { runSerialChain } from "../../libs/serialChain";
 import {
   buildMiniAppTotpUri,
   generateMiniAppTotpSecret,
@@ -120,99 +123,112 @@ export function createPendingMiniAppTotpSetup(
 }
 
 /**
- * 校验前端提交的 6 位动态码，通过后将待绑定密钥原子持久化到 `memory/mini-app-totp/totp.json`（覆盖已有单条记录）；
+ * 校验前端提交的 6 位动态码，通过后在 TOTP 变更串行链内将待绑定密钥原子持久化到 `memory/mini-app-totp/totp.json`（覆盖已有单条记录）并更新主线程缓存；
  * 若连续输错达到 `MINI_APP_PASSWORD_MAX_ATTEMPTS` 次则立即销毁待绑定密钥并返回过期状态。
  * @param code 用户在前端输入的 6 位 Google Authenticator 动态码。
  * @param nowMs 当前毫秒时间戳（缺省取 `Date.now()`）。
  * @returns 绑定/修改结果与最新验证器状态。
  */
-export async function enableMiniAppTotpFromPending(
+export function enableMiniAppTotpFromPending(
   code: string,
   nowMs: number = Date.now()
 ): Promise<Readonly<MiniAppTotpMutationResponse>> {
-  const existing: Readonly<MiniAppTotpRecord> | null =
-    await loadMiniAppTotpRecord();
-  const pending: Readonly<MiniAppPendingTotpSetup> | null =
-    miniAppPendingTotpSetupHolder.current;
-  if (pending === null || nowMs > pending.expiresAt) {
-    miniAppPendingTotpSetupHolder.current = null;
-    return {
-      ok: false,
-      message: "TOTP_SETUP_EXPIRED",
-      status: toMiniAppTotpStatusView(existing),
-    };
-  }
-  if (!verifyMiniAppTotpCode(code, pending.secret, nowMs)) {
-    const nextAttempts: number = pending.failedAttempts + 1;
-    if (nextAttempts >= MINI_APP_PASSWORD_MAX_ATTEMPTS) {
+  return runSerialChain(
+    miniAppTotpMutationChainHolder,
+    async (): Promise<Readonly<MiniAppTotpMutationResponse>> => {
+      const existing: Readonly<MiniAppTotpRecord> | null =
+        await loadMiniAppTotpRecord();
+      const pending: Readonly<MiniAppPendingTotpSetup> | null =
+        miniAppPendingTotpSetupHolder.current;
+      if (pending === null || nowMs > pending.expiresAt) {
+        miniAppPendingTotpSetupHolder.current = null;
+        return {
+          ok: false,
+          message: "TOTP_SETUP_EXPIRED",
+          status: toMiniAppTotpStatusView(existing),
+        };
+      }
+      if (!verifyMiniAppTotpCode(code, pending.secret, nowMs)) {
+        const nextAttempts: number = pending.failedAttempts + 1;
+        if (nextAttempts >= MINI_APP_PASSWORD_MAX_ATTEMPTS) {
+          miniAppPendingTotpSetupHolder.current = null;
+          return {
+            ok: false,
+            message: "TOTP_SETUP_EXPIRED",
+            status: toMiniAppTotpStatusView(existing),
+          };
+        }
+        miniAppPendingTotpSetupHolder.current = {
+          ...pending,
+          failedAttempts: nextAttempts,
+        };
+        return {
+          ok: false,
+          message: "INVALID_TOTP_CODE",
+          status: toMiniAppTotpStatusView(existing),
+        };
+      }
+
       miniAppPendingTotpSetupHolder.current = null;
+      const nextRecord: Readonly<MiniAppTotpRecord> = {
+        version: MINI_APP_TOTP_RECORD_VERSION,
+        secret: pending.secret,
+        createdAt: nowMs,
+      };
+      await mkdir(MINI_APP_TOTP_MEMORY_DIR, {
+        recursive: true,
+        mode: RUNTIME_DATA_ROOT_MAX_MODE,
+      });
+      await atomicWriteText(
+        MINI_APP_TOTP_FILE_PATH,
+        `${JSON.stringify(nextRecord, null, 2)}\n`,
+        MINI_APP_TOTP_FILE_MODE
+      );
+      miniAppTotpRecordHolder.current = nextRecord;
+      miniAppLastConsumedTotpStepHolder.current = null;
       return {
-        ok: false,
-        message: "TOTP_SETUP_EXPIRED",
-        status: toMiniAppTotpStatusView(existing),
+        ok: true,
+        message: existing === null ? "TOTP_ENABLED" : "TOTP_UPDATED",
+        status: toMiniAppTotpStatusView(nextRecord),
       };
     }
-    miniAppPendingTotpSetupHolder.current = {
-      ...pending,
-      failedAttempts: nextAttempts,
-    };
-    return {
-      ok: false,
-      message: "INVALID_TOTP_CODE",
-      status: toMiniAppTotpStatusView(existing),
-    };
-  }
-
-  miniAppPendingTotpSetupHolder.current = null;
-  const nextRecord: Readonly<MiniAppTotpRecord> = {
-    version: MINI_APP_TOTP_RECORD_VERSION,
-    secret: pending.secret,
-    createdAt: nowMs,
-  };
-  await mkdir(MINI_APP_TOTP_MEMORY_DIR, {
-    recursive: true,
-    mode: RUNTIME_DATA_ROOT_MAX_MODE,
-  });
-  await atomicWriteText(
-    MINI_APP_TOTP_FILE_PATH,
-    `${JSON.stringify(nextRecord, null, 2)}\n`,
-    MINI_APP_TOTP_FILE_MODE
   );
-  miniAppTotpRecordHolder.current = nextRecord;
-  return {
-    ok: true,
-    message: existing === null ? "TOTP_ENABLED" : "TOTP_UPDATED",
-    status: toMiniAppTotpStatusView(nextRecord),
-  };
 }
 
 /**
- * 删除 `memory/mini-app-totp/totp.json` 中的唯一验证器记录并清空内存缓存，恢复访问密码验证。
- * 先删除文件并同步目录，成功（或文件本就不存在）后才清空内存记录；删除失败时抛出原错误，内存仍保留原记录，登录继续要求动态码。
+ * 在 TOTP 变更串行链内删除 `memory/mini-app-totp/totp.json` 的唯一验证器记录并清空内存缓存，恢复访问密码验证。
+ * 先删除文件并同步目录，成功（或文件本就不存在）后才清空内存记录；删除失败时抛出原错误且内存保留原记录，登录继续要求动态码。
  * @returns 删除结果与最新验证器状态。
  */
-export async function deleteMiniAppTotpRecord(): Promise<
+export function deleteMiniAppTotpRecord(): Promise<
   Readonly<MiniAppTotpMutationResponse>
 > {
-  miniAppPendingTotpSetupHolder.current = null;
-  try {
-    await Bun.file(MINI_APP_TOTP_FILE_PATH).delete();
-    await syncDirectory(MINI_APP_TOTP_FILE_PATH);
-  } catch (error: unknown) {
-    if (!isErrno(error, "ENOENT")) throw error;
-  }
-  miniAppTotpRecordHolder.current = null;
-  return {
-    ok: true,
-    message: "TOTP_DELETED",
-    status: toMiniAppTotpStatusView(null),
-  };
+  return runSerialChain(
+    miniAppTotpMutationChainHolder,
+    async (): Promise<Readonly<MiniAppTotpMutationResponse>> => {
+      miniAppPendingTotpSetupHolder.current = null;
+      try {
+        await Bun.file(MINI_APP_TOTP_FILE_PATH).delete();
+        await syncDirectory(MINI_APP_TOTP_FILE_PATH);
+      } catch (error: unknown) {
+        if (!isErrno(error, "ENOENT")) throw error;
+      }
+      miniAppTotpRecordHolder.current = null;
+      miniAppLastConsumedTotpStepHolder.current = null;
+      return {
+        ok: true,
+        message: "TOTP_DELETED",
+        status: toMiniAppTotpStatusView(null),
+      };
+    }
+  );
 }
 
 /**
- * 清空主线程中的 TOTP 记录与待确认绑定状态（供服务停止或测试隔离重置调用）。
+ * 清空主线程中的 TOTP 记录、已消费步进窗及待确认绑定状态（供服务停止或测试隔离重置调用）。
  */
 export function resetMiniAppTotpMemoryCache(): void {
   miniAppTotpRecordHolder.current = undefined;
   miniAppPendingTotpSetupHolder.current = null;
+  miniAppLastConsumedTotpStepHolder.current = null;
 }

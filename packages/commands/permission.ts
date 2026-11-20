@@ -105,7 +105,8 @@ async function reportWhitelistMutationFailure(
   error: unknown
 ): Promise<void> {
   logger.error(
-    `Failed to persist the whitelist permission change for identity ${targetId}:`,
+    "Failed to persist the whitelist permission change:",
+    { identityId: targetId },
     error
   );
   await replyCommandNotice(ctx, chatAtmosphere().PERMISSION_COMMAND_TEXTS.mutationFailed);

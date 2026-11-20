@@ -251,9 +251,9 @@ describe("/h_image add", () => {
     expect(sendCommandMessage).toHaveBeenCalledWith({
       chatId: CHAT_ID, text: texts.addResult({ added: 0, librarySize: 0, existing: 0, invalidDimensions: 0, failed: 4 }), replyToMessageId: 10,
     });
-    expect(loggerError.mock.calls.map((call: unknown[]): string => String(call[0]))).toEqual([
-      "Failed to download a picture for /h_image add (metadataTimeout).",
-      "Failed to download a picture for /h_image add (downloadTimeout).",
+    expect(loggerError.mock.calls).toEqual([
+      ["Failed to download a picture for /h_image add.", { status: "metadataTimeout" }],
+      ["Failed to download a picture for /h_image add.", { status: "downloadTimeout" }],
     ]);
   });
 

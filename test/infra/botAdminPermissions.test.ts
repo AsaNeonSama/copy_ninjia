@@ -63,11 +63,12 @@ let getChatMemberFails: boolean = false;
 let onGetChatMember: (() => void) | undefined;
 /** 设成一个未完成的 Promise 就能把现查悬在途中，用来验证调用方没有被它挡住。 */
 let getChatMemberGate: Promise<void> | undefined;
+let persistChatStateError: Error | null = null;
 
-/** logger.error 的首个参数，按调用顺序记录。 */
-const loggedErrors: string[] = [];
+/** logger.error 的完整参数列表，按调用顺序记录。 */
+const loggedErrors: unknown[][] = [];
 mock.module("../../packages/infra/logger", () => ({
-  logger: loggerStub({ error(message: string): void { loggedErrors.push(message); } }),
+  logger: loggerStub({ error(...args: unknown[]): void { loggedErrors.push(args); } }),
 }));
 mock.module("../../packages/infra/telegram/mainClient", () => ({
   bot: {
@@ -85,10 +86,13 @@ mock.module("../../packages/infra/telegram/mainClient", () => ({
 }));
 mock.module("../../packages/infra/telegram/client", () => ({
   installTelegramApi: (): void => {},
+  logApiError: (): void => {},
   telegramApi: { kind: "guard-api" },
 }));
+const realModeration = await import("../../packages/infra/telegram/actions/moderation");
 // botAdmin -> blocklist 的新晋管理员补扫会取这两个；本文件名单为空，不触发。
-mock.module("../../packages/infra/telegram/actions", () => ({
+mock.module("../../packages/infra/telegram/actions/moderation", () => ({
+  ...realModeration,
   banChatMember: async (): Promise<boolean> => true,
   banChatSenderChat: async (): Promise<boolean> => true,
 }));
@@ -116,7 +120,13 @@ mock.module("../../packages/infra/chatStateStorage", () => ({
     return true;
   },
   purgeChatStateExceptLockdown: (chatId: number): void => { states.delete(chatId); },
-  persistChatState: async (): Promise<void> => {},
+  persistChatState: async (): Promise<void> => {
+    if (persistChatStateError !== null) {
+      const error: Error = persistChatStateError;
+      persistChatStateError = null;
+      throw error;
+    }
+  },
   saveChatStateInBackground: (chatId: number, context: string): void => {
     backgroundSaves.push({ chatId, context });
   },
@@ -161,6 +171,7 @@ beforeEach(() => {
   getChatMemberFails = false;
   onGetChatMember = undefined;
   getChatMemberGate = undefined;
+  persistChatStateError = null;
 });
 
 function observe(): void {
@@ -270,8 +281,8 @@ describe("机器人自身权限 State 快照", () => {
       sweep.mockRestore();
     }
     expect(loggedErrors).toEqual([
-      `Failed to sweep blocklisted members from chat ${CHAT_ID} after gaining admin rights:`,
-      `Failed to sweep blocklisted members from chat ${CHAT_ID} after an admin observation:`,
+      ["Failed to sweep blocklisted members after gaining admin rights:", { chatId: CHAT_ID }, expect.any(Error)],
+      ["Failed to sweep blocklisted members after an admin observation:", { chatId: CHAT_ID }, expect.any(Error)],
     ]);
   });
 
@@ -506,5 +517,21 @@ describe("机器人自身权限 State 快照", () => {
       botPermissions({ canRestrictMembers: true })
     );
     expect(states.size).toBe(0);
+  });
+
+  test("persistChatState 抛错时仍通知权限变化观察者并上抛错误", async () => {
+    observe();
+    persistChatStateError = new Error("persist failed");
+
+    await expect(
+      handleMyChatMemberUpdate(myChatMemberContext({ status: "administrator", can_restrict_members: true }))
+    ).rejects.toThrow("persist failed");
+
+    expect(broadcasts).toEqual([
+      {
+        chatId: CHAT_ID,
+        permissions: botPermissions({ canRestrictMembers: true }),
+      },
+    ]);
   });
 });

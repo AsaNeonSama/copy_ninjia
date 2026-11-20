@@ -1,12 +1,12 @@
-/* 底部 Toast 提示条与全局确认对话框浮层及出入场过渡样式。 */
+/* 顶部 Toast 提示条与全局确认对话框浮层及出入场过渡样式。 */
 @keyframes miniapp-toast-in {
   from {
     opacity: 0;
-    transform: translate3d(0, 14px, 0);
+    transform: translate3d(0, -14px, 0);
   }
   to {
     opacity: 1;
-    transform: translate3d(0, 0, 0);
+    transform: translate(0, 0);
   }
 }
 
@@ -17,7 +17,7 @@
   }
   to {
     opacity: 0;
-    transform: translate3d(0, 14px, 0);
+    transform: translate3d(0, -14px, 0);
   }
 }
 
@@ -28,7 +28,7 @@
   }
   to {
     opacity: 1;
-    transform: translate3d(0, 0, 0);
+    transform: translate(0, 0);
   }
 }
 
@@ -55,11 +55,11 @@
 
 .toast {
   position: fixed;
-  bottom: calc(20px + var(--tg-safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)));
+  top: calc(12px + var(--tg-safe-area-inset-top, env(safe-area-inset-top, 0px)) + var(--tg-content-safe-area-inset-top, 0px));
   left: 0;
   right: 0;
   margin-inline: auto;
-  width: min(92vw, 560px);
+  width: min(calc(100vw - 24px), 560px);
   background: var(--surface-elevated);
   color: var(--text);
   border: var(--border-w) solid var(--border-strong);
@@ -88,9 +88,8 @@
   opacity: 1;
   visibility: visible;
   pointer-events: auto;
-  will-change: transform, opacity;
-  transform: translate3d(0, 0, 0);
-  backface-visibility: hidden;
+  will-change: auto;
+  backface-visibility: visible;
   animation: miniapp-toast-in 0.2s var(--ease-brutal);
 }
 
@@ -243,7 +242,7 @@
 }
 
 .confirm-dialog {
-  width: min(92vw, 384px);
+  width: min(calc(100vw - 32px), 384px);
   background: var(--card);
   color: var(--text);
   border: var(--border-w) solid var(--border-strong);
@@ -255,14 +254,15 @@
   flex-direction: column;
   gap: 12px;
   transform-origin: center center;
-  will-change: transform, opacity;
-  transform: translate3d(0, 0, 0);
-  backface-visibility: hidden;
+  will-change: auto;
+  backface-visibility: visible;
   animation: miniapp-modal-pop 0.2s var(--ease-brutal);
 }
 
 .confirm-dialog.closing {
   pointer-events: none;
+  will-change: transform, opacity;
+  backface-visibility: hidden;
   animation: miniapp-modal-pop-out 0.18s var(--ease-exit) forwards;
 }
 

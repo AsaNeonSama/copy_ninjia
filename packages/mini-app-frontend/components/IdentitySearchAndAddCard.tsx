@@ -18,7 +18,8 @@ import type {
   MiniAppIdentitiesStore,
   MiniAppIdentitiesStoreState,
 } from "../store/identities";
-import type { MiniAppLanguage } from "../types/miniApp";
+import type { MiniAppPickerSubjectKind } from "../types/miniApp/identities";
+import type { MiniAppLanguage } from "../types/miniApp/ui";
 import { AddModeButtonList } from "./AddModeButtonList";
 import { CollapseGrid } from "./animations/CollapseGrid";
 import { useClosingSnapshot } from "./animations/useDelayedUnmount";
@@ -31,6 +32,7 @@ type IdentitySearchAndAddCardSlice = Pick<
   | "idFormOpen"
   | "idInput"
   | "busyAction"
+  | "preparingPickerMode"
   | "setSearchInput"
   | "commitSearchQuery"
   | "clearSearch"
@@ -62,6 +64,7 @@ function selectIdentitySearchAndAddCardSlice(
     idFormOpen: state.idFormOpen,
     idInput: state.idInput,
     busyAction: state.busyAction,
+    preparingPickerMode: state.preparingPickerMode,
     setSearchInput: state.setSearchInput,
     commitSearchQuery: state.commitSearchQuery,
     clearSearch: state.clearSearch,
@@ -92,6 +95,7 @@ function IdentitySearchAndAddCardView({
     idFormOpen,
     idInput,
     busyAction,
+    preparingPickerMode,
     setSearchInput,
     commitSearchQuery,
     clearSearch,
@@ -130,6 +134,8 @@ function IdentitySearchAndAddCardView({
     busyAction,
     addMenuOpen
   );
+  const displayPreparingPickerMode: MiniAppPickerSubjectKind | null =
+    useClosingSnapshot(preparingPickerMode, addMenuOpen);
   const displayIdInput: string = useClosingSnapshot(
     idInput,
     addMenuOpen && idFormOpen
@@ -212,6 +218,7 @@ function IdentitySearchAndAddCardView({
           <AddModeButtonList
             idFormOpen={displayIdFormOpen}
             disabled={displayBusyAction}
+            loadingMode={displayPreparingPickerMode}
             interactive={addMenuOpen}
             t={t}
             onSelectMode={selectAddMode}

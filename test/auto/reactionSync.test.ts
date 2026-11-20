@@ -15,7 +15,7 @@ const getChatState = (chatId: number): { chatId: number } => ({ chatId });
 mock.module("../../packages/infra/storage/stateStore", () => ({ activeCopyTargetIdIn }));
 mock.module("../../packages/infra/chatStateStorage", () => ({ getChatState }));
 mock.module("../../packages/infra/telegram", () => ({ setMessageReactions }));
-mock.module("../../packages/infra/logger", () => ({ logger: loggerStub({ log: loggerLog }) }));
+mock.module("../../packages/infra/logger", () => ({ logger: loggerStub({ info: loggerLog }) }));
 mock.module("../../packages/translate/message", () => ({ activeTranslateStateIn }));
 
 const { handleReaction } = await import("../../packages/auto/reactionSync");
@@ -76,6 +76,12 @@ describe("reaction sync update entry", () => {
     release();
     await handled;
     expect(loggerLog).toHaveBeenCalledTimes(1);
+    expect(loggerLog).toHaveBeenCalledWith("Reaction synced.", {
+      chatId: -1001,
+      messageId: 7,
+      deliveryMs: expect.any(Number),
+      queueMs: expect.any(Number),
+    });
 
     await handleReaction(context({ emojiAdded: ["👍"] }, { userId: 7 }));
     activeCopyTargetIdIn.mockReturnValueOnce(undefined);

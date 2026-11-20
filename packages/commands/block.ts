@@ -16,7 +16,11 @@ import { botChatPermissionsIn } from "../infra/botAdmin";
 import { describeBotPermissionGap } from "../libs/botPermissionGap";
 import type { BotChatPermissions } from "../types/telegram";
 import { runProtectedIdentityMutation } from "../infra/identityPolicy/coordination";
-import { identityMetadataFromCachedUser } from "../infra/identityStorage";
+import {
+  identityMetadataFromCachedUser,
+  isIdentityPolicyCached,
+  prefetchIdentityPolicies,
+} from "../infra/identityStorage";
 import {
   blockUser,
   confirmBlocklistPersisted,
@@ -25,15 +29,19 @@ import {
 import { banBlockedIdentityInManagedChats } from "../infra/blocklist/crossChatBan";
 import { runBlocklistFanOut } from "./blocklistFanOut";
 
-/** 串行位内的名单写入结果：受保护目标不写名单。 */
+/** 串行位内的名单写入结果：缓存重预热失败或受保护目标不写名单。 */
 type BlockAdmission =
   | {
+    /** 身份策略重预热失败，拒绝执行本次拉黑。 */
+    readonly status: "unavailable";
+  }
+  | {
     /** 目标处于白名单保护范围内，拒绝拉黑。 */
-    readonly protected: true;
+    readonly status: "protected";
   }
   | {
     /** 目标未受白名单保护，已执行黑名单写入与落盘确认。 */
-    readonly protected: false;
+    readonly status: "admitted";
     /** 目标是否为本次新写入黑名单（已在黑名单中时为 false）。 */
     readonly newlyBlocked: boolean;
     /** 黑名单写入是否已收到 Disk I/O Worker 的落盘确认。 */
@@ -104,23 +112,29 @@ async function blockTarget(ctx: CommandContext<Context>, targetArgument: string)
 }
 
 /**
- * 白名单保护检查与名单写入处于同一身份事务边界，受保护目标不进入封禁流程。黑名单先写、
- * 与封禁结果无关：先发布 LRU 最终值，再把 revision 投给 DiskIO Worker；重复 /block 同一个人时
- * blockUser 返回 false，不创建新 revision。随后等待该 id 最新 revision 的事务 ACK；重复
- * /block 时若最新 revision 尚未 ACK，先把同一最终值重投给当前 Worker（不创建新 revision）再等待。
+ * 白名单保护检查与名单写入处于同一身份事务边界，若等待互斥锁期间缓存被挤出则先重预热；
+ * 预热失败或受保护目标不进入封禁流程。黑名单先写、与封禁结果无关：先发布 LRU 最终值，
+ * 再把 revision 投给 DiskIO Worker；重复 /block 同一个人时 blockUser 返回 false，不创建新 revision。
+ * 随后等待该 id 最新 revision 的事务 ACK；重复 /block 时若最新 revision 尚未 ACK，先把同一最终值
+ * 重投给当前 Worker（不创建新 revision）再等待。
  * @param targetUser 待拉黑的目标身份。
- * @returns 名单准入结论（是否受保护、是否本次新写入以及是否已确认落盘）。
+ * @returns 名单准入结论（不可用、受保护，或是否本次新写入以及是否已确认落盘）。
  */
 async function admitBlockTarget(targetUser: CachedUser): Promise<BlockAdmission> {
-  // isWhitelisted 已经把超级管理员算进白名单边界（infra/identityPolicy/whitelist.ts）；受保护时返回 undefined。
-  const newlyBlocked: boolean | undefined = await runProtectedIdentityMutation(
-    (): boolean | undefined => isWhitelisted(targetUser.id)
-      ? undefined
-      : blockUser(targetUser.id, identityMetadataFromCachedUser(targetUser))
+  // isWhitelisted 已经把超级管理员算进白名单边界（infra/identityPolicy/whitelist.ts）；受保护时返回 "protected"。
+  const outcome: "unavailable" | "protected" | boolean = await runProtectedIdentityMutation(
+    async (): Promise<"unavailable" | "protected" | boolean> => {
+      if (!isIdentityPolicyCached(targetUser.id) && !await prefetchIdentityPolicies([targetUser.id])) {
+        return "unavailable";
+      }
+      if (isWhitelisted(targetUser.id)) return "protected";
+      return blockUser(targetUser.id, identityMetadataFromCachedUser(targetUser));
+    }
   );
-  if (newlyBlocked === undefined) return { protected: true };
-  const persisted: boolean = await confirmBlocklistPersisted(targetUser.id, !newlyBlocked);
-  return { protected: false, newlyBlocked, persisted };
+  if (outcome === "unavailable") return { status: "unavailable" };
+  if (outcome === "protected") return { status: "protected" };
+  const persisted: boolean = await confirmBlocklistPersisted(targetUser.id, !outcome);
+  return { status: "admitted", newlyBlocked: outcome, persisted };
 }
 
 /** reportBlockAdmission 的入参：handler 的校验结果与串行位内的名单写入结果。 */
@@ -151,7 +165,15 @@ async function reportBlockAdmission({
   isAdminHere,
   admission,
 }: ReportBlockAdmissionParams): Promise<void> {
-  if (admission.protected) {
+  if (admission.status === "unavailable") {
+    await sendCommandMessage({
+      chatId,
+      text: chatAtmosphere().IDENTITY_POLICY_UNAVAILABLE_TEXT,
+      replyToMessageId: messageId,
+    });
+    return;
+  }
+  if (admission.status === "protected") {
     const atmosphere: AtmosphereTexts = chatAtmosphere();
     const text: string = atmosphere.NOTICE_TEXTS.blockProtected(formatTargetLabel(targetUser, atmosphere));
     await sendCommandMessage({ chatId, text, replyToMessageId: messageId });

@@ -18,7 +18,8 @@ import {
   floodWindowCacheStateHolder,
   floodWindowsByChat,
 } from "../../cache/workers/antiRaid/flood";
-import { signalWithTimeout } from "../../libs/abortSignal";
+import { isAbortError, signalWithTimeout } from "../../libs/abortSignal";
+import { isPendingWithin, isRecordedWithin } from "../../libs/clockWindow";
 import { MINUTE_MS, SECOND_MS } from "../../consts/time";
 import { TimestampDeque } from "../../libs/timestampDeque";
 import { sanitizeDisplayName } from "../../libs/text";
@@ -99,6 +100,8 @@ function removeFloodWindow(entry: FloodWindowEntry): void {
 
 /**
  * 记录一次成员发言并判定是否达到刷屏阈值；命中时清空该成员的时间戳队列并返回窗口条目。
+ * 满载触发 LRU 淘汰时清空并复用被驱逐条目的 `timestamps` 队列，同时新建 `FloodWindowEntry`
+ * 对象以保持在途禁言任务的引用同一性。
  * @param chatId 群组 ID。
  * @param userId 发言成员 ID。
  * @param now 发言观察毫秒时间戳，默认取 `Date.now()`。
@@ -112,8 +115,12 @@ export function observeMemberMessage(
   let entry: FloodWindowEntry | undefined = getFloodWindowEntry(chatId, userId);
   if (entry === undefined) {
     const state: FloodWindowCacheState = floodWindowCacheStateHolder.current;
+    let timestamps: TimestampDeque | undefined;
     if (state.entryCount >= FLOOD_WINDOW_MAX_MEMBERS && state.oldest !== null) {
-      removeFloodWindow(state.oldest);
+      const evicted: FloodWindowEntry = state.oldest;
+      removeFloodWindow(evicted);
+      timestamps = evicted.timestamps;
+      timestamps.clear();
     }
     let members: Map<number, FloodWindowEntry> | undefined = floodWindowsByChat.get(chatId);
     if (members === undefined) {
@@ -123,7 +130,7 @@ export function observeMemberMessage(
     entry = {
       chatId,
       userId,
-      timestamps: new TimestampDeque(FLOOD_MESSAGE_LIMIT),
+      timestamps: timestamps ?? new TimestampDeque(FLOOD_MESSAGE_LIMIT),
       lastObservedAt: now,
       suppressedUntil: 0,
       lruNewer: null,
@@ -137,8 +144,8 @@ export function observeMemberMessage(
   }
   entry.lastObservedAt = now;
 
-  // 抑制期内到达的消息一律不计数。
-  if (now < entry.suppressedUntil) return undefined;
+  // 抑制期内到达的消息一律不计数（墙钟回拨按抑制期已结束处理）。
+  if (isPendingWithin(entry.suppressedUntil, now, FLOOD_MUTE_DURATION_MS)) return undefined;
 
   entry.timestamps.trim(FLOOD_WINDOW_MS, now);
   entry.timestamps.push(now);
@@ -207,19 +214,34 @@ async function muteFlooder({ message, entry }: MuteFlooderParams): Promise<void>
   if (stillManaged()) {
     entry.suppressedUntil = Math.max(entry.suppressedUntil, mutedUntil);
   }
-  logger.log(
-    `Flood control muted user ${message.userId} in chat ${message.chatId} for ` +
-    `${Math.round(FLOOD_MUTE_DURATION_MS / SECOND_MS)}s after ${FLOOD_MESSAGE_LIMIT} messages ` +
-    `in ${Math.round(FLOOD_WINDOW_MS / SECOND_MS)}s.`
+  logger.info(
+    "Flood control muted user.",
+    {
+      chatId: message.chatId,
+      userId: message.userId,
+      durationSeconds: Math.round(FLOOD_MUTE_DURATION_MS / SECOND_MS),
+      messageLimit: FLOOD_MESSAGE_LIMIT,
+      windowSeconds: Math.round(FLOOD_WINDOW_MS / SECOND_MS),
+    }
   );
   if (!stillManaged()) return;
 
-  await sendTemporaryMessageFromMain({
-    purpose: "notice",
-    chatId: message.chatId,
-    text: floodMuteNoticeText(message.name, workerAtmosphere()),
-    signal: signalWithTimeout(dispatchAbort, FLOOD_NOTICE_DISPATCH_TIMEOUT_MS),
-  });
+  try {
+    await sendTemporaryMessageFromMain({
+      purpose: "notice",
+      chatId: message.chatId,
+      text: floodMuteNoticeText(message.name, workerAtmosphere()),
+      signal: signalWithTimeout(dispatchAbort, FLOOD_NOTICE_DISPATCH_TIMEOUT_MS),
+    });
+  } catch (error: unknown) {
+    if (!isAbortError(error)) {
+      logger.error(
+        "Failed to send flood mute notice:",
+        { chatId: message.chatId, userId: message.userId },
+        error
+      );
+    }
+  }
 }
 
 /**
@@ -245,15 +267,19 @@ export function handleFloodCandidate(message: FloodCandidateMessage): void {
 
   if (botCanRestrictIn(message.chatId) === false) {
     logger.error(
-      `Flood control cannot mute user ${message.userId} in chat ${message.chatId}: ` +
-      "the bot does not have permission to restrict members."
+      "Flood control cannot mute user; the bot does not have permission to restrict members.",
+      { chatId: message.chatId, userId: message.userId }
     );
     return;
   }
   void trackAntiRaidTask({
     task: muteFlooder({ message, entry }).catch((error: unknown): void => {
       rollbackSuppression(message.chatId, message.userId, entry);
-      logger.error(`Failed to mute flooding user ${message.userId} in chat ${message.chatId}:`, error);
+      logger.error(
+        "Failed to mute flooding user:",
+        { chatId: message.chatId, userId: message.userId },
+        error
+      );
     }),
   });
 }
@@ -271,7 +297,7 @@ export function clearChatFloodWindows(chatId: number): void {
 }
 
 /**
- * 清理空闲超过 `FLOOD_WINDOW_MS` 且不在抑制期内的窗口条目。
+ * 清理空闲超过 `FLOOD_WINDOW_MS` 且不在抑制期内的窗口条目（墙钟回拨按窗口与抑制期已结束处理）。
  * @param now 当前毫秒时间戳，默认取 `Date.now()`。
  * @returns 本次删除的条目数。
  */
@@ -279,8 +305,8 @@ export function sweepFloodWindows(now: number = Date.now()): number {
   let deleted: number = 0;
   for (const members of floodWindowsByChat.values()) {
     for (const entry of members.values()) {
-      if (now < entry.suppressedUntil) continue;
-      if (now - entry.lastObservedAt <= FLOOD_WINDOW_MS) continue;
+      if (isPendingWithin(entry.suppressedUntil, now, FLOOD_MUTE_DURATION_MS)) continue;
+      if (isRecordedWithin(entry.lastObservedAt, now, FLOOD_WINDOW_MS)) continue;
       removeFloodWindow(entry);
       deleted++;
     }

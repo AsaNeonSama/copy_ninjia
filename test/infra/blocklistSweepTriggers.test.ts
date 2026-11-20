@@ -225,7 +225,7 @@ describe("「是管理员 && 已初始化」成立的那一刻触发清扫", () 
       throw new WorkerUndeliveredError("Anti-Raid Worker is unavailable.");
     });
 
-    await expect(sweepBlockedMembers(-1001, 1_000)).rejects.toThrow();
+    await expect(sweepBlockedMembers(-1001, 1_000)).rejects.toThrow("Anti-Raid Worker is unavailable.");
 
     expect(blocklistSweepState.get(-1001)?.permissionBlocked).toBeTrue();
     // 闩锁还在 → 不再按时间重扫，Worker 重生也不重投这批必败任务。
@@ -524,7 +524,7 @@ describe("「是管理员 && 已初始化」成立的那一刻触发清扫", () 
     settleLastAsForbidden();
     expect(blocklistSweepState.get(-1001)?.permissionBlocked).toBeTrue();
     remover.mockClear();
-    const logs = spyOn(logger, "log");
+    const logs = spyOn(logger, "info");
     try {
       await markBotAdminObserved(-1001);
       await settleBackgroundWork();

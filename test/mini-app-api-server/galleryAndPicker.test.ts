@@ -16,6 +16,7 @@ import type { BundledMiniAppAssets } from "../../packages/types/miniApp/server";
 import { imageFixture } from "../helpers/image";
 import {
   buildSuperAdminHeaders,
+  ensureReusableTestSession,
   installMiniAppTestDiskIOMock,
   resetMiniAppTestDiskIOState,
 } from "../helpers/miniAppInitData";
@@ -25,9 +26,10 @@ installMiniAppTestDiskIOMock();
 const { resetIdentityStorageCache } = await import(
   "../../packages/cache/main/identityStorage"
 );
-const { miniAppBundledAssetsHolder } = await import(
-  "../../packages/cache/main/miniApp"
-);
+const {
+  miniAppAuthSessions,
+  miniAppBundledAssetsHolder,
+} = await import("../../packages/cache/main/miniApp");
 const { BOT_TOKEN, SUPER_ADMIN_USER_ID } = await import("../../packages/config/bot");
 const { getAssetConfig } = await import("../../packages/config/assets");
 const {
@@ -37,16 +39,20 @@ const {
   MINI_APP_BUTTON_TEXT,
   MINI_APP_CSP_HEADER_VALUE,
   MINI_APP_GALLERY_DEFAULT_PAGE_SIZE,
+  MINI_APP_GALLERY_FILE_CACHE_CONTROL,
+  MINI_APP_GALLERY_FILE_VARY_HEADER_VALUE,
   MINI_APP_INIT_DATA_HEADER,
   MINI_APP_PAGE_GATE_COOKIE_NAME,
   MINI_APP_SESSION_HEADER,
   MINI_APP_X_FRAME_OPTIONS_VALUE,
 } = await import("../../packages/consts/miniApp");
+const { MINI_APP_INVALID_ENCRYPTED_PAYLOAD_CODE } = await import(
+  "../../packages/consts/miniAppCrypto"
+);
 const {
   configureSuperAdminMenuButton,
   saveMiniAppPreparedKeyboardButton,
 } = await import("../../packages/infra/telegram/actions/miniApp");
-const { deriveMiniAppAssetToken } = await import("../../packages/libs/miniAppAuth");
 const {
   getMiniAppPickerResult,
   handleMiniAppSharedMessage,
@@ -55,9 +61,10 @@ const {
   startMiniAppServer,
   stopMiniAppServer,
 } = await import("../../packages/mini-app-api-server");
-const { dispatchMiniAppTestRequest: handleMiniAppHttpRequest } = await import(
-  "../helpers/miniAppRequest"
-);
+const {
+  dispatchMiniAppTestRequest: handleMiniAppHttpRequest,
+  dispatchRawMiniAppTestRequest,
+} = await import("../helpers/miniAppRequest");
 
 /**
  * 构造携带当前 `BOT_TOKEN`、`SUPER_ADMIN_USER_ID` 签名与有效密码会话令牌的测试请求头。
@@ -67,7 +74,7 @@ function superAdminHeaders(): Record<string, string> {
   return buildSuperAdminHeaders({
     botToken: BOT_TOKEN,
     superAdminUserId: SUPER_ADMIN_USER_ID,
-    sessionToken: issueMiniAppAuthSession().token,
+    sessionToken: ensureReusableTestSession(issueMiniAppAuthSession).token,
     username: "super_admin",
   });
 }
@@ -76,6 +83,7 @@ afterEach(async (): Promise<void> => {
   await stopMiniAppServer();
   resetMiniAppTestDiskIOState();
   resetIdentityStorageCache();
+  miniAppAuthSessions.clear();
 });
 
 describe("Mini App Picker, Gallery & Bun.serve integration", () => {
@@ -362,6 +370,7 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
     const headers: Record<string, string> = superAdminHeaders();
     const initData: string = headers[MINI_APP_INIT_DATA_HEADER]!;
     const sessionToken: string = headers[MINI_APP_SESSION_HEADER]!;
+    const encodedFileName: string = encodeURIComponent(expectedFileName);
     const queryOnJsonRes: Response = await handleMiniAppHttpRequest(
       new Request(
         `http://127.0.0.1:3000/api/status?initData=${encodeURIComponent(initData)}&session=${encodeURIComponent(sessionToken)}`
@@ -371,9 +380,10 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
 
     const navigateFileRes: Response = await handleMiniAppHttpRequest(
       new Request(
-        `http://127.0.0.1:3000/api/gallery/file/${expectedFileName}?initData=${encodeURIComponent(initData)}&session=${encodeURIComponent(sessionToken)}`,
+        `http://127.0.0.1:3000/api/gallery/file?fileName=${encodedFileName}`,
         {
           headers: {
+            ...headers,
             "sec-fetch-dest": "document",
             "sec-fetch-mode": "navigate",
           },
@@ -382,63 +392,95 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
     );
     expect(navigateFileRes.status).toBe(403);
 
+    const imgDestFileRes: Response = await handleMiniAppHttpRequest(
+      new Request(
+        `http://127.0.0.1:3000/api/gallery/file?fileName=${encodedFileName}`,
+        {
+          headers: {
+            ...headers,
+            "sec-fetch-dest": "image",
+            "sec-fetch-mode": "no-cors",
+          },
+        }
+      )
+    );
+    expect(imgDestFileRes.status).toBe(403);
+
+    const tokenOnlyFileRes: Response = await dispatchRawMiniAppTestRequest(
+      new Request(
+        `http://127.0.0.1:3000/api/gallery/file?token=${"a".repeat(64)}&fileName=${encodedFileName}`
+      )
+    );
+    expect(tokenOnlyFileRes.status).toBe(401);
+
+    const queryAuthFileRes: Response = await dispatchRawMiniAppTestRequest(
+      new Request(
+        `http://127.0.0.1:3000/api/gallery/file?initData=${encodeURIComponent(initData)}&session=${encodeURIComponent(sessionToken)}&fileName=${encodedFileName}`
+      )
+    );
+    expect(queryAuthFileRes.status).toBe(401);
+
+    const plainQueryFileRes: Response = await dispatchRawMiniAppTestRequest(
+      new Request(
+        `http://127.0.0.1:3000/api/gallery/file?fileName=${encodedFileName}`,
+        { headers }
+      )
+    );
+    expect(plainQueryFileRes.status).toBe(400);
+    expect(((await plainQueryFileRes.json()) as { readonly error: string }).error).toBe(
+      MINI_APP_INVALID_ENCRYPTED_PAYLOAD_CODE
+    );
+
     const fileRes: Response = await handleMiniAppHttpRequest(
       new Request(
-        `http://127.0.0.1:3000/api/gallery/file/${expectedFileName}?initData=${encodeURIComponent(initData)}&session=${encodeURIComponent(sessionToken)}`
+        `http://127.0.0.1:3000/api/gallery/file?fileName=${encodedFileName}`,
+        { headers }
       )
     );
     expect(fileRes.status).toBe(200);
     expect(fileRes.headers.get("Content-Type")).toBe("image/png");
-    expect(fileRes.headers.get("Cache-Control")).toBe(MINI_APP_ASSET_CACHE_CONTROL);
-    expect(fileRes.headers.get("CDN-Cache-Control")).toBe(MINI_APP_ASSET_CACHE_CONTROL);
+    expect(fileRes.headers.get("Cache-Control")).toBe(MINI_APP_GALLERY_FILE_CACHE_CONTROL);
+    expect(fileRes.headers.get("CDN-Cache-Control")).toBe("no-store");
+    expect(fileRes.headers.get("Cloudflare-CDN-Cache-Control")).toBe("no-store");
+    expect(fileRes.headers.get("Vary")).toBe(MINI_APP_GALLERY_FILE_VARY_HEADER_VALUE);
     const imageEtag: string | null = fileRes.headers.get("ETag");
     expect(imageEtag !== null && imageEtag.length > 0).toBeTrue();
     const fetchedBytes: Uint8Array = await fileRes.bytes();
     expect(fetchedBytes).toEqual(validPng);
 
-    const assetToken: string = deriveMiniAppAssetToken(
-      BOT_TOKEN,
-      SUPER_ADMIN_USER_ID
-    );
-    const tokenImageRes: Response = await handleMiniAppHttpRequest(
-      new Request(
-        `http://127.0.0.1:3000/api/gallery/file/${expectedFileName}?token=${encodeURIComponent(assetToken)}`
-      )
-    );
-    expect(tokenImageRes.status).toBe(200);
-    expect(tokenImageRes.headers.get("CDN-Cache-Control")).toBe(
-      MINI_APP_ASSET_CACHE_CONTROL
-    );
-
     const cachedImageRes: Response = await handleMiniAppHttpRequest(
       new Request(
-        `http://127.0.0.1:3000/api/gallery/file/${expectedFileName}?token=${encodeURIComponent(assetToken)}`,
-        { headers: { "if-none-match": imageEtag! } }
+        `http://127.0.0.1:3000/api/gallery/file?fileName=${encodedFileName}`,
+        { headers: { ...headers, "if-none-match": imageEtag! } }
       )
     );
     expect(cachedImageRes.status).toBe(304);
     expect(cachedImageRes.headers.get("Content-Type")).toBeNull();
     expect(cachedImageRes.headers.get("Content-Length")).toBeNull();
     expect(cachedImageRes.headers.get("Cache-Control")).toBe(
-      MINI_APP_ASSET_CACHE_CONTROL
+      MINI_APP_GALLERY_FILE_CACHE_CONTROL
     );
-    expect(cachedImageRes.headers.get("CDN-Cache-Control")).toBe(
-      MINI_APP_ASSET_CACHE_CONTROL
+    expect(cachedImageRes.headers.get("CDN-Cache-Control")).toBe("no-store");
+    expect(cachedImageRes.headers.get("Cloudflare-CDN-Cache-Control")).toBe(
+      "no-store"
+    );
+    expect(cachedImageRes.headers.get("Vary")).toBe(
+      MINI_APP_GALLERY_FILE_VARY_HEADER_VALUE
     );
     expect(cachedImageRes.headers.get("ETag")).toBe(imageEtag);
 
     const weakEtagCachedRes: Response = await handleMiniAppHttpRequest(
       new Request(
-        `http://127.0.0.1:3000/api/gallery/file/${expectedFileName}?token=${encodeURIComponent(assetToken)}`,
-        { headers: { "if-none-match": `W/${imageEtag!}` } }
+        `http://127.0.0.1:3000/api/gallery/file?fileName=${encodedFileName}`,
+        { headers: { ...headers, "if-none-match": `W/${imageEtag!}` } }
       )
     );
     expect(weakEtagCachedRes.status).toBe(304);
 
     const multiEtagCachedRes: Response = await handleMiniAppHttpRequest(
       new Request(
-        `http://127.0.0.1:3000/api/gallery/file/${expectedFileName}?token=${encodeURIComponent(assetToken)}`,
-        { headers: { "if-none-match": `"stale-tag", W/${imageEtag!}` } }
+        `http://127.0.0.1:3000/api/gallery/file?fileName=${encodedFileName}`,
+        { headers: { ...headers, "if-none-match": `"stale-tag", W/${imageEtag!}` } }
       )
     );
     expect(multiEtagCachedRes.status).toBe(304);
@@ -447,16 +489,16 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
 
     const quotedCommaMatchRes: Response = await handleMiniAppHttpRequest(
       new Request(
-        `http://127.0.0.1:3000/api/gallery/file/${expectedFileName}?token=${encodeURIComponent(assetToken)}`,
-        { headers: { "if-none-match": `"x,y", W/${imageEtag!}` } }
+        `http://127.0.0.1:3000/api/gallery/file?fileName=${encodedFileName}`,
+        { headers: { ...headers, "if-none-match": `"x,y", W/${imageEtag!}` } }
       )
     );
     expect(quotedCommaMatchRes.status).toBe(304);
 
     const quotedCommaMissRes: Response = await handleMiniAppHttpRequest(
       new Request(
-        `http://127.0.0.1:3000/api/gallery/file/${expectedFileName}?token=${encodeURIComponent(assetToken)}`,
-        { headers: { "if-none-match": `"mismatch, ${imageEtag!}"` } }
+        `http://127.0.0.1:3000/api/gallery/file?fileName=${encodedFileName}`,
+        { headers: { ...headers, "if-none-match": `"mismatch, ${imageEtag!}"` } }
       )
     );
     expect(quotedCommaMissRes.status).toBe(200);
@@ -471,8 +513,8 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
     utimesSync(galleryFilePath, nextMtimeSec, nextMtimeSec);
     const staleAfterTouchRes: Response = await handleMiniAppHttpRequest(
       new Request(
-        `http://127.0.0.1:3000/api/gallery/file/${expectedFileName}?token=${encodeURIComponent(assetToken)}`,
-        { headers: { "if-none-match": imageEtag! } }
+        `http://127.0.0.1:3000/api/gallery/file?fileName=${encodedFileName}`,
+        { headers: { ...headers, "if-none-match": imageEtag! } }
       )
     );
     expect(staleAfterTouchRes.status).toBe(200);
@@ -480,7 +522,7 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
     expect(updatedEtag !== null && updatedEtag !== imageEtag).toBeTrue();
 
     const unauthCachedImageRes: Response = await handleMiniAppHttpRequest(
-      new Request(`http://127.0.0.1:3000/api/gallery/file/${expectedFileName}`, {
+      new Request(`http://127.0.0.1:3000/api/gallery/file?fileName=${encodedFileName}`, {
         headers: { "if-none-match": imageEtag! },
       })
     );
@@ -489,22 +531,32 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
 
     const invalidTokenImageRes: Response = await handleMiniAppHttpRequest(
       new Request(
-        `http://127.0.0.1:3000/api/gallery/file/${expectedFileName}?token=${"0".repeat(64)}`,
+        `http://127.0.0.1:3000/api/gallery/file?fileName=${encodedFileName}&token=${"0".repeat(64)}`,
         { headers: { "if-none-match": imageEtag! } }
       )
     );
     expect(invalidTokenImageRes.status).toBe(401);
 
     const headImageRes: Response = await handleMiniAppHttpRequest(
-      new Request(`http://127.0.0.1:3000/api/gallery/file/${expectedFileName}`, {
+      new Request(`http://127.0.0.1:3000/api/gallery/file?fileName=${encodedFileName}`, {
         method: "HEAD",
-        headers: superAdminHeaders(),
+        headers,
       })
     );
     expect(headImageRes.status).toBe(200);
     expect(headImageRes.headers.get("Content-Type")).toBe("image/png");
     expect(headImageRes.headers.get("Content-Length")).toBe(
       String(validPng.byteLength)
+    );
+    expect(headImageRes.headers.get("Cache-Control")).toBe(
+      MINI_APP_GALLERY_FILE_CACHE_CONTROL
+    );
+    expect(headImageRes.headers.get("CDN-Cache-Control")).toBe("no-store");
+    expect(headImageRes.headers.get("Cloudflare-CDN-Cache-Control")).toBe(
+      "no-store"
+    );
+    expect(headImageRes.headers.get("Vary")).toBe(
+      MINI_APP_GALLERY_FILE_VARY_HEADER_VALUE
     );
     expect(await headImageRes.bytes()).toEqual(new Uint8Array(0));
 
@@ -538,20 +590,20 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
     expect(favicon304Res.status).toBe(304);
 
     const traversalRes: Response = await handleMiniAppHttpRequest(
-      new Request("http://127.0.0.1:3000/api/gallery/file/..%2Fsecret.png", {
-        headers: superAdminHeaders(),
+      new Request("http://127.0.0.1:3000/api/gallery/file?fileName=..%2Fsecret.png", {
+        headers,
       })
     );
     expect(traversalRes.status).toBe(404);
 
     const unauthDownloadRes: Response = await handleMiniAppHttpRequest(
-      new Request(`http://127.0.0.1:3000/api/gallery/download/${expectedFileName}`)
+      new Request(`http://127.0.0.1:3000/api/gallery/download?fileName=${encodedFileName}`)
     );
     expect(unauthDownloadRes.status).toBe(401);
 
     const noSessionDownloadRes: Response = await handleMiniAppHttpRequest(
       new Request(
-        `http://127.0.0.1:3000/api/gallery/download/${expectedFileName}?token=${encodeURIComponent(assetToken)}`,
+        `http://127.0.0.1:3000/api/gallery/download?fileName=${encodedFileName}&token=${"a".repeat(64)}`,
         {
           headers: {
             [MINI_APP_INIT_DATA_HEADER]: initData,
@@ -561,9 +613,20 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
     );
     expect(noSessionDownloadRes.status).toBe(401);
 
+    const plainDownloadRes: Response = await dispatchRawMiniAppTestRequest(
+      new Request(
+        `http://127.0.0.1:3000/api/gallery/download?fileName=${encodedFileName}`,
+        { headers }
+      )
+    );
+    expect(plainDownloadRes.status).toBe(400);
+    expect(((await plainDownloadRes.json()) as { readonly error: string }).error).toBe(
+      MINI_APP_INVALID_ENCRYPTED_PAYLOAD_CODE
+    );
+
     const downloadRes: Response = await handleMiniAppHttpRequest(
-      new Request(`http://127.0.0.1:3000/api/gallery/download/${expectedFileName}`, {
-        headers: superAdminHeaders(),
+      new Request(`http://127.0.0.1:3000/api/gallery/download?fileName=${encodedFileName}`, {
+        headers,
       })
     );
     expect(downloadRes.status).toBe(200);
@@ -573,32 +636,17 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
     );
     expect(await downloadRes.bytes()).toEqual(validPng);
 
-    const queryDownloadRes: Response = await handleMiniAppHttpRequest(
+    // 不允许通过 ?token= / ?initData= / ?session= 查询参数访问 /api/gallery/download。
+    const querySessionDownloadRes: Response = await dispatchRawMiniAppTestRequest(
       new Request(
-        `http://127.0.0.1:3000/api/gallery/download/${expectedFileName}?token=${encodeURIComponent(assetToken)}&session=${encodeURIComponent(sessionToken)}`
+        `http://127.0.0.1:3000/api/gallery/download?fileName=${encodedFileName}&token=${"a".repeat(64)}&session=${encodeURIComponent(sessionToken)}`
       )
     );
-    expect(queryDownloadRes.status).toBe(200);
-    expect(queryDownloadRes.headers.get("Content-Disposition")).toMatch(
-      /^attachment; filename="\d+\.png"$/u
-    );
-    expect(await queryDownloadRes.bytes()).toEqual(validPng);
-
-    const headDownloadRes: Response = await handleMiniAppHttpRequest(
-      new Request(
-        `http://127.0.0.1:3000/api/gallery/download/${expectedFileName}?token=${encodeURIComponent(assetToken)}&session=${encodeURIComponent(sessionToken)}`,
-        { method: "HEAD" }
-      )
-    );
-    expect(headDownloadRes.status).toBe(200);
-    expect(headDownloadRes.headers.get("Content-Disposition")).toMatch(
-      /^attachment; filename="\d+\.png"$/u
-    );
-    expect(await headDownloadRes.bytes()).toEqual(new Uint8Array(0));
+    expect(querySessionDownloadRes.status).toBe(401);
 
     const missingDownloadRes: Response = await handleMiniAppHttpRequest(
-      new Request("http://127.0.0.1:3000/api/gallery/download/..%2Fsecret.png", {
-        headers: superAdminHeaders(),
+      new Request("http://127.0.0.1:3000/api/gallery/download?fileName=..%2Fsecret.png", {
+        headers,
       })
     );
     expect(missingDownloadRes.status).toBe(404);
@@ -607,7 +655,7 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
       new Request("http://127.0.0.1:3000/api/gallery/delete", {
         method: "POST",
         headers: {
-          ...superAdminHeaders(),
+          ...headers,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ fileName: "../evil.png" }),
@@ -618,10 +666,22 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
       ((await invalidDeleteRes.json()) as MiniAppGalleryDeleteResult).outcome
     ).toBe("invalidFileName");
 
-    const deleteRes: Response = await handleMiniAppHttpRequest(
-      new Request(`http://127.0.0.1:3000/api/gallery/file/${expectedFileName}`, {
+    const removedDeleteRouteRes: Response = await handleMiniAppHttpRequest(
+      new Request(`http://127.0.0.1:3000/api/gallery/file?fileName=${encodedFileName}`, {
         method: "DELETE",
-        headers: superAdminHeaders(),
+        headers,
+      })
+    );
+    expect(removedDeleteRouteRes.status).toBe(404);
+
+    const deleteRes: Response = await handleMiniAppHttpRequest(
+      new Request("http://127.0.0.1:3000/api/gallery/delete", {
+        method: "POST",
+        headers: {
+          ...headers,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ fileName: expectedFileName }),
       })
     );
     expect(deleteRes.status).toBe(200);
@@ -632,9 +692,13 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
     expect(deleteBody.fileName).toBe(expectedFileName);
 
     const deleteAgainRes: Response = await handleMiniAppHttpRequest(
-      new Request(`http://127.0.0.1:3000/api/gallery/file/${expectedFileName}`, {
-        method: "DELETE",
-        headers: superAdminHeaders(),
+      new Request("http://127.0.0.1:3000/api/gallery/delete", {
+        method: "POST",
+        headers: {
+          ...headers,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ fileName: expectedFileName }),
       })
     );
     expect(deleteAgainRes.status).toBe(404);
@@ -864,7 +928,7 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
     const fetchSpy = spyOn(globalThis, "fetch");
     try {
       const apiRes: Response = await handleMiniAppHttpRequest(
-        new Request("http://127.0.0.1:3000/sub/api/gallery/file/a.png")
+        new Request("http://127.0.0.1:3000/sub/api/gallery/file?fileName=a.png")
       );
       expect(apiRes.status).toBe(401);
       const unprefixedUnknownRes: Response = await handleMiniAppHttpRequest(

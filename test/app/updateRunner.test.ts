@@ -386,4 +386,37 @@ describe("acknowledgement-safe update runner", () => {
       errorLog.mockRestore();
     }
   });
+
+  test("activeTask 在空闲时返回 null，在途时返回结算句柄且结算后 size 归零、hasFailedUpdate 已生效", async () => {
+    const gate: PromiseWithResolvers<void> = Promise.withResolvers<void>();
+    const observedSyncTasks: (Promise<void> | null)[] = [];
+    const fakeBot = {
+      api: {
+        getUpdates: async (): Promise<Update[]> => [{ update_id: 80 }] as Update[],
+      },
+      handleUpdate: async (): Promise<void> => {
+        observedSyncTasks.push(runner.activeTask());
+        await gate.promise;
+        throw new Error("boom during shutdown drain");
+      },
+      errorHandler: (): void => {},
+    };
+
+    const runner = runAcknowledgedUpdateBatches(fakeBot as unknown as Bot, ["message"]);
+    expect(runner.activeTask()).toBeNull();
+    await Bun.sleep(0);
+    await runner.stop();
+
+    const active: Promise<void> | null = runner.activeTask();
+    expect(active).not.toBeNull();
+    expect(observedSyncTasks).toEqual([active]);
+    expect(runner.size()).toBe(1);
+
+    gate.resolve();
+    await active;
+
+    expect(runner.size()).toBe(0);
+    expect(runner.activeTask()).toBeNull();
+    expect(runner.hasFailedUpdate()).toBeTrue();
+  });
 });
