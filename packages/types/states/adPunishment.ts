@@ -13,7 +13,7 @@ export type AdInChatPunishmentAction =
   | Readonly<{ kind: "kick" }>
   /** 只在触发群以 banChatMember 封禁并撤回历史消息。 */
   | Readonly<{ kind: "banChat" }>
-  /** 频道身份无法禁言或移出：除 Worker 已删除的消息外不另行处罚。 */
+  /** 频道身份无法禁言或移出：除主线程安排删除的消息外不另行处罚。 */
   | Readonly<{ kind: "deleteOnly" }>;
 
 /** 一次广告命中在主线程落定的处罚动作。 */

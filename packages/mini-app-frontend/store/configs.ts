@@ -1,6 +1,9 @@
 import { createStore } from "zustand";
 import type { StoreApi } from "zustand";
-import { classifyMiniAppAuthError } from "../api/authError";
+import {
+  classifyMiniAppAuthError,
+  isSuppressedStaleMiniAppAuthError,
+} from "../api/authError";
 import { fetchMiniAppConfigFile } from "../api/configsFile";
 import { fetchMiniAppConfigList } from "../api/configsList";
 import {
@@ -9,6 +12,7 @@ import {
 } from "../consts/miniAppConfig";
 import { getMiniAppTranslations } from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
+import { errorMessage } from "../libs/errorMessage";
 import { waitMinimumLoadingDuration } from "../libs/loading";
 import type {
   MiniAppConfigFileItem,
@@ -174,6 +178,9 @@ export function createConfigsStore(): MiniAppConfigsStore {
         if (notifyMiniAppIfAuthError(error)) {
           return;
         }
+        if (isSuppressedStaleMiniAppAuthError(errorMessage(error), error)) {
+          return;
+        }
         const t: Readonly<MiniAppTranslations> = getMiniAppTranslations(
           useMiniAppStore.getState().language
         );
@@ -183,7 +190,7 @@ export function createConfigsStore(): MiniAppConfigsStore {
           targetFile
         );
         set({ errorBanner: localized });
-        useMiniAppStore.getState().notify(localized, "danger");
+        useMiniAppStore.getState().notify(localized, "danger", error);
       };
 
       const applyLoadedConfigFile = (

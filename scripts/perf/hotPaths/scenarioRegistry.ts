@@ -58,73 +58,94 @@ import { base64PayloadScenario, replyAdmissionScenario, replyDeliveryScenario } 
 import { proxyTtsDetectScenario, voiceMessageEncodeScenario } from "./voiceScenarios";
 
 /**
+ * 热路径场景名到工厂函数的唯一注册表。`Record<ScenarioName, () => Scenario>` 在编译期与
+ * `ScenarioName` 严格对齐（缺一或多一均报错），场景名解析与工厂分派共享同一定义。
+ */
+const SCENARIO_FACTORIES: Readonly<Record<ScenarioName, () => Scenario>> = {
+  "cooldown-hit": (): Scenario => cooldownScenario("hit"),
+  "cooldown-renew": (): Scenario => cooldownScenario("renew"),
+  "cooldown-growth": (): Scenario => cooldownScenario("growth"),
+  "cooldown-saturated": (): Scenario => cooldownScenario("saturated"),
+  "cooldown-expiry": (): Scenario => cooldownScenario("expiry"),
+  "reply-admission": (): Scenario => replyAdmissionScenario(),
+  "reply-delivery-normal": (): Scenario => replyDeliveryScenario(false),
+  "reply-delivery-capacity": (): Scenario => replyDeliveryScenario(true),
+  "base64-normal": (): Scenario => base64PayloadScenario("normal"),
+  "base64-large": (): Scenario => base64PayloadScenario("large"),
+  "base64-head": (): Scenario => base64PayloadScenario("head"),
+  "base64-tail": (): Scenario => base64PayloadScenario("tail"),
+  "voice-message-encode": (): Scenario => voiceMessageEncodeScenario(),
+  "proxy-tts-detect": (): Scenario => proxyTtsDetectScenario(),
+  "storage-sqlite-flush": (): Scenario => storageFlushScenario(),
+  "verification-snapshot": (): Scenario => verificationSnapshotScenario(false),
+  "verification-snapshot-clone": (): Scenario => verificationSnapshotScenario(true),
+  "pending-verification-lookup": (): Scenario => pendingVerificationLookupScenario(),
+  "bounded-response-empty": (): Scenario => boundedResponseScenario("empty"),
+  "bounded-response-tiny": (): Scenario => boundedResponseScenario("tiny"),
+  "bounded-response-small": (): Scenario => boundedResponseScenario("small"),
+  "bounded-response-normal": (): Scenario => boundedResponseScenario("normal"),
+  "bounded-response-large": (): Scenario => boundedResponseScenario("large"),
+  "wed-member-hit": (): Scenario => wedMemberScenario("hit"),
+  "wed-member-growth": (): Scenario => wedMemberScenario("growth"),
+  "wed-member-churn": (): Scenario => wedMemberScenario("churn"),
+  "wed-member-chat-switch": (): Scenario => wedMemberChatSwitchScenario(),
+  "registered-middleware": (): Scenario => registeredMiddlewareScenario(),
+  "sender-no-username": (): Scenario => senderScenario(),
+  "sender-stable-username": (): Scenario => senderScenario("Stable_User"),
+  "sender-mixed-identity": (): Scenario => senderMixedIdentityScenario(),
+  "luck-receipt-fast-path": (): Scenario => createLuckReceiptFastPathScenario(),
+  "ai-activity-window": (): Scenario => aiActivityScenario(),
+  "ai-activity-lru-miss": (): Scenario => aiActivityLruMissScenario(),
+  "ad-empty-metadata": (): Scenario => adEmptyMetadataScenario(),
+  "ad-wire-clone": (): Scenario => adWireCloneScenario(),
+  "ad-capacity-reject": (): Scenario => createAdCapacityRejectScenario(),
+  "identity-permission-read": (): Scenario => createIdentityPermissionReadScenario(),
+  "temporary-whitelist-activity": (): Scenario => createTemporaryAdBypassActivityScenario(),
+  "join-timestamp-window": (): Scenario => joinTimestampWindowScenario(),
+  "quota-timestamp-window": (): Scenario => quotaTimestampWindowScenario(),
+  "bounded-rolling-buffer": (): Scenario => boundedRollingBufferScenario(),
+  "chat-state-read": (): Scenario => chatStateReadScenario(),
+  "chat-state-map-read": (): Scenario => chatStateMapReadScenario(),
+  "self-sent-empty": (): Scenario => selfSentEmptyScenario(),
+  "self-sent-active": (): Scenario => selfSentActiveScenario(),
+  "incoming-message-spine": (): Scenario => incomingMessageSpineScenario(),
+  "ai-media-direct-trigger": (): Scenario => aiMediaDirectTriggerScenario(),
+  "flood-window-hit": (): Scenario => floodWindowHitScenario(),
+  "flood-window-growth": (): Scenario => floodWindowGrowthScenario(),
+  "flood-window-steady": (): Scenario => floodWindowSteadyScenario(),
+  "gag-speak-counter": (): Scenario => gagSpeakCounterScenario(),
+  "buffered-message-build": (): Scenario => bufferedMessageBuildScenario(),
+  "transcript-render": (): Scenario => transcriptRenderScenario(),
+  "reply-reference": (): Scenario => replyReferenceScenario(),
+  "mention-facts": (): Scenario => mentionFactsScenario(true),
+  "mention-facts-plain": (): Scenario => mentionFactsScenario(false),
+  "redact-clean-log": (): Scenario => redactCleanLogScenario(),
+  "luck-tier-table": (): Scenario => luckTierTableScenario(),
+  "mini-app-status-route": (): Scenario => miniAppStatusRouteScenario(),
+  "mini-app-frontend-render": (): Scenario => miniAppFrontendRenderScenario(),
+};
+
+/** 全部已注册的热路径场景名只读列表，与 `ScenarioName` 严格一致。 */
+export const REGISTERED_SCENARIO_NAMES: readonly ScenarioName[] = Object.keys(
+  SCENARIO_FACTORIES
+) as ScenarioName[];
+
+/**
+ * 判定给定字符串是否为已注册的热路径场景名称。
+ *
+ * @param value 待校验的命令行参数字符串。
+ * @returns 已注册时返回 `true` 并收窄为 `ScenarioName`。
+ */
+export function isRegisteredScenarioName(value: string | undefined): value is ScenarioName {
+  return value !== undefined && Object.hasOwn(SCENARIO_FACTORIES, value);
+}
+
+/**
  * 按稳定名称建立一份独立场景；每个子进程只调用一次。
  *
  * @param name 热路径场景名称
  * @returns 对应名称的热路径场景定义
  */
 export function createScenario(name: ScenarioName): Scenario {
-  switch (name) {
-    case "cooldown-hit": return cooldownScenario("hit");
-    case "cooldown-renew": return cooldownScenario("renew");
-    case "cooldown-growth": return cooldownScenario("growth");
-    case "cooldown-saturated": return cooldownScenario("saturated");
-    case "cooldown-expiry": return cooldownScenario("expiry");
-    case "reply-admission": return replyAdmissionScenario();
-    case "reply-delivery-normal": return replyDeliveryScenario(false);
-    case "reply-delivery-capacity": return replyDeliveryScenario(true);
-    case "base64-normal": return base64PayloadScenario("normal");
-    case "base64-large": return base64PayloadScenario("large");
-    case "base64-head": return base64PayloadScenario("head");
-    case "base64-tail": return base64PayloadScenario("tail");
-    case "voice-message-encode": return voiceMessageEncodeScenario();
-    case "proxy-tts-detect": return proxyTtsDetectScenario();
-    case "storage-sqlite-flush": return storageFlushScenario();
-    case "verification-snapshot": return verificationSnapshotScenario(false);
-    case "verification-snapshot-clone": return verificationSnapshotScenario(true);
-    case "pending-verification-lookup": return pendingVerificationLookupScenario();
-    case "bounded-response-empty": return boundedResponseScenario("empty");
-    case "bounded-response-tiny": return boundedResponseScenario("tiny");
-    case "bounded-response-small": return boundedResponseScenario("small");
-    case "bounded-response-normal": return boundedResponseScenario("normal");
-    case "bounded-response-large": return boundedResponseScenario("large");
-    case "wed-member-hit": return wedMemberScenario("hit");
-    case "wed-member-growth": return wedMemberScenario("growth");
-    case "wed-member-churn": return wedMemberScenario("churn");
-    case "wed-member-chat-switch": return wedMemberChatSwitchScenario();
-    case "registered-middleware": return registeredMiddlewareScenario();
-    case "sender-no-username": return senderScenario();
-    case "sender-stable-username": return senderScenario("Stable_User");
-    case "sender-mixed-identity": return senderMixedIdentityScenario();
-    case "luck-receipt-fast-path": return createLuckReceiptFastPathScenario();
-    case "ai-activity-window": return aiActivityScenario();
-    case "ai-activity-lru-miss": return aiActivityLruMissScenario();
-    case "ad-empty-metadata": return adEmptyMetadataScenario();
-    case "ad-wire-clone": return adWireCloneScenario();
-    case "ad-capacity-reject": return createAdCapacityRejectScenario();
-    case "identity-permission-read": return createIdentityPermissionReadScenario();
-    case "temporary-whitelist-activity": return createTemporaryAdBypassActivityScenario();
-    case "join-timestamp-window": return joinTimestampWindowScenario();
-    case "quota-timestamp-window": return quotaTimestampWindowScenario();
-    case "bounded-rolling-buffer": return boundedRollingBufferScenario();
-    case "chat-state-read": return chatStateReadScenario();
-    case "chat-state-map-read": return chatStateMapReadScenario();
-    case "self-sent-empty": return selfSentEmptyScenario();
-    case "self-sent-active": return selfSentActiveScenario();
-    case "incoming-message-spine": return incomingMessageSpineScenario();
-    case "ai-media-direct-trigger": return aiMediaDirectTriggerScenario();
-    case "flood-window-hit": return floodWindowHitScenario();
-    case "flood-window-growth": return floodWindowGrowthScenario();
-    case "flood-window-steady": return floodWindowSteadyScenario();
-    case "gag-speak-counter": return gagSpeakCounterScenario();
-    case "buffered-message-build": return bufferedMessageBuildScenario();
-    case "transcript-render": return transcriptRenderScenario();
-    case "reply-reference": return replyReferenceScenario();
-    case "mention-facts": return mentionFactsScenario(true);
-    case "mention-facts-plain": return mentionFactsScenario(false);
-    case "redact-clean-log": return redactCleanLogScenario();
-    case "luck-tier-table": return luckTierTableScenario();
-    case "mini-app-status-route": return miniAppStatusRouteScenario();
-    case "mini-app-frontend-render": return miniAppFrontendRenderScenario();
-  }
+  return SCENARIO_FACTORIES[name]();
 }

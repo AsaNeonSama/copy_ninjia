@@ -5,7 +5,7 @@
  * 2 小时绝对寿命封顶以及 `400` 失败解密绝不触发轮换。
  */
 
-import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
+import { afterEach, describe, expect, setSystemTime, spyOn, test } from "bun:test";
 import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type {
@@ -24,6 +24,7 @@ installMiniAppTestDiskIOMock();
 const {
   miniAppAuthHandshakes,
   miniAppAuthSessions,
+  miniAppAuthSessionWatermark,
   miniAppGalleryDownloadTickets,
   miniAppPasswordGuardHolder,
   miniAppTotpRecordHolder,
@@ -37,6 +38,7 @@ const {
   MINI_APP_SESSION_EXPIRES_AT_HEADER,
   MINI_APP_SESSION_HEADER,
   MINI_APP_SESSION_MAX_LIFETIME_MS,
+  MINI_APP_SESSION_PREVIOUS_GRACE_MS,
   MINI_APP_SESSION_REFRESH_MAX_MS,
   MINI_APP_SESSION_REFRESH_MIN_MS,
   MINI_APP_SESSION_TTL_MS,
@@ -49,7 +51,17 @@ const {
   MINI_APP_SESSION_ROTATE_AT_SEEN_IVS,
 } = await import("../../packages/consts/miniAppCrypto");
 const { MINI_APP_TOTP_MEMORY_DIR } = await import("../../packages/consts/paths");
-const { stopMiniAppServer } = await import("../../packages/mini-app-api-server");
+const {
+  issueMiniAppAuthSession,
+  stopMiniAppServer,
+} = await import("../../packages/mini-app-api-server");
+const {
+  clearPendingMiniAppSessionKey,
+  commitMiniAppSessionAccess,
+} = await import("../../packages/mini-app-api-server/auth/session");
+const {
+  purgeExpiredAuthSessions,
+} = await import("../../packages/mini-app-api-server/auth/sessionLookup");
 const {
   buildMiniAppEnvelopeAad,
   decryptMiniAppText,
@@ -460,5 +472,61 @@ describe("Mini App AES-256-GCM IV 水位主动轮换与硬上限防护", () => {
     ).toBe(absoluteExpiresAt);
     expect(miniAppAuthSessions.get(finalToken!)?.expiresAt).toBe(absoluteExpiresAt);
     expect(miniAppAuthSessions.get(finalToken!)?.seenRequestIvs.size).toBe(0);
+  });
+
+  test("会话清理水位在无到期事件时跳过全表扫描，并在宽限期截止与清空表时准确更新", () => {
+    const baseMs: number = 1_786_800_000_000;
+    miniAppAuthSessions.clear();
+    purgeExpiredAuthSessions(baseMs);
+    expect(miniAppAuthSessionWatermark.nextPurgeAt).toBe(Number.POSITIVE_INFINITY);
+
+    const issued: Readonly<MiniAppAuthSession> = issueMiniAppAuthSession(baseMs);
+    expect(miniAppAuthSessionWatermark.nextPurgeAt).toBe(
+      baseMs + MINI_APP_SESSION_PREVIOUS_GRACE_MS + 1
+    );
+    clearPendingMiniAppSessionKey(issued.token);
+    expect(miniAppAuthSessionWatermark.nextPurgeAt).toBe(issued.expiresAt);
+
+    // 旋转会话后，水位应收紧到旧令牌并发宽限期截止时刻（createdAt + GRACE + 1）。
+    const rotateMs: number = issued.nextRefreshAt + 1;
+    const commitResult = commitMiniAppSessionAccess({
+      session: issued,
+      requestToken: issued.token,
+      matchedViaPrevious: false,
+      allowRotation: true,
+      nowMs: rotateMs,
+    });
+    expect(commitResult.ok).toBeTrue();
+    if (!commitResult.ok || !commitResult.rotated) {
+      throw new Error("Expected session rotation.");
+    }
+    const rotated: Readonly<MiniAppAuthSession> = commitResult.session;
+    const graceDeadline: number =
+      rotated.createdAt + MINI_APP_SESSION_PREVIOUS_GRACE_MS + 1;
+    expect(miniAppAuthSessionWatermark.nextPurgeAt).toBe(graceDeadline);
+
+    // 水位之前调用 purgeExpiredAuthSessions 应 O(1) 短路，不遍历 miniAppAuthSessions。
+    const forEachSpy = spyOn(miniAppAuthSessions, "forEach");
+    try {
+      purgeExpiredAuthSessions(graceDeadline - 1);
+      expect(forEachSpy).not.toHaveBeenCalled();
+
+      // 到达宽限期截止时刻触发扫描，清理 previousToken 并将水位推进至会话到期时刻。
+      purgeExpiredAuthSessions(graceDeadline);
+      expect(forEachSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      forEachSpy.mockRestore();
+    }
+
+    const afterGrace: Readonly<MiniAppAuthSession> | undefined =
+      miniAppAuthSessions.get(rotated.token);
+    expect(afterGrace).toBeDefined();
+    expect(afterGrace?.previousToken).toBeUndefined();
+    expect(miniAppAuthSessionWatermark.nextPurgeAt).toBe(afterGrace!.expiresAt);
+
+    // 外部直接 clear() 后再次调用清理，水位自动重置回 Infinity。
+    miniAppAuthSessions.clear();
+    purgeExpiredAuthSessions(graceDeadline + 10);
+    expect(miniAppAuthSessionWatermark.nextPurgeAt).toBe(Number.POSITIVE_INFINITY);
   });
 });

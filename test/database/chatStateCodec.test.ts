@@ -348,4 +348,17 @@ describe("chat_states 开关的持久化表示", () => {
     expect(decoded.isAIChatEnabled).toBeFalse();
     expect(() => decodeChatStateData("{}", "chat_states[-1001].status")).toThrow("non-empty chat-state object");
   });
+
+  test("encodeChatStateData 传入 chatId 时在写侧拒绝自引用的自动删帖目标", () => {
+    expect(() => encodeChatStateData(
+      chatStateOf({ isInitEnabled: true, deleteMessageTargets: [-1001] }),
+      "chat state -1001",
+      -1001
+    )).toThrow("chat state -1001: $.deleteMessageTargets[0] must be a user or channel ID other than the chat itself.");
+    expect(() => encodeChatStateData(
+      chatStateOf({ isInitEnabled: true, deleteMessageTargets: [-1002] }),
+      "chat state -1001",
+      -1001
+    )).not.toThrow();
+  });
 });

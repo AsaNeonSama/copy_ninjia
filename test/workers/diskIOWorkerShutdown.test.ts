@@ -5,6 +5,7 @@ import { StorageWriteCapacityError } from "../../packages/libs/storageWriteBudge
 import {
   closeStorageDatabaseForShutdown,
   consoleError,
+  deleteAiMemorySnapshot,
   handleIdentityPolicyWrite,
   postMessage,
   rejectedStorageDomains,
@@ -29,13 +30,31 @@ describe("Disk I/O Worker 停机关库路由", () => {
     expect(postMessage).toHaveBeenLastCalledWith({ type: "storageClosed", requestId: 4, error: "database is locked" });
   });
 
-  test("关库后到达的身份写直接忽略：不调用写入、不记拒收", async () => {
+  test("关库后到达的身份写与 AI 记忆删除均直接忽略：不调用写入、不记拒收", async () => {
     storageDatabaseClosed.current = true;
     await route({ type: "identityPolicyWrite", table: "whitelist", id: 7, data: null, revision: 1 });
+    await route({ type: "deleteAiMemory", chatId: -1001, revision: 2 });
 
     expect(handleIdentityPolicyWrite).not.toHaveBeenCalled();
+    expect(deleteAiMemorySnapshot).not.toHaveBeenCalled();
     expect(rejectedStorageDomains.size).toBe(0);
     expect(postMessage).not.toHaveBeenCalled();
+  });
+
+  test("deleteAiMemory 抛错时经 handleStorageMessage 记为 aiMemory 领域拒收", async () => {
+    deleteAiMemorySnapshot.mockImplementationOnce((): never => {
+      throw new Error("ai memory delete failed");
+    });
+    const originalConsoleError = console.error;
+    console.error = consoleError as unknown as typeof console.error;
+    try {
+      await route({ type: "deleteAiMemory", chatId: -1001, revision: 3 });
+    } finally {
+      console.error = originalConsoleError;
+    }
+
+    expect([...rejectedStorageDomains]).toEqual(["aiMemory"]);
+    rejectedStorageDomains.clear();
   });
 
   test("身份写触发容量超限时记拒收并回 storageWriteStalled", async () => {

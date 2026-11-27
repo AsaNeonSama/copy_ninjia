@@ -16,7 +16,12 @@ import {
 import { AGENT_CONFIG_PATH } from "../consts/paths";
 import { invalidInput, readJsonInput } from "../libs/inputValidation";
 import { hasExactKeys, hasOnlyKeys, isPlainRecord } from "../libs/record";
-import { parseCapability, parseImageCapability, parseWebSearchCapability } from "./agentCapability";
+import {
+  parseAdDetectCapability,
+  parseCapability,
+  parseImageCapability,
+  parseWebSearchCapability,
+} from "./agentCapability";
 import { parseTtsCapability } from "./agentTts";
 import type {
   AdDetectAgentConfig,
@@ -41,7 +46,7 @@ export function parseAdDetectAgentConfig(
   value: unknown,
   sourcePath: string = AGENT_CONFIG_PATH
 ): AdDetectAgentConfig {
-  return parseCapability(value, "$.agent.ad_detect", sourcePath);
+  return parseAdDetectCapability(value, sourcePath);
 }
 
 /**

@@ -25,11 +25,15 @@ import {
   AI_CACHE_TOKEN_ROW_ALLOWED_FIELDS,
   AI_CACHE_TOTALS_ALLOWED_FIELDS,
 } from "../../packages/consts/diskIO/aiCache";
-import { STORAGE_MIGRATION_LINEAGE } from "../../packages/consts/identityStorage";
+import {
+  AD_PACK_BLACKLIST_KINDS,
+  STORAGE_MIGRATION_LINEAGE,
+} from "../../packages/consts/identityStorage";
 import { AI_WORKER_JOB_ABORTED, AI_WORKER_JOB_TIMED_OUT, AI_WORKER_JOB_UNAVAILABLE } from "../../packages/consts/aiChat/workerJob";
 import { VOICE_LANGUAGE_PROMPTS } from "../../packages/consts/aiChat/prompts/tools";
 import { TTS_BOT_LANGUAGES } from "../../packages/consts/aiChat/voiceMessage";
 import { REPLY_CONTEXT_SECTION_TEXT } from "../../packages/consts/aiChat/prompts/memory";
+import { SELF_ACTION_TAG_PATTERNS } from "../../packages/consts/aiChat/prompts/transcript";
 import type { PreparedReplyAction, ReplyActionChains, ReplyToolset } from "../../packages/types/aiChat/replies";
 
 function assertReleaseAndLogConstantsReadonly(): void {
@@ -65,6 +69,8 @@ void assertReleaseAndLogConstantsReadonly;
 function assertAiPromptAndToolConstantsReadonly(): void {
   // @ts-expect-error 回复上下文的分段文案禁止调用方改写（深层只读）。
   REPLY_CONTEXT_SECTION_TEXT.referenceMemory.header = "mock";
+  // @ts-expect-error 自我动作标签正则数组元素游标禁止调用方改写。
+  SELF_ACTION_TAG_PATTERNS[0]!.lastIndex = 1;
   // @ts-expect-error Gemini 服务端工具配置禁止调用方改写。
   GEMINI_SERVER_TOOL_CONFIG.includeServerSideToolInvocations = true;
 }
@@ -156,6 +162,10 @@ function assertAtmosphereReadonly(): void {
   ATMOSPHERE_TEXTS.plain.LUCK_TIER_COMMENTS.大吉 = "changed";
   // @ts-expect-error 默认运势固定评语不可修改。
   ATMOSPHERE_TEXTS.teasing.LUCK_TIER_COMMENTS.大吉 = "changed";
+  // @ts-expect-error 普通版广告包黑名单命令文案不可修改。
+  ATMOSPHERE_TEXTS.plain.AD_DETECT_BLACKLIST_TEXTS.usage = "changed";
+  // @ts-expect-error 默认版广告包黑名单命令格式化函数不可替换。
+  ATMOSPHERE_TEXTS.teasing.AD_DETECT_BLACKLIST_TEXTS.listEmpty = (): string => "changed";
 }
 void assertAtmosphereReadonly;
 import { TRANSLATE_LANGUAGE_CODES, TRANSLATE_LANGUAGE_LABELS } from "../../packages/consts/translate";
@@ -240,6 +250,7 @@ import {
   EMPTY_MESSAGE_ENTITIES,
   MUTED_CHAT_PERMISSIONS,
   DISABLED_LINK_PREVIEW,
+  TELEGRAM_PERMISSION_DENIED_DESCRIPTION_PATTERN,
 } from "../../packages/consts/telegram";
 import { QA_ANSWER_LABELS, QA_QUESTION_LABELS } from "../../packages/consts/qa";
 import { DEFAULT_CHAT_STATE, adoptChatState, createChatState, isEmptyChatState } from "../../packages/libs/chatState";
@@ -258,7 +269,9 @@ import * as Media from "../../packages/consts/aiChat/media";
 import {
   AD_BLOCK_SCOPES,
   AD_DETECT_CONFIG_KEYS,
-  AD_DETECT_JSON_SCHEMA,
+  AD_DETECT_DECISIONS_FULL_PATH_PATTERN,
+  AD_DETECT_DECISIONS_VERSION_PATH_PATTERN,
+  AD_DETECT_IMAGE_DOCUMENT_MIME_TYPES,
   AD_PUNISHMENT_BAN_CHAT,
   AD_PUNISHMENT_BLOCK_GLOBAL,
   AD_PUNISHMENT_DELETE_ONLY,
@@ -267,7 +280,17 @@ import {
   AD_PUNISHMENT_KICK_KEYS,
   AD_PUNISHMENT_MUTE_KEYS,
   EMPTY_AD_CANDIDATE_ENTRIES,
-} from "../../packages/consts/antiRaid/adDetect";
+  EMPTY_RESOLVED_AD_BUNDLE_MEDIA,
+  MISSING_CUSTOM_EMOJI_META,
+} from "../../packages/consts/antiRaid/adDetect/limits";
+import {
+  AD_DETECT_DECISION_AD_CRITERIA,
+  AD_DETECT_DECISION_CATEGORIES,
+  AD_DETECT_DECISION_EMOJI_PACK_CRITERIA,
+  AD_DETECT_DECISION_STICKER_PACK_CRITERIA,
+  AD_DETECT_JSON_SCHEMA,
+  AD_DETECT_PACK_JSON_SCHEMA,
+} from "../../packages/consts/antiRaid/adDetect/prompts";
 import {
   CHANNEL_COMMENT_JOIN_EXEMPTION,
   IDENTITY_JOIN_EXEMPTION,
@@ -330,8 +353,16 @@ test("准入、媒体、Telegram 固定载荷和各领域空列表均不可写",
     Media.INITIAL_MEDIA_INPUT_STATE.support = "supported";
     // @ts-expect-error 禁用链接预览的共享载荷必须只读。
     DISABLED_LINK_PREVIEW.is_disabled = true;
+    // @ts-expect-error Telegram 权限拒绝描述匹配表达式的游标禁止调用方改写。
+    TELEGRAM_PERMISSION_DENIED_DESCRIPTION_PATTERN.lastIndex = 1;
     // @ts-expect-error 广告候选的共享空列表不得追加。
     EMPTY_AD_CANDIDATE_ENTRIES.push({});
+    // @ts-expect-error 自定义表情负缓存共享单例禁止调用方改写。
+    MISSING_CUSTOM_EMOJI_META.setName = "pack";
+    // @ts-expect-error 多模态广告检测空解析结果共享单例禁止调用方改写。
+    EMPTY_RESOLVED_AD_BUNDLE_MEDIA.hasUncheckedAttachments = true;
+    // @ts-expect-error 多模态广告检测空切片的附件数组禁止调用方追加。
+    EMPTY_RESOLVED_AD_BUNDLE_MEDIA.combined.attachments.push({} as never);
     // @ts-expect-error OpenAI 输出的共享空列表不得追加。
     EMPTY_OUTPUT_ITEMS.push({});
     // @ts-expect-error 各供应商共用的无工具调用空列表不得追加。
@@ -715,6 +746,24 @@ function assertAdDetectSchemaReadonly(): void {
   AD_DETECT_JSON_SCHEMA.properties.ad.type = "boolean";
   // @ts-expect-error 广告检测 Schema 的必填字段清单不可扩容。
   AD_DETECT_JSON_SCHEMA.required.push("extra");
+  // @ts-expect-error 带贴纸/表情包归因的广告检测 Schema 嵌套字段形态不可修改。
+  AD_DETECT_PACK_JSON_SCHEMA.properties.ad_sticker_packs.items.type = "string";
+  // @ts-expect-error 带贴纸/表情包归因的广告检测 Schema 必填字段清单不可扩容。
+  AD_DETECT_PACK_JSON_SCHEMA.required.push("extra");
+  // @ts-expect-error 广告检测图片文件 MIME 白名单不允许调用方增删。
+  AD_DETECT_IMAGE_DOCUMENT_MIME_TYPES.add("image/bmp");
+  // @ts-expect-error Google Decisions 整体判定标准对象禁止调用方改写。
+  AD_DETECT_DECISION_AD_CRITERIA.true_description = "changed";
+  // @ts-expect-error Google Decisions 广告分类闭集字典禁止调用方改写。
+  AD_DETECT_DECISION_CATEGORIES.not_ad = "changed";
+  // @ts-expect-error Google Decisions 贴纸包归因标准对象禁止调用方改写。
+  AD_DETECT_DECISION_STICKER_PACK_CRITERIA.false_description = "changed";
+  // @ts-expect-error Google Decisions 表情包归因标准对象禁止调用方改写。
+  AD_DETECT_DECISION_EMOJI_PACK_CRITERIA.true_description = "changed";
+  // @ts-expect-error Google Decisions 完整路径正则游标禁止调用方改写。
+  AD_DETECT_DECISIONS_FULL_PATH_PATTERN.lastIndex = 1;
+  // @ts-expect-error Google Decisions 版本路径正则游标禁止调用方改写。
+  AD_DETECT_DECISIONS_VERSION_PATH_PATTERN.lastIndex = 1;
   // @ts-expect-error ad_detect.json 顶层字段闭集不允许调用方增删。
   AD_DETECT_CONFIG_KEYS.push("extra");
   // @ts-expect-error punishment 字段闭集不允许调用方增删。
@@ -733,10 +782,13 @@ function assertStorageMigrationLineageReadonly(): void {
   STORAGE_MIGRATION_LINEAGE.push({ createdAt: 1, hash: "mock" });
   // @ts-expect-error 谱系条目禁止调用方改写。
   STORAGE_MIGRATION_LINEAGE[0]!.hash = "mock";
+  // @ts-expect-error 广告包黑名单种类闭集禁止调用方增删。
+  AD_PACK_BLACKLIST_KINDS.push("sticker");
 }
 void assertStorageMigrationLineageReadonly;
 
 import {
+  MINI_APP_AD_BLACKLIST_KINDS,
   MINI_APP_API_AUTH_POLICY,
   MINI_APP_CHAT_TARGETS_MUTATION_ACTIONS,
   MINI_APP_FEATURE_KEYS,
@@ -747,6 +799,7 @@ import {
   MINI_APP_PROTECTED_ASSET_AUTH_POLICY,
   MINI_APP_TRANSLATE_LANGUAGES,
 } from "../../packages/consts/miniApp";
+import { MINI_APP_AD_BLACKLIST_STICKERSET_INVALID_PATTERN } from "../../packages/consts/miniApp/features";
 import {
   MINI_APP_DYNAMIC_CONFIG_FILES,
   MINI_APP_SERVICE_RESTART_COMMAND,
@@ -759,6 +812,10 @@ import {
 } from "../../packages/consts/miniAppCrypto";
 import {
   MINI_APP_ACCESS_DENIED_ERROR_CODES,
+  MINI_APP_AD_BLACKLIST_KINDS as FRONTEND_MINI_APP_AD_BLACKLIST_KINDS,
+  MINI_APP_AD_BLACKLIST_MUTATION_CODES,
+  MINI_APP_AD_BLACKLIST_PAGE_SIZE_OPTIONS,
+  MINI_APP_AD_BLACKLIST_PREVIEW_SKELETON_INDICES,
   MINI_APP_BATCH_KICK_PRESET_HOURS,
   MINI_APP_CHATS_PAGE_SIZE_OPTIONS,
   MINI_APP_CHAT_TARGET_KINDS as FRONTEND_MINI_APP_CHAT_TARGET_KINDS,
@@ -779,8 +836,11 @@ import {
   MINI_APP_STATUS_SKELETON_MEMORY_INDICES,
   MINI_APP_TAB_KEYS,
   MINI_APP_TARGETS_SKELETON_ROW_INDICES,
+  MINI_APP_TELEGRAM_PACK_TG_LINK_PATTERN,
+  MINI_APP_TELEGRAM_PACK_WEB_LINK_PATTERN,
   MINI_APP_THEME_MODES,
   MINI_APP_TRANSLATE_LANGUAGES as FRONTEND_MINI_APP_TRANSLATE_LANGUAGES,
+  STICKER_PACK_NAME_PATTERN as FRONTEND_STICKER_PACK_NAME_PATTERN,
 } from "../../packages/mini-app-frontend/consts/miniApp";
 import { WHITELIST_PERMISSION_KEYS as FRONTEND_WHITELIST_PERMISSION_KEYS } from "../../packages/mini-app-frontend/consts/whitelist";
 import {
@@ -879,6 +939,24 @@ function assertMiniAppConstantsReadonly(): void {
   MINI_APP_IDENTITY_PAGE_SIZE_OPTIONS.push(50);
   // @ts-expect-error 图库分页档位列表禁止调用方增删。
   MINI_APP_GALLERY_PAGE_SIZE_OPTIONS.push(50);
+  // @ts-expect-error Mini App 广告包黑名单种类闭集禁止调用方增删。
+  MINI_APP_AD_BLACKLIST_KINDS.push("sticker");
+  // @ts-expect-error 前端广告包黑名单种类闭集禁止调用方增删。
+  FRONTEND_MINI_APP_AD_BLACKLIST_KINDS.push("emoji");
+  // @ts-expect-error 前端广告包黑名单分页档位列表禁止调用方增删。
+  MINI_APP_AD_BLACKLIST_PAGE_SIZE_OPTIONS.push(100);
+  // @ts-expect-error 前端广告包黑名单变更结果码闭集禁止调用方增删。
+  MINI_APP_AD_BLACKLIST_MUTATION_CODES.push("AD_BLACKLIST_ADDED");
+  // @ts-expect-error 内容黑名单页内预览加载更多骨架序号表禁止调用方增删。
+  MINI_APP_AD_BLACKLIST_PREVIEW_SKELETON_INDICES.push(16);
+  // @ts-expect-error 服务端贴纸包不存在错误匹配正则游标禁止调用方改写。
+  MINI_APP_AD_BLACKLIST_STICKERSET_INVALID_PATTERN.lastIndex = 1;
+  // @ts-expect-error 前端贴纸与表情包名正则游标禁止调用方改写。
+  FRONTEND_STICKER_PACK_NAME_PATTERN.lastIndex = 1;
+  // @ts-expect-error 前端 Telegram 网页分享链接匹配正则游标禁止调用方改写。
+  MINI_APP_TELEGRAM_PACK_WEB_LINK_PATTERN.lastIndex = 1;
+  // @ts-expect-error 前端 Telegram 原生深链匹配正则游标禁止调用方改写。
+  MINI_APP_TELEGRAM_PACK_TG_LINK_PATTERN.lastIndex = 1;
   // @ts-expect-error QR 版本列表禁止调用方增删。
   QR_L_VERSIONS.push(9);
   // @ts-expect-error QR 最大容量列表禁止调用方增删。

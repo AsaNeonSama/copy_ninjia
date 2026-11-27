@@ -182,6 +182,20 @@ describe("群问答直答", () => {
     expect(resolveQaDirectAnswer(CHAT_ID, styledUpper, BOT_USERNAME)).toBe("点置顶那条链接");
   });
 
+  test("机器人未配置用户名时仅精确匹配原文，不剥离前导 @ 提及", () => {
+    chatQaEntries.set(CHAT_ID, new Map([["怎么入群？", "点置顶那条链接"]]));
+    const bareAt: Message = message("@ 怎么入群？", [{ type: "mention", offset: 0, length: 1 }]);
+    const namedMention: Message = message(
+      `@${BOT_USERNAME} 怎么入群？`,
+      [{ type: "mention", offset: 0, length: BOT_USERNAME.length + 1 }]
+    );
+
+    expect(resolveQaDirectAnswer(CHAT_ID, message("怎么入群？"), undefined)).toBe("点置顶那条链接");
+    expect(resolveQaDirectAnswer(CHAT_ID, bareAt, undefined)).toBeUndefined();
+    expect(resolveQaDirectAnswer(CHAT_ID, bareAt, "")).toBeUndefined();
+    expect(resolveQaDirectAnswer(CHAT_ID, namedMention, undefined)).toBeUndefined();
+  });
+
   test("只在本群的表里查，不串群", () => {
     chatQaEntries.set(CHAT_ID, new Map([["怎么入群？", "点置顶那条链接"]]));
 

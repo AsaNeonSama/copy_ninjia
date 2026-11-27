@@ -39,7 +39,8 @@
 | `bun run release:verify -- --version <tag> --platforms <列表>` | 发行包校验 | 核对全部目标平台的包、SHA-256、版本与 Git tree 一致性 |
 | `bun run release:publish -- --version <tag> --platforms <列表> --notes-file <文件>` | 发布到 GitHub | 校验远端引用，创建草稿，上传并核验资产，正式发布为 Latest |
 | `bun run audit:release` | 依赖安全审计 | 扫描依赖漏洞（moderate 及以上级别） |
-| `bun run migrate:wed-member-window` | `/wed` 成员滑窗冷迁移 | 停机离线将 17.2.1 的 `memory/wed` 成员 ID 数组迁移为 `{ id, enteredAt }` 滑窗格式（详见 [07 运维手册](07-operations.md)） |
+| `bun run migrate:wed-member-window` | `/wed` 成员滑窗冷迁移 | 停机离线将 17.2.1 的 `memory/wed` 成员 ID 数组迁移为 `{ id, enteredAt }` 滑窗格式（详见 [07 运维手册](07-operations.md#upgrade-wed-member-window)） |
+| `bun run migrate:ad-pack-blacklists` | 广告包黑名单与 v13 → v14 冷迁移 | 停机离线将 Schema v13 数据库与可选旧 4 键 `ad_detect.json` 迁移至 Schema v14（`ad_pack_blacklists` 表）与 2 键配置（详见 [07 运维手册](07-operations.md#upgrade-ad-pack-blacklists)） |
 
 ---
 
@@ -71,7 +72,7 @@
     - **常量与前端隔离边界**：`consts/` 运行期仅依赖 `consts`（其它 `packages/` 模块仅限 `import type`），`packages/mini-app-frontend/consts/` 适用同一组规则且运行期仅依赖自身；`packages/mini-app-frontend/` 的 TS/TSX 模块说明符（含 `import type`）与 HTML/CSS 相对资源引用不得越出该目录，`packages/` 其余模块与 `index.ts` 不得引用前端（唯一例外为 `scripts/conventions/miniAppFrontend.ts` 的 `MINI_APP_FRONTEND_ENTRY_IMPORTS` 登记的服务端 HTML 入口，登记失效同样报错）。
     - **纯状态机与基础设施单向依赖**：`states/` 的直接与间接运行时依赖只能落在 `consts`、`libs`、`types` 与 `states`（按真实模块图追踪，`config/time.ts` 时区快照为 `STATES_CLOSURE_OPAQUE_MODULES` 登记的唯一例外）；`infra/` 运行期只能依赖 `cache`、`config`、`consts`、`database`、`infra`、`libs`、`states`、`types` 与 `users`（`INFRA_ALLOWED_PREFIXES` 许可表，`workers/diskIO/diagnosticSink.ts` 为唯一豁免），严禁反向依赖业务层。
   - **常量表约束**：
-    - **不可变性断言**：带对象元素的导出常量表（正则与函数值除外）必须在 `test/consts/immutability.test.ts` 中有一行紧跟 `@ts-expect-error` 注释的访问（`scripts/conventions/constImmutability.ts`）。
+    - **不可变性断言**：导出正则常量及容器/属性内暴露的 `RegExp` 必须标注为 `Readonly<RegExp>`；带对象元素的导出常量表（只读正则与函数值除外）必须在 `test/consts/immutability.test.ts` 中有一行紧跟 `@ts-expect-error` 注释的访问（`scripts/conventions/constImmutability.ts`）。
     - **字面量联合穷尽核验**：元素为字面量联合的导出数组表必须写成 `exhaustiveList<U>()([...])`（`packages/consts/exhaustiveList.ts`；前端用 `packages/mini-app-frontend/consts/exhaustiveList.ts`），`U` 与声明的元素类型一致、实参逐项写字符串或数字字面量，类型增删成员而表未同步时编译失败；有意只列子集的表按 `<相对路径>#<表名>` 登记在 `scripts/conventions/constExhaustiveLists.ts` 的 `PARTIAL_LITERAL_TABLES`，登记失效同样报错。
   - **运行时安全与 API 规范**：
     - `packages/workers/` 中的定时器必须显式调用 `unref()`；`packages/` 内禁止 `Object.freeze`。
@@ -114,7 +115,7 @@
 
 ### 当前文档版本实测
 
-`bun run test:coverage`：**7448 tests / 649 files / 592390 次 `expect()`**；全源码**函数覆盖率 98.02% / 行覆盖率 98.07%**。三语项目 README 的 Coverage 徽章展示行覆盖率。
+`bun run test:coverage`：**7674 tests / 667 files / 595279 次 `expect()`**；全源码**函数覆盖率 98.00% / 行覆盖率 97.97%**。三语项目 README 的 Coverage 徽章展示行覆盖率。
 
 ---
 
@@ -132,7 +133,7 @@
 ### 关键测试套件分布
 
 - **安装与升级测试**：`test/scripts/installStartup.test.ts` 与 `test/scripts/installMigration.test.ts` 验证安装脚本、新库初始化与完整启动流程，确保安装器在遇到非当前格式的配置、数据库或 `/wed` 成员文件时能提前拒绝并不修改数据。
-- **冷迁移测试**：`test/scripts/migrateWedMemberWindow.test.ts` 验证仅接受 17.2.1 的 `memory/wed` 成员 ID 数组，按顺序保留最后 `WED_MEMBER_LIMIT` 个 ID 并以同一进入时间写成 `{ id, enteredAt }` 滑窗、产物通过生产启动校验，以及已迁移或非法来源、符号链接、既有输出目录的拒绝与源备份不变。
+- **冷迁移测试**：`test/scripts/migrateWedMemberWindow.test.ts` 验证仅接受 17.2.1 的 `memory/wed` 成员 ID 数组，按顺序保留最后 `WED_MEMBER_LIMIT` 个 ID 并以同一进入时间写成 `{ id, enteredAt }` 滑窗、产物通过生产启动校验，以及已迁移或非法来源、符号链接、既有输出目录的拒绝与源备份不变；`test/scripts/migrateAdPackBlacklists.test.ts` 验证仅接受 Schema v13 数据库与可选旧 4 键 `ad_detect.json`，升级至 Schema v14 并将双黑名单导入 `ad_pack_blacklists`、写出通过 `parseAdDetectConfig` 校验的 2 键配置、完成 `wal_checkpoint(TRUNCATE)` 与源备份不可变复核。
 - **媒体与出站测试**：`test/aiChat/ai/mediaAdmission.test.ts`、`test/aiChat/ai/imageDescription.test.ts` 与 `test/infra/telegramWorkerCapabilities.test.ts` 验证多模态内容审查与 Telegram 双工出站闸门。
 - **统一出站集成测试**：`test/infra/telegramOutboundIntegration.test.ts` 使用真实客户端初始化、出站调度器与发送车道，仅在最内层替换网络响应，验证主线程与各 Worker 之间的同群 FIFO、分类 429 退避重试、下载限流及停机排空。
 - **安全与日志脱敏测试**：`test/infra/loggerSecurity.test.ts` 验证敏感凭据在各类异常展开下的脱敏完整性。
@@ -248,7 +249,7 @@ bun run test:coverage 2>&1 | grep 'All files'  # 获取函数与行覆盖率
      ```bash
      bun run release:verify -- --version <tag> --platforms <逗号分隔的平台列表> --directory <汇总目录>
      ```
-   - 脚本将逐一核对各包的 SHA-256 哈希、版本、目标架构、必需运行资源与冷迁移 CLI、依赖完整性以及是否存在泄露的 `.map` 或 `node_modules`。
+   - 脚本将逐一核对各包的 SHA-256 哈希、版本、目标架构、必需运行资源与冷迁移 CLI、严格受跟踪打包产物对应的精确归档条目白名单（拒绝任何白名单之外的文件、忽略文件、目录或符号链接）、依赖完整性以及是否存在泄露的 `.map` 或 `node_modules`。
 5. **合入主干与打标签**：
    - 检查工作树差异，通过 `git merge --squash` 将 `dev` 合入 `master` 并提交，确保 Git tree 哈希与构建时一致；
    - 推送 `master` 分支，并在该提交上创建并推送附注式版本标签（annotated version tag）。

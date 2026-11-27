@@ -39,6 +39,7 @@ const {
   MINI_APP_SESSION_TTL_MS,
 } = await import("../../packages/consts/miniApp");
 const {
+  MINI_APP_DOWNLOAD_TICKET_MAX,
   MINI_APP_DOWNLOAD_TICKET_TTL_MS,
   MINI_APP_SESSION_MAX_SEEN_REQUEST_IVS,
   MINI_APP_SESSION_ROTATE_AT_SEEN_IVS,
@@ -264,6 +265,47 @@ describe("Mini App 下载票据按谱系绑定与生命周期测试", () => {
     expect(miniAppGalleryDownloadTickets.size).toBe(1);
     clearAllMiniAppGalleryDownloadTickets();
     expect(miniAppGalleryDownloadTickets.size).toBe(0);
+  });
+
+  test("下载票据表达到 MINI_APP_DOWNLOAD_TICKET_MAX 上限时按 FIFO 淘汰最早签发的未过期票据", () => {
+    const baseMs: number = 1_787_050_000_000;
+    const lineage: string = "c".repeat(32);
+    const issued: Readonly<MiniAppGalleryDownloadTicketRecord>[] = [];
+    for (let index: number = 0; index < MINI_APP_DOWNLOAD_TICKET_MAX + 2; index += 1) {
+      issued.push(
+        issueMiniAppGalleryDownloadTicket({
+          sessionLineageId: lineage,
+          fileName: `file-${index}.png`,
+          downloadFileName: `file-${index}.png`,
+          nowMs: baseMs + index,
+        })
+      );
+    }
+
+    expect(miniAppGalleryDownloadTickets.size).toBe(MINI_APP_DOWNLOAD_TICKET_MAX);
+    // 最早签发的 2 张票据按 FIFO 被淘汰，其余最新 MINI_APP_DOWNLOAD_TICKET_MAX 张仍有效。
+    for (let index: number = 0; index < 2; index += 1) {
+      const evicted: Readonly<MiniAppGalleryDownloadTicketRecord> = issued[index]!;
+      expect(miniAppGalleryDownloadTickets.has(evicted.ticket)).toBeFalse();
+      expect(
+        resolveMiniAppGalleryDownloadTicket({
+          ticket: evicted.ticket,
+          consume: false,
+          nowMs: baseMs + MINI_APP_DOWNLOAD_TICKET_MAX + 10,
+        })
+      ).toBeNull();
+    }
+    for (let index: number = 2; index < issued.length; index += 1) {
+      const kept: Readonly<MiniAppGalleryDownloadTicketRecord> = issued[index]!;
+      expect(miniAppGalleryDownloadTickets.has(kept.ticket)).toBeTrue();
+      expect(
+        resolveMiniAppGalleryDownloadTicket({
+          ticket: kept.ticket,
+          consume: false,
+          nowMs: baseMs + MINI_APP_DOWNLOAD_TICKET_MAX + 10,
+        })
+      ).toEqual(kept);
+    }
   });
 
   test("下载票据跨滑动轮换持续有效（含处理 await 窗口内轮换并确认），并在登出、满额淘汰、过期与验证器变更时按谱系即时吊销", async () => {

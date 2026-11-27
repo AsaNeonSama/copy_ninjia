@@ -61,13 +61,13 @@ export const MINI_APP_TOTP_BASE32_ALPHABET: string =
  * 合法 32 位 RFC 4648 Base32 TOTP 密钥的严格匹配规则。
  * 不变量：不带全局标志 `g`，供持久化文件解码与验证无状态复用。所属模块：`packages/libs/miniAppTotp.ts` 与 `packages/libs/miniAppTotpFile.ts`。
  */
-export const MINI_APP_TOTP_SECRET_PATTERN: RegExp = /^[A-Z2-7]{32}$/u;
+export const MINI_APP_TOTP_SECRET_PATTERN: Readonly<RegExp> = /^[A-Z2-7]{32}$/u;
 
 /**
  * 6 位十进制 TOTP 动态验证码的严格匹配规则。
  * 不变量：不带全局标志 `g`，供登录与绑定接口无状态复用。所属模块：`packages/libs/miniAppTotp.ts`。
  */
-export const MINI_APP_TOTP_CODE_PATTERN: RegExp = /^\d{6}$/u;
+export const MINI_APP_TOTP_CODE_PATTERN: Readonly<RegExp> = /^\d{6}$/u;
 
 /**
  * QR Code Byte 模式（纠错等级 L）支持的版本号列表（Version 4..8，覆盖 `otpauth://` URI 长度）。

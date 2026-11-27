@@ -7,6 +7,7 @@ import {
 import { getMiniAppTranslations } from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
 import { getTelegramWebApp } from "../libs/telegram";
+import { AdBlacklistsPage } from "../pages/AdBlacklistsPage";
 import { ChatsPage } from "../pages/ChatsPage";
 import { ConfigsPage } from "../pages/ConfigsPage";
 import { GalleryPage } from "../pages/GalleryPage";
@@ -45,6 +46,8 @@ function renderActiveTabPage(activeTab: MiniAppTabKey): React.JSX.Element {
       return <IdentitiesPage />;
     case "configs":
       return <ConfigsPage />;
+    case "adBlacklists":
+      return <AdBlacklistsPage />;
     case "gallery":
       return <GalleryPage />;
     case "totp":

@@ -41,6 +41,8 @@ export interface TelegramWebApp {
   ) => void;
   /** 唤起 `savePreparedKeyboardButton` 创建的原生好友/联系人/群组/频道选择器（Bot API 9.6+）。 */
   readonly requestChat?: (preparedButtonId: string, callback?: (accepted: boolean) => void) => void;
+  /** 通过 Telegram 官方客户端桥接打开 `https://t.me/...` 站内链接。 */
+  readonly openTelegramLink?: (url: string) => void;
 }
 
 /** 供浏览器触发附件保存的临时 `<a download>` 节点最小接口。 */
@@ -126,11 +128,18 @@ export interface TelegramWindow {
     readonly hash: string;
     readonly reload?: () => void;
   }>;
+  readonly open?: (url?: string, target?: string, features?: string) => unknown;
   readonly confirm?: (message?: string) => boolean;
   readonly scrollTo?: (
     options: Readonly<{ readonly top: number; readonly behavior?: "auto" | "instant" | "smooth" }>
   ) => void;
-  readonly navigator?: Readonly<{ readonly language?: string; readonly languages?: readonly string[] }>;
+  readonly navigator?: Readonly<{
+    readonly language?: string;
+    readonly languages?: readonly string[];
+    readonly clipboard?: Readonly<{
+      readonly writeText?: (text: string) => Promise<void>;
+    }>;
+  }>;
   readonly document?: {
     title?: string;
     readonly getElementById: (elementId: string) => Element | null;

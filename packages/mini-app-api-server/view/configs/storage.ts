@@ -1,7 +1,5 @@
-import {
-  miniAppConfigSaveChainHolder,
-  miniAppServiceRestartRunnerHolder,
-} from "../../../cache/main/miniApp";
+import { deploymentConfigWriteChainHolder } from "../../../cache/main/configWrite";
+import { miniAppServiceRestartRunnerHolder } from "../../../cache/main/miniApp";
 import { deploymentInputExists } from "../../../config/readiness";
 import {
   MINI_APP_CONFIG_DEFAULT_FILE_MODE,
@@ -155,7 +153,7 @@ export async function saveMiniAppConfigFile(
 
   const rawContent: string = body.content;
   return runSerialChain(
-    miniAppConfigSaveChainHolder,
+    deploymentConfigWriteChainHolder,
     async (): Promise<Readonly<MiniAppConfigSaveResponse>> => {
       const validation: Readonly<MiniAppConfigContentValidationResult> =
         await validateMiniAppConfigContent(target, rawContent);

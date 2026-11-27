@@ -33,6 +33,7 @@ import {
 import { createStorageDatabase } from "../../packages/database/interact/migration";
 import { readStorageDatabasePendingRemovalPage } from
   "../../packages/database/interact/inspection";
+import { readStoredAdPackBlacklists } from "../../packages/database/interact/adPackBlacklist";
 import {
   deleteStaleTemporaryAdBypassActivities,
   readStoredTemporaryAdBypassActivities,
@@ -51,10 +52,12 @@ import { chatStateOf } from "../helpers/chatState";
 
 const CHAT_ID: number = -1_001;
 const OTHER_CHAT_ID: number = -1_002;
-/** 每次提交都从「六张表与 AI 上下文都没有变更」出发，只铺开被点名的那一项。 */
+/** 每次提交都从「七张表与 AI 上下文都没有变更」出发，只铺开被点名的那一项。 */
 const NO_CHANGES: CommitStorageDatabaseChangesOptions = {
   whitelist: new Map(), blocklist: new Map(), temporaryAdBypass: new Map(),
-  removals: new Map(), chatStates: new Map(), chatQa: new Map(), aiContexts: new Map(),
+  removals: new Map(), chatStates: new Map(), chatQa: new Map(),
+  adPackBlacklists: { sticker: new Map(), emoji: new Map() },
+  aiContexts: new Map(),
 };
 const AI_CONTEXT: string = JSON.stringify({ version: 1, buffer: [], summaries: ["对话摘要"], pendingSummary: null, savedAt: 1 });
 const NEW_CHAT_ID: number = -1_003;
@@ -204,6 +207,48 @@ test("待踢 outbox、临时免检与群状态的删除各自只命中一行", (
   expect(readStorageDatabasePendingRemovalPage(database, null).map((row: { removalId: number }): number => row.removalId)).toEqual([32]);
   expect(readStoredTemporaryAdBypassActivities(prepareStorageDatabaseReader(database), [21, 22]).map((row: { id: number }): number => row.id)).toEqual([22]);
   expect(readStoredChatStateIds(prepareStorageDatabaseReader(database)).map((row: { chatId: number }): number => row.chatId)).toEqual([OTHER_CHAT_ID]);
+});
+
+test("ad_pack_blacklists 复合主键幂等写入与按 (kind, pack) 精准删除互不影响", () => {
+  const writer = prepareStorageDatabaseWriter(database);
+  commitStorageDatabaseChanges(writer, {
+    ...NO_CHANGES,
+    adPackBlacklists: {
+      sticker: new Map([
+        ["SharedPack", { blacklisted: true }],
+        ["StickerOnly", { blacklisted: true }],
+      ]),
+      emoji: new Map([
+        ["SharedPack", { blacklisted: true }],
+      ]),
+    },
+  });
+  // 重复写入幂等。
+  commitStorageDatabaseChanges(writer, {
+    ...NO_CHANGES,
+    adPackBlacklists: {
+      sticker: new Map([["SharedPack", { blacklisted: true }]]),
+      emoji: new Map(),
+    },
+  });
+  expect(readStoredAdPackBlacklists(database)).toEqual([
+    { kind: "emoji", pack: "SharedPack" },
+    { kind: "sticker", pack: "SharedPack" },
+    { kind: "sticker", pack: "StickerOnly" },
+  ]);
+
+  // 删除 sticker 侧的 SharedPack 不影响 emoji 侧同名包。
+  commitStorageDatabaseChanges(writer, {
+    ...NO_CHANGES,
+    adPackBlacklists: {
+      sticker: new Map([["SharedPack", { blacklisted: false }]]),
+      emoji: new Map(),
+    },
+  });
+  expect(readStoredAdPackBlacklists(database)).toEqual([
+    { kind: "emoji", pack: "SharedPack" },
+    { kind: "sticker", pack: "StickerOnly" },
+  ]);
 });
 
 test("临时免检读取与清理的入参守卫：空批直接返回，超批次与非法日界拒绝", () => {

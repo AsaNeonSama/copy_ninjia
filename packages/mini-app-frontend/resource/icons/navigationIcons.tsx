@@ -209,6 +209,35 @@ export function LockSvgIcon({
 }
 
 /**
+ * 渲染内容黑名单（禁用圆环与斜杠）SVG 图标。
+ *
+ * @param props 图标尺寸与类名
+ * @returns SVG 节点
+ */
+export function AdBlacklistsSvgIcon({
+  size = 18,
+  className = "",
+}: MiniAppIconProps): React.JSX.Element {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="9" />
+      <line x1="5.64" y1="5.64" x2="18.36" y2="18.36" />
+    </svg>
+  );
+}
+
+/**
  * 根据主导航标签键渲染对应的菜单 SVG 图标。
  *
  * @param props 标签键、尺寸与类名
@@ -230,6 +259,9 @@ export function TabSvgIcon({
   }
   if (tabKey === "configs") {
     return <ConfigsSvgIcon size={size} className={className} />;
+  }
+  if (tabKey === "adBlacklists") {
+    return <AdBlacklistsSvgIcon size={size} className={className} />;
   }
   if (tabKey === "totp") {
     return <LockSvgIcon size={size} className={className} />;

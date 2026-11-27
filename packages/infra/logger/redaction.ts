@@ -30,6 +30,7 @@ function isSensitiveLogField(key: string): boolean {
     case "cookie":
     case "set-cookie":
     case "x-api-key":
+    case "x-goog-api-key":
     case "api-key":
     case "apikey":
     case "api_key":

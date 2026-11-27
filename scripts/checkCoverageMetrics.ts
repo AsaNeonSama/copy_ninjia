@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { declaredCoverageMetrics } from "./conventions/coverageMetrics";
 import type { CoverageMetrics } from "./conventions/coverageMetrics";
 import { parseCoverageSummary } from "./coverageSummary";
+import { decodeUtf8 } from "./utf8";
 
 /**
  * 现跑一次 `bun test --isolate --coverage`，核对仓库声明的覆盖率指标与真实读数一致。
@@ -38,8 +39,7 @@ function measuredCoverageMetrics(projectRoot: string = PROJECT_ROOT): CoverageMe
     stderr: "pipe",
   });
   // bun test 把摘要与覆盖率表都写到 stderr；两股都读，不依赖它写在哪一股。
-  const decoder: TextDecoder = new TextDecoder();
-  const output: string = `${decoder.decode(result.stdout)}\n${decoder.decode(result.stderr)}`;
+  const output: string = `${decodeUtf8(result.stdout)}\n${decodeUtf8(result.stderr)}`;
   if (result.exitCode !== 0) {
     throw new Error(
       "bun test --coverage failed; fix the suite before syncing the metrics."

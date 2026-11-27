@@ -226,8 +226,10 @@ onDiskIORespawn("AI memory", DISK_IO_RESPAWN_PRIORITIES.AI_MEMORY, (transport: D
       return false;
     }
   }
-  for (const [pack, snapshot] of latestStickerCatalogs) {
-    if (!transport.post({ type: "stickerCatalog", pack, snapshot, revision: pendingStickerCatalogRevisions.get(pack) ?? 0 })) return false;
+  for (const [pack, revision] of pendingStickerCatalogRevisions) {
+    const snapshot: string | undefined = latestStickerCatalogs.get(pack);
+    if (snapshot === undefined) continue;
+    if (!transport.post({ type: "stickerCatalog", pack, snapshot, revision })) return false;
   }
   return true;
 });

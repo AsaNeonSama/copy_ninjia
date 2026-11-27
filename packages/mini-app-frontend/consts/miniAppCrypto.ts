@@ -56,7 +56,7 @@ export const MINI_APP_INVALID_HANDSHAKE_CODE: string = "INVALID_HANDSHAKE";
 export const MINI_APP_WEBCRYPTO_UNSUPPORTED_CODE: string = "WEBCRYPTO_UNSUPPORTED";
 
 /** 32 位十六进制临时 ECDH 登录握手 ID 的格式匹配规则。不变量：不带全局标志 `g`，与 `packages/consts/miniAppCrypto.ts` 同名常量一致（由 `test/mini-app-frontend/frontendParity.test.ts` 核对）。所属模块：`packages/mini-app-frontend/libs/handshakeCrypto.ts`。 */
-export const MINI_APP_HANDSHAKE_ID_HEX_PATTERN: RegExp = /^[0-9a-f]{32}$/i;
+export const MINI_APP_HANDSHAKE_ID_HEX_PATTERN: Readonly<RegExp> = /^[0-9a-f]{32}$/i;
 
 /** 服务端对临时 X25519 登录握手公钥抄本执行 Ed25519 签名时使用的域分离前缀。不变量：恒为 `"CopyNinjaMiniAppEcdhV1"`，与 `packages/consts/miniAppCrypto.ts` 同名常量一致。所属模块：`packages/mini-app-frontend/libs/handshakeCrypto.ts`。 */
 export const MINI_APP_HANDSHAKE_SIGNATURE_DOMAIN: string =

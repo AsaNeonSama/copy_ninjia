@@ -115,7 +115,7 @@ export const QA_QUERY_PAGE_CALLBACK_PREFIX: string = "qa_page:";
  * `/qa query` 看板翻页按钮 callback_data 里零基页号的严格形态：非负十进制整数，
  * 不带正号、前导零、空白、小数点与指数；越界由调用方按当前页数判定。
  */
-export const QA_QUERY_PAGE_ARG_PATTERN: RegExp = /^(?:0|[1-9]\d*)$/;
+export const QA_QUERY_PAGE_ARG_PATTERN: Readonly<RegExp> = /^(?:0|[1-9]\d*)$/;
 
 /**
  * 页码指示按钮的 callback_data：占位按钮，分发处直接短路，不发编辑请求。
@@ -127,4 +127,4 @@ export const QA_QUERY_PAGE_NOOP_DATA: string = "qa_page:-";
  * 子命令词不区分大小写；捕获组保留原样大小写，调用方取值时自己 `toLowerCase()`；
  * 问题文本那一组是用户内容，不折叠大小写。
  */
-export const QA_SUBCOMMAND_PATTERN: RegExp = /^(set|remove|query)(?:\s+([\s\S]+))?$/iu;
+export const QA_SUBCOMMAND_PATTERN: Readonly<RegExp> = /^(set|remove|query)(?:\s+([\s\S]+))?$/iu;

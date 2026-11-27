@@ -13,11 +13,23 @@ const MEMORY_PROMPTS: string = join(PROJECT_ROOT, "packages", "consts", "aiChat"
 const TRANSCRIPT_PROMPTS: string = join(PROJECT_ROOT, "packages", "consts", "aiChat", "prompts", "transcript.ts");
 const FIXTURE_DIR: string = mkdtempSync(join(tmpdir(), "const-immutability-"));
 const FUNCTIONS_FIXTURE: string = join(FIXTURE_DIR, "functions.ts");
+const REGEXP_FIXTURE: string = join(FIXTURE_DIR, "regexp.ts");
 await Bun.write(FUNCTIONS_FIXTURE, [
   "export const HANDLERS: Readonly<Record<string, () => void>> = { tick: (): void => {} };",
   "",
 ].join("\n"));
-const PROGRAM: ts.Program = createTypeCheckProgram(PROJECT_ROOT, [MEMORY_PROMPTS, TRANSCRIPT_PROMPTS, FUNCTIONS_FIXTURE]);
+await Bun.write(REGEXP_FIXTURE, [
+  "export const MUTABLE_PATTERN: RegExp = /a/;",
+  "export const MUTABLE_PATTERN_LIST: readonly RegExp[] = [/a/];",
+  "export const MUTABLE_PATTERN_TABLE: Readonly<{ pattern: RegExp }> = { pattern: /a/ };",
+  "export const READONLY_PATTERN: Readonly<RegExp> = /b/;",
+  "export const READONLY_PATTERN_LIST: readonly Readonly<RegExp>[] = [/b/];",
+  "",
+].join("\n"));
+const PROGRAM: ts.Program = createTypeCheckProgram(
+  PROJECT_ROOT,
+  [MEMORY_PROMPTS, TRANSCRIPT_PROMPTS, FUNCTIONS_FIXTURE, REGEXP_FIXTURE]
+);
 
 afterAll((): void => {
   rmSync(FIXTURE_DIR, { recursive: true, force: true });
@@ -48,8 +60,13 @@ describe("带对象元素的常量表必须有不可变性断言", () => {
     expect(flagged("  // @ts-expect-error 只读；多行说明\n  // 接着写第二行。\n  REPLY_CONTEXT_SECTION_TEXT.referenceMemory.header = \"x\";")).toBeFalse();
   });
 
-  test("正则元素与只含函数值的表不要求对象断言", () => {
+  test("只读正则元素与只含函数值的表不要求对象断言，可变正则常量与容器元素直接报错", () => {
     expect(problemsFor(TRANSCRIPT_PROMPTS, "").some((problem: string): boolean => problem.includes("SELF_ACTION_TAG_PATTERNS"))).toBeFalse();
     expect(problemsFor(FUNCTIONS_FIXTURE, "")).toEqual([]);
+    const regexpProblems: readonly string[] = problemsFor(REGEXP_FIXTURE, "");
+    expect(regexpProblems.some((problem: string): boolean => problem.includes("MUTABLE_PATTERN exposes a mutable RegExp"))).toBeTrue();
+    expect(regexpProblems.some((problem: string): boolean => problem.includes("MUTABLE_PATTERN_LIST exposes a mutable RegExp"))).toBeTrue();
+    expect(regexpProblems.some((problem: string): boolean => problem.includes("MUTABLE_PATTERN_TABLE exposes a mutable RegExp"))).toBeTrue();
+    expect(regexpProblems.some((problem: string): boolean => problem.includes("READONLY_PATTERN"))).toBeFalse();
   });
 });

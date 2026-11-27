@@ -21,9 +21,13 @@ const isUserBlocked = mock((_id: number): boolean => false);
 const hasWhitelistPermission = mock(
   (id: number, _key: string): boolean => id === 1
 );
+const clearIdentityAdDetection = mock((_id: number): boolean => true);
 
 mock.module("../../packages/config/bot", () => ({
   BOT_ATMOSPHERE: "teasing", SUPER_ADMIN_USER_ID: 1 }));
+mock.module("../../packages/antiRaid", () => ({
+  clearIdentityAdDetection,
+}));
 mock.module("../../packages/infra/telegram", () => ({
   sendCommandMessage: sendMessage,
   replyCommandNotice: replyCommandNoticeVia(sendMessage),
@@ -115,6 +119,7 @@ beforeEach(() => {
   isUserBlocked.mockImplementation((): boolean => false);
   hasWhitelistPermission.mockClear();
   hasWhitelistPermission.mockImplementation((id: number): boolean => id === 1);
+  clearIdentityAdDetection.mockClear();
   protectedIdentityMutationQueue.current = Promise.resolve();
   prefetchIdentityPolicies.mockReset();
   prefetchIdentityPolicies.mockImplementation(async (): Promise<boolean> => true);
@@ -175,12 +180,15 @@ describe("/white", () => {
       enabled: true,
       meta: { firstName: "Alice", lastName: "", username: "Alice" },
     });
+    expect(clearIdentityAdDetection).toHaveBeenCalledTimes(1);
+    expect(clearIdentityAdDetection).toHaveBeenLastCalledWith(100);
 
     await handleWhiteCommand(context(1, "200 disable"));
     expect(setWhitelistMembership).toHaveBeenLastCalledWith({
       id: 200,
       enabled: false,
     });
+    expect(clearIdentityAdDetection).toHaveBeenCalledTimes(1);
 
     await handleWhiteCommand(context(1, "-1002233445566 enable"));
     expect(setWhitelistMembership).toHaveBeenLastCalledWith({
@@ -188,6 +196,8 @@ describe("/white", () => {
       enabled: true,
       meta: { firstName: "", lastName: "", username: "" },
     });
+    expect(clearIdentityAdDetection).toHaveBeenCalledTimes(2);
+    expect(clearIdentityAdDetection).toHaveBeenLastCalledWith(-1002233445566);
   });
 
   test("回复用户或频道消息时只需提供 enable/disable", async () => {

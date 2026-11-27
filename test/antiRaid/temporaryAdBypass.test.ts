@@ -1,13 +1,12 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { loggerStub } from "../helpers/loggerMock";
 import type { Message } from "grammy/types";
-import type { AntiRaidWorkerMessage } from "../../packages/types/antiRaid";
 import { TEMPORARY_AD_BYPASS_DAILY_MESSAGE_THRESHOLD, TEMPORARY_AD_BYPASS_REQUIRED_DAYS } from "../../packages/consts/temporaryAdBypass";
 
 const recorded: { readonly id: number; readonly now: number }[] = [];
 const permanentIds: Set<number> = new Set<number>();
 const temporaryIds: Set<number> = new Set<number>();
-const workerPosts: AntiRaidWorkerMessage[] = [];
+const clearedIdentityIds: number[] = [];
 const promotions: {
   readonly id: number;
   readonly meta: { readonly firstName: string; readonly lastName: string; readonly username: string };
@@ -61,8 +60,8 @@ mock.module("../../packages/infra/identityPolicy/whitelist", () => ({
 }));
 mock.module("../../packages/infra/logger", () => ({ logger: loggerStub({ error: loggerError }) }));
 mock.module("../../packages/antiRaid/workerBridge/controller", () => ({
-  postAntiRaid: (message: AntiRaidWorkerMessage): boolean => {
-    workerPosts.push(message);
+  clearIdentityAdDetection: (identityId: number): boolean => {
+    clearedIdentityIds.push(identityId);
     return true;
   },
 }));
@@ -100,7 +99,7 @@ beforeEach((): void => {
   recorded.length = 0;
   permanentIds.clear();
   temporaryIds.clear();
-  workerPosts.length = 0;
+  clearedIdentityIds.length = 0;
   promotions.length = 0;
   readinessOk = true;
   grantOnRecord = false;
@@ -190,10 +189,7 @@ describe("临时广告免检发言入口", () => {
     expect(record(message(), 1_000)).toBeTrue();
     expect(record(message(), 2_000)).toBeTrue();
 
-    expect(workerPosts).toEqual([{
-      type: "temporaryAdBypassGranted",
-      identityId: 7,
-    }]);
+    expect(clearedIdentityIds).toEqual([7]);
   });
 
   test("永久白名单身份不累计", () => {

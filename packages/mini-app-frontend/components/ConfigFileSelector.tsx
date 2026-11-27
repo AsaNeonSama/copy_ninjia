@@ -262,7 +262,9 @@ function ConfigFileSelectorView({
 
     if (displayOpen === null || isClosing || disabled) {
       if (dragPointerIdRef.current !== null) {
+        const pointerId: number = dragPointerIdRef.current;
         dragPointerIdRef.current = null;
+        trackRef.current?.releasePointerCapture?.(pointerId);
         thumbRef.current?.classList?.remove?.("dragging");
       }
       if (displayOpen === null || isClosing) {

@@ -1,14 +1,16 @@
 /**
- * Anti-Raid 桥接层的上游观察者绑定：将机器人自身群权限变更、群 teardown
+ * Anti-Raid 桥接层的上游观察者绑定：将广告包黑名单变更、机器人自身群权限变更、群 teardown
  * 以及 Disk I/O 重生重放与验证落盘回执接入主线程镜像和 Worker 通道。
  */
 import { chatIsSupergroupById } from "../../cache/main/antiRaid/chatKind";
 import { blockedSenderChatDeleteDeniedChats } from "../../cache/main/antiRaid/blocklistGuard";
+import { antiRaidRuntimeState } from "../../cache/main/antiRaid/proxy";
 import {
   activeVerificationSnapshots,
   pendingVerificationDeletes,
 } from "../../cache/main/antiRaid/verificationMirror";
 import { DISK_IO_RESPAWN_PRIORITIES } from "../../consts/diskIO/common";
+import { registerAdPackBlacklistObserver } from "../../infra/adPackBlacklistStorage";
 import {
   registerBotPermissionObserver,
 } from "../../infra/botAdmin";
@@ -20,6 +22,7 @@ import {
   onDiskIOReply,
 } from "../../infra/diskIO";
 import { logger } from "../../infra/logger";
+import type { AdPackBlacklistCounts } from "../../types/adPackBlacklist";
 import type { AntiRaidWorkerMessage } from
   "../../types/antiRaid/protocol";
 import type { ChatTeardownReason } from "../../types/chatTeardown";
@@ -37,6 +40,7 @@ import {
   recordVerificationPersisted,
   settleVerificationDeletePersisted,
 } from "../verificationMirror";
+import { buildAdPackBlacklistSyncMessage } from "./replay";
 
 /** Anti-Raid 主线程观察者注册所需的代理能力。 */
 export interface RegisterAntiRaidBridgeObserversOptions {
@@ -51,7 +55,7 @@ export interface RegisterAntiRaidBridgeObserversOptions {
 }
 
 /**
- * 注册权限、群 teardown 与 Disk I/O 回执观察者。
+ * 注册广告包黑名单、权限、群 teardown 与 Disk I/O 回执观察者。
  *
  * 调用一次后由各上游长期持有回调；Worker 重建只替换 post 背后的当前代际，
  * 不重复注册观察者。
@@ -62,6 +66,15 @@ export function registerAntiRaidBridgeObservers({
   post,
   deactivateChat,
 }: RegisterAntiRaidBridgeObserversOptions): void {
+  registerAdPackBlacklistObserver((counts: Readonly<AdPackBlacklistCounts>): void => {
+    if (!antiRaidRuntimeState.initialized) return;
+    if (!post(buildAdPackBlacklistSyncMessage(counts))) {
+      logger.error(
+        "Anti-Raid Worker rejected the ad pack blacklist count update; relying on the next respawn to replay it."
+      );
+    }
+  });
+
   registerBotPermissionObserver((
     chatId: number,
     permissions: BotChatPermissions | undefined

@@ -9,6 +9,18 @@ export const COMMAND_MESSAGE_AUTO_DELETE_MS: number = 30_000;
 /** `/bot_status` 展示单个模型名标签的最大字符数。 */
 export const BOT_STATUS_CAPABILITY_LABEL_MAX_CHARS: number = 96;
 
+/** `/ad_detect <sticker|emoji> list` 单页展示的黑名单包名条数。所属模块：`packages/commands/adDetectBlacklist.ts`。 */
+export const AD_DETECT_BLACKLIST_LIST_PAGE_SIZE: number = 20;
+
+/** `/ad_detect <sticker|emoji> <add|remove>` 回执单条最多完整展示的包名条数，超出折叠为「等 N 个」。所属模块：`packages/commands/adDetectBlacklist.ts`。 */
+export const AD_DETECT_BLACKLIST_NOTICE_MAX_PACKS: number = 20;
+
+/** `/ad_detect <sticker|emoji>` 非法包名错误回执最多展示的条数。所属模块：`packages/commands/adDetectBlacklist.ts`。 */
+export const AD_DETECT_BLACKLIST_INVALID_MAX_PACKS: number = 10;
+
+/** `/ad_detect <sticker|emoji>` 非法包名错误回执单条参数的最大回显字符数。所属模块：`packages/commands/adDetectBlacklist.ts`。 */
+export const AD_DETECT_BLACKLIST_INVALID_ECHO_MAX_CHARS: number = 64;
+
 /** copy 类命令的公共冷却时长（只有超级管理员本人豁免，白名单不豁免；见 commands/copyShared.ts 的 claimCopyCooldownOrReject）。 */
 export const COPY_COOLDOWN_MS: number = 5 * 60 * 1000;
 
@@ -26,10 +38,10 @@ export const TELEGRAM_USERNAME_MAX_LENGTH: number = 32;
  * 非全局正则，`String.prototype.split` 不读写 `lastIndex`，模块级实例可共用；
  * 所属模块：命令参数解析。
  */
-export const COMMAND_ARGUMENT_SEPARATOR_PATTERN: RegExp = /\s+/;
+export const COMMAND_ARGUMENT_SEPARATOR_PATTERN: Readonly<RegExp> = /\s+/;
 
 /** 命令参数中裸用户名的完整匹配规则。 */
-export const USERNAME_ARG_PATTERN: RegExp = new RegExp(
+export const USERNAME_ARG_PATTERN: Readonly<RegExp> = new RegExp(
   `^@?([a-zA-Z][a-zA-Z0-9_]{${TELEGRAM_USERNAME_MIN_LENGTH - 2},${TELEGRAM_USERNAME_MAX_LENGTH - 2}}[a-zA-Z0-9])$`
 );
 
@@ -41,7 +53,7 @@ export const USERNAME_ARG_PATTERN: RegExp = new RegExp(
  * 由 CHAT_ID_ARG_PATTERN 按命令开关处理（见 libs/telegramId.ts、commands/targetResolution.ts）。
  * 位数不在这里限制，调用方还要过一次 `Number.isSafeInteger`。
  */
-export const USER_ID_ARG_PATTERN: RegExp = /^[1-9]\d*$/;
+export const USER_ID_ARG_PATTERN: Readonly<RegExp> = /^[1-9]\d*$/;
 
 /**
  * 命令参数中裸会话 id（频道/群）的完整匹配规则：带负号的十进制整数，同样不接受
@@ -50,7 +62,7 @@ export const USER_ID_ARG_PATTERN: RegExp = /^[1-9]\d*$/;
  * 不限定 -100 前缀。libs/telegramId.ts 负责数值解析，commands/targetResolution.ts
  * 通过 acceptChatId 控制各命令是否接受这种目标形态。
  */
-export const CHAT_ID_ARG_PATTERN: RegExp = /^-[1-9]\d*$/;
+export const CHAT_ID_ARG_PATTERN: Readonly<RegExp> = /^-[1-9]\d*$/;
 
 /**
  * 「这不是合法用户名」提示里回显参数原文的最大字符数。
@@ -64,7 +76,7 @@ export const INVALID_USERNAME_ECHO_MAX_CHARS: number = TELEGRAM_USERNAME_MAX_LEN
  * 中文动作命令（`/咬`、`/贴贴` 等）的匹配规则，见 commands/cjkAction.ts。
  * 捕获组 1 是 CJK 表意文字动作词，捕获组 2 是可选的 `@BotUsername` 定向后缀，命令词后须紧跟空白或行尾。
  */
-export const CJK_ACTION_COMMAND_PATTERN: RegExp =
+export const CJK_ACTION_COMMAND_PATTERN: Readonly<RegExp> =
   /^\/([\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]{1,2})(?:@([A-Za-z0-9_]+))?(?:\s|$)/;
 
 /**
@@ -152,7 +164,7 @@ export const QUIET_MAX_MINUTES: number = 15;
  * /quiet 时长参数的形态：只接受 ASCII 十进制整数；小数、正负号、`0x5`、`1e1` 一律回用法提示。
  * 所属模块：commands/quiet.ts。
  */
-export const QUIET_MINUTES_PATTERN: RegExp = /^\d+$/;
+export const QUIET_MINUTES_PATTERN: Readonly<RegExp> = /^\d+$/;
 /** /quiet 的最大有效持续时间；剩余时长超出它加 QUIET_CLOCK_SKEW_TOLERANCE_MS 时视为墙钟回拨，由 libs/chatState.ts 的 normalizeChatState 收敛。 */
 export const QUIET_MAX_DURATION_MS: number = QUIET_MAX_MINUTES * 60_000;
 

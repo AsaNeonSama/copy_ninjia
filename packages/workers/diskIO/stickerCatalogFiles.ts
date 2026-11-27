@@ -4,8 +4,8 @@
 import { SNAPSHOT_FLUSH_INTERVAL_MS } from "../../consts/diskIO/snapshots";
 import {
   dirtyStickerPacks,
-  hydrateStickerCatalogCache,
   markStickerCatalogDirty,
+  resetStickerCatalogCache,
   stickerCatalogCache,
   stickerCatalogPersistedNotifier,
   stickerCatalogRevisions,
@@ -29,15 +29,16 @@ function scheduleStickerCatalogFlush(): void {
 }
 
 /**
- * 跨域启动第二阶段：全部领域 inspect 成功后整体发布到 owner 缓存。
+ * 跨域启动第二阶段：清空旧代待写缓冲与定时器，并将启动只读扫描得到的干净贴纸目录快照直接交回调用方回传主线程，
+ * 不在 Disk I/O Worker 常驻干净副本。
  * @param inspection 启动只读扫描产出的贴纸目录探测结果。
- * @returns 已填充完成的贴纸目录缓存映射。
+ * @returns 供启动载荷回传的贴纸目录快照副本映射。
  */
 export function adoptStickerCatalogSnapshots(
   inspection: StickerCatalogRecoveryInspection
 ): Map<string, string> {
-  hydrateStickerCatalogCache(inspection.snapshots);
-  return stickerCatalogCache;
+  resetStickerCatalogCache();
+  return new Map(inspection.snapshots);
 }
 
 /**

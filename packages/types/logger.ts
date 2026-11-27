@@ -7,6 +7,8 @@ export type LogRedactionReplacer = (this: unknown, key: string, value: unknown) 
 export interface LogRedactionSecrets {
   readonly text: readonly string[];
   readonly json: readonly string[];
+  /** `json` 中最短脱敏片段的长度（无凭据时为 `Infinity`），供原语日志参数跳过无意义扫描。 */
+  readonly minJsonSecretLength: number;
   readonly replacer: LogRedactionReplacer;
 }
 

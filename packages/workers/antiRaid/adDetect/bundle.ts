@@ -15,7 +15,7 @@ import {
   AD_DETECT_MAX_MESSAGES_PER_SENDER,
   AD_DETECT_MAX_PENDING_DELETE_IDS,
   AD_SAMPLE_CONTEXT_MAX_CHARS,
-} from "../../../consts/antiRaid/adDetect";
+} from "../../../consts/antiRaid/adDetect/limits";
 import type {
   AdBundleSelection,
   AdCandidateEntry,
@@ -253,13 +253,13 @@ export function formatDirectAdBundleText(entries: readonly AdCandidateEntry[]): 
 }
 
 /**
- * 是否有引用、回复或转发内容实际进入了本次模型清单。
+ * 是否有引用、回复或转发内容实际进入了本次模型清单（含纯转发图片/贴纸等无文本媒体消息）。
  * @param entries 选入本次送检的条目序列。
- * @returns 任一条目的完整送检文本与本人直发文本不同时返回 true，否则返回 false。
+ * @returns 任一条目为手工转发或送检文本与本人直发文本不同时返回 true，否则返回 false。
  */
 export function containsReferencedAdContent(entries: readonly AdCandidateEntry[]): boolean {
   for (const entry of entries) {
-    if (entry.text !== entry.directText) return true;
+    if (entry.text !== entry.directText || entry.isForwarded) return true;
   }
   return false;
 }

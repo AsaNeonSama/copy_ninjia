@@ -11,9 +11,11 @@ import { join } from "node:path";
 import {
   joinLogCleanupDay,
   joinLogDeletions,
+  joinLogDeletionTimer,
   joinLogFileCaches,
   joinLogRetryAt,
 } from "../../cache/workers/diskIO/joinLog";
+import { FLUSH_INTERVAL_MS } from "../../consts/diskIO/appendOnly";
 import {
   JOIN_LOG_FILE_PATTERN,
   JOIN_LOG_FILE_RETENTION_DAYS,
@@ -35,6 +37,7 @@ import {
   latestJoinLogRecords,
   recentJoinLogDayKeys,
 } from "./joinLogRecords";
+import { armDiskIOFlushTimer, cancelDiskIOFlushTimer } from "./timedFlush";
 
 /** 一份已通过领域 schema 校验的入群日志文件：原始字节与解析结果。 */
 export interface ValidatedJoinLogFile {
@@ -141,12 +144,28 @@ export function purgeChatJoinLogFiles(chatId: number): void {
 }
 
 /**
- * 逐群重试 `joinLogDeletions` 中尚未删净的群日志，返回是否已全部删净。
+ * 同步入群日志删除重试定时器：`joinLogDeletions` 非空时按 `FLUSH_INTERVAL_MS` 排期重试，
+ * 已清空时取消挂起定时器。
+ */
+export function syncJoinLogDeletionRetryTimer(): void {
+  if (joinLogDeletions.size === 0) {
+    cancelDiskIOFlushTimer(joinLogDeletionTimer);
+    return;
+  }
+  armDiskIOFlushTimer(joinLogDeletionTimer, FLUSH_INTERVAL_MS, purgeJoinLogDeletions);
+}
+
+/**
+ * 逐群重试 `joinLogDeletions` 中尚未删净的群日志，返回是否已全部删净；仍有失败残留时重新排期定时重试。
  * @returns 待删集合已全部清空时返回 true，仍有残留失败时返回 false。
  */
 export function purgeJoinLogDeletions(): boolean {
+  cancelDiskIOFlushTimer(joinLogDeletionTimer);
   if (joinLogDeletions.size === 0) return true;
   for (const chatId of [...joinLogDeletions]) purgeChatJoinLogFiles(chatId);
+  if (joinLogDeletions.size > 0) {
+    armDiskIOFlushTimer(joinLogDeletionTimer, FLUSH_INTERVAL_MS, purgeJoinLogDeletions);
+  }
   return joinLogDeletions.size === 0;
 }
 

@@ -15,6 +15,7 @@ import {
   encodeBlocklistEntryData,
   encodeWhitelistEntryData,
 } from "../../packages/database/codec/identity";
+import { readStoredAdPackBlacklistMatches } from "../../packages/database/interact/adPackBlacklist";
 import { readStoredChatStateIds } from "../../packages/database/interact/chatState";
 import { closeStorageDatabase, openStorageDatabase } from "../../packages/database/interact/connection";
 import { readStoredIdentityPolicies } from "../../packages/database/interact/identityPolicy";
@@ -78,6 +79,13 @@ beforeEach((): void => {
     chatStates: new Map(CHAT_IDS.map((chatId: number): [number, StorageDatabaseChange] =>
       [chatId, { data: encodeChatStateData(chatStateOf({ isAIChatEnabled: true })) }])),
     chatQa: new Map(),
+    adPackBlacklists: {
+      sticker: new Map([
+        ["StickerSpam_1", { blacklisted: true }],
+        ["StickerSpam_2", { blacklisted: true }],
+      ]),
+      emoji: new Map([["EmojiSpam_1", { blacklisted: true }]]),
+    },
     aiContexts: new Map(),
   });
 });
@@ -138,6 +146,26 @@ describe("database/interact/reader 预编译读语句", () => {
       .toEqual(database.select({ chatId: chatStates.chatId }).from(chatStates).all());
   });
 
+  test("广告包黑名单单键与批量预编译读取准确命中对应种类", () => {
+    const reader: StorageDatabaseReader = prepareStorageDatabaseReader(database);
+    expect(readStoredAdPackBlacklistMatches(reader, "sticker", [])).toEqual([]);
+    expect(readStoredAdPackBlacklistMatches(reader, "sticker", ["StickerSpam_1"])).toEqual([
+      "StickerSpam_1",
+    ]);
+    expect(readStoredAdPackBlacklistMatches(reader, "sticker", ["EmojiSpam_1"])).toEqual([]);
+    expect(
+      [...readStoredAdPackBlacklistMatches(reader, "sticker", [
+        "StickerSpam_2",
+        "MissingPack",
+        "StickerSpam_1",
+        "EmojiSpam_1",
+      ])].sort()
+    ).toEqual(["StickerSpam_1", "StickerSpam_2"]);
+    expect(
+      readStoredAdPackBlacklistMatches(reader, "emoji", ["EmojiSpam_1", "StickerSpam_1"])
+    ).toEqual(["EmojiSpam_1"]);
+  });
+
   test("Worker 连接上整套读语句只 prepare 一次，之后每次读取复用", () => {
     storageDatabaseHandle.current = database;
     const prepare = spyOn(database.$client, "prepare");
@@ -154,6 +182,8 @@ describe("database/interact/reader 预编译读语句", () => {
         readStoredTemporaryAdBypassActivities(first, BYPASS_IDS);
         readStoredTemporaryAdBypassActivities(first, [BYPASS_IDS[0]!]);
         readStoredChatStateIds(first);
+        readStoredAdPackBlacklistMatches(first, "sticker", ["StickerSpam_1"]);
+        readStoredAdPackBlacklistMatches(first, "sticker", ["StickerSpam_1", "StickerSpam_2"]);
       }
       expect(prepare.mock.calls.length).toBe(preparedCount);
     } finally {

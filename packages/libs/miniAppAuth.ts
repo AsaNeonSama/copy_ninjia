@@ -27,6 +27,8 @@ export interface VerifyMiniAppInitDataOptions {
   readonly nowMs?: number;
   /** `auth_date` 最大有效秒数（缺省取 `MINI_APP_AUTH_MAX_AGE_SECONDS`）。 */
   readonly maxAgeSeconds?: number;
+  /** 可选延迟扩展回调：仅在 HMAC-SHA256 验签通过且默认 `maxAgeSeconds` 超期后调用，返回扩展后的最大有效秒数（无扩展时返回 `undefined`）。 */
+  readonly resolveExtendedMaxAgeSeconds?: () => number | undefined;
 }
 
 /**
@@ -88,6 +90,7 @@ export function verifyMiniAppInitData({
   superAdminUserId,
   nowMs = Date.now(),
   maxAgeSeconds = MINI_APP_AUTH_MAX_AGE_SECONDS,
+  resolveExtendedMaxAgeSeconds,
 }: VerifyMiniAppInitDataOptions): MiniAppAuthResult {
   if (typeof initData !== "string" || initData.trim().length === 0) {
     return { ok: false, reason: "missing_init_data" };
@@ -149,11 +152,17 @@ export function verifyMiniAppInitData({
   }
 
   const nowSeconds: number = Math.floor(nowMs / 1000);
-  if (
-    authDate > nowSeconds + MINI_APP_AUTH_CLOCK_SKEW_SECONDS ||
-    nowSeconds - authDate > maxAgeSeconds
-  ) {
+  if (authDate > nowSeconds + MINI_APP_AUTH_CLOCK_SKEW_SECONDS) {
     return { ok: false, reason: "expired_auth_date" };
+  }
+  if (nowSeconds - authDate > maxAgeSeconds) {
+    const extendedMaxAgeSeconds: number | undefined = resolveExtendedMaxAgeSeconds?.();
+    if (
+      extendedMaxAgeSeconds === undefined ||
+      nowSeconds - authDate > extendedMaxAgeSeconds
+    ) {
+      return { ok: false, reason: "expired_auth_date" };
+    }
   }
 
   if (userRaw === undefined) {

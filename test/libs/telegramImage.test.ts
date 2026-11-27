@@ -1,11 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import type { Message, PhotoSize } from "grammy/types";
+import type { Message, PhotoSize, Sticker } from "grammy/types";
 import {
   isSendablePhotoDimensions,
   messageImageCandidate,
+  pickAdImageSource,
   pickPhotoFile,
   pickPhotoSize,
+  pickStickerVisionSource,
 } from "../../packages/libs/telegramImage";
+import { AD_DETECT_IMAGE_DOCUMENT_MIME_TYPES } from "../../packages/consts/antiRaid/adDetect";
 import { TELEGRAM_PHOTO_MAX_ASPECT_RATIO, TELEGRAM_PHOTO_MAX_DIMENSION_SUM } from "../../packages/consts/telegram";
 import { MEDIA_MAX_DOWNLOAD_BYTES } from "../../packages/consts/aiChat/media";
 
@@ -93,5 +96,97 @@ describe("pickPhotoSize", () => {
       expect(pickPhotoSize([picked])).toBe(picked);
       expect(pickPhotoFile([picked])).toEqual(pickPhotoFile(photo));
     }
+  });
+});
+
+describe("pickStickerVisionSource", () => {
+  test("静态贴纸取本体，动态与视频贴纸取缩略图且保留原贴纸 fileUniqueId，无缩略图时返回 null", () => {
+    const staticSticker: Sticker = {
+      file_id: "static-f",
+      file_unique_id: "static-u",
+      type: "regular",
+      width: 512,
+      height: 512,
+      is_animated: false,
+      is_video: false,
+    };
+    expect(pickStickerVisionSource(staticSticker)).toEqual({
+      fileId: "static-f",
+      fileUniqueId: "static-u",
+      width: 512,
+      height: 512,
+    });
+
+    const videoSticker: Sticker = {
+      ...staticSticker,
+      file_id: "video-f",
+      file_unique_id: "video-u",
+      is_video: true,
+      thumbnail: { file_id: "thumb-f", file_unique_id: "thumb-u", width: 128, height: 128 },
+    };
+    expect(pickStickerVisionSource(videoSticker)).toEqual({
+      fileId: "thumb-f",
+      fileUniqueId: "video-u",
+      width: 128,
+      height: 128,
+    });
+
+    const animatedWithoutThumb: Sticker = {
+      ...staticSticker,
+      file_id: "anim-f",
+      file_unique_id: "anim-u",
+      is_animated: true,
+    };
+    expect(pickStickerVisionSource(animatedWithoutThumb)).toBeNull();
+  });
+});
+
+describe("pickAdImageSource", () => {
+  test("普通图片经 pickPhotoFile 选档", () => {
+    expect(pickAdImageSource(message({
+      photo: [
+        { file_id: "small", file_unique_id: "small-u", width: 90, height: 90, file_size: 100 },
+        { file_id: "large", file_unique_id: "large-u", width: 800, height: 600, file_size: MEDIA_MAX_DOWNLOAD_BYTES },
+        { file_id: "oversize", file_unique_id: "over-u", width: 2000, height: 2000, file_size: MEDIA_MAX_DOWNLOAD_BYTES + 1 },
+      ],
+    }))).toEqual({ fileId: "large", fileUniqueId: "large-u", width: 800, height: 600 });
+  });
+
+  test("图片文件白名单内未超限取原文件，超限时回退缩略图并保留原 fileUniqueId，非图片与超限无缩略图返回 undefined", () => {
+    for (const mime of AD_DETECT_IMAGE_DOCUMENT_MIME_TYPES) {
+      expect(pickAdImageSource(message({
+        document: {
+          file_id: "doc-f",
+          file_unique_id: "doc-u",
+          mime_type: mime,
+          file_size: MEDIA_MAX_DOWNLOAD_BYTES,
+        },
+      }))).toEqual({ fileId: "doc-f", fileUniqueId: "doc-u", width: 0, height: 0 });
+    }
+
+    expect(pickAdImageSource(message({
+      document: {
+        file_id: "big-f",
+        file_unique_id: "big-u",
+        mime_type: "image/png",
+        file_size: MEDIA_MAX_DOWNLOAD_BYTES + 1,
+        thumbnail: { file_id: "doc-thumb-f", file_unique_id: "doc-thumb-u", width: 320, height: 240, file_size: 4_096 },
+      },
+    }))).toEqual({ fileId: "doc-thumb-f", fileUniqueId: "big-u", width: 320, height: 240 });
+
+    expect(pickAdImageSource(message({
+      document: {
+        file_id: "big-no-thumb",
+        file_unique_id: "big-no-thumb-u",
+        mime_type: "image/jpeg",
+        file_size: MEDIA_MAX_DOWNLOAD_BYTES + 1,
+      },
+    }))).toBeUndefined();
+
+    expect(pickAdImageSource(message({
+      document: { file_id: "pdf-f", file_unique_id: "pdf-u", mime_type: "application/pdf", file_size: 100 },
+    }))).toBeUndefined();
+
+    expect(pickAdImageSource(message({ text: "plain", photo: [] }))).toBeUndefined();
   });
 });

@@ -193,6 +193,7 @@ describe("DiskIO Worker SQLite 身份存储", () => {
       pendingBlockedRemovals: new Map(),
       chatStates: new Map(),
       chatQa: new Map(),
+      adPackBlacklistCounts: { sticker: 0, emoji: 0 },
     });
   });
 
@@ -212,7 +213,9 @@ describe("DiskIO Worker SQLite 身份存储", () => {
       writes: [{ table: "whitelist", id: 7, revision: 1 }],
       temporaryAdBypassWrites: [],
       chatStateWrites: [],
-      chatQaWrites: [], removalWrites: [],
+      chatQaWrites: [],
+      adPackBlacklistWrites: [],
+      removalWrites: [],
     }]);
     resetStorageDatabaseCache();
     expect(hydrateStorageDatabase().permissionEntryCount).toBe(1);
@@ -254,6 +257,7 @@ describe("DiskIO Worker SQLite 身份存储", () => {
       temporaryAdBypassWrites: [],
       chatStateWrites: [],
       chatQaWrites: [],
+      adPackBlacklistWrites: [],
       removalWrites: [{ removalId: 9, revision: 4 }],
     });
 

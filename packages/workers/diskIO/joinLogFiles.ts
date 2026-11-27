@@ -37,6 +37,7 @@ import {
   cleanupExpiredJoinLogDays,
   purgeChatJoinLogFiles,
   retainedJoinLogDayKeys,
+  syncJoinLogDeletionRetryTimer,
 } from "./joinLogRecovery";
 import {
   dayOfFileKey,
@@ -167,7 +168,8 @@ export async function flushJoinLogBuffer(): Promise<boolean> {
 }
 
 /**
- * 丢弃目标群在缓冲中的待写条目，登记待删标记并立即清理该群全部入群日志文件。
+ * 丢弃目标群在缓冲中的待写条目，登记待删标记并立即清理该群全部入群日志文件；
+ * 若清理失败导致待删标记残留，则按 `FLUSH_INTERVAL_MS` 排期重试。
  * @param msg 群入群日志删除请求消息。
  */
 export function handleJoinLogDeleteMessage(msg: JoinLogDeleteDiskMessage): void {
@@ -176,6 +178,7 @@ export function handleJoinLogDeleteMessage(msg: JoinLogDeleteDiskMessage): void 
   );
   joinLogDeletions.add(msg.chatId);
   purgeChatJoinLogFiles(msg.chatId);
+  syncJoinLogDeletionRetryTimer();
   publishJoinLogPersisted();
 }
 
@@ -201,6 +204,7 @@ export async function handleJoinLogMessage(
   }
   if (joinLogDeletions.has(msg.chatId)) {
     purgeChatJoinLogFiles(msg.chatId);
+    syncJoinLogDeletionRetryTimer();
     if (joinLogDeletions.has(msg.chatId)) {
       console.error(
         `[diskIOWorker] rejected join log entry for chat ${msg.chatId}; previous join log deletion failed.`

@@ -16,7 +16,8 @@ import type { LogLevel } from "../diskIO/messages";
 /** Worker 侧自我认知所需的机器人账号身份。 */
 export interface AiBotInfo {
   id: number;
-  username: string;
+  /** 机器人的 Telegram 公开用户名（不含 `@`）；未配置公开用户名时为 `undefined`。 */
+  username?: string;
   first_name: string;
 }
 

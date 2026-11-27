@@ -11,6 +11,7 @@ import {
 
 import { parseToggleAction, splitTrailingToken } from "./arguments";
 import type { TrailingTokenSplit } from "./arguments";
+import { clearIdentityAdDetection } from "../antiRaid";
 import { isUserBlocked } from "../infra/blocklist/membership";
 import { SUPER_ADMIN_USER_ID } from "../config/bot";
 import { runProtectedIdentityMutation } from "../infra/identityPolicy/coordination";
@@ -128,6 +129,7 @@ export async function handleWhiteCommand(
       }
     );
     if (outcome.kind === "updated") {
+      if (enabled) clearIdentityAdDetection(target.id);
       await confirmIdentityPolicyPersisted("whitelist", target.id, !outcome.result.changed);
     }
   } catch (error: unknown) {

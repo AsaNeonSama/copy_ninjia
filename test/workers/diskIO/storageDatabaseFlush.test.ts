@@ -103,7 +103,9 @@ describe("DiskIO Worker SQLite 定时提交与失败重试", (): void => {
       ],
       temporaryAdBypassWrites: [],
       chatStateWrites: [],
-      chatQaWrites: [], removalWrites: [],
+      chatQaWrites: [],
+      adPackBlacklistWrites: [],
+      removalWrites: [],
     }]);
   });
 
@@ -129,7 +131,9 @@ describe("DiskIO Worker SQLite 定时提交与失败重试", (): void => {
       writes: [{ table: "whitelist", id: 9, revision: 4 }],
       temporaryAdBypassWrites: [],
       chatStateWrites: [],
-      chatQaWrites: [], removalWrites: [],
+      chatQaWrites: [],
+      adPackBlacklistWrites: [],
+      removalWrites: [],
     }]);
 
     resetStorageDatabaseCache();
@@ -232,6 +236,7 @@ describe("DiskIO Worker SQLite 定时提交与失败重试", (): void => {
       temporaryAdBypassWrites: [],
       chatStateWrites: [],
       chatQaWrites: [],
+      adPackBlacklistWrites: [],
       removalWrites: [{ removalId: 5, revision: 5 }],
     }]);
 

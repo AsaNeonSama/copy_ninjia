@@ -55,3 +55,45 @@ export function subscribeMiniAppForeground(listener: () => void): () => void {
     webApp?.offEvent?.("deactivated", listener);
   };
 }
+
+/**
+ * 打开 `https://t.me/...` 站内链接：在 Telegram WebView 环境优先走 `Telegram.WebApp.openTelegramLink` 原生桥接，
+ * 非 Telegram 浏览器环境回退至 `window.open(..., "_blank", "noopener,noreferrer")`。
+ *
+ * @param url 合法的 `https://t.me/...` 链接
+ * @returns 成功触发打开动作时返回 `true`，当前运行环境既无 WebApp 桥接也无 `window.open` 时返回 `false`
+ */
+export function openMiniAppTelegramLink(url: string): boolean {
+  const webApp: Readonly<TelegramWebApp> | undefined = getTelegramWebApp();
+  if (typeof webApp?.openTelegramLink === "function") {
+    webApp.openTelegramLink(url);
+    return true;
+  }
+  const tgWindow: TelegramWindow = globalThis;
+  if (typeof tgWindow.open === "function") {
+    tgWindow.open(url, "_blank", "noopener,noreferrer");
+    return true;
+  }
+  return false;
+}
+
+/**
+ * 将纯文本写入系统剪贴板；当前环境缺失 Clipboard API 或写入被权限拒绝时返回 `false`。
+ *
+ * @param text 待复制的纯文本
+ * @returns 写入成功返回 `true`，失败返回 `false`
+ */
+export async function copyMiniAppText(text: string): Promise<boolean> {
+  const tgWindow: TelegramWindow = globalThis;
+  const writeText: ((value: string) => Promise<void>) | undefined =
+    tgWindow.navigator?.clipboard?.writeText;
+  if (typeof writeText !== "function") {
+    return false;
+  }
+  try {
+    await writeText.call(tgWindow.navigator?.clipboard, text);
+    return true;
+  } catch (_error: unknown) {
+    return false;
+  }
+}

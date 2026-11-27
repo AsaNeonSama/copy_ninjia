@@ -3,6 +3,10 @@
 import { closeStorageDatabase } from "../../../database/interact/connection";
 import { StorageWriteBudget } from "../../../libs/storageWriteBudget";
 import type {
+  AdPackBlacklistKind,
+  PendingAdPackBlacklistWrite,
+} from "../../../types/adPackBlacklist";
+import type {
   BudgetedStorageDomain,
   IdentityPersistenceReply,
   StorageDatabaseDomain,
@@ -32,6 +36,7 @@ export const storagePendingBudgets: Readonly<Record<BudgetedStorageDomain, Stora
   blocklistRemovalOutbox: new StorageWriteBudget(),
   chatState: new StorageWriteBudget(),
   chatQa: new StorageWriteBudget(),
+  adPackBlacklist: new StorageWriteBudget(),
 };
 
 /** 清空全部受预算控制领域的未提交写入预算。 */
@@ -102,6 +107,17 @@ export const pendingChatQaWrites: Map<number, Map<string, PendingChatQaWrite>> =
 /** pendingChatQaWrites 的内层条目总数：新增（chatId, question）键时递增，事务提交清空或 resetStorageDatabaseCache 时归零；单例标量，Worker 重建后从零重新累计。 */
 export const pendingChatQaEntryCount: { current: number } = { current: 0 };
 
+/** 广告包黑名单未提交写入表（kind -> pack -> 最新增删变更）：消息到达时覆盖写入，事务提交成功或 resetStorageDatabaseCache 时清空；容量受 adPackBlacklist 领域写预算约束，Worker 重建后由主线程重放未确认写入。 */
+export const pendingAdPackBlacklistWrites: Readonly<
+  Record<AdPackBlacklistKind, Map<string, PendingAdPackBlacklistWrite>>
+> = {
+  sticker: new Map(),
+  emoji: new Map(),
+};
+
+/** pendingAdPackBlacklistWrites 的两类合计条目总数：新增 `(kind, pack)` 键时递增，事务提交清空或 resetStorageDatabaseCache 时归零；单例标量，Worker 重建后从零重新累计。 */
+export const pendingAdPackBlacklistEntryCount: { current: number } = { current: 0 };
+
 /**
  * AI 上下文未提交写入表（`chatId` -> 最新快照或删除）：
  * `workers/diskIO/aiMemoryStorage.ts` 按 revision 校验通过后经 `storageDatabase/aiContext.ts` 覆盖写入，
@@ -150,6 +166,9 @@ export function resetStorageDatabaseCache(): void {
   pendingChatStateWrites.clear();
   pendingChatQaWrites.clear();
   pendingChatQaEntryCount.current = 0;
+  pendingAdPackBlacklistWrites.sticker.clear();
+  pendingAdPackBlacklistWrites.emoji.clear();
+  pendingAdPackBlacklistEntryCount.current = 0;
   pendingAiContextWrites.clear();
   removalRowTargets.clear();
   rejectedStorageDomains.clear();

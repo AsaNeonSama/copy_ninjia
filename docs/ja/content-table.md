@@ -134,7 +134,7 @@
 7. **[07 運用と障害対応](07-operations.md)**
    - デプロイ形態、規模別のハードウェア目安、systemd サービス登録とバイナリ配布運用
    - データルート構造と `COPY_NINJIA_DATA_ROOT` のファイルシステム機能検査（fsync / hard link / アトミック rename）
-   - 永続データの移行：新規データベース作成、`/wed` メンバーウィンドウのコールド移行（`migrate:wed-member-window`）、`ad_detect.json` への設定移行、段階的アップグレード
+   - 永続データの移行：新規データベース作成、広告パックブラックリスト SQLite v13 → v14・`ad_detect.json` コールド移行（`migrate:ad-pack-blacklists`）、`/wed` メンバーウィンドウのコールド移行（`migrate:wed-member-window`）、段階的アップグレード
    - 起動時フェイルファスト診断：`bot.lock` 競合、スキーマ不一致、`memory/luck/receipt-secret.json` 鍵検証の切り分け
 
 8. **[08 画像ライブラリと定時タスク](08-images-and-cron.md)**
@@ -150,7 +150,7 @@
 10. **[10 Mini App の設定方法と推奨構成](10-mini-app.md)**
     - `config/static/bot.json` の `mini_app` セクションの設定と有効化条件
     - Cloudflare Tunnel（`cloudflared`）による公開 HTTPS エンドポイントの構成、ドメインルーティングと systemd サービス登録手順
-    - 個人チャット左下の `App` ボタン、二段階認証・256-bit 鍵 AES-256-GCM 通信暗号化、Google Authenticator (TOTP) バインド、およびオンライン JSON 設定エディタ
+    - 個人チャット左下の `App` ボタン、二段階認証・256-bit 鍵 AES-256-GCM 通信暗号化、Google Authenticator (TOTP) バインド、広告スタンプ／絵文字パックブラックリスト管理、およびオンライン JSON 設定エディタ
 
 11. **[11 パフォーマンスベンチマーク](11-performance.md)**
     - `bun run perf:full` の各セクションの計測対象：コールドスタート、本番ホットパス、エンドツーエンドの永続化チェーン、SQLite とメインスレッドキャッシュ、コンテナとアルゴリズム、参加ログ容量線

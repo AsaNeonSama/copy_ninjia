@@ -136,7 +136,7 @@
    - 部署形态与硬件选型参考（入门、生产到高负载）
    - 使用 systemd 托管或直接运行预编译二进制包
    - 数据根目录规范（`COPY_NINJIA_DATA_ROOT`）与目录文件权限控制
-   - 身份数据库初始化、冷迁移与版本升级步骤
+   - 身份数据库初始化、离线冷迁移（`migrate:ad-pack-blacklists`、`migrate:wed-member-window`）与版本升级步骤
    - 常见启动故障排查（单实例文件锁、数据格式不符等）
 
 8. **[08 图库与定时任务](08-images-and-cron.md)**
@@ -152,7 +152,7 @@
 10. **[10 Mini App 设置与推荐配置](10-mini-app.md)**
     - `config/static/bot.json` 中 `mini_app` 字段配置与启用条件
     - 使用 Cloudflare Tunnel（`cloudflared`）暴露公网 HTTPS 入口、配置域名路由与注册 systemd 服务的完整步骤
-    - 私聊左下角 `App` 按钮入口、双层认证与 256-bit 密钥 AES-256-GCM 传输加密、绑定 Google Authenticator (TOTP) 动态码及在线高亮 JSON 配置编辑
+    - 私聊左下角 `App` 按钮入口、双层认证与 256-bit 密钥 AES-256-GCM 传输加密、绑定 Google Authenticator (TOTP) 动态码、广告贴纸/表情包黑名单管理及在线高亮 JSON 配置编辑
 
 11. **[11 性能基准](11-performance.md)**
     - 基准测试报告：冷启动、高频热路径函数、端到端处理耗时与持久化性能

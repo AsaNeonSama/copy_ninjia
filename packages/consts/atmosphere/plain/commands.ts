@@ -1,4 +1,9 @@
 import type { BotCommand } from "grammy/types";
+import type {
+  AdDetectBlacklistListHeaderParams,
+  AdDetectBlacklistPageOutOfRangeParams,
+  AdDetectBlacklistTexts,
+} from "../../../types/atmosphere";
 import type { CommandTargetMessages, ToggleCommandTexts } from "../../../types/commands";
 
 import { STATE_MANAGED_CHAT_LIMIT } from "../../storage";
@@ -15,7 +20,7 @@ export const BOT_COMMANDS: readonly Readonly<BotCommand>[] = [
   { command: "block", description: "末尾 enable 加入永久黑名单并在所有受管群封禁（需要 isCanBlock），disable 移出并解除封禁（需要 isCanUnBlock）；回复目标、@username 或用户 id，disable 另认频道 id" },
   { command: "ai_chat", description: "enable/disable 开关本群 AI 闲聊；需要 AI 管理权限" },
   { command: "clear_context", description: "清空本群内存和数据库中的 AI 上下文；不带参数，需要 isCanClearContext" },
-  { command: "ad_detect", description: "enable/disable 开关本群广告检测；命中后拉黑、跨群封禁并删除消息；需要广告检测管理权限" },
+  { command: "ad_detect", description: "enable/disable 开关本群广告检测；sticker|emoji list|add|remove 管理全局贴纸与自定义表情包黑名单；需要广告检测管理权限" },
   { command: "flood_control", description: "enable/disable 开关本群防刷屏禁言；需要防刷屏管理权限" },
   { command: "antiraid", description: "enable/disable 开关本群入群验证和防冲群私密模式；需要防冲群管理权限" },
   { command: "bot_status", description: "查看进程、模型能力、Telegram 出站、本群权限和功能状态" },
@@ -53,11 +58,53 @@ export const AI_CHAT_TOGGLE_TEXTS: Readonly<ToggleCommandTexts> = {
 /** `/ad_detect enable|disable` 的全部文案。 */
 export const AD_DETECT_TOGGLE_TEXTS: Readonly<ToggleCommandTexts> = {
   rejection: (label: string): string => `${label} 没有管理本群广告检测的权限。`,
-  usage: "用 /ad_detect enable 开启，或 /ad_detect disable 关闭。",
+  usage: "用 /ad_detect enable 开启或 /ad_detect disable 关闭本群广告检测；管理黑名单请用 /ad_detect <sticker|emoji> <list [页码]|add [包名...]|remove [包名...]>。",
   enabled: "本群广告检测已开启。",
   disabled: "本群广告检测已关闭。",
   alreadyEnabled: "本群广告检测已经处于开启状态。",
   alreadyDisabled: "本群广告检测已经处于关闭状态。",
+};
+
+/** `/ad_detect <sticker|emoji> <list|add|remove>` 的全部文案。 */
+export const AD_DETECT_BLACKLIST_TEXTS: Readonly<AdDetectBlacklistTexts> = {
+  kindSticker: "贴纸包",
+  kindEmoji: "自定义表情包",
+  usage: "用法：/ad_detect <sticker|emoji> <list [页码]|add [包名...]|remove [包名...]>；add/remove 省略包名时须回复包含贴纸或自定义表情的消息。",
+  listInvalidPage: "页码必须是正整数（如 1、2），且 list 后最多接受一个页码参数。",
+  listEmpty: (kindLabel: string): string =>
+    `全局广告${kindLabel}黑名单当前为空（共 0 条）。`,
+  listOutOfRange: ({
+    kindLabel,
+    page,
+    totalPages,
+    total,
+  }: AdDetectBlacklistPageOutOfRangeParams): string =>
+    `全局广告${kindLabel}黑名单共 ${totalPages} 页（共 ${total} 条），第 ${page} 页超出范围。`,
+  listHeader: ({
+    kindLabel,
+    page,
+    totalPages,
+    total,
+  }: AdDetectBlacklistListHeaderParams): string =>
+    `全局广告${kindLabel}黑名单（第 ${page}/${totalPages} 页，共 ${total} 条）：`,
+  missingPacks: (kindLabel: string, action: string): string =>
+    `请指定要处理的${kindLabel}名，或回复目标消息后执行 ${action}。`,
+  replyMissingStickerPack: "被回复的消息不包含所属贴纸包信息，无法识别贴纸包名。",
+  replyMissingEmoji: "被回复的消息不包含自定义表情。",
+  replyEmojiQueryFailed: "向 Telegram 查询自定义表情所属包失败，本次未修改黑名单，请稍后重试。",
+  replyEmojiNoPack: "被回复消息中的自定义表情未返回所属表情包名，无法加入或移除黑名单。",
+  invalidPacks: (packs: string): string =>
+    `存在非法包名（仅允许 1~64 位英文字母、数字和下划线）：${packs}。本次未修改黑名单。`,
+  ownStickerPacksBlocked: (packs: string): string =>
+    `以下贴纸包属于机器人自身配置的贴纸包，不能加入广告黑名单：${packs}。本次未修改黑名单。`,
+  mutationHeader: (kindLabel: string, total: number): string =>
+    `全局广告${kindLabel}黑名单更新结果（当前共 ${total} 条）：`,
+  addedLine: (packs: string): string => `已加入：${packs}`,
+  alreadyExistsLine: (packs: string): string => `已在黑名单中：${packs}`,
+  removedLine: (packs: string): string => `已移除：${packs}`,
+  notFoundLine: (packs: string): string => `不在黑名单中：${packs}`,
+  persistUnconfirmedLine: "注意：内存黑名单已更新，但数据库落盘暂未确认，请管理员检查存储状态。",
+  storageFailed: "更新广告黑名单时存储发生错误，请管理员检查日志和数据库状态。",
 };
 
 /** `/flood_control enable|disable` 的全部文案。 */

@@ -17,6 +17,11 @@ import {
   statRandomImageFile,
   storeRandomImage,
 } from "../../infra/imageGallery";
+import {
+  clampPageSize,
+  clampRequestedPage,
+  totalPagesFor,
+} from "../../libs/pagination";
 import { isSendablePhotoDimensions } from "../../libs/telegramImage";
 import { formatLocalTime } from "../../libs/time";
 import type { ImageDimensions } from "../../types/hImage";
@@ -45,10 +50,13 @@ export async function listMiniAppGalleryPage(
   pageSizeRaw?: number
 ): Promise<Readonly<MiniAppGalleryPage>> {
   const directory: string = getAssetConfig().randomHImageDirectory;
-  const pageSize: number =
+  const pageSize: number = clampPageSize(
     pageSizeRaw !== undefined && Number.isSafeInteger(pageSizeRaw)
-      ? Math.min(MINI_APP_GALLERY_MAX_PAGE_SIZE, Math.max(1, pageSizeRaw))
-      : MINI_APP_GALLERY_DEFAULT_PAGE_SIZE;
+      ? pageSizeRaw
+      : undefined,
+    MINI_APP_GALLERY_DEFAULT_PAGE_SIZE,
+    MINI_APP_GALLERY_MAX_PAGE_SIZE
+  );
 
   const candidates: readonly Readonly<RandomImageGalleryCacheEntry>[] | null =
     await listRandomImageGalleryEntries(directory);
@@ -65,11 +73,10 @@ export async function listMiniAppGalleryPage(
   }
 
   const total: number = candidates.length;
-  const totalPages: number = Math.max(1, Math.ceil(total / pageSize));
-  const requestedPage: number =
-    pageRaw !== undefined && Number.isSafeInteger(pageRaw)
-      ? Math.max(1, pageRaw)
-      : 1;
+  const totalPages: number = totalPagesFor(total, pageSize);
+  const requestedPage: number = clampRequestedPage(
+    pageRaw !== undefined && Number.isSafeInteger(pageRaw) ? pageRaw : undefined
+  );
   const page: number = Math.min(totalPages, requestedPage);
   const startOffset: number = (page - 1) * pageSize;
   const slice: readonly Readonly<RandomImageGalleryCacheEntry>[] = candidates.slice(

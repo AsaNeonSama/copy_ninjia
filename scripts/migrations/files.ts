@@ -18,22 +18,36 @@ export interface MigrationFileRecord {
   readonly gid: number;
 }
 
+/** 冷迁移单文件清单项及其单次 `lstat` 观测到的毫秒修改时间。 */
+export interface MigrationFileRecordWithMtime {
+  /** 写入迁移清单的标准化文件记录。 */
+  readonly record: MigrationFileRecord;
+  /** 本次 `lstat` 观测到的文件修改时间（毫秒），仅用于迁移前后不可变性复核。 */
+  readonly mtimeMs: number;
+}
+
 /**
- * 读取 root 下一个普通文件的清单项；符号链接与非普通文件一律拒绝。
+ * 通过单次 `lstat` 读取 root 下一个普通文件的清单项与 `mtimeMs`；符号链接与非普通文件一律拒绝。
  * @param root 根目录路径。
  * @param path 相对文件路径。
- * @returns 文件的相对路径、SHA-256 哈希与权限元数据记录。
+ * @returns 文件清单记录与 `mtimeMs`。
  */
-async function readMigrationFileRecord(root: string, path: string): Promise<MigrationFileRecord> {
+export async function readMigrationFileRecordWithMtime(
+  root: string,
+  path: string
+): Promise<MigrationFileRecordWithMtime> {
   const fullPath: string = join(root, path);
   const stats: Stats = await lstat(fullPath);
   if (!stats.isFile()) return invalidInput(fullPath, "$type", "a regular file without symbolic links");
   return {
-    path,
-    sha256: await fileSha256(fullPath),
-    mode: stats.mode & 0o7777,
-    uid: stats.uid,
-    gid: stats.gid,
+    record: {
+      path,
+      sha256: await fileSha256(fullPath),
+      mode: stats.mode & 0o7777,
+      uid: stats.uid,
+      gid: stats.gid,
+    },
+    mtimeMs: stats.mtimeMs,
   };
 }
 
@@ -48,7 +62,7 @@ export async function readMigrationFileRecords(
   paths: readonly string[]
 ): Promise<readonly MigrationFileRecord[]> {
   const records: MigrationFileRecord[] = [];
-  for (const path of paths) records.push(await readMigrationFileRecord(root, path));
+  for (const path of paths) records.push((await readMigrationFileRecordWithMtime(root, path)).record);
   return records;
 }
 

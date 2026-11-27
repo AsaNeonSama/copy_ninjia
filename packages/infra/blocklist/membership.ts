@@ -9,6 +9,7 @@ import { isManagedAdminChat } from "./sweepEligibility";
 import { logger } from "../logger";
 import { forgetUserBlocklistRemovals } from "./outbox";
 import {
+  assertIdentityPolicyWriteAdmissible,
   cachedBlocklistEntry,
   confirmIdentityPolicyPersisted,
   prefetchIdentityPolicies,
@@ -18,7 +19,7 @@ import {
 import { IDENTITY_DATABASE_PATH } from "../../consts/paths";
 import { clearTemporaryAdBypassActivityOrThrow } from
   "../identityPolicy/temporaryAdBypass";
-import type { TelegramIdentityMetadata } from "../../types/identityPolicy";
+import type { BlocklistEntryData, TelegramIdentityMetadata } from "../../types/identityPolicy";
 
 /**
  * 生成跨群处置的目标群 ID 列表：isAdminHere 为真时发起群排在最前，随后追加其余已启用 `/init` 且机器人为管理员的受管群。
@@ -79,8 +80,10 @@ export function blockUser(
 ): boolean {
   if (isUserBlocked(userId)) return false;
   const blockedAt: string = formatLocalTime(Date.now());
+  const entry: Readonly<BlocklistEntryData> = { blockedAt, meta };
+  assertIdentityPolicyWriteAdmissible("blocklist", userId, entry);
   clearTemporaryAdBypassActivityOrThrow(userId);
-  queueIdentityPolicyWrite("blocklist", userId, { blockedAt, meta });
+  queueIdentityPolicyWrite("blocklist", userId, entry);
   return true;
 }
 

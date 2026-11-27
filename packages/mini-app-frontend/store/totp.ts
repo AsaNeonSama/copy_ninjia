@@ -91,6 +91,7 @@ export function createTotpStore(): MiniAppTotpStore {
         },
 
         startSetup: async (): Promise<void> => {
+          if (get().busy) return;
           const startedAt: number = Date.now();
           set({ busy: true });
           try {
@@ -117,6 +118,7 @@ export function createTotpStore(): MiniAppTotpStore {
         },
 
         verifyEnable: async (): Promise<void> => {
+          if (get().busy) return;
           const trimmed: string = get().codeInput.trim();
           if (!/^\d{6}$/u.test(trimmed)) {
             useMiniAppStore.getState().notify(
@@ -158,13 +160,14 @@ export function createTotpStore(): MiniAppTotpStore {
         },
 
         deleteTotp: async (): Promise<void> => {
+          if (get().busy) return;
           const confirmed: boolean = await useMiniAppStore
             .getState()
             .requestConfirm(
               getMiniAppTranslations(useMiniAppStore.getState().language).totp.confirmDeleteTotp,
               "danger"
             );
-          if (!confirmed) return;
+          if (!confirmed || get().busy) return;
           const prevStatus: Readonly<MiniAppTotpStatusView> | null = get().totpStatus;
           const startedAt: number = Date.now();
           set({ busy: true, loadingStatus: true, totpStatus: null });

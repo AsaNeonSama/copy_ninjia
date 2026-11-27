@@ -7,6 +7,7 @@ import {
   clearStorageBusinessTables,
   seedStorageDatabase,
 } from "../../scripts/fixtures/storageDatabase";
+import { readStoredAdPackBlacklists } from "../../packages/database/interact/adPackBlacklist";
 import { readStoredChatQa } from "../../packages/database/interact/chatQa";
 import {
   closeStorageDatabase,
@@ -50,6 +51,10 @@ describe("共享数据库夹具辅助函数", () => {
           q: "怎么入群？",
           data: encodeChatQaData("请阅读置顶消息。", "test:chat_qa.data"),
         }],
+        adPackBlacklists: [
+          { kind: "sticker", pack: "SpamSticker_1" },
+          { kind: "emoji", pack: "SpamEmoji_1" },
+        ],
         temporaryAdBypass: [{
           id: 7,
           adBypass: false,
@@ -61,6 +66,7 @@ describe("共享数据库夹具辅助函数", () => {
         }],
       });
       expect(readStoredChatQa(database)).toHaveLength(1);
+      expect(readStoredAdPackBlacklists(database)).toHaveLength(2);
 
       clearStorageBusinessTables(database);
 
@@ -70,6 +76,7 @@ describe("共享数据库夹具辅助函数", () => {
         "pending_blocked_removals",
         "chat_states",
         "chat_qa",
+        "ad_pack_blacklists",
         "temporary_ad_bypass_entries",
       ];
       for (const table of businessTables) {

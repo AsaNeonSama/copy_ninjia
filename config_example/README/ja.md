@@ -24,7 +24,7 @@ done
 - `config/dynamic/`：`assets.json`、`ad_detect.json`、`agent.json`、`mood.json`、`stickers.json`、`cron.json` のみ許可。稼働中の変更は自動的にホットリロードされます。
 - `config/dynamic/` は既存ディレクトリである必要があります（空でも構いません）。ディレクトリパスが非ディレクトリで占有されている場合、またはいずれかの階層に未宣言エントリ（誤配置や `telegram.json`・`ad_samples.json` などの旧設定ファイル、隠し／スワップ／バックアップファイル、余分なサブディレクトリ、リンク切れシンボリックリンクを含む）が存在する場合は起動を拒否します。
 - ホットリロード中に `config/dynamic/` にホワイトリスト外のエントリが存在する場合は当該ラウンド全体を拒否し、適用済みのスナップショットを維持します。
-- ホワイトリスト、ブラックリスト、およびグループ状態は実行時データルートの `database/storage.sqlite` に保存され、デプロイ設定ファイルではありません。
+- ホワイトリスト、ブラックリスト、広告ステッカー／絵文字パックブラックリスト、およびグループ状態は実行時データルートの `database/storage.sqlite` に保存され、デプロイ設定ファイルではありません。
 
 すべての JSON ファイルに対して厳格なスキーマ検証が行われます。未知のフィールド、誤字、型の不一致、不正な列挙値、範囲外の値がある場合、起動時またはホットリロード時に即座に拒否され、**自動修復や無視は一切行われません**。
 
@@ -69,7 +69,7 @@ done
   <tr>
     <td><code>dynamic/ad_detect.json</code></td>
     <td><nobr>動的（ホットリロード）</nobr></td>
-    <td>広告の処罰設定、広告分類用の正例サンプルおよびステッカー／絵文字パックブラックリスト</td>
+    <td>広告の処罰設定および広告分類用の正例サンプル</td>
     <td>広告検出が停止（起動は成功）</td>
   </tr>
   <tr>
@@ -168,7 +168,7 @@ Bot は `config/dynamic/` ディレクトリを常時監視しています。デ
 | `text` | **中核必須** | メインの対話応答生成、ツール呼び出しの制御 | `summary`、`media` と同時に存在する必要あり |
 | `summary` | **中核必須** | 長期対話記憶の圧縮、ステッカーパックの自然言語要約 | 必須 |
 | `media` | **中核必須** | 画像理解、ステッカー画像説明、音声認識文字起こし | 必須（マルチモーダル対応モデル） |
-| `ad_detect` | 任意能力 | 広告メッセージの分類。連投ミュートは独立した投稿数ルールで判定 | 欠落時は広告検出のみ停止し、連投制御には影響しない |
+| `ad_detect` | 任意能力 | マルチモーダル・テキスト広告メッセージの分類（テキスト・画像・ステッカー・カスタム絵文字を検査。`provider: "google"` は任意の `use_decision` で Google Decisions API に対応）。連投ミュートは独立した投稿数ルールで判定 | 欠落時は広告検出のみ停止し、連投制御には影響しない |
 | `image` | 任意能力 | AI 画像生成ツールの登録（Grok Imagine、Imagen 等） | 欠落時は画像生成ツールが無効化 |
 | `tts` | 任意能力 | AI 音声返答、`/send` 音声代理送信、cron 定時音声合成 | 欠落時は音声ツール無効化。`cron` に `send_voice` がある場合は必須 |
 | `web_search` | 任意能力 | 独立した Web 検索ツール（専用モデルによる内蔵検索） | 欠落時は `text` モデル内蔵の検索にフォールバック |
@@ -266,6 +266,12 @@ Bot は `config/dynamic/` ディレクトリを常時監視しています。デ
 | フィールド名 | 型 | 必須/任意 | 制約および値の範囲 | 説明 |
 | --- | --- | --- | --- | --- |
 | `max_calls_per_use` | `number` | 任意 | 正の安全な整数（`≥ 1`）、既定 `WEB_SEARCH_DEFAULT_MAX_CALLS_PER_USE` | 返信ごとのローカル `web_search` 関数呼び出し上限。1 回の呼び出し内の provider 検索回数や cron ダイジェストは制限しません |
+
+### 広告検出専用フィールド（`agent.ad_detect`）
+
+| フィールド名 | 型 | 必須/任意 | 制約および値の範囲 | 説明 |
+| --- | --- | --- | --- | --- |
+| `use_decision` | `boolean` | 任意 | `true` または `false`、既定 `false`（**`provider: "google"` のみ許可**。`openai`・`anthropic` および他能力では設定不可） | `true` の場合、`@google/genai` の `client.decisions.create` で Google Decisions API（例：`gemini-decision-1`）を呼び出し、単一リクエストで複数質問を評価します（広告しきい値 `AD_DETECT_DECISION_AD_THRESHOLD`、パック帰属しきい値 `AD_DETECT_DECISION_PACK_THRESHOLD`）。`base_url` はゲートウェイルート、`/<apiVersion>` プレフィックス、または完全な `/<apiVersion>/decisions` URL のいずれにも対応し、省略時は `GEMINI_API_BASE_URL` と `GEMINI_API_VERSION` を使用します |
 
 ---
 
@@ -456,9 +462,9 @@ Bot は `config/dynamic/` ディレクトリを常時監視しています。デ
 
 ## `ad_detect.json`
 
-動的設定ファイル（パス：`config/dynamic/ad_detect.json`）。最上位は `punishment` オブジェクトと `samples`、`sticker_black_list`、`emoji_black_list` の 3 つの配列をちょうど持つ JSON オブジェクトです：
-- **設定内容**：広告判定後の処罰設定、広告分類モデルの正例リファレンス、ステッカーパックブラックリスト、カスタム絵文字パックブラックリストを定義します。
-- **判定順序**：「ステッカーパックブラックリスト高速経路 -> カスタム絵文字パックブラックリスト -> AI テキスト判定」の順で実行され、いずれかのブラックリストに一致した場合は AI 判定をスキップします。
+動的設定ファイル（パス：`config/dynamic/ad_detect.json`）。最上位は `punishment` オブジェクトと `samples` 配列をちょうど持つ JSON オブジェクトです：
+- **設定内容**：広告判定後の処罰設定と広告分類モデルの正例リファレンスを定義します。広告ステッカーパックとカスタム絵文字パックのブラックリストは実行時データルートの `database/storage.sqlite`（`ad_pack_blacklists` テーブル、種別ごとの件数上限なし、メインスレッドに 768 件の共有 LRU 読み取りキャッシュを保持）に永続化され、`/ad_detect sticker|emoji` コマンドまたは Mini App から管理します。直接広告の AI 判定でステッカー／カスタム絵文字パックに原因が帰属された場合も自動的に SQLite へ永続化され（`stickers.json` の自用パックを除く）、稼働中に `ad_detect.json` を書き換えることはありません。
+- **判定順序**：「ステッカーパックブラックリスト高速経路 -> カスタム絵文字パックブラックリスト -> AI マルチモーダル・テキスト判定」の順で実行され、いずれかのブラックリストに一致した場合は AI 判定をスキップします。AI 段階では送信者自身のテキスト・写真・画像ドキュメント（`AD_DETECT_IMAGE_DOCUMENT_MIME_TYPES`）・静止／アニメーション／動画ステッカー・カスタム絵文字を検査します（1 バンドルあたり最大 `AD_DETECT_MAX_IMAGES_PER_BUNDLE` 枚かつ合計 `MEDIA_MAX_DOWNLOAD_BYTES` 以内。画像入力を明示的に拒否する生成モデルはテキスト専用判定へフォールバックします）。
 - **処置手順**：どの経路で広告と判定されても、まず該当メッセージを削除し、続いて `punishment` に従って処罰し、発生グループに `COMMAND_MESSAGE_AUTO_DELETE_MS` 後に自動削除される通知を投稿します。
 
 ### 設定例
@@ -476,12 +482,6 @@ Bot は `config/dynamic/` ディレクトリを常時監視しています。デ
     "招聘日结兼职，手机就能做，日入三百起，加微信 xxxxxx",
     "长期收u出u，价格美丽，秒结，飞机 @xxxxxx",
     "出售TG老号 白号 API号 协议号，价格优惠，私聊"
-  ],
-  "sticker_black_list": [
-    "SpamStickerPack_by_example_bot"
-  ],
-  "emoji_black_list": [
-    "SpamEmojiPack_by_example_bot"
   ]
 }
 ```
@@ -514,8 +514,6 @@ Bot は `config/dynamic/` ディレクトリを常時監視しています。デ
 | `punishment.kick.block` | `boolean` | **必須** | — | `false` で BAN なしのキック、`true` で `block_scope` に従って BAN |
 | `punishment.kick.block_scope` | `string` | `block` が `true` のとき必須、`false` のときは省略必須 | 前後の空白を除いて `"chat"` または `"global"`（`AD_BLOCK_SCOPES`） | `"chat"` は発生グループだけで BAN、`"global"` は恒久ブラックリストに登録して全管理対象グループで BAN |
 | `samples` | `string[]` | **必須** | 配列長 `0 〜 MAX_CONFIGURED_AD_SAMPLES`、重複不可 | 広告正例サンプル文字列配列。各サンプルは連続する空白を 1 つのスペースにまとめ前後の空白を除いた後に非空かつ `≤ AD_SAMPLE_MAX_CHARS` 文字で、重複判定もこの正規化結果で行います |
-| `sticker_black_list` | `string[]` | **必須** | 配列長 `0 〜 MAX_CONFIGURED_AD_BLACKLIST_PACKS`、要素は前後の空白を除いて `STICKER_PACK_NAME_PATTERN` に一致し重複不可 | ステッカーパック short name ブラックリスト（`https://t.me/addstickers/<short_name>` の末尾部分）。免除対象外の送信者がこのリストに含まれるパックのステッカーを送信した場合、後続の判定をスキップして `punishment` に従って処罰します |
-| `emoji_black_list` | `string[]` | **必須** | 配列長 `0 〜 MAX_CONFIGURED_AD_BLACKLIST_PACKS`、要素は前後の空白を除いて `STICKER_PACK_NAME_PATTERN` に一致し重複不可 | カスタム絵文字パック short name ブラックリスト（`https://t.me/addemoji/<short_name>` の末尾部分）。免除対象外の送信者のメッセージに `custom_emoji` エンティティが含まれる場合、メインスレッドの統一 Telegram 送信境界経由で所属パックを照会し、一致した場合は AI 判定をスキップして `punishment` に従って処罰します |
 
 ---
 

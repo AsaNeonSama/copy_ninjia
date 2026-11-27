@@ -15,20 +15,79 @@ export interface ConstImmutabilityParams {
 }
 
 /**
- * 字符串、数字、布尔、null、undefined、函数值与正则不算对象元素（正则的 lastIndex 在类型上
- * 无法只读，单独的正则常量由断言文件按 lastIndex 覆盖）。
+ * 判断类型是否为未加 `Readonly<...>` 包装的可变 `RegExp`（其 `lastIndex` 可被调用方改写）。
+ *
+ * @param type 待判断的 TypeScript 类型
+ * @returns 类型本身为可变 `RegExp` 时返回 true
+ */
+function isMutableRegExp(type: ts.Type): boolean {
+  return type.getSymbol()?.getName() === "RegExp";
+}
+
+/**
+ * 判断类型是否为经 `Readonly<RegExp>` 包装的只读正则类型。
+ *
+ * @param type 待判断的 TypeScript 类型
+ * @returns 类型为 `Readonly<RegExp>` 时返回 true
+ */
+function isReadonlyRegExp(type: ts.Type): boolean {
+  return type.aliasSymbol?.getName() === "Readonly" &&
+    type.aliasTypeArguments?.length === 1 &&
+    type.aliasTypeArguments[0]?.getSymbol()?.getName() === "RegExp";
+}
+
+/**
+ * 判断类型是否为 `RegExp` 或 `Readonly<RegExp>`。
+ *
+ * @param type 待判断的 TypeScript 类型
+ * @returns 为正则类型时返回 true
+ */
+function isRegExpType(type: ts.Type): boolean {
+  return isMutableRegExp(type) || isReadonlyRegExp(type);
+}
+
+/**
+ * 字符串、数字、布尔、null、undefined、函数值与正则不算对象元素
+ * （正则常量及容器内正则元素由本门禁直接通过类型检查器强制要求声明为 `Readonly<RegExp>`，
+ * 无需逐条在 `test/consts/immutability.test.ts` 中手写 `.lastIndex` 断言）。
  *
  * @param type 待判断的 TypeScript 类型
  * @returns 为需要不可变断言的对象类型时返回 true
  */
 function isObjectLike(type: ts.Type): boolean {
   if (type.isUnion()) return type.types.some(isObjectLike);
-  if (type.getSymbol()?.getName() === "RegExp") return false;
+  if (isRegExpType(type)) return false;
   const primitiveFlags: number = ts.TypeFlags.StringLike | ts.TypeFlags.NumberLike | ts.TypeFlags.BooleanLike
     | ts.TypeFlags.Null | ts.TypeFlags.Undefined;
   if ((type.flags & primitiveFlags) !== 0) return false;
   if (type.getCallSignatures().length > 0) return false;
   return (type.flags & ts.TypeFlags.Object) !== 0;
+}
+
+/**
+ * 递归检查导出常量类型自身及其容器/属性元素中是否暴露了可变 `RegExp`。
+ *
+ * @param checker TypeScript 类型检查器
+ * @param type 待检查的 TypeScript 类型
+ * @param visited 已遍历类型集合（防循环引用）
+ * @returns 暴露了未标注为 `Readonly<RegExp>` 的正则时返回 true
+ */
+function hasMutableRegExp(
+  checker: ts.TypeChecker,
+  type: ts.Type,
+  visited: Set<ts.Type> = new Set<ts.Type>()
+): boolean {
+  if (visited.has(type)) return false;
+  visited.add(type);
+  if (isMutableRegExp(type)) return true;
+  if (isReadonlyRegExp(type)) return false;
+  if (type.isUnionOrIntersection()) {
+    return type.types.some((member: ts.Type): boolean => hasMutableRegExp(checker, member, visited));
+  }
+  if (type.getCallSignatures().length > 0) return false;
+  return elementTypes(checker, type).some(
+    (element: ts.Type): boolean => hasMutableRegExp(checker, element, visited)
+  );
 }
 
 /**
@@ -74,12 +133,13 @@ function followsExpectError(lines: readonly string[], index: number): boolean {
 }
 
 /**
- * 带对象元素的导出常量表必须在 test/consts/immutability.test.ts 里有 `@ts-expect-error` 改写断言。
- * 用类型检查器读 `packages/consts/` 与 `packages/mini-app-frontend/consts/` 下导出常量的声明类型，元素里有对象（函数值与正则除外）即要求
- * 断言文件里有一行按 `NAME.` 或 `NAME[` 访问它，且紧跟在带 `@ts-expect-error` 的注释之后。
+ * 校验导出常量的编译期不可变性：
+ * 1. 任何导出正则常量或容器/属性中暴露的 `RegExp` 必须声明为 `Readonly<RegExp>`；
+ * 2. 带对象元素的导出常量表必须在 `test/consts/immutability.test.ts` 里有 `@ts-expect-error` 改写断言
+ *    （按 `NAME.` 或 `NAME[` 访问且紧跟在带 `@ts-expect-error` 的注释之后）。
  *
  * @param params 常量不可变断言检查入参
- * @returns 缺少不可变断言的违规信息列表
+ * @returns 可变正则或缺少不可变断言的违规信息列表
  */
 export function collectConstImmutabilityAssertionProblems({
   projectRoot,
@@ -91,7 +151,12 @@ export function collectConstImmutabilityAssertionProblems({
   const problems: string[] = [];
   for (const { path, name, declaration } of declarations) {
     const type: ts.Type = checker.getTypeAtLocation(declaration.name);
-    if (type.getSymbol()?.getName() === "RegExp") continue;
+    if (hasMutableRegExp(checker, type)) {
+      problems.push(
+        `${relative(projectRoot, path)}: ${name} exposes a mutable RegExp; annotate it as Readonly<RegExp>`
+      );
+    }
+    if (isRegExpType(type)) continue;
     if (!elementTypes(checker, type).some(isObjectLike)) continue;
     const access: RegExp = new RegExp(`\\b${name}[.[]`);
     if (lines.some((line: string, index: number): boolean => access.test(line) && followsExpectError(lines, index))) continue;

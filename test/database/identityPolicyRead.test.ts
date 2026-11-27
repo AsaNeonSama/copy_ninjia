@@ -89,6 +89,7 @@ beforeEach((): void => {
     removals: new Map(),
     chatStates: new Map(),
     chatQa: new Map(),
+    adPackBlacklists: { sticker: new Map(), emoji: new Map() },
     aiContexts: new Map(),
   });
   reader = prepareStorageDatabaseReader(database);

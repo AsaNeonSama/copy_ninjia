@@ -14,6 +14,10 @@ import type {
   MiniAppTranslations,
 } from "../../types/miniAppI18n";
 import {
+  formatEnAdBlacklistServerNotice,
+  getEnAdBlacklistsTranslations,
+} from "../adBlacklists/en";
+import {
   formatEnConfigServerNotice,
   getEnConfigsTranslations,
 } from "../configs/en";
@@ -323,7 +327,11 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
       case "INVALID_CHAT_TARGETS_PARAMS":
         return "Clueless Zaako♡, invalid target management request parameters!";
       default:
-        return formatEnConfigServerNotice(code, params) ?? code;
+        return (
+          formatEnAdBlacklistServerNotice(code, params) ??
+          formatEnConfigServerNotice(code, params) ??
+          code
+        );
     }
   };
   return {
@@ -346,6 +354,7 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
       chats: "Managed Chats",
       identities: "Access Control",
       configs: "Config Editor",
+      adBlacklists: "Content Blacklist",
       gallery: "H-Image Gallery",
       totp: "Authenticator",
     },
@@ -354,6 +363,7 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
       chats: "/init switches & hot 256 messages",
       identities: "Whitelist 18 perms & blocklist",
       configs: "Dynamic hot-reload & static JSON configs",
+      adBlacklists: "Sticker & custom emoji pack content blacklist",
       gallery: "/h_image preview, upload & delete",
       totp: "Google Authenticator (TOTP) setup, replace & delete",
     },
@@ -825,7 +835,7 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
         isCanBypassFloodControl: "Lets this identity bypass flood counters and auto-mute—I won't pin them down, so don't give it to spammers♡",
         isCanControllAIPermission: "Lets this small fry use /ai_chat enable|disable to toggle AI banter—don't mash it randomly♡",
         isCanClearContext: "Allows using /clear_context to wipe the current chat's AI conversation memory.",
-        isCanControllAdDetectPermission: "Lets this small fry use /ad_detect enable|disable to toggle ad detection—if spam slips through, it's on you♡",
+        isCanControllAdDetectPermission: "Lets this small fry use /ad_detect to toggle ad detection and manage sticker & custom emoji pack blacklists—if spam slips through, it's on you♡",
         isCanControllFloodControlPermission: "Lets this small fry use /flood_control enable|disable to toggle flood mute—stop poking switches carelessly♡",
         isCanControllTranslatePermission: "Lets this small fry use /translate enable|disable to toggle translation—even you can manage that much, right?♡",
         isCanControllAntiRaidPermission: "Lets this small fry use /antiraid enable|disable to toggle join verification & anti-raid lock—turn it off and bots flood in♡",
@@ -858,5 +868,6 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
         "Not a single image in the gallery yet! Click 'Upload Image' to stuff some in, Zaako♡",
     },
     configs: getEnConfigsTranslations(),
+    adBlacklists: getEnAdBlacklistsTranslations(),
   };
 }

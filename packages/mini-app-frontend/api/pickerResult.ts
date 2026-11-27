@@ -2,31 +2,11 @@ import {
   MINI_APP_PICKER_POLL_INTERVAL_MS,
   MINI_APP_PICKER_POLL_MAX_ATTEMPTS,
 } from "../consts/miniApp";
+import { isAborted, throwIfAborted } from "../libs/abort";
 import { errorMessage } from "../libs/errorMessage";
 import type { MiniAppPickerResultEvent } from "../types/miniApp/identities";
 import { classifyMiniAppAuthError } from "./authError";
 import { miniAppFetchJson } from "./request";
-
-/**
- * 判断可选 `AbortSignal` 当前是否已进入中止状态。
- *
- * @param signal 可选 `AbortSignal`
- * @returns 已中止时返回 `true`
- */
-function isAborted(signal?: AbortSignal): boolean {
-  return signal?.aborted === true;
-}
-
-/**
- * 在请求取消信号已触发时抛出标准 `AbortError`，避免继续构造或发出陈旧轮询请求。
- *
- * @param signal 可选 `AbortSignal`
- */
-function throwIfAborted(signal?: AbortSignal): void {
-  if (isAborted(signal)) {
-    throw new DOMException("The operation was aborted.", "AbortError");
-  }
-}
 
 /**
  * 等待指定毫秒数；若等待前或等待期间 `signal` 触发中止，立即清理定时器并返回 `false`。

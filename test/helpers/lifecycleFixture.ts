@@ -35,6 +35,8 @@ const loadPersistedData = mock(async () => ({
   pendingBlockedRemovals: new Map(),
   blocklistEntryCount: 0,
   chatStates: new Map<number, never>(),
+  chatQa: new Map<number, Map<string, string>>(),
+  adPackBlacklistCounts: { sticker: 0, emoji: 0 },
   permissionEntryCount: 0,
 }));
 type FlushResult = "flushed" | "timedOut" | "failed";
@@ -89,6 +91,7 @@ const hydratePendingVerifications = mock((_value: unknown): void => { calls.push
 const hydrateChatStateCache = mock((_value: unknown): void => { calls.push("hydrateChatStates"); });
 const hydrateWedMembers = mock((_value: unknown): void => { calls.push("hydrateWedMembers"); });
 const hydrateChatQaCache = mock((_value: unknown): void => { calls.push("hydrateChatQa"); });
+const hydrateAdPackBlacklistCounts = mock((_value: unknown): void => { calls.push("hydrateAdPackBlacklistCounts"); });
 const hydrateIdentityStorageCounts = mock((..._args: unknown[]): void => { calls.push("hydrateIdentityCounts"); });
 const assertSuperAdminNotBlocked = mock(async (..._args: unknown[]): Promise<void> => { calls.push("assertSuperAdminNotBlocked"); });
 const assertSuperAdminNotDeleteMessageTarget = mock((..._args: unknown[]): void => { calls.push("assertSuperAdminNotDeleteMessageTarget"); });
@@ -178,6 +181,7 @@ const testDependencies = {
   hydrateIdentityStorageCounts,
   hydrateChatStateCache,
   hydrateChatQaCache,
+  hydrateAdPackBlacklistCounts,
   hydrateWedMembers,
   hydrateAiMemory,
   hydratePendingVerifications,
@@ -327,6 +331,8 @@ export function installLifecycleFixtureHooks(): void {
       assertSuperAdminNotBlocked,
       assertSuperAdminNotDeleteMessageTarget,
       hydrateChatStateCache,
+      hydrateChatQaCache,
+      hydrateAdPackBlacklistCounts,
       hydrateIdentityStorageCounts,
       hydrateBlocklist,
       initAntiRaid,
@@ -424,6 +430,7 @@ export const lifecycleFixture = {
   flushStateToDisk,
   getUpdates,
   hydrateAiMemory,
+  hydrateAdPackBlacklistCounts,
   hydrateChatStateCache,
   hydrateBlocklist,
   hydratePendingVerifications,

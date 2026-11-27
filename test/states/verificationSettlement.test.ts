@@ -278,6 +278,16 @@ describe("callback", () => {
     expect(state.replyReminderRequested).toBeTrue();
   });
 
+  test("收到未声明的 answerVerdict 时显式抛错拒绝", () => {
+    const state = pendingState({ reminderMessageId: REMINDER_ID });
+    expect(() =>
+      transitionVerification(
+        state,
+        selfAnswer({ answerVerdict: "bogus" as unknown as "correct" })
+      )
+    ).toThrow("Unsupported verification answer verdict: bogus");
+  });
+
   test("管理员点「通过」→ 以作保通过；真人与机器人各有欢迎语", () => {
     const human = pendingState({ reminderMessageId: REMINDER_ID, welcomeAnchorMessageId: 40 });
     const approvedHuman = transitionVerification(human, approve());

@@ -1,67 +1,48 @@
 /**
  * 入群守卫主线程侧共用的成员事实：广告检测与防刷屏的白名单/黑名单豁免读取
- * （canBypassAdDetection、readAdCandidateSenderStatus、isProtectedFromAdDisposal、
- * canBypassFloodControl），以及从 grammY 的 User/ChatMember 提取投递给 Worker
- * 的身份字段与邀请者豁免资格（pickMember、isInviterExemptAdmin）。
+ * （readAdCandidateSenderStatus、isProtectedFromAdDisposal、canBypassFloodControl），
+ * 以及从 grammY 的 User/ChatMember 提取投递给 Worker 的身份字段与邀请者豁免资格
+ * （pickMember、isInviterExemptAdmin）。
  */
 import {
   getEffectiveWhitelistPermissions,
   hasPermanentWhitelistPermission,
-  hasWhitelistPermission,
-  readWhitelistPermissionOrBlocked,
+  readEffectiveWhitelistOrBlocked,
 } from "../infra/identityPolicy/whitelist";
-import type { WhitelistPermissionOrBlocklistStatus } from
+import type { WhitelistOrBlocklistStatus } from
   "../infra/identityPolicy/whitelist";
 import { isAdminStatus } from "../libs/chatMember";
 import type { ChatMember } from "grammy/types";
 import type { AntiRaidMember } from "../types/antiRaid/protocol";
 
 /**
- * 广告检测专用豁免：只按当前有效权限的广告检测单项决定。
+ * 广告候选构建阶段对发送者的单次身份策略读取：同一次缓存查找内先判定有效白名单保护
+ * （超级管理员、永久白名单成员或当前有效的临时广告免检），未受保护时再判定是否命中黑名单。
  *
  * @param senderId 发送者或频道的 Telegram ID
  * @param now 可选的当前毫秒时间戳
- * @returns 持有广告检测豁免权限时返回 true，否则返回 false
- */
-export function canBypassAdDetection(
-  senderId: number,
-  now?: number
-): boolean {
-  return hasWhitelistPermission(
-    senderId,
-    "isCanBypassAdDetection",
-    now
-  );
-}
-
-/**
- * 广告候选构建阶段对发送者的单次身份策略读取：同一次缓存查找内先判定广告检测豁免，
- * 未豁免时再判定是否命中黑名单。
- *
- * @param senderId 发送者或频道的 Telegram ID
- * @param now 可选的当前毫秒时间戳
- * @returns 持有广告检测豁免返回 `"allowed"`，未豁免但命中黑名单返回 `"blocked"`，其余返回 `"none"`
+ * @returns 受有效白名单保护返回 `"allowed"`，未受保护但命中黑名单返回 `"blocked"`，其余返回 `"none"`
  */
 export function readAdCandidateSenderStatus(
   senderId: number,
   now?: number
-): WhitelistPermissionOrBlocklistStatus {
-  return readWhitelistPermissionOrBlocked(
-    senderId,
-    "isCanBypassAdDetection",
-    now
-  );
+): WhitelistOrBlocklistStatus {
+  return readEffectiveWhitelistOrBlocked(senderId, now);
 }
 
 /**
- * 广告处置阶段判定发送者是否受保护（超级管理员、永久白名单成员或当前有效的临时广告免检）；
+ * 广告检测与处置阶段判定发送者是否受保护（超级管理员、永久白名单成员或当前有效的临时广告免检）；
  * 经一次合并身份缓存读取完成判定。
  *
  * @param senderId 发送者或频道的 Telegram ID
- * @returns 发送者受保护、不得执行广告处罚时返回 true，否则返回 false
+ * @param now 可选的当前毫秒时间戳
+ * @returns 发送者受保护、不得执行广告警告或处置时返回 true，否则返回 false
  */
-export function isProtectedFromAdDisposal(senderId: number): boolean {
-  return getEffectiveWhitelistPermissions(senderId) !== undefined;
+export function isProtectedFromAdDisposal(
+  senderId: number,
+  now?: number
+): boolean {
+  return getEffectiveWhitelistPermissions(senderId, now) !== undefined;
 }
 
 /**

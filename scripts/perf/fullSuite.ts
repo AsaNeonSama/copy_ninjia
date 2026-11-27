@@ -19,7 +19,7 @@
  *                                        并把结构化报告记进仓库根 performance-result.json
  */
 
-import { arch, cpus, platform, release, totalmem } from "node:os";
+import { release, totalmem } from "node:os";
 import { FULL_SUITE_ROUNDS, PERFORMANCE_MOCK_ROOT_NAME } from "./fullSuite/constants";
 import {
   addProcessIo,
@@ -117,10 +117,10 @@ function suiteEnvironment(): SuiteEnvironment {
   return {
     bunVersion: Bun.version,
     bunRevision: Bun.revision,
-    platform: platform(),
-    arch: arch(),
+    platform: process.platform,
+    arch: process.arch,
     kernel: release(),
-    cpuCount: cpus().length,
+    cpuCount: navigator.hardwareConcurrency,
     totalMemoryBytes: totalmem(),
   };
 }

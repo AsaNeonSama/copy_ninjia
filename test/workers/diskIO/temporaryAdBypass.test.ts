@@ -5,6 +5,7 @@ import {
   IDENTITY_WRITE_FLUSH_INTERVAL_MS,
 } from "../../../packages/consts/identityStorage";
 import { DAY_MS } from "../../../packages/consts/time";
+import { TEMPORARY_AD_BYPASS_DAILY_MESSAGE_THRESHOLD } from "../../../packages/consts/temporaryAdBypass";
 import { adoptTimeZone } from "../../../packages/config/time";
 import { IDENTITY_DATABASE_PATH } from "../../../packages/consts/paths";
 import {
@@ -64,7 +65,9 @@ function activityWrite(
     qualifiedDays = adBypass ? 1 : 0,
   }: ActivityWriteOptions = {}
 ): TemporaryAdBypassWriteDiskMessage {
-  const storedSendCount: number = qualified ? Math.max(sendCount, 8) : sendCount;
+  const storedSendCount: number = qualified
+    ? Math.max(sendCount, TEMPORARY_AD_BYPASS_DAILY_MESSAGE_THRESHOLD + 1)
+    : sendCount;
   return {
     type: "temporaryAdBypassWrite",
     id,
@@ -133,7 +136,9 @@ describe("临时广告免检 SQLite 合并写与过期清理", () => {
       writes: [],
       temporaryAdBypassWrites: [{ id: 7, revision: 2 }],
       chatStateWrites: [],
-      chatQaWrites: [], removalWrites: [],
+      chatQaWrites: [],
+      adPackBlacklistWrites: [],
+      removalWrites: [],
     }]);
     expect(readStoredTemporaryAdBypassActivities(
       prepareStorageDatabaseReader(requireStorageDatabaseFixture()),

@@ -2,7 +2,7 @@
  * `config/dynamic/agent.json` 中单项 AI 能力的严格解码（纯函数，不读盘、不接触缓存）：
  * - 通用字段：`provider`（`google`、`openai` 或 `anthropic`，其中 `image` 与 `tts` 仅支持 `google` 和 `openai`）、`api_key`、`base_url`、`model`。
  * - 提供商可选字段：`anthropic` 支持 `fallback_model`。
- * - 能力专属字段：`image` 包含 `image_protocol` 与 `max_reference_images`；`web_search` 包含 `max_calls_per_use`。
+ * - 能力专属字段：`ad_detect`（仅 `google`）包含可选 `use_decision`；`image` 包含 `image_protocol` 与 `max_reference_images`；`web_search` 包含 `max_calls_per_use`。
  * - `tts` 能力解码位于 `config/agentTts.ts`，文件级加载、分段快照与 holder 位于 `config/agent.ts`。
  * - 报错只输出文件路径、字段路径与期望形态，不回显配置值。
  */
@@ -22,6 +22,7 @@ import {
 import { invalidInput, requiredString } from "../libs/inputValidation";
 import { hasOnlyKeys, isPlainRecord } from "../libs/record";
 import type {
+  AdDetectAgentConfig,
   AgentCapabilityConfig,
   AgentImageCapabilityConfig,
   AgentProvider,
@@ -252,6 +253,34 @@ export function parseCapability(
     return invalidInput(sourcePath, context, capabilityShape(provider, ""));
   }
   return parseCapabilityFields({ value: record, provider, context, sourcePath });
+}
+
+/**
+ * 解码广告检测能力；`google` 协议接受可选布尔字段 `use_decision`（缺省为 `false`），
+ * `openai` 与 `anthropic` 协议不接受 `use_decision`。
+ * @param value 待校验的 `$.agent.ad_detect` 字段值。
+ * @param sourcePath 配置文件路径，用于构造致命错误诊断。
+ * @returns 已通过校验的广告检测能力配置。
+ */
+export function parseAdDetectCapability(
+  value: unknown,
+  sourcePath: string
+): AdDetectAgentConfig {
+  const context: string = "$.agent.ad_detect";
+  const record: Readonly<Record<string, unknown>> = capabilityRecord(value, context, sourcePath);
+  const provider: AgentProvider = requiredProvider(record.provider, `${context}.provider`, sourcePath);
+  const extraKeys: readonly string[] = provider === "google" ? ["use_decision"] : [];
+  const extraShape: string = provider === "google" ? ", use_decision?" : "";
+  if (!hasOnlyKeys(record, capabilityKeys(provider, extraKeys))) {
+    return invalidInput(sourcePath, context, capabilityShape(provider, extraShape));
+  }
+  const fields: AgentCapabilityConfig = parseCapabilityFields({ value: record, provider, context, sourcePath });
+  if (fields.provider !== "google") return fields;
+  const rawUseDecision: unknown = record.use_decision;
+  if (rawUseDecision !== undefined && typeof rawUseDecision !== "boolean") {
+    return invalidInput(sourcePath, `${context}.use_decision`, "a boolean");
+  }
+  return { ...fields, useDecision: rawUseDecision ?? false };
 }
 
 /**

@@ -1,21 +1,21 @@
 /**
- * 广告命中后的主线程处置：在该身份的黑名单串行位里复核开关与免检身份，按 ad_detect.json 的
- * 处罚设置选定动作（见 states/adPunishment.ts）。全局封禁写入永久黑名单并落盘，再把跨群封禁登记进
- * durable outbox 交回 Anti-Raid Worker；禁言、只踢不封、本群封禁与频道只删消息见 adPunishment.ts。
+ * 广告命中后的主线程处置：在该身份的黑名单串行位里复核开关与受保护身份，裁决通过后才删消息并按
+ * ad_detect.json 的处罚设置选定动作（见 states/adPunishment.ts）；裁决被拒或非全局封禁处置结算后
+ * 立即通知 Anti-Raid Worker 释放 `recentlyDisposedAdKeys`。全局封禁写入永久黑名单并落盘，再把跨群
+ * 封禁登记进 durable outbox 交回 Anti-Raid Worker；禁言、只踢不封、本群封禁与频道只删消息见 adPunishment.ts。
+ * 若命中事件携带模型归因的广告贴纸包或自定义表情包，则并行经 adBlacklistPersistence.ts 写入 SQLite 并同步 Worker。
  * 候选消息构建位于 adCandidate.ts。
  */
 import type { AtmosphereTexts } from "../types/atmosphere";
 import { chatAtmosphere } from "../infra/atmosphere";
+import { botCanDeleteMessagesIn } from "../infra/botAdmin";
 import { logger } from "../infra/logger";
 import { isIdentityPolicyCached, prefetchIdentityPolicies } from "../infra/identityStorage";
 import {
   createMonotonicDeadline,
   remainingMonotonicTime,
 } from "../libs/monotonicDeadline";
-import {
-  canBypassAdDetection,
-  isProtectedFromAdDisposal,
-} from "./memberFacts";
+import { isProtectedFromAdDisposal } from "./memberFacts";
 import {
   blockUser,
   confirmBlocklistPersisted,
@@ -27,8 +27,12 @@ import { blockedMemberRemoverHolder, blocklistIdentityMutationRunner } from "../
 import { requestBlocklistResweep } from "../infra/blocklist/sweep";
 import { getChatStateCache, getChatState } from "../infra/chatStateStorage";
 import { postDiskIODiagnostic } from "../infra/diskIO";
+import { deleteMessages } from "../infra/telegram/actions/messageLifecycle";
 import { sendTemporaryMessageOnMain } from "../infra/telegram/temporaryMessage";
-import { inFlightAdDisposals } from "../cache/main/antiRaid/adDisposal";
+import {
+  adDetectDedupReleaserHolder,
+  inFlightAdDisposals,
+} from "../cache/main/antiRaid/adDisposal";
 import { trackBackgroundTask } from "../infra/backgroundTasks";
 import { settleWithinBudget } from "../libs/inflight";
 import { formatLocalTime } from "../libs/time";
@@ -37,7 +41,9 @@ import { clearTemporaryAdBypassActivityOrThrow } from
   "../infra/identityPolicy/temporaryAdBypass";
 import { currentAdDetectPunishment } from "../config/adDetectConfig";
 import { AD_DETECT_CONFIG_PATH } from "../consts/paths";
+import { deleteMessageIdBatches } from "../libs/messageDeletion";
 import { resolveAdPunishmentAction } from "../states/adPunishment";
+import { persistAutoBlacklistedAdPacks } from "./adBlacklistPersistence";
 import { formatAdNoticeHead, punishAdSenderInChat } from "./adPunishment";
 import type {
   AdDetectedEvent,
@@ -51,6 +57,16 @@ import type {
   AdInChatPunishmentAction,
   AdPunishmentAction,
 } from "../types/states/adPunishment";
+
+/** `enforceGlobalAdBlock` 登记并派发跨群封禁批次后的结算结果。 */
+interface GlobalAdBlockResult {
+  /** 成功登记封禁批次的群数。 */
+  readonly enforcedChats: number;
+  /** 登记失败、转入补扫的群数。 */
+  readonly failedChats: number;
+  /** 触发群的移除批次是否已交回 Anti-Raid Worker（由 `blocklistEffects` 负责释放处置抑制标记）。 */
+  readonly triggerChatHandedOff: boolean;
+}
 
 /**
  * 黑名单串行位临界区对一次广告命中的裁决：放弃处置的原因、已在临界区写入黑名单的全局封禁，或本群处罚动作。
@@ -111,63 +127,145 @@ function ruleAdDisposal(event: AdDetectedEvent): AdDisposalRuling {
 }
 
 /**
- * 执行广告命中处置：放弃时只记日志（涉事消息已由 Worker 删除），全局封禁见 enforceGlobalAdBlock，
- * 其余动作交给 adPunishment.ts 在触发群执行。
+ * 在主线程按 TELEGRAM_DELETE_MESSAGES_BATCH_MAX 分批删除经裁决确认需清理的涉事广告消息。
+ *
+ * @param chatId 目标群 ID
+ * @param messageIds 待删除的消息 ID 列表
+ */
+async function deleteAdMessagesOnMain(
+  chatId: number,
+  messageIds: readonly number[]
+): Promise<void> {
+  if (messageIds.length === 0) return;
+  if (botCanDeleteMessagesIn(chatId) === false) {
+    logger.error(
+      "Ad disposal skipped deleting messages; the bot is known to lack can_delete_messages there.",
+      { chatId, messageCount: messageIds.length }
+    );
+    return;
+  }
+  const failedBatches: number = await deleteMessageIdBatches(
+    messageIds,
+    (batch: readonly number[]): Promise<boolean> => deleteMessages(chatId, batch)
+  );
+  if (failedBatches === 0) return;
+  logger.error(
+    "Ad disposal could not delete message batches; the bot may lack can_delete_messages, or the messages are older than 48h.",
+    { chatId, failedBatchCount: failedBatches, messageCount: messageIds.length }
+  );
+}
+
+/**
+ * 裁决通过后并行登记涉事消息删除任务到 `inFlightAdDisposals`，既不阻塞处罚与播报，又确保停机排空等待完成。
+ *
+ * @param event Worker 上报的广告命中事件
+ */
+function scheduleDeleteAdMessages(event: AdDetectedEvent): void {
+  if (event.deleteMessageIds.length === 0) return;
+  trackBackgroundTask(
+    inFlightAdDisposals,
+    deleteAdMessagesOnMain(event.chatId, event.deleteMessageIds),
+    {
+      message: "Failed to delete ad detection messages:",
+      context: { chatId: event.chatId, senderId: event.senderId },
+    }
+  );
+}
+
+/**
+ * 执行广告命中处置：放弃时绝不删消息并立即释放 Worker 处置抑制标记；裁决通过后才删消息并按处罚设置执行
+ * 全局封禁（enforceGlobalAdBlock）或本群处罚（adPunishment.ts），非全局封禁或未把触发群批次交回 Worker 时
+ * 在 finally 中释放处置抑制标记。
  *
  * @param event Worker 上报的广告命中事件
  */
 async function disposeDetectedAdLocked(event: AdDetectedEvent): Promise<void> {
-  if (!await prefetchIdentityPolicies([event.senderId])) {
-    logger.error(
-      "Dropped the ad detection verdict; identity policies could not be read, so no punishment was applied.",
-      { chatId: event.chatId, senderId: event.senderId }
-    );
-    return;
-  }
-  const ruling: AdDisposalRuling = await runProtectedIdentityMutation(
-    async (): Promise<AdDisposalRuling> => {
-      if (
-        !isIdentityPolicyCached(event.senderId) &&
-        !await prefetchIdentityPolicies([event.senderId])
-      ) {
-        return "unavailable";
+  let releaseDedup: boolean = true;
+  try {
+    if (!await prefetchIdentityPolicies([event.senderId])) {
+      logger.error(
+        "Dropped the ad detection verdict; identity policies could not be read, so no punishment was applied.",
+        { chatId: event.chatId, senderId: event.senderId }
+      );
+      return;
+    }
+    const ruling: AdDisposalRuling = await runProtectedIdentityMutation(
+      async (): Promise<AdDisposalRuling> => {
+        if (
+          !isIdentityPolicyCached(event.senderId) &&
+          !await prefetchIdentityPolicies([event.senderId])
+        ) {
+          return "unavailable";
+        }
+        return ruleAdDisposal(event);
       }
-      return ruleAdDisposal(event);
+    );
+    if (ruling === "unavailable") {
+      logger.error(
+        "Dropped the ad detection verdict; identity policies could not be read, so no punishment was applied.",
+        { chatId: event.chatId, senderId: event.senderId }
+      );
+      return;
+    }
+    if (ruling === "disabled") {
+      logger.info(
+        "Ad detection was turned off in chat before the verdict could be disposed; dropping it.",
+        { chatId: event.chatId, senderId: event.senderId }
+      );
+      return;
+    }
+    if (ruling === "protected") {
+      logger.error(
+        "Ad detection flagged protected sender; refusing to punish the identity.",
+        { chatId: event.chatId, senderId: event.senderId }
+      );
+      return;
+    }
+    if (ruling === "unconfigured") {
+      logger.error(
+        "Dropped the ad detection verdict; ad detection config was removed, so no punishment is configured.",
+        { chatId: event.chatId, senderId: event.senderId, configPath: AD_DETECT_CONFIG_PATH }
+      );
+      return;
+    }
+    scheduleAutoBlacklistAdPacks(event);
+    scheduleDeleteAdMessages(event);
+    if (ruling.kind === "blockGlobal") {
+      const result: GlobalAdBlockResult = await enforceGlobalAdBlock(event, ruling.newlyBlocked);
+      releaseDedup = !result.triggerChatHandedOff;
+      await announceAdDisposal(event, result.enforcedChats, result.failedChats);
+      return;
+    }
+    await punishAdSenderInChat(event, ruling);
+  } finally {
+    if (releaseDedup) {
+      adDetectDedupReleaserHolder.current?.(event.chatId, event.senderId);
+    }
+  }
+}
+
+/**
+ * 命中事件带有待自动拉黑的贴纸包或自定义表情包时，将写回任务并行登记到 `inFlightAdDisposals`，
+ * 既不延迟发送者处罚，又确保停机排空等待落盘完成；写回异常由 `trackBackgroundTask` 统一记录。
+ *
+ * @param event Worker 上报的广告命中事件
+ */
+function scheduleAutoBlacklistAdPacks(event: AdDetectedEvent): void {
+  if (
+    (event.adStickerPacks?.length ?? 0) === 0 &&
+    (event.adEmojiPacks?.length ?? 0) === 0
+  ) return;
+  trackBackgroundTask(
+    inFlightAdDisposals,
+    persistAutoBlacklistedAdPacks({
+      stickerPacks: event.adStickerPacks ?? [],
+      emojiPacks: event.adEmojiPacks ?? [],
+    }),
+    {
+      message: "Failed to persist auto-blacklisted ad packs:",
+      context: { chatId: event.chatId, senderId: event.senderId },
     }
   );
-  if (ruling === "unavailable") {
-    logger.error(
-      "Dropped the ad detection verdict; identity policies could not be read, so no punishment was applied.",
-      { chatId: event.chatId, senderId: event.senderId }
-    );
-    return;
-  }
-  if (ruling === "disabled") {
-    logger.info(
-      "Ad detection was turned off in chat before the verdict could be disposed; dropping it.",
-      { chatId: event.chatId, senderId: event.senderId }
-    );
-    return;
-  }
-  if (ruling === "protected") {
-    logger.error(
-      "Ad detection flagged protected sender; refusing to punish the identity.",
-      { chatId: event.chatId, senderId: event.senderId }
-    );
-    return;
-  }
-  if (ruling === "unconfigured") {
-    logger.error(
-      "Dropped the ad detection verdict; ad detection config was removed, so no punishment is configured.",
-      { chatId: event.chatId, senderId: event.senderId, configPath: AD_DETECT_CONFIG_PATH }
-    );
-    return;
-  }
-  if (ruling.kind === "blockGlobal") {
-    await enforceGlobalAdBlock(event, ruling.newlyBlocked);
-    return;
-  }
-  await punishAdSenderInChat(event, ruling);
 }
 
 /**
@@ -176,8 +274,12 @@ async function disposeDetectedAdLocked(event: AdDetectedEvent): Promise<void> {
  *
  * @param event Worker 上报的广告命中事件
  * @param newlyBlocked 本次是否新加入永久黑名单
+ * @returns 已登记群数、登记失败群数，以及触发群移除批次是否已移交 Worker
  */
-async function enforceGlobalAdBlock(event: AdDetectedEvent, newlyBlocked: boolean): Promise<void> {
+async function enforceGlobalAdBlock(
+  event: AdDetectedEvent,
+  newlyBlocked: boolean
+): Promise<GlobalAdBlockResult> {
   if (newlyBlocked && !await confirmBlocklistPersisted(event.senderId, false)) {
     logger.error(
       "Ad detection blocklist entry is memory-only; it will be lost on restart.",
@@ -216,8 +318,7 @@ async function enforceGlobalAdBlock(event: AdDetectedEvent, newlyBlocked: boolea
       "Ad detection has no chat to enforce the block in; the blocklist entry still applies to future joins.",
       { senderId: event.senderId, failedChatCount: failedChats }
     );
-    await announceAdDisposal(event, 0, failedChats);
-    return;
+    return { enforcedChats: 0, failedChats, triggerChatHandedOff: false };
   }
   if (failedChats > 0) {
     logger.error(
@@ -226,6 +327,9 @@ async function enforceGlobalAdBlock(event: AdDetectedEvent, newlyBlocked: boolea
     );
   }
   await blockedMemberRemoverHolder.current(removals);
+  const triggerChatHandedOff: boolean = removals.some(
+    (params: RemoveBlockedMembersParams): boolean => params.chatId === event.chatId
+  );
   logger.info(
     "Ad detection blocked sender and queued removals.",
     {
@@ -234,7 +338,7 @@ async function enforceGlobalAdBlock(event: AdDetectedEvent, newlyBlocked: boolea
       queuedChatCount: removals.length,
     }
   );
-  await announceAdDisposal(event, removals.length, failedChats);
+  return { enforcedChats: removals.length, failedChats, triggerChatHandedOff };
 }
 
 /**
@@ -329,7 +433,7 @@ async function clearAdVerdictActivity(event: AdVerdictTrueEvent): Promise<void> 
     ) {
       return;
     }
-    if (canBypassAdDetection(event.senderId)) return;
+    if (isProtectedFromAdDisposal(event.senderId)) return;
     clearTemporaryAdBypassActivityOrThrow(event.senderId);
   });
 }

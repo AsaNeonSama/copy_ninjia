@@ -1,8 +1,9 @@
 /** 文档与徽章声明的测试覆盖率及用例断言数一致性门禁测试。 */
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { runCoverageMetricsCheck } from "../../scripts/checkCoverageMetrics";
 import {
   collectCoverageMetricProblems,
   declaredCoverageMetrics,
@@ -213,5 +214,59 @@ describe("覆盖率指标一致性", () => {
     const root: string = await fixture();
     await Bun.file(join(root, "public", "coverage_dark.svg")).delete();
     await expect(collectCoverageMetricProblems(root)).rejects.toThrow(/ENOENT.*coverage_dark\.svg/);
+  });
+
+  test("其余位置一致但部分指标损坏（缺徽章、SVG 缺格、文案缺句）时 declaredCoverageMetrics 返回 null 且 CLI 返回 1", async (): Promise<void> => {
+    const brokenCases: readonly (readonly [string, Readonly<Record<string, string>>])[] = [
+      [
+        "missing badge",
+        {
+          "docs/en/README.md": "# copy-ninjia\n" +
+            `<a><img src="https://img.shields.io/badge/Tests-${RUN.tests}_Passed-2ea44f" alt="Tests"></a>\n` +
+            `<img alt="${englishSentence(RUN)}" src="public/coverage_light.svg">\n`,
+        },
+      ],
+      [
+        "missing svg cell",
+        {
+          "public/coverage_dark.svg": svg(RUN, ["4850", "418", "160,043", "96.75%"]),
+        },
+      ],
+      [
+        "missing metric sentence",
+        {
+          "docs/cn/05-dev-workflow.md": "| `bun run test:coverage` | 测试 + 全源码覆盖率 |\n",
+        },
+      ],
+    ];
+
+    const consoleErrorSpy = spyOn(console, "error").mockImplementation((): void => {});
+    try {
+      for (const [_label, overrides] of brokenCases) {
+        const root: string = await fixture(overrides);
+        const problems: string[] = [];
+        expect(await declaredCoverageMetrics(root, problems)).toBeNull();
+        expect(problems.length).toBeGreaterThan(0);
+
+        let measuredCalls: number = 0;
+        const exitCode: number = await runCoverageMetricsCheck({
+          projectRoot: root,
+          measure: (): CoverageMetrics => {
+            measuredCalls += 1;
+            return {
+              tests: 4850,
+              files: 418,
+              expectCalls: 160_043,
+              functionPercent: 96.75,
+              linePercent: 97.95,
+            };
+          },
+        });
+        expect(exitCode).toBe(1);
+        expect(measuredCalls).toBe(0);
+      }
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
   });
 });

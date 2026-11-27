@@ -1,6 +1,7 @@
 import { installTemporaryMessageWorkerMock } from "../../helpers/temporaryMessageWorkerMock";
 import { ATMOSPHERE_TEXTS } from "../../../packages/consts/atmosphere";
 import { COMMAND_MESSAGE_AUTO_DELETE_MS } from "../../../packages/consts/commands";
+import { MINUTE_MS } from "../../../packages/consts/time";
 installTemporaryMessageWorkerMock();
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { waitUntil } from "../../helpers/waitUntil";
@@ -11,6 +12,7 @@ import type { FloodWindowEntry } from "../../../packages/types/antiRaid/internal
 
 const errorLogs: unknown[][] = [];
 const sentTexts: string[] = [];
+const noticeThreadIds: (number | undefined)[] = [];
 const deleteAfterCalls: {
   chatId: number;
   messageId: number;
@@ -54,8 +56,9 @@ mock.module("../../../packages/infra/telegram", () => ({
     if (params.signal?.aborted === true) return "failed";
     return muteOutcome;
   },
-  sendMessage: async (params: { text: string; signal?: AbortSignal }): Promise<number | undefined> => {
+  sendMessage: async (params: { text: string; messageThreadId?: number; signal?: AbortSignal }): Promise<number | undefined> => {
     noticeSignals.push(params.signal);
+    noticeThreadIds.push(params.messageThreadId);
     if (noticeError !== null) throw noticeError;
     // 真实实现里被 abort 的请求返回 undefined（错误由统一边界吞掉）。
     if (params.signal?.aborted === true) return undefined;
@@ -778,7 +781,7 @@ describe("刷屏禁言的处置", () => {
     const notice: string = formatFloodMuteNotice("@noisy", ATMOSPHERE_TEXTS.teasing);
     expect(notice).toContain("@noisy");
     expect(notice).toContain(String(FLOOD_MESSAGE_LIMIT));
-    expect(notice).toContain(`${FLOOD_MUTE_DURATION_MS / 60_000} 分钟`);
+    expect(notice).toContain(`${FLOOD_MUTE_DURATION_MS / MINUTE_MS} 分钟`);
     // 文案只由标签与两个常量拼成，不带消息正文。
     expect(notice).not.toContain("spam");
   });
@@ -805,5 +808,6 @@ describe("刷屏禁言的处置", () => {
     expect(errorLogs).toBeEmpty();
     await flood(FLOOD_MESSAGE_LIMIT, candidate(-1001, 8));
     expect(muteCalls).toHaveLength(2);
+    expect(noticeThreadIds.every((threadId: number | undefined): boolean => threadId === undefined)).toBeTrue();
   });
 });

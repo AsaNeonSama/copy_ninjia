@@ -105,7 +105,7 @@ export const MINI_APP_HANDSHAKE_ID_BYTES: number = 16;
  * 不变量：不带全局标志 `g`，无状态复用，与前端 `packages/mini-app-frontend/consts/miniAppCrypto.ts` 一致。
  * 所属模块：`packages/mini-app-api-server/auth/handshake.ts`。
  */
-export const MINI_APP_HANDSHAKE_ID_HEX_PATTERN: RegExp = /^[0-9a-f]{32}$/i;
+export const MINI_APP_HANDSHAKE_ID_HEX_PATTERN: Readonly<RegExp> = /^[0-9a-f]{32}$/i;
 
 /**
  * 服务端对临时 X25519 登录握手公钥抄本执行 Ed25519 签名时使用的域分离前缀。

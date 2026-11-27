@@ -1,3 +1,4 @@
+import type { MiniAppAdBlacklistKind } from "../../types/miniApp/adBlacklists";
 import type {
   MiniAppChatTargetsMutationAction,
   MiniAppFeatureKey,
@@ -27,7 +28,7 @@ export const MINI_APP_GALLERY_MAX_PAGE_SIZE: number = 20;
  * 图库允许通过 HTTP 读取的单张图片安全文件名匹配规则（非点号开头、仅含字母数字与 `._-`、以受支持图片扩展名结尾）。
  * 不变量：拒绝含路径分隔符或空字符的文件名。所属模块：`packages/mini-app-api-server/view/gallery.ts`。
  */
-export const MINI_APP_GALLERY_SAFE_FILE_NAME_PATTERN: RegExp =
+export const MINI_APP_GALLERY_SAFE_FILE_NAME_PATTERN: Readonly<RegExp> =
   /^[A-Za-z0-9][A-Za-z0-9._-]*\.(?:jpg|jpeg|png|webp)$/iu;
 
 /**
@@ -164,3 +165,87 @@ export const MINI_APP_CHAT_TARGETS_MUTATION_ACTIONS: readonly MiniAppChatTargets
     "addTranslateTarget",
     "removeTranslateTarget",
   ]);
+
+/**
+ * Mini App 内容黑名单支持的种类闭集（贴纸包与自定义表情包）。
+ * 不变量：与 `MiniAppAdBlacklistKind` 联合类型一一对应，由 `test/mini-app-frontend/frontendParity.test.ts` 与前端副本核对一致。
+ * 所属模块：`packages/mini-app-api-server/handlers/adBlacklists.ts`。
+ */
+export const MINI_APP_AD_BLACKLIST_KINDS: readonly MiniAppAdBlacklistKind[] =
+  exhaustiveList<MiniAppAdBlacklistKind>()([
+    "sticker",
+    "emoji",
+  ]);
+
+/**
+ * 内容黑名单分页接口缺省每页返回的条数（10 条）。
+ * 不变量：`1..MINI_APP_AD_BLACKLIST_MAX_PAGE_SIZE` 之间的正整数，与其他分页列表统一，由 `test/mini-app-frontend/frontendParity.test.ts` 与前端副本核对一致。
+ * 所属模块：`packages/mini-app-api-server/handlers/adBlacklists.ts` 与 `packages/mini-app-api-server/view/adBlacklists.ts`。
+ */
+export const MINI_APP_AD_BLACKLIST_DEFAULT_PAGE_SIZE: number = 10;
+
+/**
+ * 内容黑名单分页接口单页允许的最大条数（20 条）。
+ * 不变量：等于前端 `packages/mini-app-frontend/consts/miniApp/ui.ts` 中 `MINI_APP_AD_BLACKLIST_PAGE_SIZE_OPTIONS` 的最大档位，由 `test/mini-app-frontend/frontendParity.test.ts` 与前端副本核对一致。
+ * 所属模块：`packages/mini-app-api-server/handlers/adBlacklists.ts` 与 `packages/mini-app-api-server/view/adBlacklists.ts`。
+ */
+export const MINI_APP_AD_BLACKLIST_MAX_PAGE_SIZE: number = 20;
+
+/**
+ * 内容黑名单分页搜索关键字（`query`）经首尾裁剪后允许的最大字符长度（128 字符）。
+ * 不变量：正整数上界，超出时 `GET /api/ad-blacklists` 返回 `400 INVALID_AD_BLACKLIST_PARAMS`，由 `test/mini-app-frontend/frontendParity.test.ts` 与前端副本核对一致。
+ * 所属模块：`packages/mini-app-api-server/handlers/adBlacklists.ts`。
+ */
+export const MINI_APP_AD_BLACKLIST_QUERY_MAX_LENGTH: number = 128;
+
+/**
+ * 内容黑名单包预览接口单页最多拉取并内联缩略图的贴纸/自定义表情枚数（16 枚，对应 4×4 预览网格）。
+ * 不变量：正整数，与前端 `packages/mini-app-frontend/consts/miniApp/ui.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。
+ * 所属模块：`packages/mini-app-api-server/view/adBlacklistsPreview.ts`。
+ */
+export const MINI_APP_AD_BLACKLIST_PREVIEW_PAGE_SIZE: number = 16;
+
+/**
+ * 内容黑名单包预览并发下载缩略图的最大在途任务数（4 路有界并发）。
+ * 不变量：正安全整数，经 `runBoundedSettledBatch` 约束 Telegram 下载闸门并发。
+ * 所属模块：`packages/mini-app-api-server/view/adBlacklistsPreview.ts`。
+ */
+export const MINI_APP_AD_BLACKLIST_PREVIEW_DOWNLOAD_CONCURRENCY: number = 4;
+
+/**
+ * 内容黑名单包预览单枚贴纸/缩略图下载允许的最大字节数（512 KiB）。
+ * 不变量：正整数，超限时该枚优雅降级为 Emoji/格式占位，不拖垮整包预览。
+ * 所属模块：`packages/mini-app-api-server/view/adBlacklistsPreview.ts`。
+ */
+export const MINI_APP_AD_BLACKLIST_PREVIEW_ITEM_MAX_BYTES: number = 512 * 1024;
+
+/**
+ * 内容黑名单包预览调用 `getStickerSet` 获取包元数据的超时毫秒数（10 秒）。
+ * 不变量：正整数毫秒数。所属模块：`packages/mini-app-api-server/view/adBlacklistsPreview.ts`。
+ */
+export const MINI_APP_AD_BLACKLIST_PREVIEW_SET_TIMEOUT_MS: number = 10_000;
+
+/**
+ * 内容黑名单包预览单枚贴纸/缩略图调用 `getFile` 的超时毫秒数（5 秒）。
+ * 不变量：正整数毫秒数。所属模块：`packages/mini-app-api-server/view/adBlacklistsPreview.ts`。
+ */
+export const MINI_APP_AD_BLACKLIST_PREVIEW_FILE_META_TIMEOUT_MS: number = 5_000;
+
+/**
+ * 内容黑名单包预览单枚贴纸/缩略图 HTTP 下载阶段的超时毫秒数（8 秒）。
+ * 不变量：正整数毫秒数。所属模块：`packages/mini-app-api-server/view/adBlacklistsPreview.ts`。
+ */
+export const MINI_APP_AD_BLACKLIST_PREVIEW_FILE_DOWNLOAD_TIMEOUT_MS: number = 8_000;
+
+/**
+ * 内容黑名单包预览单页批量下载缩略图的总超时预算毫秒数（15 秒）。
+ * 不变量：正整数毫秒数，防止大量慢连接阻塞预览响应。所属模块：`packages/mini-app-api-server/view/adBlacklistsPreview.ts`。
+ */
+export const MINI_APP_AD_BLACKLIST_PREVIEW_BATCH_TIMEOUT_MS: number = 15_000;
+
+/**
+ * Telegram `getStickerSet` 返回贴纸/自定义表情包不存在或已失效时的错误描述匹配规则（`400 STICKERSET_INVALID`）。
+ * 不变量：不带全局标志 `g` 且只读，可无状态复用。所属模块：`packages/mini-app-api-server/view/adBlacklistsPreview.ts`。
+ */
+export const MINI_APP_AD_BLACKLIST_STICKERSET_INVALID_PATTERN: Readonly<RegExp> =
+  /STICKERSET_INVALID/iu;

@@ -9,6 +9,7 @@ import { precheckMiniAppAccess } from "../../packages/mini-app-frontend/api/auth
 import {
   MINI_APP_SESSION_TTL_MS,
   MINI_APP_SIGNING_KEY_RELOAD_STORAGE_KEY,
+  MINI_APP_SIGNING_KEY_RELOAD_WINDOW_MS,
 } from "../../packages/mini-app-frontend/consts/miniApp";
 import {
   MINI_APP_INVALID_HANDSHAKE_CODE,
@@ -164,11 +165,30 @@ describe("Mini App 前端预检签名防环与 Web Crypto 可用性守卫", () =
     expect(secondMismatch.ok).toBeFalse();
     expect(reloadCount).toBe(1);
 
+    // 超过 10 秒防环窗口后再次遇到 signatureMismatch 允许重新触发一次 reload。
+    sessionStoreFixture.setItem(
+      MINI_APP_SIGNING_KEY_RELOAD_STORAGE_KEY,
+      String(Date.now() - MINI_APP_SIGNING_KEY_RELOAD_WINDOW_MS - 1)
+    );
+    const expiredWindowMismatch = await precheckMiniAppAccess();
+    expect(expiredWindowMismatch.ok).toBeFalse();
+    expect(reloadCount).toBe(2);
+
+    // 防环标记为畸形非时间戳字符串或非正数时视作无有效标记，允许重新触发 reload。
+    for (const malformedTs of ["not-a-number", "0", "-500", ""]) {
+      sessionStoreFixture.setItem(MINI_APP_SIGNING_KEY_RELOAD_STORAGE_KEY, malformedTs);
+      const before: number = reloadCount;
+      const malformedMismatch = await precheckMiniAppAccess();
+      expect(malformedMismatch.ok).toBeFalse();
+      expect(reloadCount).toBe(before + 1);
+    }
+
     // 缺少 sessionStorage 时直接跳过 reload，避免无存储环境下死循环。
     Reflect.deleteProperty(globalThis, "sessionStorage");
+    const beforeNoStorage: number = reloadCount;
     const noStorageMismatch = await precheckMiniAppAccess();
     expect(noStorageMismatch.ok).toBeFalse();
-    expect(reloadCount).toBe(1);
+    expect(reloadCount).toBe(beforeNoStorage);
 
     // 恢复 sessionStorage 后若预检签发与当前注入公钥一致的合法握手，清除防环标记。
     Object.defineProperty(globalThis, "sessionStorage", {

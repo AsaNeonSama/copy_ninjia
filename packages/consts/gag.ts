@@ -23,7 +23,7 @@ export const GAG_DURATION_MINUTES: readonly GagDurationMinutes[] = exhaustiveLis
 export const GAG_DEFAULT_DURATION_MINUTES: GagDurationMinutes = 5;
 
 /** `/gag` 时长位置上的纯数字形态；命中但不在允许集合时必须拒绝。 */
-export const GAG_DURATION_TOKEN_PATTERN: RegExp = /^\d+$/;
+export const GAG_DURATION_TOKEN_PATTERN: Readonly<RegExp> = /^\d+$/;
 
 /** 未指定 gag 用具时使用的名称。 */
 export const GAG_DEFAULT_TOOL: string = "口塞";

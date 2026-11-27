@@ -119,6 +119,7 @@ describe("logger persistence routing boundary", () => {
         permissionEntryCount: 0,
         chatStates: new Map(),
         chatQa: new Map(),
+        adPackBlacklistCounts: { sticker: 0, emoji: 0 },
       } satisfies DiskIOReply } as unknown as MessageEvent<DiskIOReply>);
       await loaded;
       expect(worker.messages).toHaveLength(1);

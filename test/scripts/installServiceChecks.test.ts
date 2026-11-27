@@ -108,7 +108,7 @@ function createFakeDependencies(): {
       const backupDir: string = join(fixture.backupRoot, "b1");
       mkdirSync(backupDir, { recursive: true });
       await Bun.write(join(backupDir, "manifest.tsv"), "copy-ninjia.service\n");
-      await Bun.write(join(backupDir, "original-1.json"), "[Service]\n");
+      await Bun.write(join(backupDir, "original-1.service"), "[Service]\n");
       return { exitCode: 1, output: "invalid observation state" };
     }
     const baseSec: number = interval === "1min 500ms" ? 60.5 : interval === "0" ? 0 : 5;
@@ -131,7 +131,7 @@ function createFakeDependencies(): {
       const backupDir: string = join(fixture.backupRoot, "b1");
       mkdirSync(backupDir, { recursive: true });
       await Bun.write(join(backupDir, "manifest.tsv"), "copy-ninjia.service\n");
-      await Bun.write(join(backupDir, "original-1.json"), "[Service]\n");
+      await Bun.write(join(backupDir, "original-1.service"), "[Service]\n");
       const msg: string = Number(after) === 0 && Number(started) > 0 ? "重启计数回落" : "observation failed";
       return { exitCode: 1, output: msg };
     }

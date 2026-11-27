@@ -1,8 +1,6 @@
 import { afterEach, beforeEach, describe, expect, jest, mock, spyOn, test } from "bun:test";
 import { rmSync } from "node:fs";
 
-const recoveredStickers: Map<string, string> = new Map<string, string>([["pack_one", "sticker-one"]]);
-const recoverStickerCatalogs = mock((_packs: readonly string[]): Map<string, string> => new Map(recoveredStickers));
 const writeStickerCatalogFile = mock((_pack: string, _snapshot: string): void => {});
 const stickerFiles = { write: writeStickerCatalogFile };
 
@@ -43,7 +41,6 @@ function stickerSnapshotJson(description: string): string {
 
 const {
   dirtyStickerPacks,
-  hydrateStickerCatalogCache,
   resetStickerCatalogCache,
   stickerCatalogCache,
   stickerFlushState,
@@ -51,19 +48,9 @@ const {
 const { diskIOOperationTail } =
   await import("../../../packages/cache/workers/diskIO/recovery");
 
-/**
- * 启动恢复的测试编排：与生产 adoptStickerCatalogSnapshots 一样把只读扫描的结果整体发布进
- * owner 缓存（见 workers/diskIO/startup.ts）；这里用注入的假结果，不碰真实目录。
- */
-function hydrateStickerCatalogs(activePacks: readonly string[]): Map<string, string> {
-  hydrateStickerCatalogCache(recoverStickerCatalogs(activePacks));
-  return stickerCatalogCache;
-}
-
 beforeEach(() => {
   resetStickerCatalogCache();
   clearStickerDirectory();
-  recoverStickerCatalogs.mockClear();
   writeStickerCatalogFile.mockReset();
 });
 
@@ -73,21 +60,24 @@ afterEach(() => {
 });
 
 describe("Disk I/O sticker catalog snapshot owner", () => {
-  test("贴纸目录的三阶段启动 API 走真实目录：inspect 只读、adopt 才发布、maintenance 收尾", async () => {
+  test("贴纸目录的三阶段启动 API 走真实目录：inspect 只读、adopt 清空旧脏缓冲并直接回传快照、maintenance 收尾", async () => {
     // 生产启动经 workers/diskIO/startup.ts 依次调用这三个函数；diskIOWorker.test.ts
     // 把它们整份 mock 掉，真实目录上的行为由本用例覆盖。
     writeStickerCatalogFileToDisk("pack_one", stickerSnapshotJson("恢复出来的目录"));
     stickerCatalogCache.set("stale_pack", "stale-sticker");
+    dirtyStickerPacks.add("stale_pack");
 
     const inspection = await inspectStickerCatalogs(["pack_one"]);
     // 第一阶段只读：adopt 之前 owner 缓存原封不动。
     expect(stickerCatalogCache.get("stale_pack")).toBe("stale-sticker");
     expect(inspection.snapshots.get("pack_one")).toBe(stickerSnapshotJson("恢复出来的目录"));
 
-    expect(adoptStickerCatalogSnapshots(inspection)).toBe(stickerCatalogCache);
-    // 整体替换：adopt 之后旧 owner 内容不残留。
-    expect(stickerCatalogCache.has("stale_pack")).toBeFalse();
-    expect(stickerCatalogCache.get("pack_one")).toBe(stickerSnapshotJson("恢复出来的目录"));
+    const adopted: Map<string, string> = adoptStickerCatalogSnapshots(inspection);
+    // adopt 清空待写脏缓存并直接回传磁盘恢复副本，不在 Disk I/O Worker 常驻干净副本。
+    expect(adopted).not.toBe(stickerCatalogCache);
+    expect(adopted.get("pack_one")).toBe(stickerSnapshotJson("恢复出来的目录"));
+    expect(stickerCatalogCache.size).toBe(0);
+    expect(dirtyStickerPacks.size).toBe(0);
 
     await expect(maintainStickerCatalogFiles(inspection)).resolves.toBeUndefined();
   });
@@ -119,13 +109,7 @@ describe("Disk I/O sticker catalog snapshot owner", () => {
     }
   });
 
-  test("hydrate 整体替换旧状态，markDirty/flush 按快照写盘并交回 timer", () => {
-    stickerCatalogCache.set("stale_pack", "stale-sticker");
-    dirtyStickerPacks.add("stale_pack");
-
-    expect(hydrateStickerCatalogs(["pack_one"])).toEqual(recoveredStickers);
-    expect(dirtyStickerPacks).toHaveLength(0);
-
+  test("markDirty/flush 按快照写盘并交回 timer", () => {
     markStickerCatalogSnapshotDirty("pack_two", "sticker-two", 1);
     expect(stickerFlushState.timer).not.toBeNull();
 

@@ -2,6 +2,10 @@
  * Mini App 前端外壳导航、主题配色、状态轮询、名单分页、原生选择器轮询与通用交互时长常量。
  */
 
+import type {
+  MiniAppAdBlacklistKind,
+  MiniAppAdBlacklistMutationCode,
+} from "../../types/miniApp/adBlacklists";
 import type { MiniAppIdentityAddMode } from "../../types/miniApp/identities";
 import type {
   MiniAppLanguage,
@@ -140,14 +144,101 @@ export const MINI_APP_IDENTITY_ADD_MODES: readonly MiniAppIdentityAddMode[] =
 
 /**
  * Mini App 侧边栏主导航标签键闭集。
- * 不变量：与 `MiniAppTabKey` 联合类型一一对应。所属模块：`packages/mini-app-frontend/components/AppShell.tsx`。
+ * 不变量：与 `MiniAppTabKey` 联合类型一一对应，且 `"adBlacklists"` 紧跟 `"identities"` 之后、`"configs"` 紧跟 `"adBlacklists"` 之后。所属模块：`packages/mini-app-frontend/components/AppShell.tsx`。
  */
 export const MINI_APP_TAB_KEYS: readonly MiniAppTabKey[] =
   exhaustiveList<MiniAppTabKey>()([
     "status",
     "chats",
     "identities",
+    "adBlacklists",
     "configs",
     "gallery",
     "totp",
+  ]);
+
+/**
+ * 内容黑名单页面支持的黑名单种类闭集（贴纸包、自定义表情包）。
+ * 不变量：与 `MiniAppAdBlacklistKind` 联合类型一一对应；取值与 `packages/consts/miniApp/features.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/pages/AdBlacklistsPage.tsx`。
+ */
+export const MINI_APP_AD_BLACKLIST_KINDS: readonly MiniAppAdBlacklistKind[] =
+  exhaustiveList<MiniAppAdBlacklistKind>()([
+    "sticker",
+    "emoji",
+  ]);
+
+/**
+ * 内容黑名单分页接口缺省每页返回的条数（10 条）。
+ * 不变量：属于 `MINI_APP_AD_BLACKLIST_PAGE_SIZE_OPTIONS` 档位且不超过 `MINI_APP_AD_BLACKLIST_MAX_PAGE_SIZE`；取值与 `packages/consts/miniApp/features.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/store/adBlacklists.ts` 与 `packages/mini-app-frontend/pages/AdBlacklistsPage.tsx`。
+ */
+export const MINI_APP_AD_BLACKLIST_DEFAULT_PAGE_SIZE: number = 10;
+
+/**
+ * 内容黑名单分页接口单页允许的最大条数（20 条）。
+ * 不变量：等于 `MINI_APP_AD_BLACKLIST_PAGE_SIZE_OPTIONS` 的最大档位；取值与 `packages/consts/miniApp/features.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/pages/AdBlacklistsPage.tsx`。
+ */
+export const MINI_APP_AD_BLACKLIST_MAX_PAGE_SIZE: number = 20;
+
+/**
+ * 内容黑名单列表可选的每页条数档位（默认 10 条，可切换 15、20 条）。
+ * 不变量：升序正整数只读数组，仅包含 10、15、20 三档，最大档等于 `MINI_APP_AD_BLACKLIST_MAX_PAGE_SIZE` 且包含 `MINI_APP_AD_BLACKLIST_DEFAULT_PAGE_SIZE`。所属模块：`packages/mini-app-frontend/pages/AdBlacklistsPage.tsx`。
+ */
+export const MINI_APP_AD_BLACKLIST_PAGE_SIZE_OPTIONS: readonly number[] = [10, 15, 20];
+
+/**
+ * 内容黑名单搜索关键字允许的最大字符数（128 字符）。
+ * 不变量：正整数；取值与 `packages/consts/miniApp/features.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/api/adBlacklists.ts`、`packages/mini-app-frontend/store/adBlacklists.ts` 与 `packages/mini-app-frontend/pages/AdBlacklistsPage.tsx`。
+ */
+export const MINI_APP_AD_BLACKLIST_QUERY_MAX_LENGTH: number = 128;
+
+/**
+ * 内容黑名单页内预览单页加载的贴纸/表情枚数（16 枚，对应 4×4 预览网格）。
+ * 不变量：正整数，与 `packages/consts/miniApp/features.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/components/AdBlacklistPreviewModal.tsx`。
+ */
+export const MINI_APP_AD_BLACKLIST_PREVIEW_PAGE_SIZE: number = 16;
+
+/**
+ * 内容黑名单页内预览弹窗在已知总枚数后执行「加载更多」时，按剩余枚数切片渲染精确格数图片骨架的序号表（上限 16 格，与 `MINI_APP_AD_BLACKLIST_PREVIEW_PAGE_SIZE` 对齐）。
+ * 不变量：从 0 起连续递增的只读整数数组，长度等于 `MINI_APP_AD_BLACKLIST_PREVIEW_PAGE_SIZE`。所属模块：`packages/mini-app-frontend/components/AdBlacklistPreviewModal.tsx`。
+ */
+export const MINI_APP_AD_BLACKLIST_PREVIEW_SKELETON_INDICES: readonly number[] = [
+  0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+];
+
+/**
+ * Telegram 贴纸包与自定义表情包 short name 的前端预校验匹配规则（1–64 位 ASCII 字母、数字或下划线）。
+ * 不变量：不带全局标志 `g` 且只读，可无状态复用；取值与 `packages/consts/aiChat/stickers.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/libs/adBlacklistPackInput.ts`。
+ */
+export const STICKER_PACK_NAME_PATTERN: Readonly<RegExp> = /^[A-Za-z0-9_]{1,64}$/;
+
+/**
+ * Telegram 网页端贴纸包与自定义表情包分享链接匹配规则（支持 `t.me`、`telegram.me`、`telegram.dog`，协议头与尾部单斜杠均可选）。
+ * 捕获组 1 为动作段（`addstickers` 或 `addemoji`），捕获组 2 为待经 `STICKER_PACK_NAME_PATTERN` 复核的包名候选段。
+ * 不变量：不带全局标志 `g` 且只读，可无状态复用。所属模块：`packages/mini-app-frontend/libs/adBlacklistPackInput.ts`。
+ */
+export const MINI_APP_TELEGRAM_PACK_WEB_LINK_PATTERN: Readonly<RegExp> =
+  /^(?:https?:\/\/)?(?:t\.me|telegram\.me|telegram\.dog)\/(addstickers|addemoji)\/([^/?#\s]+)\/?$/i;
+
+/**
+ * Telegram 原生 `tg://` 贴纸包与自定义表情包深链匹配规则（`tg://addstickers?set=<pack>` 或 `tg://addemoji?set=<pack>`）。
+ * 捕获组 1 为动作段（`addstickers` 或 `addemoji`），捕获组 2 为待经 `STICKER_PACK_NAME_PATTERN` 复核的包名候选段。
+ * 不变量：不带全局标志 `g` 且只读，可无状态复用。所属模块：`packages/mini-app-frontend/libs/adBlacklistPackInput.ts`。
+ */
+export const MINI_APP_TELEGRAM_PACK_TG_LINK_PATTERN: Readonly<RegExp> =
+  /^tg:\/\/(addstickers|addemoji)\/?\?set=([^&#\s]+)$/i;
+
+/**
+ * `POST /api/ad-blacklists` 服务端允许返回的全部业务状态码闭集（供前端识别非 2xx 结构化业务错误响应）。
+ * 不变量：与 `MiniAppAdBlacklistMutationCode` 联合类型一一对应。所属模块：`packages/mini-app-frontend/api/adBlacklists.ts`。
+ */
+export const MINI_APP_AD_BLACKLIST_MUTATION_CODES: readonly MiniAppAdBlacklistMutationCode[] =
+  exhaustiveList<MiniAppAdBlacklistMutationCode>()([
+    "AD_BLACKLIST_ADDED",
+    "AD_BLACKLIST_DUPLICATE",
+    "AD_BLACKLIST_REMOVED",
+    "AD_BLACKLIST_NOT_FOUND",
+    "INVALID_AD_BLACKLIST_PARAMS",
+    "INVALID_AD_BLACKLIST_PACK",
+    "AD_BLACKLIST_BOT_OWN_PACK",
+    "AD_BLACKLIST_STORAGE_UNAVAILABLE",
   ]);

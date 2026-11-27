@@ -1,6 +1,7 @@
 /**
- * 广告命中后的 Worker 侧处置副作用：删除涉事消息并将命中事件回投主线程（见 docs/cn/04-invariants.md
- * 与 antiRaid/adDetect.ts 的 announceAdDisposal）。
+ * 广告命中后的 Worker 侧处置副作用：将命中事件连同待删消息 ID 回投主线程（删消息与处罚
+ * 均在主线程复核开关与受保护身份通过后执行，见 docs/cn/04-invariants.md 与
+ * antiRaid/adDetect.ts），以及引用类广告首次公开警告和尾随消息清理。
  */
 
 import { workerAtmosphere } from "../atmosphere";
@@ -21,12 +22,13 @@ import { botCanDeleteIn } from "../botPermissions";
 import {
   AD_DETECT_MAX_IN_FLIGHT,
 } from "../../../consts/antiRaid/adDetect";
-import { TELEGRAM_DELETE_MESSAGES_BATCH_MAX } from "../../../consts/telegram";
+import { deleteMessageIdBatches } from "../../../libs/messageDeletion";
 import type {
   AdCandidateEntry,
   AdDetectedEvent,
   AdMessageBundle,
   AdSampleMessage,
+  AdSampleMessageType,
   AdVerdict,
 } from "../../../types/antiRaid/adDetect";
 import type { TelegramWorkerTemporaryMessageResult } from "../../../types/telegramWorker";
@@ -213,33 +215,70 @@ export function deleteStragglerAdMessage(chatId: number, messageId: number): voi
 }
 
 /**
- * 执行广告命中处置：向主线程发布 adDetected 事件（处罚由主线程按处罚设置执行）并批量删除涉事消息。
+ * 判定写入命中样本的单条消息类型：按贴纸、普通图片/图片文件、无正文自定义表情、文本的顺序归类。
+ *
+ * @param entry 选入本次送检的候选条目。
+ * @returns 命中样本消息类型。
+ */
+function resolveAdSampleMessageType(entry: AdCandidateEntry): AdSampleMessageType {
+  if (entry.stickerSetName !== undefined || entry.stickerFileId !== undefined) return "sticker";
+  if (entry.imageFileId !== undefined) return "photo";
+  if (
+    entry.text.length === 0 &&
+    entry.customEmojiIds !== undefined &&
+    entry.customEmojiIds.length > 0
+  ) {
+    return "custom_emoji";
+  }
+  return "text";
+}
+
+/**
+ * 将送检条目投影为命中样本消息快照：写入消息类型，仅在存在非空送检文本时写入 `text`，
+ * 贴纸所属包名单独写入 `stickerSetName`。
+ *
+ * @param entry 选入本次送检的候选条目。
+ * @returns 命中样本消息快照。
+ */
+function buildAdSampleMessage(entry: AdCandidateEntry): AdSampleMessage {
+  return {
+    messageId: entry.messageId,
+    type: resolveAdSampleMessageType(entry),
+    text: entry.text.length > 0 ? entry.text : undefined,
+    stickerSetName: entry.stickerSetName,
+    quote: entry.quote,
+    replyTo: entry.replyTo,
+  };
+}
+
+/**
+ * 执行广告命中回投：汇总待删消息 ID 并向主线程发布 adDetected 事件；删消息与处罚统一在
+ * 主线程复核通过后执行（通道已关闭时直接放弃，不删消息也不播报）。
  *
  * @param params 待处置消息束、判定结果与送检条目快照。
  */
-export async function disposeAdSender({ bundle, verdict, judged }: DisposeAdSenderParams): Promise<void> {
+export function disposeAdSender({ bundle, verdict, judged }: DisposeAdSenderParams): void {
   const messageIds: number[] = disposalMessageIds({
     judged,
     current: bundle.entries,
     evictedIds: bundle.pendingDeleteIds,
   });
   logger.info(
-    "Ad detection flagged sender and deleted messages.",
+    "Ad detection flagged sender and reported verdict to main thread.",
     {
       chatId: bundle.chatId,
       senderId: bundle.senderId,
       judgedCount: judged.length,
-      deletedCount: messageIds.length,
+      deleteMessageCount: messageIds.length,
       reason: verdict.reason || null,
     }
   );
   const publish: ((event: AdDetectedEvent) => void) | null = adDetectPublishHolder.current;
   if (publish === null) {
     logger.error(
-      "Ad detection could not report sender; the main-thread channel is closed, so deleting the messages without punishing or announcing.",
+      "Ad detection could not report sender; the main-thread channel is closed, so skipping disposal without deleting, punishing or announcing.",
       { chatId: bundle.chatId, senderId: bundle.senderId }
     );
-    await deleteAdMessages(bundle.chatId, messageIds);
     return;
   }
   publish({
@@ -250,15 +289,15 @@ export async function disposeAdSender({ bundle, verdict, judged }: DisposeAdSend
     label: adSenderLabel(bundle, workerAtmosphere()),
     meta: bundle.meta,
     reason: verdict.reason,
-    messages: judged.map((entry: AdCandidateEntry): AdSampleMessage => ({
-      messageId: entry.messageId,
-      text: entry.text.length > 0 ? entry.text : entry.stickerSetName ?? "",
-      quote: entry.quote,
-      replyTo: entry.replyTo,
-    })),
+    messages: judged.map(buildAdSampleMessage),
+    deleteMessageIds: messageIds,
+    ...(verdict.adStickerPacks !== undefined && verdict.adStickerPacks.length > 0
+      ? { adStickerPacks: verdict.adStickerPacks }
+      : {}),
+    ...(verdict.adEmojiPacks !== undefined && verdict.adEmojiPacks.length > 0
+      ? { adEmojiPacks: verdict.adEmojiPacks }
+      : {}),
   });
-
-  await deleteAdMessages(bundle.chatId, messageIds);
 }
 
 /**
@@ -275,15 +314,10 @@ async function deleteAdMessages(chatId: number, messageIds: readonly number[]): 
     );
     return;
   }
-  let failedBatches: number = 0;
-  for (let start: number = 0; start < messageIds.length; start += TELEGRAM_DELETE_MESSAGES_BATCH_MAX) {
-    const deleted: boolean = await deleteMessages(
-      chatId,
-      messageIds.slice(start, start + TELEGRAM_DELETE_MESSAGES_BATCH_MAX),
-      telegramApi
-    );
-    if (!deleted) failedBatches++;
-  }
+  const failedBatches: number = await deleteMessageIdBatches(
+    messageIds,
+    (batch: readonly number[]): Promise<boolean> => deleteMessages(chatId, batch, telegramApi)
+  );
   if (failedBatches === 0) return;
   logger.error(
     "Ad disposal could not delete message batches; the bot may lack can_delete_messages, or the messages are older than 48h.",

@@ -17,7 +17,7 @@ import {
   isTemporaryAdBypassActive,
   shouldPromoteToPermanentBypass,
 } from "../states/temporaryAdBypass";
-import { postAntiRaid } from "./workerBridge/controller";
+import { clearIdentityAdDetection } from "./workerBridge/controller";
 import type { AdDetectionMessageContext } from
   "../types/antiRaid/adDetect";
 import type { PromoteAdBypassWhitelistResult } from
@@ -49,7 +49,7 @@ export function recordEligibleTemporaryAdBypassActivity(
   if (activity === undefined) return false;
   if (!wasActive && isTemporaryAdBypassActive(activity, now)) {
     // 仅在首次达到免检条件时通知 Worker 清理该身份的在途广告检测状态。
-    postAntiRaid({ type: "temporaryAdBypassGranted", identityId: senderId });
+    clearIdentityAdDetection(senderId);
   }
   if (shouldPromoteToPermanentBypass(activity)) {
     const promotion: PromoteAdBypassWhitelistResult =

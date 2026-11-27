@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, jest, mock, spyOn, test } from "bun:test";
+import { MINUTE_MS } from "../../packages/consts/time";
 import { installTokyoFixtureTimeZone } from "../helpers/fixtureTimeZone";
 import type { CronRuntime, CronTask, CronTaskSchedule } from "../../packages/types/cron";
 
@@ -23,7 +24,6 @@ installTokyoFixtureTimeZone();
 
 /** 东京时间 09:00 前一秒。 */
 const START_MS: number = Date.parse("2026-09-20T08:59:59+09:00");
-const MINUTE_MS: number = 60_000;
 
 function task(overrides: Partial<CronTask> = {}): CronTask {
   return {

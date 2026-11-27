@@ -1,5 +1,5 @@
 /**
- * 墙钟时间窗判定。两个判定都把「系统校时回拨」按窗口已结束处理：回拨后的 now 早于
+ * 墙钟时间窗判定。各判定都把「系统校时回拨」按窗口已结束处理：回拨后的 now 早于
  * 记录时刻、或截止时刻远于任何一档延迟时，不再等回拨量走完才过期。
  */
 
@@ -13,6 +13,18 @@
 export function isRecordedWithin(recordedAt: number, now: number, maxAgeMs: number): boolean {
   const age: number = now - recordedAt;
   return age >= 0 && age <= maxAgeMs;
+}
+
+/**
+ * recordedAt 到 now 的经过时长是否落在 [0, maxAgeMs) 半开区间内。
+ * @param recordedAt 事件记录时的毫秒时间戳。
+ * @param now 当前毫秒时间戳。
+ * @param maxAgeMs 窗口毫秒时长（达到该值时视为已过期）。
+ * @returns 经过时长在 `[0, maxAgeMs)` 半开区间内时返回 true，否则返回 false。
+ */
+export function isRecordedWithinExclusive(recordedAt: number, now: number, maxAgeMs: number): boolean {
+  const age: number = now - recordedAt;
+  return age >= 0 && age < maxAgeMs;
 }
 
 /**

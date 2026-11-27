@@ -163,13 +163,25 @@ function formatMetrics(metrics: CoverageMetrics): string {
  *
  * @param projectRoot 仓库根目录绝对路径
  * @param problems 收集不一致或缺失问题的数组
+ * @param fileTexts 可选的预加载文件正文缓存（绝对路径 → 文本），避免重复读盘
  * @returns 全仓一致的覆盖率指标，存在冲突或缺失时返回 null
  */
 export async function declaredCoverageMetrics(
   projectRoot: string,
-  problems: string[]
+  problems: string[],
+  fileTexts?: ReadonlyMap<string, string>
 ): Promise<CoverageMetrics | null> {
+  const initialProblemCount: number = problems.length;
   const seen: Map<string, string[]> = new Map();
+  const loadedTexts: Map<string, string> = new Map();
+  const readMetricFileText = async (relativePath: string): Promise<string> => {
+    const cachedLocal: string | undefined = loadedTexts.get(relativePath);
+    if (cachedLocal !== undefined) return cachedLocal;
+    const absolutePath: string = join(projectRoot, relativePath);
+    const text: string = fileTexts?.get(absolutePath) ?? await Bun.file(absolutePath).text();
+    loadedTexts.set(relativePath, text);
+    return text;
+  };
   const record = (metrics: CoverageMetrics, where: string): void => {
     const key: string = formatMetrics(metrics);
     const places: string[] | undefined = seen.get(key);
@@ -178,7 +190,7 @@ export async function declaredCoverageMetrics(
   };
 
   for (const path of METRIC_SENTENCE_FILES) {
-    const source: string = await Bun.file(join(projectRoot, path)).text();
+    const source: string = await readMetricFileText(path);
     for (const metrics of sentenceMetrics(path, source, problems)) {
       record(metrics, path);
     }
@@ -186,7 +198,7 @@ export async function declaredCoverageMetrics(
 
   for (const path of SVG_FILES) {
     // 图里的数值格与同一张图的 aria-label/title 是两套独立文本，逐格核对。
-    const source: string = await Bun.file(join(projectRoot, path)).text();
+    const source: string = await readMetricFileText(path);
     const cells: string[] = [];
     SVG_VALUE_PATTERN.lastIndex = 0;
     for (
@@ -212,7 +224,7 @@ export async function declaredCoverageMetrics(
   }
 
   for (const path of BADGE_FILES) {
-    const source: string = await Bun.file(join(projectRoot, path)).text();
+    const source: string = await readMetricFileText(path);
     const tests: RegExpExecArray | null = TESTS_BADGE_PATTERN.exec(source);
     const line: RegExpExecArray | null = COVERAGE_BADGE_PATTERN.exec(source);
     if (tests === null || line === null) {
@@ -232,6 +244,7 @@ export async function declaredCoverageMetrics(
   }
 
   if (seen.size <= 1) {
+    if (problems.length > initialProblemCount) return null;
     const only: string | undefined = [...seen.keys()][0];
     return only === undefined ? null : metricsFromSentence(`${COMMAND_MARKER} ${only}`);
   }
@@ -249,12 +262,14 @@ export async function declaredCoverageMetrics(
  * 核对全部覆盖率指标位置描述同一次运行。
  *
  * @param projectRoot 仓库根目录绝对路径
+ * @param fileTexts 可选的预加载文件正文缓存（绝对路径 → 文本）
  * @returns 覆盖率指标不一致或格式错误的问题列表
  */
 export async function collectCoverageMetricProblems(
-  projectRoot: string
+  projectRoot: string,
+  fileTexts?: ReadonlyMap<string, string>
 ): Promise<readonly string[]> {
   const problems: string[] = [];
-  await declaredCoverageMetrics(projectRoot, problems);
+  await declaredCoverageMetrics(projectRoot, problems, fileTexts);
   return problems;
 }

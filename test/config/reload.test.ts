@@ -183,13 +183,16 @@ describe("config/dynamic/ 热重载判定", () => {
   });
 
   test("广告示例规范化后相同视为未变化", async () => {
+    const raw: { readonly punishment: unknown } = JSON.parse(baseline.files.get(AD_DETECT_CONFIG_PATH)!) as {
+      readonly punishment: unknown;
+    };
     const samples: readonly string[] = baseline.adDetectConfig?.samples ?? [];
     await writeJson(AD_DETECT_CONFIG_PATH, {
+      punishment: raw.punishment,
       samples: samples.map((sample: string): string => `  ${sample}\n`),
-      sticker_black_list: [...(baseline.adDetectConfig?.stickerBlackList ?? [])],
-      emoji_black_list: [...(baseline.adDetectConfig?.emojiBlackList ?? [])],
     });
     const changes: HotDeploymentConfigChanges = await reload();
+    expect(changes.rejections).toEqual([]);
     expect(changes.adDetectConfig).toBe(false);
     expect(defaultAdDetectConfigCache.current).toBe(baseline.adDetectConfig);
   });

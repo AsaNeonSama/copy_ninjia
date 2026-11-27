@@ -1,3 +1,4 @@
+import { clearIdentityAdDetection } from "../../../antiRaid";
 import { SUPER_ADMIN_USER_ID } from "../../../config/bot";
 import { isUserBlocked } from "../../../infra/blocklist/membership";
 import { runProtectedIdentityMutation } from "../../../infra/identityPolicy/coordination";
@@ -197,6 +198,7 @@ export async function setWhitelistEntryMembership({
       };
     }
     if (outcome.kind === "duplicate") {
+      clearIdentityAdDetection(id);
       await confirmIdentityPolicyPersisted("whitelist", id, true);
       return {
         ok: true,
@@ -206,6 +208,7 @@ export async function setWhitelistEntryMembership({
         message: "WHITELIST_DUPLICATE",
       };
     }
+    if (enabled) clearIdentityAdDetection(id);
     await confirmIdentityPolicyPersisted("whitelist", id, !outcome.result.changed);
     const changed: boolean = outcome.result.changed;
     return {

@@ -11,7 +11,7 @@ import { FLUSH_MAX_ENTRIES } from "./appendOnly";
  * 按群、按配置时区的日期命名的入群日志文件。
  * 捕获组 1 是群 ID，捕获组 2 是 YYYY-MM-DD 日期。
  */
-export const JOIN_LOG_FILE_PATTERN: RegExp =
+export const JOIN_LOG_FILE_PATTERN: Readonly<RegExp> =
   /^(-?[1-9]\d*)\.(\d{4}-\d{2}-\d{2})\.json$/;
 
 /**

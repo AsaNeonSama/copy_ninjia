@@ -6,11 +6,17 @@ import {
   adDetectCapacitySaturated,
   adDetectPrompts,
   adDetectQueue,
+  adDetectVisionSupport,
+  adPackBlacklistCounts,
   pendingAdBundleCount,
   pendingAdMessages,
   queuedAdDetectKeys,
 } from "../../../packages/cache/workers/antiRaid/adDetect";
-import { adDetectGoogleClientHolder } from "../../../packages/cache/workers/antiRaid/google";
+import { adDetectAnthropicClientHolder } from "../../../packages/cache/workers/antiRaid/anthropic";
+import {
+  adDetectGoogleClientHolder,
+  adDetectGoogleDecisionClientHolder,
+} from "../../../packages/cache/workers/antiRaid/google";
 import { adDetectOpenAiClientHolder } from "../../../packages/cache/workers/antiRaid/openai";
 import {
   adDetectAgentConfigCache,
@@ -23,7 +29,10 @@ import {
 import type { AdDetectPrompts } from "../../../packages/types/antiRaid/adDetect";
 import type { AdDetectAgentConfig, AdDetectConfig } from "../../../packages/types/config";
 
-const { adoptAdDetectConfigMessage } = await import("../../../packages/workers/antiRaid/adDetect/config");
+const {
+  adoptAdDetectConfigMessage,
+  adoptAdPackBlacklistSyncMessage,
+} = await import("../../../packages/workers/antiRaid/adDetect/config");
 
 const originalAdDetect: AdDetectAgentConfig | null = adDetectAgentConfigCache.current;
 const originalSamples: AdDetectConfig | null = defaultAdDetectConfigCache.current;
@@ -41,19 +50,27 @@ const OLD_PROMPTS: AdDetectPrompts = {
   establishedSystemPrompt: "old prompt",
 };
 
-/** 装上按旧快照派生的客户端与提示词缓存。 */
+/** 装上按旧快照派生的客户端、视觉探测态与提示词缓存。 */
 function seedDerivedState(): void {
   adDetectGoogleClientHolder.current = {} as GoogleGenAI;
+  adDetectGoogleDecisionClientHolder.current = { key: "old", client: {} as GoogleGenAI };
   adDetectOpenAiClientHolder.current = {} as OpenAI;
+  adDetectAnthropicClientHolder.current = {} as NonNullable<typeof adDetectAnthropicClientHolder.current>;
   adDetectPrompts.current = OLD_PROMPTS;
+  adDetectVisionSupport.current = "unsupported";
 }
 
 afterEach((): void => {
   adDetectAgentConfigCache.current = originalAdDetect;
   defaultAdDetectConfigCache.current = originalSamples;
   adDetectGoogleClientHolder.current = null;
+  adDetectGoogleDecisionClientHolder.current = null;
   adDetectOpenAiClientHolder.current = null;
+  adDetectAnthropicClientHolder.current = null;
   adDetectPrompts.current = null;
+  adDetectVisionSupport.current = "unknown";
+  adPackBlacklistCounts.sticker = 0;
+  adPackBlacklistCounts.emoji = 0;
   adDetectQueue.clear();
   queuedAdDetectKeys.clear();
   clearPendingAdBundles();
@@ -67,8 +84,6 @@ describe("Anti-Raid Worker 接管广告检测配置", () => {
     const samples: AdDetectConfig = {
       punishment: { kind: "kick", blockScope: "global" },
       samples: ["新的广告示例"],
-      stickerBlackList: new Set(["BadSticker"]),
-      emojiBlackList: new Set(["BadEmoji"]),
     };
 
     adoptAdDetectConfigMessage({
@@ -83,8 +98,11 @@ describe("Anti-Raid Worker 接管广告检测配置", () => {
     expect(adDetectAgentConfigCache.current).toBe(reloadedAdDetect);
     expect(defaultAdDetectConfigCache.current).toBe(samples);
     expect(adDetectGoogleClientHolder.current).toBeNull();
+    expect(adDetectGoogleDecisionClientHolder.current).toBeNull();
     expect(adDetectOpenAiClientHolder.current).toBeNull();
+    expect(adDetectAnthropicClientHolder.current).toBeNull();
     expect(adDetectPrompts.current).toBeNull();
+    expect(adDetectVisionSupport.current).toBe("unknown");
   });
 
   test("切换为 Google provider 时整体更新快照并清空旧客户端", () => {
@@ -93,6 +111,7 @@ describe("Anti-Raid Worker 接管广告检测配置", () => {
       apiKey: "google-ad-key",
       baseUrl: undefined,
       model: "gemini-4-argon",
+      useDecision: false,
     };
     adDetectAgentConfigCache.current = { ...reloadedAdDetect };
     seedDerivedState();
@@ -103,7 +122,7 @@ describe("Anti-Raid Worker 接管广告检测配置", () => {
       timeZone: getTimeZone(),
       logLevel: "operation",
       adDetect: googleAdDetect,
-      adDetectConfig: { punishment: { kind: "kick", blockScope: "global" }, samples: ["广告示例"], stickerBlackList: new Set(), emojiBlackList: new Set() },
+      adDetectConfig: { punishment: { kind: "kick", blockScope: "global" }, samples: ["广告示例"] },
     });
 
     expect<AdDetectAgentConfig | null>(adDetectAgentConfigCache.current).toBe(googleAdDetect);
@@ -112,14 +131,12 @@ describe("Anti-Raid Worker 接管广告检测配置", () => {
     expect(adDetectPrompts.current).toBeNull();
   });
 
-  test("仅更新广告检测示例与黑名单时清空提示词缓存并重置客户端", () => {
+  test("仅更新广告检测示例时清空提示词缓存并重置客户端", () => {
     adDetectAgentConfigCache.current = { ...reloadedAdDetect };
     seedDerivedState();
     const updatedSamples: AdDetectConfig = {
       punishment: { kind: "kick", blockScope: "global" },
       samples: ["新的广告示例"],
-      stickerBlackList: new Set(),
-      emojiBlackList: new Set(),
     };
 
     adoptAdDetectConfigMessage({
@@ -135,6 +152,29 @@ describe("Anti-Raid Worker 接管广告检测配置", () => {
     expect(adDetectGoogleClientHolder.current).toBeNull();
     expect(adDetectOpenAiClientHolder.current).toBeNull();
     expect(adDetectPrompts.current).toBeNull();
+  });
+
+  test("adPackBlacklistSync 只更新黑名单计数镜像，绝不清空 AI SDK 客户端、提示词缓存或视觉探测态", () => {
+    adDetectAgentConfigCache.current = { ...reloadedAdDetect };
+    seedDerivedState();
+    const googleClient: GoogleGenAI | null = adDetectGoogleClientHolder.current;
+    const googleDecisionClient = adDetectGoogleDecisionClientHolder.current;
+    const openAiClient: OpenAI | null = adDetectOpenAiClientHolder.current;
+    const anthropicClient: typeof adDetectAnthropicClientHolder.current = adDetectAnthropicClientHolder.current;
+
+    adoptAdPackBlacklistSyncMessage({
+      type: "adPackBlacklistSync",
+      stickerCount: 2,
+      emojiCount: 1,
+    });
+
+    expect(adPackBlacklistCounts).toEqual({ sticker: 2, emoji: 1 });
+    expect(adDetectGoogleClientHolder.current).toBe(googleClient);
+    expect(adDetectGoogleDecisionClientHolder.current).toBe(googleDecisionClient);
+    expect(adDetectOpenAiClientHolder.current).toBe(openAiClient);
+    expect(adDetectAnthropicClientHolder.current).toBe(anthropicClient);
+    expect(adDetectPrompts.current).toBe(OLD_PROMPTS);
+    expect(adDetectVisionSupport.current).toBe("unsupported");
   });
 
   test("广告检测不可用时示例 holder 与提示词缓存保持不动，ad_detect 显式写 null", () => {
@@ -189,8 +229,6 @@ describe("Anti-Raid Worker 接管广告检测配置", () => {
       adDetectConfig: {
         punishment: { kind: "kick", blockScope: "global" },
         samples: [],
-        stickerBlackList: new Set(),
-        emojiBlackList: new Set(),
       },
     });
     expect(adDetectQueue.size).toBe(0);

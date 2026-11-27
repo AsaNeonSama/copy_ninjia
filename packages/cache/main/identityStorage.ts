@@ -14,7 +14,7 @@ import { resetTemporaryAdBypassCache } from "./temporaryAdBypass";
  * 身份 ID 到白名单、黑名单与临时广告免检三态结论的 LRU 缓存（条目字段语义见 types/identityStorage.ts 的 IdentityPolicyCacheEntry）：
  * - 填充：prefetchIdentityPolicies / readIdentityPolicyVerdicts 整条写入（prefetchIdentityPolicies 对已加载条目只以 get 刷新顺位），或写入路径按字段覆盖；
  * - 读取：cachedWhitelistEntry、cachedBlocklistEntry、hasActiveTemporaryAdBypassAt 与 identityPolicy/whitelist.ts 的
- *   getEffectiveWhitelistPermissions、readWhitelistPermissionOrBlocked 使用 get 刷新 LRU 顺位，其余探测使用 peek；
+ *   getEffectiveWhitelistPermissions、readEffectiveWhitelistOrBlocked 使用 get 刷新 LRU 顺位，其余探测使用 peek；
  * - 清理与容量：容量上限为 IDENTITY_READ_CACHE_MAX_ENTRIES，满额按 LRU 淘汰；启动接管或 resetIdentityStorageCache 时清空，进程重启后从 SQLite 预热重建。
  */
 export const identityPolicyCache: LruCache<number, IdentityPolicyCacheEntry> =

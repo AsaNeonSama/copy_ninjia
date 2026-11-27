@@ -30,16 +30,23 @@ export function relativeModuleCandidates(
 
 /**
  * 把相对说明符解析成仓库内的 .ts 文件；解析不到（npm 包等）返回 undefined。
+ * 提供 `knownFiles` 时优先查表，未命中再回退 `existsSync`。
  *
  * @param specifier 相对模块说明符
  * @param fromFile 发起引用的源文件绝对路径
+ * @param knownFiles 可选的已知仓内文件绝对路径集合或文本映射
  * @returns 解析到的 .ts 文件绝对路径，未命中时返回 undefined
  */
-export function resolveRelativeModule(specifier: string, fromFile: string): string | undefined {
+export function resolveRelativeModule(
+  specifier: string,
+  fromFile: string,
+  knownFiles?: ReadonlySet<string> | ReadonlyMap<string, unknown>
+): string | undefined {
   const resolved: RelativeModuleCandidates | undefined = relativeModuleCandidates(fromFile, specifier);
   if (resolved === undefined) return undefined;
   for (const candidate of resolved.candidates) {
-    if (candidate.endsWith(".ts") && existsSync(candidate)) return candidate;
+    if (!candidate.endsWith(".ts")) continue;
+    if (knownFiles?.has(candidate) === true || existsSync(candidate)) return candidate;
   }
   return undefined;
 }
@@ -98,7 +105,7 @@ export function createModuleGraphReader(fileTexts?: ReadonlyMap<string, string>)
         external.push(specifier);
         return;
       }
-      const resolved: string | undefined = resolveRelativeModule(specifier, path);
+      const resolved: string | undefined = resolveRelativeModule(specifier, path, fileTexts);
       if (resolved !== undefined) internal.push(resolved);
     }
     function visit(node: ts.Node): void {

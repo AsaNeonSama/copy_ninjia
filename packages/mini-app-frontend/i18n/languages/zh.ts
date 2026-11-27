@@ -15,6 +15,10 @@ import type {
   MiniAppTranslations,
 } from "../../types/miniAppI18n";
 import {
+  formatZhAdBlacklistServerNotice,
+  getZhAdBlacklistsTranslations,
+} from "../adBlacklists/zh";
+import {
   formatZhConfigServerNotice,
   getZhConfigsTranslations,
 } from "../configs/zh";
@@ -324,7 +328,11 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
       case "INVALID_CHAT_TARGETS_PARAMS":
         return "笨蛋杂鱼♡，目标管理请求参数格式不对哦！";
       default:
-        return formatZhConfigServerNotice(code, params) ?? code;
+        return (
+          formatZhAdBlacklistServerNotice(code, params) ??
+          formatZhConfigServerNotice(code, params) ??
+          code
+        );
     }
   };
   return {
@@ -347,6 +355,7 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
       chats: "受管群聊",
       identities: "权限控制",
       configs: "配置编辑",
+      adBlacklists: "内容黑名单",
       gallery: "色图图库",
       totp: "验证器",
     },
@@ -355,6 +364,7 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
       chats: "已 /init 群开关与热 256 条发言",
       identities: "白名单 18 项权限与黑名单管理",
       configs: "动态热重载与静态启动 JSON 配置编辑",
+      adBlacklists: "贴纸包与自定义表情包内容黑名单",
       gallery: "/h_image 图库预览、上传与删除",
       totp: "谷歌验证器 (TOTP) 绑定、替换与删除",
     },
@@ -706,7 +716,7 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
         isCanBypassFloodControl: "让这个身份绕过防刷屏计数与自动禁言，本天才不会按住 TA，别给刷屏杂鱼哦♡",
         isCanControllAIPermission: "让这号杂鱼能用 /ai_chat enable|disable 开关 AI 闲聊，别乱按呀♡",
         isCanClearContext: "允许使用 /clear_context 清空当前群的 AI 对话记忆。",
-        isCanControllAdDetectPermission: "让这号杂鱼能用 /ad_detect enable|disable 开关广告检测，抓漏了就怪你哦♡",
+        isCanControllAdDetectPermission: "让这号杂鱼能用 /ad_detect 开关广告检测和管理贴纸与自定义表情包黑名单，抓漏了就怪你哦♡",
         isCanControllFloodControlPermission: "让这号杂鱼能用 /flood_control enable|disable 开关防刷屏禁言，别乱按呀♡",
         isCanControllTranslatePermission: "让这号杂鱼能用 /translate enable|disable 开关翻译功能，这点小事总看得懂吧♡",
         isCanControllAntiRaidPermission: "让这号杂鱼能用 /antiraid enable|disable 开关入群验证与防冲群私密模式，关掉可就没人拦僵尸了哦♡",
@@ -739,5 +749,6 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
         "图库目录里连一张图都没有呢，杂鱼快点右上角「上传新图」塞几张进来吧♡",
     },
     configs: getZhConfigsTranslations(),
+    adBlacklists: getZhAdBlacklistsTranslations(),
   };
 }

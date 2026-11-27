@@ -17,6 +17,7 @@ import {
   trimJoinLogRecordsToCapacity,
 } from "../../packages/workers/diskIO/joinLogRecords";
 import { perfChildEnvironment } from "./childEnvironment";
+import { decodeUtf8 } from "../utf8";
 import {
   aggregate,
   CAPACITY_WARMUP_ROUNDS,
@@ -249,7 +250,6 @@ function runIndependentChild(
   operation: Operation,
   variant: Variant
 ): ChildResult {
-  const decoder: TextDecoder = new TextDecoder();
   const result: Bun.ReadableSyncSubprocess = Bun.spawnSync([
     Bun.argv[0]!,
     import.meta.path,
@@ -259,10 +259,10 @@ function runIndependentChild(
   ], { env: perfChildEnvironment() });
   if (!result.success) {
     throw new Error(
-      `Join log benchmark child failed: ${decoder.decode(result.stderr)}`
+      `Join log benchmark child failed: ${decodeUtf8(result.stderr)}`
     );
   }
-  return JSON.parse(decoder.decode(result.stdout)) as ChildResult;
+  return JSON.parse(decodeUtf8(result.stdout)) as ChildResult;
 }
 
 /**

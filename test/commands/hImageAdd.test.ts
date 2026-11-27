@@ -405,4 +405,54 @@ describe("/h_image add", () => {
     await handleHImageCommand(context(photo("a")));
     expect(sendCommandMessage).toHaveBeenCalledWith({ chatId: CHAT_ID, text: texts.busy, replyToMessageId: 10 });
   });
+
+  test("论坛话题中触发 /h_image add 时，延后汇总与异常提示均携带触发话题 messageThreadId", async () => {
+    downloads.set("file-topic", { status: "ok", bytes: JPEG });
+    const topicReply: Message = photo("topic");
+    await handleHImageCommand({
+      chat: { id: CHAT_ID, type: "supergroup" },
+      from: { id: 5, is_bot: false, first_name: "Alice" },
+      msgId: 10,
+      msg: {
+        message_id: 10,
+        chat: { id: CHAT_ID, type: "supergroup" },
+        is_topic_message: true,
+        message_thread_id: 77,
+        reply_to_message: topicReply,
+      },
+      match: "add",
+    } as never);
+    expect(await drainDeferredCommandRuntime(5_000)).toBe("flushed");
+    expect(sendCommandMessage).toHaveBeenCalledWith({
+      chatId: CHAT_ID,
+      text: texts.addResult({ added: 1, librarySize: 0, existing: 0, invalidDimensions: 0, failed: 0 }),
+      replyToMessageId: 10,
+      messageThreadId: 77,
+    });
+
+    // 下载路径抛异常触发统一失败回执时同样落在原话题。
+    initDeferredCommandRuntime();
+    sendCommandMessage.mockClear();
+    downloads.set("file-boom", new Error("disk boom"));
+    await handleHImageCommand({
+      chat: { id: CHAT_ID, type: "supergroup" },
+      from: { id: 5, is_bot: false, first_name: "Alice" },
+      msgId: 11,
+      msg: {
+        message_id: 11,
+        chat: { id: CHAT_ID, type: "supergroup" },
+        is_topic_message: true,
+        message_thread_id: 88,
+        reply_to_message: photo("boom"),
+      },
+      match: "add",
+    } as never);
+    expect(await drainDeferredCommandRuntime(5_000)).toBe("flushed");
+    expect(sendCommandMessage).toHaveBeenCalledWith({
+      chatId: CHAT_ID,
+      text: texts.addResult({ added: 0, librarySize: 1, existing: 0, invalidDimensions: 0, failed: 1 }),
+      replyToMessageId: 11,
+      messageThreadId: 88,
+    });
+  });
 });

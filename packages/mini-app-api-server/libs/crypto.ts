@@ -47,7 +47,7 @@ export interface DecryptMiniAppBinaryOptions {
  */
 function toArrayBufferView(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
   if (bytes.buffer instanceof ArrayBuffer) {
-    return new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    return bytes as Uint8Array<ArrayBuffer>;
   }
   const copy: Uint8Array<ArrayBuffer> = new Uint8Array(bytes.byteLength);
   copy.set(bytes);

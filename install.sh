@@ -220,8 +220,8 @@ step "1/8 平台自检"
   die "只支持 Linux：实例锁依赖 /proc/<pid>/stat 与 boot ID，其它平台会 fail-closed 拒绝启动。"
 [ -r /proc/self/stat ] ||
   die "/proc 不可读：实例锁无法工作。容器请挂载 /proc 后重试。"
-# 校验控制终端可读可写；后续交互问答均从该终端读取。
-{ [ -r "$TTY_DEVICE" ] && [ -w "$TTY_DEVICE" ]; } ||
+# 校验当前进程确实挂有可打开读写的控制终端；仅测 [ -r /dev/tty ] 只查权限位，无控制终端时会在后续 read 触发 ENXIO。
+( : <>"$TTY_DEVICE" ) 2>/dev/null ||
   die "拿不到控制终端（${TTY_DEVICE}），无法询问配置。请在交互式终端里运行本脚本。"
 info "Linux + 可读 /proc + 可用控制终端，均满足。"
 

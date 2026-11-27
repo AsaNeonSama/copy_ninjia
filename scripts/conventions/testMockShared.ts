@@ -50,7 +50,7 @@ function resolveImportBinding(checker: ts.TypeChecker, symbol: ts.Symbol): ts.Sy
  * @param symbol 待归一化的符号
  * @returns 源声明符号
  */
-export function canonicalSymbol(checker: ts.TypeChecker, symbol: ts.Symbol): ts.Symbol {
+function canonicalSymbol(checker: ts.TypeChecker, symbol: ts.Symbol): ts.Symbol {
   const target: ts.Symbol = (symbol.flags & ts.SymbolFlags.Alias) !== 0
     ? checker.getAliasedSymbol(symbol)
     : symbol;
@@ -64,7 +64,7 @@ export function canonicalSymbol(checker: ts.TypeChecker, symbol: ts.Symbol): ts.
  * @param expression 待检查的表达式节点
  * @returns 关联的 TypeScript 符号，无法解析时返回 undefined
  */
-export function referencedSymbol(checker: ts.TypeChecker, expression: ts.Expression): ts.Symbol | undefined {
+function referencedSymbol(checker: ts.TypeChecker, expression: ts.Expression): ts.Symbol | undefined {
   const target: ts.Expression = unwrapExpression(expression);
   if (ts.isIdentifier(target)) return checker.getSymbolAtLocation(target);
   if (ts.isPropertyAccessExpression(target)) return checker.getSymbolAtLocation(target.name);

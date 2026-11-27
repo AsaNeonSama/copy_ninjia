@@ -310,7 +310,7 @@ describe("引用类广告的警告升级与处置抑制", () => {
     expect(deleteReferencedAdMessages).toHaveBeenCalledTimes(1);
   });
 
-  test("公开警告发送抛错时记错误，不开启升级窗口但仍删除引用广告", async () => {
+  test("公开警告双工 RPC 抛错时记错误，按 fail-closed 取消升级窗口、不删除消息并清理已判定条目", async () => {
     classifyAdText.mockImplementation(async (text: string): Promise<AdVerdict> => ({
       isAd: text.includes("日入过千"),
       reason: "引用内容引流",
@@ -330,8 +330,9 @@ describe("引用类广告的警告升级与处置抑制", () => {
     )).toBeTrue();
     expect(referencedAdWarningStates.has("-1001:7")).toBe(false);
     expect(inFlightAdDetectKeys.has("-1001:7")).toBe(false);
+    expect(pendingAdBundle(-1001, 7)).toBeUndefined();
     expect(disposeAdSender).not.toHaveBeenCalled();
-    expect(deleteReferencedAdMessages).toHaveBeenCalledTimes(1);
+    expect(deleteReferencedAdMessages).not.toHaveBeenCalled();
   });
 
   test("主线程发现临时广告豁免时不警告、不删消息并丢弃旧待检串", async () => {

@@ -12,7 +12,7 @@ import {
   MUTE_MAX_DURATION_MS,
   MUTE_MIN_DURATION_MS,
 } from "../../packages/consts/commands";
-import { DAY_MS } from "../../packages/consts/time";
+import { DAY_MS, HOUR_MS, MINUTE_MS } from "../../packages/consts/time";
 import { TELEGRAM_RESTRICTION_FOREVER_AFTER_MS } from "../../packages/consts/telegram";
 import { replyCommandNoticeVia } from "../helpers/common";
 
@@ -67,10 +67,10 @@ afterEach(() => {
 
 describe("parseMuteDurationMs", () => {
   test("m/h/d 三种单位换算成毫秒，大小写均可", () => {
-    expect(parseMuteDurationMs("10m")).toBe(10 * 60_000);
-    expect(parseMuteDurationMs("2h")).toBe(2 * 60 * 60_000);
-    expect(parseMuteDurationMs("1d")).toBe(24 * 60 * 60_000);
-    expect(parseMuteDurationMs("90M")).toBe(90 * 60_000);
+    expect(parseMuteDurationMs("10m")).toBe(10 * MINUTE_MS);
+    expect(parseMuteDurationMs("2h")).toBe(2 * HOUR_MS);
+    expect(parseMuteDurationMs("1d")).toBe(DAY_MS);
+    expect(parseMuteDurationMs("90M")).toBe(90 * MINUTE_MS);
     expect(parseMuteDurationMs(`${MUTE_MAX_DURATION_MS / DAY_MS}D`)).toBe(MUTE_MAX_DURATION_MS);
   });
 

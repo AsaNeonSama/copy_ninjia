@@ -42,7 +42,7 @@ export const VERIFY_ANSWER_SEPARATOR: string = ":";
  * 本人作答选项数值的规范十进制形态：0 或不带前导零的正整数，最多 3 位（算术题答案上限为
  * VERIFICATION_CHALLENGE_OPERAND_MAX 的平方加干扰项偏移）。所属模块：antiRaid/updateIngress.ts。
  */
-export const VERIFY_ANSWER_ARG_PATTERN: RegExp = /^(?:0|[1-9]\d{0,2})$/;
+export const VERIFY_ANSWER_ARG_PATTERN: Readonly<RegExp> = /^(?:0|[1-9]\d{0,2})$/;
 /** 算术题操作数的下限（含）；除法的除数同样不小于它，题目不出现 0 作除数。所属模块：workers/antiRaid/verificationChallenge.ts。 */
 export const VERIFICATION_CHALLENGE_OPERAND_MIN: number = 1;
 /** 算术题操作数的上限（含）；四则运算的两个操作数都不超过它，除法的被除数同样受限。所属模块：workers/antiRaid/verificationChallenge.ts。 */

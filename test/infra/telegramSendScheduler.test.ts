@@ -390,13 +390,29 @@ describe("每聊天发送调度器", () => {
     expect(textsOf(-1001)).toEqual(["net", "sync", "ok"]);
   });
 
-  test("空闲车道在分钟窗口过去后删除", async () => {
+  test("空闲车道在分钟窗口过去后删除；从未发出过消息的新车道排空后立即退役", async () => {
     await send(-1001, "once");
     expect(sendChatLanes.has(-1001)).toBeTrue();
     await advance(TELEGRAM_SEND_GROUP_WINDOW_MS - 1);
     expect(sendChatLanes.has(-1001)).toBeTrue();
     await advance(1);
     expect(sendChatLanes.has(-1001)).toBeFalse();
+
+    // 占满全局秒窗口，让新车道在发出前就被取消：从未发出过（lastSendAt < 0）的车道应立即退役。
+    const fill: Promise<unknown>[] = Array.from(
+      { length: TELEGRAM_SEND_GLOBAL_LIMIT },
+      (_: unknown, index: number): Promise<unknown> => send(5_000 + index, `f${index}`)
+    );
+    const controller: AbortController = new AbortController();
+    const aborted: Promise<unknown> = (
+      gate(previous, "sendMessage", { chat_id: -2002, text: "never-sent" } as never, controller.signal as never) as Promise<unknown>
+    ).catch((error: unknown): unknown => error);
+    await flush();
+    expect(sendChatLanes.has(-2002)).toBeTrue();
+    controller.abort();
+    expect(await aborted).toMatchObject({ name: "AbortError" });
+    expect(sendChatLanes.has(-2002)).toBeFalse();
+    await settleTestBatch(fill);
   });
 
   test("排空等待覆盖等额度的排队请求，额度到点发出后才算排空", async () => {

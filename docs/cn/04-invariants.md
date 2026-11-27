@@ -52,7 +52,7 @@
 
 - **生命周期的严格推进顺序**（`packages/app/lifecycle.ts`）：
   1. 先获取单实例锁（`bot.lock`），初始化主线程内运行态，调用 `cleanupOrphanedTempFiles` 清理孤儿临时文件并经 `assertDeploymentConfigLayout` 核对配置目录布局，加载 `memory/global/state.json`，经 `validateExistingDeploymentInputs` 对所有已存在的部署配置文件执行严格校验，再完成随机图库预检与接管（`prepareRandomImageDirectory`）并启动 Disk I/O Worker（`initDiskIO`）。
-  2. 加载并恢复 SQLite 状态（`chatStates`、`chatQa`、`wedMembers` 与身份条数），初始化 Telegram 客户端并执行超管互斥断言（`assertSuperAdminNotBlocked`、`assertSuperAdminNotDeleteMessageTarget`），恢复复读目标、翻译目标、运势与待验证记录。
+  2. 加载并恢复 SQLite 状态（`chatStates`、`chatQa`、`adPackBlacklistCounts`、`wedMembers` 与身份条数），初始化 Telegram 客户端并执行超管互斥断言（`assertSuperAdminNotBlocked`、`assertSuperAdminNotDeleteMessageTarget`），恢复复读目标、翻译目标、运势与待验证记录。
   3. 挂载中间件与注册命令菜单（配置 `mini_app` 时同步为超级管理员私聊挂载 `MenuButtonWebApp` 入口按钮）并完成 `bot.init()` 握手。
   4. 启动并填充 AI Worker 与 Anti-Raid Worker 的运行时数据，拉起定时任务调度器、配置热重载监听、可选的 Mini App HTTP 服务（`startMiniAppServer()`）、黑名单补扫调度并执行首轮受管群补扫（`sweepManagedBlocklistChats`）。
   5. 启动确认式 Runner 开始长轮询拉取并消费 updates，随后启用 `/wed` 成员复核与低优先级群标题刷新。
@@ -65,9 +65,9 @@
   - 若可选配置文件真正不存在，系统不会阻止启动，而是由各功能的可用性判定机制将相应功能置为禁用。主线程持有各项配置的权威快照，`config/dynamic/` 下的文件在运行期修改后支持热重载，其余文件修改后必须重启生效。
   - `config/dynamic/agent.json` 中，广告检测读取 `agent.ad_detect`，AI 闲聊读取 `text`、`summary`、`media` 及可选工具；启动校验会覆盖文件中填写的所有能力项。
 
-- **身份权限以 SQLite 数据库为唯一权威源**：
-  - 白名单、黑名单、临时广告免检与待处置记录统一存储于 `database/storage.sqlite` 中；运行时不读写任何名单 JSON 文件。
-  - Disk I/O Worker 在启动时会核验 SQLite 完整性、JSONB 存储类、迁移版本、数据库时区标记、每行数据的编解码以及黑白名单的互斥性，任何一项校验失败都会终止启动，防止系统以部分损坏的状态运行。
+- **身份权限与广告包黑名单以 SQLite 数据库为唯一权威源**：
+  - 白名单、黑名单、临时广告免检、待处置记录与广告贴纸/自定义表情包黑名单（`ad_pack_blacklists`）统一存储于 `database/storage.sqlite` 中；运行时不读写任何名单 JSON 文件，也不将广告包黑名单写回 `config/dynamic/ad_detect.json`。
+  - Disk I/O Worker 在启动时会核验 SQLite 完整性、JSONB 存储类、迁移版本（`IDENTITY_DATABASE_SCHEMA_VERSION` = 14，`STORAGE_MIGRATION_LINEAGE` 共 13 条迁移至 `0012_ad_pack_blacklists`）、数据库时区标记、每行数据的编解码（含 `ad_pack_blacklists` 流式全表形态校验，不加载全表入内存、不设条数硬上限）以及黑白名单的互斥性，任何一项校验失败都会终止启动，防止系统以部分损坏的状态运行。
 
 - **主线程通过有界 LRU 缓存进行同步鉴权**：
   - 主线程维护一张容量为 `IDENTITY_READ_CACHE_MAX_ENTRIES` 的 LRU 缓存（`packages/cache/main/identityStorage.ts` 的 `identityPolicyCache`）：每个身份一个条目，固定持有永久白名单、黑名单与临时广告免检三项，三项随条目一起淘汰。某一项为 `undefined` 表示尚未加载，为 `null` 表示明确不在名单中（负缓存）；三项都已加载才算该身份已缓存。
@@ -91,7 +91,7 @@
 - **写入采用容量准入、写透（write-through）与精确版本号确认（revision ACK）**：
   - 身份策略变更时，主线程先核查未确认的条目数与载荷预算，随后更新本地 LRU 缓存、记录 revision 版本号并投递给 Disk I/O Worker。
   - 只有收到 Disk I/O Worker 对该 revision 的成功确认回执（ACK）后，主线程才释放对应的待办预算。
-  - Disk I/O Worker 在待写条目累积达到上限、或等待超过刷新间隔（`IDENTITY_WRITE_FLUSH_INTERVAL_MS`）时，通过单一数据库事务统一提交所有变更。
+  - Disk I/O Worker 在待写条目累积达到批次上限（身份策略与 outbox 为 `IDENTITY_WRITE_BATCH_MAX_ENTRIES`、群状态为 `STATE_MANAGED_CHAT_LIMIT`、群问答为 `CHAT_QA_WRITE_BATCH_MAX_ENTRIES`、广告包黑名单为 `AD_PACK_BLACKLIST_WRITE_BATCH_MAX_ENTRIES`）、或等待超过刷新间隔（`IDENTITY_WRITE_FLUSH_INTERVAL_MS`）时，通过单一数据库事务统一提交所有变更。
   - 事务成功后向主线程发送精确 ACK；若事务失败则保留待写数据并进行退避重试，连续重试失败达到上限时将通知主线程暂停接收新业务。
 
 - **超级管理员权限直接来自身份本身**：
@@ -101,9 +101,9 @@
 - **Telegram 机器人身份与 AI 配置的读取边界**：
   - 机器人的 `bot_token`、`super_admin_user_id` 与可选 `log_level`（缺省默认 `DEFAULT_LOG_LEVEL` 即 `"operation"`）严格来自于 `config/static/bot.json`；启动连接 Telegram 前必须校验通过，并将生效 `log_level` 同步至主线程及各 Worker 线程的阈值单例（`packages/cache/perThread/logger.ts`）。
   - **AI 能力独立配置与环境变量隔离**：
-    - AI 密钥统一在 `config/dynamic/agent.json` 中配置，每项能力独立指定 `provider`、`api_key`、`base_url` 和 `model`，不存在跨能力的默认回退。
-    - 客户端构造时显式传入密钥、端点（省略 `base_url` 时取对应供应商的官方默认地址）与关闭隐式环境变量回退的选项；凭据、端点与 SDK 日志级别均不取自进程环境变量。
-    - 构造参数无法关闭的 `ANTHROPIC_CUSTOM_HEADERS` 与 `OPENAI_CUSTOM_HEADERS`（SDK 会将其并入每个请求头，可能覆盖 `Authorization`）只要在进程环境中出现，`packages/consts/paths.ts` 加载时即直接拒绝启动。
+    - AI 密钥统一在 `config/dynamic/agent.json` 中配置，每项能力独立指定 `provider`、`api_key`、`base_url` 和 `model`，不存在跨能力的默认回退；`agent.ad_detect` 在 `provider: "google"` 时接受可选布尔值 `use_decision`（缺省 `false`，在 `openai`/`anthropic` 及其他能力上禁止配置）。
+    - 客户端构造时显式传入密钥、端点（省略 `base_url` 时取对应供应商的官方默认地址）与关闭隐式环境变量回退的选项（全部 Gemini 客户端固定传入 `httpOptions.apiVersion: GEMINI_API_VERSION` 与 `enterprise: false`，隔离 `GOOGLE_GENAI_API_VERSION` 与 Vertex/Enterprise 环境变量）；凭据、端点与 SDK 日志级别均不取自进程环境变量。
+    - 构造参数无法关闭的 `SDK_REQUEST_HEADER_ENVS`（`ANTHROPIC_CUSTOM_HEADERS`、`OPENAI_CUSTOM_HEADERS`、`GOOGLE_GENAI_USER_PROJECT`、`GOOGLE_GENAI_DEBUG`：前两者会被 Anthropic/OpenAI SDK 并入每个请求头并可能覆盖 `Authorization`，后两者会被 `@google/genai` NextGen 客户端直接读取以注入 `x-goog-user-project` 或向 `console` 输出未脱敏调试日志）只要在进程环境中出现，`packages/consts/paths.ts` 加载时即直接拒绝启动。
   - **AI 配置文件仅由主线程读取**：主线程在启动及动态热重载时解析 `agent.json`，并将生效的只读快照推送给各 Worker。Worker 线程内部绝不直接读取配置文件，保证内存配置的一致性。
   - 核心能力（`text` 文本、`summary` 记忆压缩、`media` 媒体理解）必须全部配置齐备，AI 闲聊功能方可启用；缺少生图或语音能力仅摘除对应工具，缺少 `ad_detect` 则仅禁用广告自动检测。
 
@@ -126,12 +126,12 @@
   - **跨文件依赖核对**：若 `cron.json` 中的任务用到了语音合成或摘要生成，但 `agent.json` 中缺少相应能力，系统会阻止配置更新并报错，保证配置在任何时刻都完整有效。
   - **会话级快照隔离**：AI Worker 接管新的 `agent.json` 快照后丢弃旧的能力门面与 SDK 客户端，下一次取用按新快照重建。一轮 AI 回复在创建会话时固定 `text` 能力的模型与客户端，整轮工具往返（含 Anthropic `pause_turn` 续发）均沿用它们，热重载只影响之后新开始的回复。
   - **功能就绪状态重算**：每次配置更新生效后，`packages/app/configReload.ts` 会重新计算 AI 闲聊与广告检测的功能就绪状态（readiness）。若功能转为可用，将按需唤醒或恢复对应 Worker；若转为不可用，则停止新任务投递并关闭对应的开启命令，但已持久化的群开关和对话记忆依然安全保留。
-  - **日志凭据脱敏**：所有凭据（Token、API Key 等）在日志记录时均受脱敏系统保护，确保任何日志与错误报告中都不会泄露敏感密钥。
+  - **日志凭据脱敏**：所有凭据（Token、API Key 等）及敏感字段名（`LOGGER_SENSITIVE_FIELD_NAMES`，含 `x-goog-api-key` 等请求头字段）在日志记录时均受脱敏系统保护，确保任何日志与错误报告中都不会泄露敏感密钥。
 - **Mini App 会话临时密钥、AES-256-GCM 传输加密与在线配置保存边界**：
   - **每次启动内存 Ed25519、临时 X25519 登录协商、5 会话上限与 2 小时总寿命**：`startMiniAppServer` 每次启动在主线程生成一对私钥不可导出的 Web Crypto `Ed25519` 签名密钥对（`ensureMiniAppRuntimeSigningKeyPair`，停机时随 `clearMiniAppRuntimeSigningKeyPair` 清空），`handlers/page.ts` 物化前端打包 JS 时注入其 32 字节原始公钥 Base64（`MINI_APP_SERVER_SIGNING_PUBLIC_KEY_PLACEHOLDER`）并重算 `ETag`。未解锁请求访问 `GET /api/auth/precheck` 时签发由该私钥签名（域分离 prefix `MINI_APP_HANDSHAKE_SIGNATURE_DOMAIN`）的临时 `X25519` 公钥（`handshakeId` + `serverPublicKey` + `expiresAt`，容量 `MINI_APP_HANDSHAKE_MAX`，TTL `MINI_APP_HANDSHAKE_TTL_MS`）；已解锁请求仅只读核验而不轮换令牌或签发密钥。客户端验签通过后（验签不匹配在存在 `sessionStorage` 时带 10 秒防环窗触发单次 `location.reload()`，`crypto.subtle` 缺失映射为不重载的 `WEBCRYPTO_UNSUPPORTED`）生成临时 `X25519` 密钥对并经 ECDH + HKDF-SHA256 派生方向隔离的 `c2sKey` / `s2cKey` 提交 `POST /api/auth/login`（`c2sKey` + `MINI_APP_LOGIN_REQUEST_AAD`，内层 `{ handshakeId, password }` 与 `{ handshakeId, totpCode }` 严格互斥）；`miniAppInFlightHandshakeIds` 拦截并发重放且 `handshakeId` 无论成败用完即焚；`200`/`403` 响应均以 `s2cKey` + `MINI_APP_LOGIN_RESPONSE_AAD` 封装为 `MiniAppEncryptedEnvelope`（拒绝明文降级响应），序列化后立即清除 `pendingSessionKey`，单步 TOTP 校验通过且会话签发成功后才更新 `miniAppLastConsumedTotpStepHolder` 防同时间步重放。主线程最多保留 `MINI_APP_SESSION_MAX`（`5`）个未过期 45 分钟会话与 256-bit 临时密钥（`MINI_APP_SESSION_KEY_BITS`）；满额时新登录照常签发并淘汰签发或最近一次轮换距今最久的会话（同步吊销其下载票据）。每代密钥在 `[MINI_APP_SESSION_REFRESH_MIN_MS, MINI_APP_SESSION_REFRESH_MAX_MS]`（5 秒～5 分钟）均匀随机抽取下一次触发滑动续期与轮换的冷却时间点，同时当本代 `seenRequestIvs.size` 先达到 `MINI_APP_SESSION_ROTATE_AT_SEEN_IVS`（3,072）水位时也会提前触发滑动轮换并重置新纪元 IV 集合与随机冷却时间，均独立于上一轮旧凭据的最长 5 分钟并发宽限期（`MINI_APP_SESSION_PREVIOUS_GRACE_MS`）；单次登录会话滑动续期绝对总寿命封顶为 `MINI_APP_SESSION_MAX_LIFETIME_MS`（2 小时，活跃会话期间 `initData.auth_date` 放行上限 `2 小时 + 45 分钟`）；`sessionKey` 仅在 `POST /api/auth/login` 与加密响应路由滑动续期（`X-Mini-App-Session-Key`，`additionalData = UTF8(newToken)`）下发，服务端轮换提交时同步启动共享封装句柄 `sealedSessionKeyPromise`（仅解析为密文，不写入 `pendingSessionKey`），封装落定后记入 `sealedSessionKey` 并保留至新令牌确认或宽限期到期（期间携带 `previousToken` 的加密响应路由请求等待同一 `sealedSessionKeyPromise` 或直接取回已落定的 `sealedSessionKey`，原样重新附带同一新令牌与密文，不再轮换），前端在 IndexedDB 保存同代 `{ token, cryptoKey }` 配对（水合以其为准）、在 `sessionStorage` 保存令牌元数据，绝不在 HTTP 请求或 `globalThis` 中暴露明文密钥。
-  - **业务 JSON 信封、二进制加密上传、URL `?e=` 查询加密与两阶段原子提交**：受会话保护的业务 JSON 路由均以 Web Crypto `AES-GCM`（`MINI_APP_AES_GCM_IV_BYTES` 随机 IV、`MINI_APP_AES_GCM_TAG_BITS` 标签）封装请求与响应体（`MiniAppEncryptedEnvelope`，方向 AAD 经 `buildMiniAppEnvelopeAad` 绑定 `"${method} ${routePath}:req"` / `":res"`），`POST /api/gallery/upload` 强制使用 `[12B IV || 密文+16B 标签]` 原始二进制加密帧；非 `GET`/`HEAD` 加密路由一律拒绝 `0` 字节空请求体（无载荷写请求发送加密 `"{}"`）。全部 `encryptRequest: true` 路由通过 `?e=<ivBase64>.<cipherBase64>`（`MINI_APP_ENCRYPTED_QUERY_PARAM`，密文上限 `MINI_APP_MAX_ENCRYPTED_QUERY_LENGTH`）传递加密查询参数，严格仅允许单一 `e` 参数且 AEAD `additionalData` 绑定 `"${method} ${routePath}"`（拒绝裸 `?`、明文或多余查询参数、空串或 `?` 开头的解密结果及重放 IV；同一密钥纪元 `seenRequestIvs` 硬上限 `MINI_APP_SESSION_MAX_SEEN_REQUEST_IVS` = 4,096，达到 `MINI_APP_SESSION_ROTATE_AT_SEEN_IVS` = 3,072 水位时由加密响应路由主动轮换密钥并重置 IV 集合与轮换冷却，超硬上限吊销会话并回 `401`）。`runMiniAppAuthorized` 采用「只读 `authorizeMiniAppRequest` -> 异步解密与初筛 -> `commitMiniAppSessionAccess` 原子复核活跃状态、提交同纪元 IV 防重放并推进轮换」两阶段提交，彻底消除异步解密窗口内的 TOCTOU 竞态（并发同 IV 重放返 `400`，窗口期内被吊销会话返 `401 SESSION_EXPIRED`，令牌在窗口期内被并发轮换并确认时按会话谱系 `lineageId` 定位存活会话、在查找时的密钥纪元 IV 集合上提交且不轮换，失败解密 `400` 绝不抹除 `previousToken` 或触发轮换）。客户端在加密响应路由上先解密校验响应体再同步轮换响应头，并经 `packages/mini-app-frontend/api/authError.ts` 统一归类重认证（`MINI_APP_SESSION_REAUTH_ERROR_CODES`、解密/解封失败与裸 `401` -> 按令牌一致性清会话并跳转 `AuthGatePage`）与一层门禁拒绝（`MINI_APP_ACCESS_DENIED_ERROR_CODES` -> 无条件清会话并转 `checking` 重预检进入 `AccessDeniedPage`，且不因过时请求序号守卫吞掉或被滞后 `401` 退回 `password`）。
+  - **业务 JSON 信封、二进制加密上传、URL `?e=` 查询加密与两阶段原子提交**：受会话保护的业务 JSON 路由均以 Web Crypto `AES-GCM`（`MINI_APP_AES_GCM_IV_BYTES` 随机 IV、`MINI_APP_AES_GCM_TAG_BITS` 标签）封装请求与响应体（`MiniAppEncryptedEnvelope`，方向 AAD 经 `buildMiniAppEnvelopeAad` 绑定 `"${method} ${routePath}:req"` / `":res"`），`POST /api/gallery/upload` 强制使用 `[12B IV || 密文+16B 标签]` 原始二进制加密帧；非 `GET`/`HEAD` 加密路由一律拒绝 `0` 字节空请求体（无载荷写请求发送加密 `"{}"`）。全部 `encryptRequest: true` 路由通过 `?e=<ivBase64>.<cipherBase64>`（`MINI_APP_ENCRYPTED_QUERY_PARAM`，密文上限 `MINI_APP_MAX_ENCRYPTED_QUERY_LENGTH`）传递加密查询参数，严格仅允许单一 `e` 参数且 AEAD `additionalData` 绑定 `"${method} ${routePath}"`（拒绝裸 `?`、明文或多余查询参数、空串或 `?` 开头的解密结果及重放 IV；同一密钥纪元 `seenRequestIvs` 硬上限 `MINI_APP_SESSION_MAX_SEEN_REQUEST_IVS` = 4,096，达到 `MINI_APP_SESSION_ROTATE_AT_SEEN_IVS` = 3,072 水位时由加密响应路由主动轮换密钥并重置 IV 集合与轮换冷却，超硬上限吊销会话并回 `401`）。`runMiniAppAuthorized` 采用「只读 `authorizeMiniAppRequest` -> 异步解密与初筛 -> `commitMiniAppSessionAccess` 原子复核活跃状态、提交同纪元 IV 防重放并推进轮换」两阶段提交，彻底消除异步解密窗口内的 TOCTOU 竞态（并发同 IV 重放返 `400`，窗口期内被吊销会话返 `401 SESSION_EXPIRED`，令牌在窗口期内被并发轮换并确认时按会话谱系 `lineageId` 定位存活会话、在查找时的密钥纪元 IV 集合上提交且不轮换，失败解密 `400` 绝不抹除 `previousToken` 或触发轮换）。客户端在加密响应路由上先解密校验响应体再同步轮换响应头，并经 `packages/mini-app-frontend/api/authError.ts` 为传输层异常绑定私有发包会话令牌上下文，统一归类重认证（`MINI_APP_SESSION_REAUTH_ERROR_CODES`、解密/解封失败与裸 `401` -> 按发包令牌一致性清会话并跳转 `AuthGatePage`）与一层门禁拒绝（`MINI_APP_ACCESS_DENIED_ERROR_CODES` 中非会话依赖项无条件清会话、依赖会话延展窗口的 `MINI_APP_EXPIRED_AUTH_DATE_CODE` 按发包令牌一致性防误清，均转 `checking` 重预检进入 `AccessDeniedPage`，且不因过时请求序号守卫吞掉当前会话重定向、不被滞后 `401` 退回 `password`、也不因已被新世代取代的旧令牌滞后响应误清或锁定新会话）。
   - **二进制下载双轨与免加密边界**：在受会话保护的 `/api/*` 路由中，`encryptResponse: false`（响应体不加密且不触发会话密钥轮换）严格仅限 `GET|HEAD /api/gallery/file`（`MINI_APP_GALLERY_FILE_AUTH_POLICY`：请求头鉴权 + `?e=`，下发 7 天 `MINI_APP_GALLERY_FILE_CACHE_CONTROL` 即 `private, no-cache, max-age=604800, must-revalidate`、`CDN-Cache-Control: no-store`、`Vary: MINI_APP_GALLERY_FILE_VARY_HEADER_VALUE` 与 `ETag` `304`）和 `GET|HEAD /api/gallery/download`（`MINI_APP_GALLERY_DOWNLOAD_AUTH_POLICY`：浏览器降级路径走请求头鉴权 + `?e=`；Telegram 原生 `WebApp.downloadFile` 路径先经加密 `POST /api/gallery/download-ticket` 换取 60 秒单次一次性 64-hex `?ticket=` 票据，`HEAD` 不消费、`GET` 消费即焚、上限 `MINI_APP_DOWNLOAD_TICKET_MAX` = 64，按登录内不变的会话谱系 `sessionLineageId` 绑定，会话轮换期间自然保持有效，登出/锁定/过期/淘汰/IV 超限/验证器变更/删图按谱系即时吊销）。`/api/auth/precheck`、`/api/auth/logout`、单页/打包资源、`/healthz` 与公开静态 `/favicon.ico`（7 天 `MINI_APP_ASSET_CACHE_CONTROL`）全链免加密，`POST /api/auth/login` 使用临时 ECDH（`c2sKey`/`s2cKey`），`POST /api/gallery/upload`（`MINI_APP_GALLERY_UPLOAD_AUTH_POLICY`）请求与响应均加密交互。
-  - **会话加密直存与配置保存前置校验**：`POST /api/configs/save`（`MINI_APP_CONFIG_SAVE_AUTH_POLICY`，外层请求体上限 `MINI_APP_MAX_CONFIG_BODY_BYTES`）直接在当前会话 256-bit 临时密钥加密信封下提交 `{ scope, fileName, content }`；`saveMiniAppConfigFile` 通过 `runSerialChain`（`packages/libs/serialChain.ts`，句柄 `miniAppConfigSaveChainHolder`）将校验与原子落盘串行化，消除并发保存 `agent.json` 与 `cron.json` 时的跨文件校验 TOCTOU 竞态。写入前依次执行白名单映射（`MINI_APP_DYNAMIC_CONFIG_FILES` / `MINI_APP_STATIC_CONFIG_FILES`）、严格领域解析器（`g-auth.json` 与启动阶段共用 `parseGoogleServiceAccountKey`）、`database/storage.sqlite` 已存在时的 `bot.json` `time_zone` 不可变核验、`agent.json` ↔ `cron.json` 双向跨文件能力核对（优先读取磁盘对端文件）及非符号链接校验（`inspectOptionalFile`）。
+  - **会话加密直存、内容黑名单管理与配置保存前置校验**：`POST /api/configs/save`（`MINI_APP_CONFIG_SAVE_AUTH_POLICY`，外层请求体上限 `MINI_APP_MAX_CONFIG_BODY_BYTES`）直接在当前会话 256-bit 临时密钥加密信封下提交 `{ scope, fileName, content }`；`saveMiniAppConfigFile` 通过 `runSerialChain`（`packages/libs/serialChain.ts`，主线程共享句柄 `deploymentConfigWriteChainHolder`，定义于 `packages/cache/main/configWrite.ts`）将校验与原子落盘串行化，消除并发保存 `agent.json` 与 `cron.json` 等配置文件时的跨文件校验与写覆盖竞态。写入前依次执行白名单映射（`MINI_APP_DYNAMIC_CONFIG_FILES` / `MINI_APP_STATIC_CONFIG_FILES`）、严格领域解析器（`g-auth.json` 与启动阶段共用 `parseGoogleServiceAccountKey`）、`database/storage.sqlite` 已存在时的 `bot.json` `time_zone` 不可变核验、`agent.json` ↔ `cron.json` 双向跨文件能力核对（优先读取磁盘对端文件）及非符号链接校验（`inspectOptionalFile`）。内容黑名单标签页（`adBlacklists`）的 `GET|POST /api/ad-blacklists` 与 `GET /api/ad-blacklists/preview`（均使用 `MINI_APP_API_AUTH_POLICY`）走同一会话加密边界：`GET /api/ad-blacklists` 经 `listAdPackBlacklistPage` 按 SQLite 游标冷读（叠加未 ACK 写入、不污染主线程 768 LRU 热查询缓存）；`POST /api/ad-blacklists` 复用 `packages/infra/adPackBlacklistStorage.ts` 与 `/ad_detect sticker|emoji` 共享的包名校验、自用贴纸包保护、768 LRU 写透与 Anti-Raid 计数同步路径（不设条数硬上限）；`GET /api/ad-blacklists/preview`（`packages/mini-app-api-server/view/adBlacklistsPreview.ts`）通过主线程 `telegramApi.getStickerSet` 获取包元数据并按 `MINI_APP_AD_BLACKLIST_PREVIEW_PAGE_SIZE`（16）分页切片，`metaOnly=1` 时仅返回元数据与 `hasImage` 标志，`metaOnly=0` 时经 `runBoundedSettledBatch`（并发上限 `MINI_APP_AD_BLACKLIST_PREVIEW_DOWNLOAD_CONCURRENCY` = 4、单枚上限 `MINI_APP_AD_BLACKLIST_PREVIEW_ITEM_MAX_BYTES` = 512 KiB、总超时 `MINI_APP_AD_BLACKLIST_PREVIEW_BATCH_TIMEOUT_MS` = 15 秒）调用 `downloadTelegramFileBytes` 与魔数嗅探内联返回 `data:image/...;base64,...`（透传 `request.signal` 取消在途下载，单枚失败优雅降级为 `null`）。
 
 ### 数据根与后台任务
 
@@ -152,7 +152,7 @@
 
 - **主线程独占 Telegram 网络连接**：
   - 真实的 grammY Bot 实例、底层 HTTP 请求与文件 CDN 下载能力仅归主线程独占。
-  - AI Worker 与 Anti-Raid Worker 内部不包含 Bot Token 和网络客户端，需要调用 Telegram 接口时，必须通过进程内双工通道向主线程申请白名单允许的受限动作，由主线程出站总闸统一代理执行。
+  - AI Worker 与 Anti-Raid Worker 内部不包含 Bot Token 和网络客户端，需要调用 Telegram 接口时，必须通过进程内双工通道向主线程申请白名单允许的受限动作，由主线程出站总闸统一代理执行（其中 Anti-Raid Worker 的 `downloadFile` 权限严格限定 `purpose === "vision"`）。
   - **发送类回传投影与主线程专属接口**：
     - Worker 的发送类请求（`sendMessage`、`sendSticker`、`sendPhoto`、`sendVoice`）仅收回消息 id 与回复关系（`TelegramSentMessage`），图片另带按 `pickPhotoSize` 选中的那一档 `photo`；主线程先用完整响应登记自发消息，再投影后回传，其余请求的结果原样回传。
     - 目标专属临时消息（`sendEphemeralMessage`）与 `copyMessage`、`editMessageText`、`deleteEphemeralMessage`、`unbanChatSenderChat` 一样仅在主线程提供。
@@ -207,15 +207,15 @@
 ### 线程与状态归属
 
 - **各线程明确划分状态职责，严禁跨线程内存共享**：
-  - **主线程**：持有 Telegram runner、各 Worker 监督句柄、`packages/infra/chatStateStorage.ts` 维护的按群 `chat_states` 热读快照，以及 `cache/main/storage.ts` 中的 `memory/global/state.json` 权威内存镜像。
+  - **主线程**：持有 Telegram runner、各 Worker 监督句柄、`packages/infra/chatStateStorage.ts` 维护的按群 `chat_states` 热读快照、`packages/cache/main/adPackBlacklist.ts` 与 `packages/infra/adPackBlacklistStorage.ts` 维护的广告包黑名单 768 条共享 LRU 热查询缓存、条数统计与未 ACK 写入跟踪，以及 `cache/main/storage.ts` 中的 `memory/global/state.json` 权威内存镜像。
     - `infra/storage/stateStore.ts` 是 `memory/global/state.json`（`copy` 与 `ttsUsage`）的业务门面，负责在恢复时填充内存镜像、构建领域快照并提供访问器；按群状态持久化独立由 `infra/chatStateStorage.ts` 经 Disk I/O Worker 读写 SQLite `chat_states`。
     - `infra/storage/statePersistence.ts` 的 `StateStore` 经 `libs/stateFileCodec.ts` 的 `decodeGlobalStateFile` 严格解码，负责 latest-only 原子落盘、有限失败重试与退出时的 flush。
-    - 失败重试已排期时，等待落盘的写入与非停机 flush 都由重试 timer 按退避写出最新值，不提前投递、不额外消耗重试次数；停机 flush 取消退避立即做最后一次写出。
+    - 失败重试已排期时，等待落盘的写入与非停机 flush 都由重试 timer 按退避写出最新值，不提前投递、不额外消耗重试次数；停机 flush 取消退避，预算为正时立即做最后一次写出；零预算时不新投递写入，仍有未落盘或在途写入即判 `timedOut`，二者都没有时判 `flushed`。
     - 有限重试耗尽属于致命持久化故障（fatal durability failure），系统必须立刻停止 runner，绝不能继续确认 Telegram update。
   - **AI Worker**：独占群聊滚动记忆、回复准入判断、多模态媒体描述流水线、全局心情以及贴纸包目录生成的运行时状态。
   - **Anti-Raid Worker**：独占入群验证与防冲群私密模式（Lockdown）的状态机及其关联计时器。主线程仅保存用于崩溃恢复的镜像。
   - **Disk I/O Worker**：独占日志、AI 记忆、贴纸目录、运势以及待验证数据的磁盘 I/O，并在单一专用线程内串行读写这些共享目录。
-    - 仅主线程允许直接原子落盘三类路径：`memory/global/`（经 `stateStore.ts` 门面调用 `statePersistence.ts` 的 `StateStore`）、`memory/mini-app-totp/totp.json`（`mini-app-api-server/auth/totpStorage.ts`）以及 Mini App 在线配置编辑写回的白名单文件 `config/{dynamic,static}/*.json`（`mini-app-api-server/view/configs/storage.ts`）。业务 Worker 严禁直接读写共享存储目录。
+    - 仅主线程允许直接原子落盘三类路径：`memory/global/`（经 `stateStore.ts` 门面调用 `statePersistence.ts` 的 `StateStore`）、`memory/mini-app-totp/totp.json`（`mini-app-api-server/auth/totpStorage.ts`）以及白名单部署配置 `config/{dynamic,static}/*.json`（仅限 Mini App 在线配置编辑 `mini-app-api-server/view/configs/storage.ts`，经 `deploymentConfigWriteChainHolder` 串行落盘；广告检测与自动拉黑绝不改写 `config/dynamic/ad_detect.json`）。业务 Worker 严禁直接读写共享存储目录。
   - **长期容器管理**：长生命周期的 Map、Set、队列和 timer 必须在 `packages/cache/` 模块与业务生命周期模块中，明确定义其容量上限、清理时机以及 Worker 重建后的恢复语义。
 
 - **缓存文件的线程归属由目录名决定，并通过门禁静态核验**：
@@ -514,7 +514,7 @@
 - **Token 与用量核算**：
   - 用量统计以供应商 SDK 返回的权威 `usage` 为准，由 `packages/infra/aiCacheUsage.ts` 集中校验上报。
   - 取消或中断时，若 SDK 依然返回了有效用量，仍计入统计；SDK 未返回则不进行估算。
-  - Gemini 输入 token 为 `promptTokenCount` 与单独上报的 `toolUsePromptTokenCount` 之和，正文 token 与 thinking token 校验后累加；OpenAI 输出不重复累加 reasoning token。
+  - Gemini 输入 token 为 `promptTokenCount` 与单独上报的 `toolUsePromptTokenCount` 之和，正文 token 与 thinking token 校验后累加；Decisions API 由 `reportGeminiDecisionUsage` 核算（读取 `total_input_tokens` 与 `total_cached_tokens`，当 `total_output_tokens` 与 `total_thought_tokens` 均省略时输出 token 记为 `0`，省略的 `total_cached_tokens` 仍按未知不记，遇 `prompt_feedback.block_reason` 但响应携带 `usage` 时同样入账）；OpenAI 输出不重复累加 reasoning token。
   - **缓存命中与缓存写入核算**：两项均计入输入总量内且互不重叠：
     - **Anthropic**：`input_tokens` 不含缓存部分，输入总量记为 `input_tokens + cache_creation_input_tokens + cache_read_input_tokens`，命中取 `cache_read_input_tokens`，写入取 `cache_creation_input_tokens`；
     - **OpenAI**：写入取 Responses 的 `input_tokens_details.cache_write_tokens` 或 Chat Completions 的 `prompt_tokens_details.cache_write_tokens`；
@@ -589,7 +589,7 @@
   - **系统提示词严格逐字恒定**：系统提示词仅通过独立的系统字段传入，动态的状态数据（时间、心情、工具状态）必须放入 user 内容中的运行时状态区块，严禁混入系统提示词。人设、行动与停止段、本地 `web_search` 模式三项都与上一轮相等时，AI Worker 复用上一轮拼好的同一个系统提示词字符串（`packages/cache/workers/aiChat/replyPrefix.ts` 的单槽），任一项不等即重拼并替换。
 
 - **提示词前缀缓存与断点（Prompt Caching）**：
-  - Gemini 请求始终携带静态 `systemInstruction`（对话回复同时携带 `tools` 与 `toolConfig`），对话回复将 `stableBlocks` 置于首个 `user Content`，广告检测将规则与部署样本固定在 `systemInstruction`、系统事实 `fact` 置于待判定正文之前，由服务端隐式前缀缓存自动命中。
+  - Gemini 生成式请求始终携带静态 `systemInstruction`（对话回复同时携带 `tools` 与 `toolConfig`），对话回复将 `stableBlocks` 置于首个 `user Content`，生成式广告检测将规则与部署样本固定在 `systemInstruction`、系统事实 `fact` 置于待判定正文与多模态图片之前，由服务端隐式前缀缓存自动命中；启用 `use_decision: true` 的广告检测走 `client.decisions.create`，将判定规则、参考样本与按候选包生成的问题列表置于 `questions`，把共享事实、正文与多模态图像一次放入 `input`。
   - OpenAI 协议请求确保稳定内容在前、动态内容在后，并携带按群分桶的 `prompt_cache_key`。该键的指纹对系统提示词与工具声明 JSON 两段复用上一轮的 SHA-256 哈希状态（`libs/prefixFingerprint.ts` 的 `stablePrefixFingerprintWithSlot`），前提是两段内容都与上一轮相等，否则重建；摘要与对全部分段直接哈希逐字节一致。对于官方端点且模型名以 `OPENAI_PROMPT_CACHE_BREAKPOINT_MODEL_PREFIX` 开头的模型，在最后一个稳定区块后设置显式 `prompt_cache_breakpoint`。
   - Anthropic 会话依次在以下边界设置缓存断点：系统提示词末尾、最后一个稳定区块末尾、当前会话最后一个已定段末尾，以及请求顶层的自动断点。
 
@@ -1081,9 +1081,9 @@
   - 重试受退避定时器 `BLOCKLIST_SWEEP_RETRY_INTERVAL_MS` 约束，且退避判定必须排在跨线程读取名单页之前。群注销或权限丧失时通过 `forgetChatBlocklistWork` 清除补扫进度并作废在途批次。
   - `sweptAt` 作为完成闩锁，在检测到群内仍残留黑名单成员（如封禁失败或秒踢未完成）时通过 `requestBlocklistResweep` 重置为 `null`；连续失败时重试退避线性递增，封顶为 `BLOCKLIST_SWEEP_RETRY_MAX_INTERVAL_MS`。
 - **权限不足与目标是管理员的细分判定**：
-  - Telegram 返回 403 或 400 `not enough rights` 时被归类为 `forbidden`。
+  - Telegram 返回 403 或匹配 `TELEGRAM_PERMISSION_DENIED_DESCRIPTION_PATTERN`（`packages/consts/telegram.ts`，覆盖机器人缺管理员/权限位与目标为管理员/群主/自身等保护拒绝）的 400 时，由 `isPermissionDenied` 统一归类为 `forbidden`。
   - **封禁目标为本群管理员**：
-    - 补扫路径（`probeMembership: true`）在 `probeChatMembershipWithOutcome` 的 `getChatMember` 中直接识别管理员身份，无需再调 `banChatMember`；不探测成员状态的秒踢与广告处置路径（`probeMembership: false`）在 Telegram 返回 400 `not enough rights` 时由 Worker 通过 `probeChatAdmin` 现查身份。
+    - 补扫路径（`probeMembership: true`）在 `probeChatMembershipWithOutcome` 的 `getChatMember` 中直接识别管理员身份，无需再调 `banChatMember`；不探测成员状态的秒踢与广告处置路径（`probeMembership: false`）在封禁返回 `forbidden` 时由 Worker 通过 `probeChatAdmin` 现查身份。
     - 一旦确证目标是管理员，记录日志并跳过该目标，同批其余目标照常处置并落定；回执附加 `targetIsAdmin` 标记，主线程据此不更新 `sweptAt` 并累计失败计数，使该群继续保持待补扫状态。
   - **机器人自身缺乏封禁权限**：Worker 回传 `permissionDenied`，主线程标记 `permissionBlocked`、暂停时间退避重试，并将 outbox 中的补扫批次标为 `missing-permission`；仅当收到明确具有 `canRestrictMembers` 权限的 `my_chat_member` 更新或现查结果时，才解除该闩锁。
 - **任务持久化与秒踢（即时封禁）**：
@@ -1101,8 +1101,8 @@
 #### 广告检测的准入、判定与处置
 
 - **准入门禁与复核机制**：
-  - 送检门禁必须同时满足三项条件：本群 `ChatState.isAdDetectEnabled === true`、机器人是群管理员、发送者不具备免检权限（`isCanBypassAdDetection`）。超级管理员恒定免检。
-  - Worker 判定命中并将事件回传主线程后，主线程在该身份的黑名单串行位与身份策略临界区内必须再次核对群开关与白名单状态；若期间群关闭了广告检测，按预期竞态记录普通日志并放弃处罚。
+  - 送检门禁必须同时满足三项条件：本群 `ChatState.isAdDetectEnabled === true`、机器人是群管理员、发送者不受白名单保护（超级管理员、所有永久白名单成员以及当前有效的临时广告免检身份均在候选入口、引用警告与处置复核三处统一免检）。通过 `/white enable`、Mini App 新增永久白名单或首次触发临时广告免检时，主线程向 Worker 发送 `clearIdentityAdDetect` 清除该身份尚未结算的待检队列、消息束、引用警告与处置抑制记录。
+  - Worker 判定命中并将事件连同 `deleteMessageIds` 回传主线程后，主线程在该身份的黑名单串行位与身份策略临界区内必须再次核对群开关、白名单保护状态与 `ad_detect.json` 处罚配置；被拒绝的裁决不删除任何消息、不记样本、不处罚，并立即经 `releaseAdDetectDedup` 释放 Worker 处置抑制标记。若期间群关闭了广告检测，按预期竞态记录普通日志并放弃处置。
 - **豁免与特殊消息来源**：
   - 关联频道的自动转发（`is_automatic_forward`）与机器人自身发布的消息（`isBotOwnMessage`）一律跳过。
   - 本 bot 发出的 inline 消息（`via_bot` 指向自身）送检的是用户的**原始查询文本**，而非 bot 渲染后的带格式落群正文。各 inline 功能在应答成功后调用 `recordInlineResultSources` 登记源文本，容量上限 `INLINE_RESULT_SOURCE_MAX_AUTHORS`；取不到源文本或正文不符时跳过判定。
@@ -1111,25 +1111,34 @@
   - 队列以 `chatId:senderId` 为键，同一用户的连续消息合并入 `pendingAdMessages` 的单一 bundle 中，不重复排队。
   - 待检发送者上限 `AD_DETECT_MAX_PENDING_SENDERS`，满载后直接拒绝新用户，禁止淘汰已有未检用户。
   - 调度器每 `AD_DETECT_QUEUE_TICK_MS` 从队首提取至多 `AD_DETECT_BATCH_SIZE` 个用户，全局在途请求上限为 `AD_DETECT_MAX_IN_FLIGHT`。
-  - 抑制窗口 `AD_DETECT_JUDGED_RETENTION_WINDOW_MS`：刚处置过的发送者键记录在 `recentlyDisposedAdKeys` 中，在此期间到来的新消息不再判定、逐条删除（禁言、只踢不封与频道封禁都不撤回处罚落地前发出的消息）。已在永久黑名单的普通用户例外：其消息不送检也不逐条删除，由带 `revoke_messages` 的封禁撤回。
-- **送检组装、黑名单快路径与模型交互**：
-  - 单用户消息数量上限 `AD_DETECT_MAX_MESSAGES_PER_SENDER`，字符预算 `AD_DETECT_BUNDLE_MAX_CHARS`。当未判消息由于超限被丢弃时，正文移除但消息 ID 转入 `pendingDeleteIds`，确保处置时完整删除，并记录错误日志。
+  - 抑制窗口 `AD_DETECT_JUDGED_RETENTION_WINDOW_MS`：刚判定命中并回投主线程的发送者键记录在 `recentlyDisposedAdKeys` 中，在此期间到来的尾随消息不再判定、逐条删除（禁言、只踢不封与频道封禁都不撤回处罚落地前发出的消息）。主线程拒绝处置、完成本群处罚（`mute` / `kick` / `banChat` / `deleteOnly`）或全局封禁未把触发群移除批次移交 Worker 时，立即通过 `releaseAdDetectDedup` 提前释放该键；触发群全局封禁批次已移交 Worker 时由 `blocklistEffects` 在封禁取得确定结果后释放。已在永久黑名单的普通用户例外：其消息不送检也不逐条删除，由带 `revoke_messages` 的封禁撤回。
+- **送检组装、黑名单快路径、多模态判定与自动拉黑持久化**：
+  - 单用户消息数量上限 `AD_DETECT_MAX_MESSAGES_PER_SENDER`，字符预算 `AD_DETECT_BUNDLE_MAX_CHARS`。当未判消息由于超限被丢弃时，正文移除但消息 ID 转入 `pendingDeleteIds`，确保处置时完整删除，并记录错误日志。候选采集（`packages/antiRaid/adCandidate.ts`）仅从发送者自身消息提取图片（`message.photo`）、合规图片文档（`AD_DETECT_IMAGE_DOCUMENT_MIME_TYPES`，超过 `MEDIA_MAX_DOWNLOAD_BYTES` 时回退 `thumbnail`）、静态/动态/视频贴纸与自定义表情（绝不提取 `reply_to_message` 或 `quote` 中的媒体），无文本的纯媒体消息同样准入。
   - 检测按固定三级流水线依次执行（任一免检身份在候选入口统一跳过全部三级检测）：
-    1. **贴纸包黑名单快路径**（`ad_detect.json` 的 `sticker_black_list`）：直接比对未检条目携带的 `sticker.set_name`，命中即跳过后续检测并按直接广告处置。
-    2. **自定义表情包黑名单**（`ad_detect.json` 的 `emoji_black_list`）：名单非空时核对未检条目的 `custom_emoji_id`——命中 Worker 本地 ID→所属表情包 LRU 缓存（容量 `AD_DETECT_CUSTOM_EMOJI_SET_CACHE_MAX`，Worker 停止时清空）的直接比对；未命中的去重后按 `TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS` 分批经主线程统一 Telegram 出站（`query` 类 429 退避）调用 `getCustomEmojiStickers` 查询所属表情包并写入缓存，命中黑名单即跳过 AI 判定并按直接广告处置。查询失败时各批共用 `AD_DETECT_CUSTOM_EMOJI_QUERY_MAX_RETRIES` 次立即重试（4xx 拒绝不重试）；预算用尽、被拒或进入停机时放弃本轮表情核对，记录错误日志并继续后续判定。
-    3. **AI 文本判定**（`ad_detect.json` 的 `samples`）：仅当存在未检非空文本条目时调用模型分类（纯贴纸且未命中黑名单时不调用 AI）。
+    1. **贴纸包黑名单快路径**（Worker 条数镜像 `adPackBlacklistCounts.sticker`，权威源在主线程 768 LRU / SQLite `ad_pack_blacklists`）：条数为 0 时 O(1) 同步短路；条数非零时提取未检条目合法 `sticker.set_name` 经双工桥（`matchAdPackBlacklist`）向主线程 768 LRU 核对（冷缺失打到 Disk I/O SQLite 并回填 LRU），命中即跳过后续检测并按直接广告处置；查库失败记错误日志并 fail-safe 放行后续阶段。
+    2. **自定义表情包黑名单**（Worker 条数镜像 `adPackBlacklistCounts.emoji`，权威源在主线程 768 LRU / SQLite `ad_pack_blacklists`）：条数为 0 时 O(1) 短路跳过；非零时核对未检条目的 `custom_emoji_id`——优先命中 Worker 本地 `customEmojiMetaCache`（`packages/cache/workers/antiRaid/adDetect.ts`，容量 `AD_DETECT_CUSTOM_EMOJI_SET_CACHE_MAX`，Worker 停止时清空，缓存 `{ setName, visionFileId, fileUniqueId }` 供第 2 阶段黑名单比对与第 3 阶段视觉下载复用），并批量经双工桥向主线程 768 LRU / SQLite 核对；未命中的去重后按 `TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS` 分批经主线程统一 Telegram 出站（`query` 类 429 退避）调用 `getCustomEmojiStickers` 查询所属表情包与视觉文件元数据并写入缓存，每批立即向主线程 768 LRU / SQLite 核对，命中黑名单即跳过 AI 判定并按直接广告处置。查询失败时各批共用 `AD_DETECT_CUSTOM_EMOJI_QUERY_MAX_RETRIES` 次立即重试（4xx 拒绝不重试）；预算用尽、被拒或进入停机时放弃本轮表情核对，记录错误日志并继续后续判定。
+    3. **AI 多模态与文本判定**（`agent.ad_detect` 与 `ad_detect.json` 的 `samples`）：
+       - **媒体选择与累计字节预算**（`packages/workers/antiRaid/adDetect/media.ts`）：按 `kind + fileUniqueId` 去重、单串最多附带 `AD_DETECT_MAX_IMAGES_PER_BUNDLE` 张图像，优先选取未检条目（`seq > checkedSeq`）再按最新优先顺序以已检上下文（`seq <= checkedSeq`）补齐剩余槽位并按时间顺序输出；并发经主线程 `downloadFile`（`purpose: "vision"`）下载并经 `prepareVisionImage` 转码，在整串维度按 `MEDIA_MAX_DOWNLOAD_BYTES` 强制累计字节上限（优先保障未检附件预算，超出预算的附件记录警告并跳过），同步产出 `combined` 与 `direct`（非转发）两个切片且不重复下载。无未检文本且未加载到任何未检附件的轮次直接跳过冗余 AI 调用并返回 `notAd`。
+       - **Google Decisions API 路径**（`provider: "google"` 且 `use_decision: true`，`packages/workers/antiRaid/adDetect/ai/googleDecision.ts`）：通过 `resolveGeminiDecisionEndpoint` 归一化 `base_url`（支持网关根地址、`/<apiVersion>` 或 `/<apiVersion>/decisions`，缺省为 `GEMINI_API_BASE_URL` + `GEMINI_API_VERSION`），单次 `client.decisions.create` 请求同步评估 `ad`（阈值 `AD_DETECT_DECISION_AD_THRESHOLD`）、`category`（`AD_DETECT_DECISION_CATEGORIES`）及每个候选包的 `sticker_pack_N` / `emoji_pack_N`（阈值 `AD_DETECT_DECISION_PACK_THRESHOLD`）；遇非空 `prompt_feedback.block_reason`、畸形答案或接口错误时 fail-closed 返回 `null`。
+       - **生成式多模态路径**（`google` `use_decision: false`、`openai`、`anthropic`）：附带标签化图像与文本；存在候选贴纸/表情包时 Google 与 Anthropic 切换结构化输出为 `AD_DETECT_PACK_JSON_SCHEMA` 并附加包归因指令，返回包名严格按当前切片候选集过滤；遇到明确不支持视觉输入的错误（`packages/aiProviders/mediaSupportError.ts` 的 `isExplicitUnsupportedMediaError`）时，在核对当前配置身份防热重载竞态后缓存 `adDetectVisionSupport.current = "unsupported"`（`agent.ad_detect` 热重载或 Worker 停止时重置），并回退至纯文本判定（无正文时返回 `{ isAd: false }`）。
+       - **仅引用广告边界**（`verdict.ts` 与 `referencedWarning.ts`）：`referencedOnly` 警告路径会剥离全部包归因结果，绝不因转发或引用他人内容触发包自动拉黑。
   - 发送者的个人姓名（`firstName`、`lastName`）与非转发正文共同送检，姓名推广与正文推广同等归因。
   - **纯链接保护**：若用户整串消息仅由单个或多个链接及普通姓名组成，且无任何推广、招募或交易文案，必须判定为 false（支持各类代理节点与订阅协议）。
-  - 提示词必须显式包含 `"JSON"` 字符串，要求模型仅返回裸 JSON 对象；解析器优先解析裸对象，兼容 markdown 围栏包裹。模型识别失败时视为未检，不盲目判罚。
+  - 生成式路径提示词必须显式包含 `"JSON"` 字符串，要求模型仅返回裸 JSON 对象；解析器优先解析裸对象，兼容 markdown 围栏包裹。模型识别失败时视为未检，不盲目判罚。
   - 模型上下文事实声明：主线程同步获取用户是否处于入群待验证状态，作为事实独立声明并附加于固定位置，不混入待判定正文。
-- **处置执行与通知**：
-  - 判定为广告后，Worker 侧删除该用户待删消息列表并回传 `adDetected`；主线程在临界区内读取 `ad_detect.json` 的 `punishment`，按处罚设置与发送者是否为频道身份选定动作（`states/adPunishment.ts`）：
+- **处置执行、广告包黑名单持久化与通知**：
+  - 判定为广告后，Worker 汇总待删消息 ID（`deleteMessageIds`）并随 `adDetected` 回传主线程（通道关闭或未通过主线程复核时不提前删消息）；主线程在临界区内复核通过并读取 `ad_detect.json` 的 `punishment` 后，并行在 `inFlightAdDisposals` 内按 `TELEGRAM_DELETE_MESSAGES_BATCH_MAX` 分批删除涉事消息，并按处罚设置与发送者是否为频道身份选定动作（`states/adPunishment.ts`）：
     - **`kick`、`block_scope: "global"`**：执行 `blockUser`、刷新黑名单落盘，并生成持久化封禁批次投回 Worker 执行全群封禁；用户与频道身份相同。
     - **`mute`**：在触发群禁言。限时禁言的派发截止沿用 `/mute` 契约（时长减去 `MUTE_DISPATCH_MIN_REMAINING_MS`），永久禁言不带 `until_date`。
     - **`kick`、`block: false`**：只踢不封。发送者已在永久黑名单时交给黑名单封禁；群类型读主线程 `chatIsSupergroupById`，未知时不发请求；踢前确认目标仍在群，避免超级群的 `unbanChatMember` 解除他人留下的封禁。
     - **`kick`、`block_scope: "chat"`**：只在触发群以 `banChatMember`（`revoke_messages: true`）封禁，不写永久黑名单。
     - **频道身份**在全局封禁以外的设置下只删除消息，不发处罚请求。
     - 本群处罚不进 durable outbox：在途任务由 `inFlightAdDisposals` 跟踪，停机排空预算耗尽或进程重启即放弃。`ad_detect.json` 已被热重载删除时，在途命中记错误日志并放弃处罚。
+  - **广告贴纸包/表情包黑名单存储、768 LRU 缓存与自动拉黑**（`packages/infra/adPackBlacklistStorage.ts`、`packages/antiRaid/adBlacklistPersistence.ts`）：
+    - **权威存储、768 共享热缓存与冷读隔离**：贴纸包与自定义表情包黑名单持久化于 SQLite `ad_pack_blacklists` 表（`PRIMARY KEY (kind, pack)`，`kind IN ('sticker', 'emoji')`，不设条数硬上限；启动时由 Disk I/O 流式全表校验形态并在 `initAntiRaid` 之前仅将两类条数统计水合进主线程 `packages/cache/main/adPackBlacklist.ts`，不载入全表包名）。主线程维护一张容量为 `AD_PACK_BLACKLIST_READ_CACHE_MAX_ENTRIES`（768）的共享热查询 LRU（`adPackBlacklistCache`，贴纸与表情包共用，缓存正/负命中结论）：热读（`findFirstBlacklistedAdPack` / `readAdPackBlacklistStates`）优先命中未 ACK 写入表与 768 LRU，冷缺失按 `AD_PACK_BLACKLIST_READ_CHUNK_MAX_ENTRIES`（256）分块经连接级预编译语句（单包走主键等值、多包走 `json_each`）打到 Disk I/O SQLite 并回填 LRU；列表与搜索（`/ad_detect <sticker|emoji> list` 与 Mini App `GET /api/ad-blacklists`）经 `listAdPackBlacklistPage` 按 `AD_PACK_BLACKLIST_PAGE_SIZE`（256）游标冷读 SQLite 并叠加未 ACK 写入，不读写 768 LRU。
+    - **写入协议与计数镜像同步**：主线程所有增删经 `adPackBlacklistMutationChain` 串行化（冷缺失写前先打 SQLite 核实去重与计数），遵循共享 SQLite 写预算、写透 768 LRU 与单调 revision 精确 ACK（`"adPackBlacklist"` 领域，批次阈值 `AD_PACK_BLACKLIST_WRITE_BATCH_MAX_ENTRIES`，Worker 重建直接按未 ACK 表中的最终意图经 `DISK_IO_RESPAWN_PRIORITIES.AD_PACK_BLACKLIST` 升序重放，不依赖 LRU 驻留）。主线程通过 `registerAdPackBlacklistObserver` 投递独立的 `AdPackBlacklistSyncMessage`（仅含 `stickerCount` / `emojiCount`）同步 Anti-Raid Worker：`adoptAdPackBlacklistSyncMessage` 仅更新 `adPackBlacklistCounts`，绝不重置 AI SDK 客户端、`adDetectPrompts` 或 `adDetectVisionSupport`。
+    - **自动拉黑持久化**：直接广告命中携带 AI 归因的贴纸包或自定义表情包时，主线程在 `inFlightAdDisposals` 内异步排入 `persistAutoBlacklistedAdPacks`（不阻塞发送者处罚、停机时随排空结算）：按 `STICKER_PACK_NAME_PATTERN` 规范化去重并排除 `config/dynamic/stickers.json` 自用贴纸包，经 `addAdPackBlacklistBatch` 写入 768 LRU、递增计数并入 Disk I/O 队列（变更结束统一广播一次 `AdPackBlacklistSyncMessage`），随后调用 `flushAdPackBlacklistWrites` 确认 `"adPackBlacklist"` 领域落盘；若未确认落盘则记警告并保留未确认 revision 待 Disk I/O 重放，绝不抛错也不改写 `config/dynamic/ad_detect.json`。
+    - **手动管理入口共享边界**：`/ad_detect sticker|emoji`（`list|add|remove`，需 `isCanControllAdDetectPermission`）与 Mini App `GET|POST /api/ad-blacklists` 均经 `packages/infra/adPackBlacklistStorage.ts`（`listAdPackBlacklistPage` / `persistAdPackBlacklistAdd` / `persistAdPackBlacklistRemove` / `confirmAdPackBlacklistPersisted`，重复添加或重复移除时自动补投未 ACK 的同一 revision 确认落盘），统一执行 `STICKER_PACK_NAME_PATTERN` 校验与 `stickers.json` 自用贴纸包拦截，不设单类条数硬上限。
   - 主线程通过 `sendTemporaryMessageOnMain` 发布处理播报，挂载 `COMMAND_MESSAGE_AUTO_DELETE_MS` 自毁定时器：全局封禁如实反馈成功封禁的群数与权限缺失情况，本群处罚如实反馈处罚是否生效（未生效时提示管理员检查机器人权限）。
   - 停机时广告检测仅停止接入新请求，在途模型调用自行超时收尾，不阻塞快速停机。命中样本以追加方式写入 `memory/ad-detected/sample.json`，按配置时区日期自动归档轮转。
 
@@ -1137,7 +1146,7 @@
 
 - **消息撤回机制**：
   - 黑名单封禁操作（`/block`、入群秒踢、补扫、广告全局封禁）与广告本群封禁统一调用 `banChatMember` 并固定设置 `revoke_messages: true`，撤回目标在群内的历史消息。
-  - 频道马甲由于缺乏成员概念，`banChatSenderChat` 不支持自动撤回消息，广告检测处置时在 Worker 侧显式调用删除接口清理关联消息。
+  - 频道马甲由于缺乏成员概念，`banChatSenderChat` 不支持自动撤回消息，广告检测处置经主线程复核通过后显式调用批量删除接口清理 `deleteMessageIds` 中的关联消息。
 
 #### 黑名单移除 outbox
 
@@ -1210,7 +1219,7 @@
     - 若回执报残余写未提交，或关库请求超时、被拒、报错而无法确认已提交，Worker 照常终止，但磁盘终止步骤记为失败、停机结局判为 `unsettled`；checkpoint 被其他读连接挡住仅记录诊断（残余写已提交，WAL 留在库旁）。`closeStorage` 不属于业务消息，Worker 重建时不重放。
   - 停机超时与各步骤耗时预算统一由 `monotonicDeadline.ts` 依据 `performance.now()` 计算，免疫系统时钟回拨。
   - **停机时间预算**：各 owner 按 `FlushTimeouts` 中对应档位等待：`antiRaid` 排空使用 `antiRaidMs`（正常停机取 `ANTI_RAID_DRAIN_TIMEOUT_MS`，不小于 `DISK_IO_FLUSH_TIMEOUT_MS`，覆盖排空内部等待的 Disk I/O 与 StateStore 落盘）；`translate` 的排空与关闭使用 `translateMs`（正常停机取单次 RPC 上限 `TRANSLATE_REQUEST_TIMEOUT_MS`）；其余维护类 owner 使用 `maintenanceMs`。异常退出路径的 `EMERGENCY_FLUSH_TIMEOUTS` 中这三档均为 0。
-  - **停机总截止**：整段停机受 `SHUTDOWN_TOTAL_BUDGET_MS` 约束，自停机请求（信号或致命错误）起算（未经停机请求直接进入收尾时自 `wait()` 或 `dispose()` 开始起算）。两遍排空、后台维护等待、最终 offset 确认与 StateStore 落盘的每一步均取「自身预算」与「总截止剩余时间」的较小值，截止后的步骤按零预算执行；runner 排空、Worker 终止、关库与实例锁处置不按总截止缩短。
+  - **停机总截止**：整段停机受 `SHUTDOWN_TOTAL_BUDGET_MS` 约束，自停机请求（信号或致命错误）起算（未经停机请求直接进入收尾时自 `wait()` 或 `dispose()` 开始起算）。两遍排空、后台维护等待、最终 offset 确认与 StateStore 落盘的每一步均取「自身预算」与「总截止剩余时间」的较小值，截止后的步骤按零预算执行。零预算的步骤不再发起新的写入或请求：`StateStore` 仍有未落盘或在途写入时判 `timedOut`（否则判 `flushed`），Disk I/O flush 不再下发落盘屏障、不计为已落盘，最终 offset 确认不调用 `getUpdates`，直接扣留 offset 并把退出码置为 1；runner 排空、Worker 终止、关库与实例锁处置不按总截止缩短。
 
 ### 文件权限与 schema
 
@@ -1219,9 +1228,9 @@
   - SQLite `database/` 目录采用 setgid 协作目录权限 `IDENTITY_DATABASE_DIRECTORY_MODE`，文件默认使用 `IDENTITY_DATABASE_FILE_MODE`。
   - 启动阶段仅校验运行用户是否具备合法的读写权限，不自动修改文件属主或权限；权限不合规直接拒绝启动。
 - **原子替换的权限保留**：
-  - 执行 `tmp + fsync + rename` 原子写文件时，必须先读取已有目标文件的权限位（mode）并沿用；临时文件默认权限不覆盖既有目标权限。传入的 `mode` 参数仅在目标文件不存在时作为首次创建的初始值（Mini App 首次创建尚不存在的可选部署配置文件时固定使用 `MINI_APP_CONFIG_DEFAULT_FILE_MODE` 即 `0o600`；`config/` 默认保持只读，仅在部署方显式启用在线配置编辑时向服务账号开放写权限）。
-- **禁止猜测式 schema 迁移**：
-  - 持久化数据 schema 必须严格匹配当前版本，不支持静默自动升级或旧格式兼容分支；遇到非法或不兼容数据一律拒绝启动。
+  - 执行 `tmp + fsync + rename` 原子写文件时，必须先读取已有目标文件的权限位（mode）并沿用；临时文件默认权限不覆盖既有目标权限。传入的 `mode` 参数仅在目标文件不存在时作为首次创建的初始值（Mini App 首次创建尚不存在的可选部署配置文件时固定使用 `MINI_APP_CONFIG_DEFAULT_FILE_MODE` 即 `0o600`；`config/` 默认保持只读，仅在部署方显式启用 Mini App 在线配置编辑时向服务账号开放写权限）。
+- **禁止猜测式 schema 迁移与现行版本基线**：
+  - 持久化数据 schema 必须严格匹配当前版本（`database/storage.sqlite` 为 `IDENTITY_DATABASE_SCHEMA_VERSION = 14`，`STORAGE_MIGRATION_LINEAGE` 包含 `0000_identity_storage` 至 `0012_ad_pack_blacklists` 共 13 条迁移，含 `ad_pack_blacklists` STRICT 表；`config/dynamic/ad_detect.json` 仅接受 `{ punishment, samples }` 两个必填顶层键），不支持静默自动升级或旧格式兼容分支；遇到非法或不兼容数据一律拒绝启动。离线升级统一通过 `scripts/migrations/active.ts` 登记的现行冷迁移脚本（`migrate:wed-member-window`、`migrate:ad-pack-blacklists`）手工执行。
 
 ### 锁定镜像与终态标志
 

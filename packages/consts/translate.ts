@@ -49,40 +49,40 @@ export const TRANSLATE_REGIONAL_MODEL: string = "general/translation-llm";
  * /translate 的参数结构；方向后只留目标参数给共享身份解析器校验。
  * 方向词不区分大小写；捕获组保留原样大小写，调用方取值时自己 `toLowerCase()`。
  */
-export const TRANSLATE_ARGUMENT_PATTERN: RegExp = new RegExp(`^(${TRANSLATE_LANGUAGE_SYNOPSIS})(?:\\s+([\\s\\S]+))?$`, "iu");
+export const TRANSLATE_ARGUMENT_PATTERN: Readonly<RegExp> = new RegExp(`^(${TRANSLATE_LANGUAGE_SYNOPSIS})(?:\\s+([\\s\\S]+))?$`, "iu");
 
 /** /translate stop 的参数结构；stop 不区分大小写，可选用户名或 ID 交给共享目标解析器。 */
-export const TRANSLATE_STOP_ARGUMENT_PATTERN: RegExp = /^stop(?:\s+([\s\S]+))?$/iu;
+export const TRANSLATE_STOP_ARGUMENT_PATTERN: Readonly<RegExp> = /^stop(?:\s+([\s\S]+))?$/iu;
 
 /** 日语同语种判定需要假名证据；纯汉字不据此判为日语。 */
-export const TRANSLATE_JAPANESE_EVIDENCE: RegExp = /[\p{Script=Hiragana}\p{Script=Katakana}]/u;
+export const TRANSLATE_JAPANESE_EVIDENCE: Readonly<RegExp> = /[\p{Script=Hiragana}\p{Script=Katakana}]/u;
 
 /** 日语同语种文本只接受汉字、假名及中性符号；混入其它文字仍请求翻译。 */
-export const TRANSLATE_JAPANESE_TEXT: RegExp = /^[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{N}\p{P}\p{S}\s\u200d\p{Variation_Selector}]+$/u;
+export const TRANSLATE_JAPANESE_TEXT: Readonly<RegExp> = /^[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{N}\p{P}\p{S}\s\u200d\p{Variation_Selector}]+$/u;
 
 /** 英语同语种判定需要 ASCII 字母证据。 */
-export const TRANSLATE_ENGLISH_EVIDENCE: RegExp = /[A-Za-z]/u;
+export const TRANSLATE_ENGLISH_EVIDENCE: Readonly<RegExp> = /[A-Za-z]/u;
 
 /** 英语同语种文本只接受 ASCII 字母及中性符号；非拉丁文字和重音字母不跳过翻译。 */
-export const TRANSLATE_ENGLISH_TEXT: RegExp = /^[A-Za-z\p{N}\p{P}\p{S}\s\u200d\p{Variation_Selector}]+$/u;
+export const TRANSLATE_ENGLISH_TEXT: Readonly<RegExp> = /^[A-Za-z\p{N}\p{P}\p{S}\s\u200d\p{Variation_Selector}]+$/u;
 
 /** 简体中文同语种判定需要汉字证据。 */
-export const TRANSLATE_CHINESE_EVIDENCE: RegExp = /\p{Script=Han}/u;
+export const TRANSLATE_CHINESE_EVIDENCE: Readonly<RegExp> = /\p{Script=Han}/u;
 
 /** 中文文字形态；简繁字形由 TRANSLATE_TRADITIONAL_HAN 另行判定。 */
-export const TRANSLATE_CHINESE_TEXT: RegExp = /^[\p{Script=Han}\p{N}\p{P}\p{S}\s\u200d\p{Variation_Selector}]+$/u;
+export const TRANSLATE_CHINESE_TEXT: Readonly<RegExp> = /^[\p{Script=Han}\p{N}\p{P}\p{S}\s\u200d\p{Variation_Selector}]+$/u;
 
 /** 乌克兰语同语种判定需要本语种字母证据；不把其它西里尔字母视为证据。 */
-export const TRANSLATE_UKRAINIAN_EVIDENCE: RegExp = /[А-ЩЬЮЯЄІЇҐа-щьюяєіїґ]/u;
+export const TRANSLATE_UKRAINIAN_EVIDENCE: Readonly<RegExp> = /[А-ЩЬЮЯЄІЇҐа-щьюяєіїґ]/u;
 
 /** 乌克兰语文本只接受本语种字母、撇号及中性符号；排除俄语的 ё、ъ、ы、э。 */
-export const TRANSLATE_UKRAINIAN_TEXT: RegExp = /^[А-ЩЬЮЯЄІЇҐа-щьюяєіїґ\u02bc\p{N}\p{P}\p{S}\s\u200d\p{Variation_Selector}]+$/u;
+export const TRANSLATE_UKRAINIAN_TEXT: Readonly<RegExp> = /^[А-ЩЬЮЯЄІЇҐа-щьюяєіїґ\u02bc\p{N}\p{P}\p{S}\s\u200d\p{Variation_Selector}]+$/u;
 
 /** 俄语同语种判定需要本语种字母证据，包含大小写 Ё。 */
-export const TRANSLATE_RUSSIAN_EVIDENCE: RegExp = /[А-Яа-яЁё]/u;
+export const TRANSLATE_RUSSIAN_EVIDENCE: Readonly<RegExp> = /[А-Яа-яЁё]/u;
 
 /** 俄语文本只接受本语种字母及中性符号；乌克兰语的 є、і、ї、ґ 仍需翻译。 */
-export const TRANSLATE_RUSSIAN_TEXT: RegExp = /^[А-Яа-яЁё\p{N}\p{P}\p{S}\s\u200d\p{Variation_Selector}]+$/u;
+export const TRANSLATE_RUSSIAN_TEXT: Readonly<RegExp> = /^[А-Яа-яЁё\p{N}\p{P}\p{S}\s\u200d\p{Variation_Selector}]+$/u;
 
 /** 无字母或汉字的数字、标点和表情视为中性文字，不请求翻译、不发送。 */
-export const TRANSLATE_NEUTRAL_TEXT: RegExp = /^[\p{N}\p{P}\p{S}\s\u200d\p{Variation_Selector}]*$/u;
+export const TRANSLATE_NEUTRAL_TEXT: Readonly<RegExp> = /^[\p{N}\p{P}\p{S}\s\u200d\p{Variation_Selector}]*$/u;

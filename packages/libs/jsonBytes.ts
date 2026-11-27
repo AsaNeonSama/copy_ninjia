@@ -1,4 +1,13 @@
 /**
+ * 计算已生成的 JSON 文本 UTF-8 字节数（下限为 1），供已握有 `JSON.stringify` 产物的调用方复用。
+ * @param jsonText 已序列化的 JSON 文本。
+ * @returns 至少为 1 的 UTF-8 字节数。
+ */
+export function jsonTextSerializedBytes(jsonText: string): number {
+  return Math.max(1, Buffer.byteLength(jsonText));
+}
+
+/**
  * 估算已经规范化、可 JSON 落盘值的序列化字节数。
  *
  * logger 的参数在进入队列前已经断开原对象引用并规范化；广告样本也只含声明过的
@@ -11,7 +20,7 @@ export function jsonSerializedBytes(value: unknown): number {
   try {
     const serialized: string | undefined = JSON.stringify(value);
     if (serialized === undefined) return Number.MAX_SAFE_INTEGER;
-    return Math.max(1, Buffer.byteLength(serialized));
+    return jsonTextSerializedBytes(serialized);
   } catch {
     return Number.MAX_SAFE_INTEGER;
   }

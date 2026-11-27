@@ -448,6 +448,7 @@ function acknowledgeRemovalWrites(writes: readonly { removalId: number; revision
       temporaryAdBypassWrites: [],
       chatStateWrites: [],
       chatQaWrites: [],
+      adPackBlacklistWrites: [],
       removalWrites: writes,
     });
   }

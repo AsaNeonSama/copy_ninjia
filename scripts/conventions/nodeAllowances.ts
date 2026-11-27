@@ -290,7 +290,7 @@ export const SCRIPT_NODE_IMPORTS: Readonly<Record<string, NodeImportAllowance>> 
     purpose: "asynchronous metadata, directory creation, symbolic-link target reads, and canonical filesystem path resolution",
   },
   "node:os": {
-    symbols: ["arch", "cpus", "platform", "release", "tmpdir", "totalmem"],
+    symbols: ["release", "tmpdir", "totalmem"],
     purpose: "benchmark machine identity and temporary-root placement",
   },
 };

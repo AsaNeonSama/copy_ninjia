@@ -283,6 +283,7 @@ function aiAllows(request: TelegramWorkerRequest): boolean {
  */
 function antiRaidAllows(request: TelegramWorkerRequest): boolean {
   if (request.operation === "sendTemporaryMessage") return true;
+  if (request.operation === "downloadFile") return request.purpose === "vision";
   if (request.operation !== "call") return false;
   switch (request.call.method) {
     case "answerCallbackQuery":
@@ -321,7 +322,7 @@ export function handleAiWorkerTelegramRequest(
 }
 
 /**
- * Anti-Raid Worker 只获得验证、限权、清理与成员查询能力。
+ * Anti-Raid Worker 只获得验证、限权、清理、成员查询与广告视觉素材下载能力。
  * @param request Anti-Raid Worker 发来的 Telegram 请求。
  * @param signal 请求取消信号。
  * @returns 主线程执行结果。

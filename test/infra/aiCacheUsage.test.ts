@@ -8,6 +8,7 @@ import {
   reportAiSearchUsage,
   reportAnthropicUsage,
   reportGeminiUsage,
+  reportGeminiDecisionUsage,
   reportGeminiInteractionUsage,
   reportXAiUsage,
 } from "../../packages/infra/aiCacheUsage";
@@ -114,6 +115,40 @@ test("Interactions 独立思考 token 计入输出，未给缓存数保持未知
     { inputTokens: 20, cachedInputTokens: 5, outputTokens: 103 },
     { inputTokens: 4, cachedInputTokens: null, outputTokens: 7 },
   ]);
+});
+
+test("Decisions 省略输出 token 时按 0 计入，未给缓存数保持未知；缺失与非法分量不上报并诊断", () => {
+  install();
+  const warning = spyOn(logger, "warn").mockImplementation((): void => {});
+  try {
+    reportGeminiDecisionUsage({ capability: "ad_detect", model: "decision-m", usage: { total_input_tokens: 120 } });
+    reportGeminiDecisionUsage({
+      capability: "ad_detect",
+      model: "decision-m",
+      usage: { total_input_tokens: 200, total_cached_tokens: 80, total_output_tokens: 0 },
+    });
+    reportGeminiDecisionUsage({ capability: "ad_detect", model: "decision-m", usage: undefined });
+    for (const usage of [
+      null,
+      "invalid",
+      [],
+      { total_input_tokens: -1 },
+      { total_input_tokens: 10, total_output_tokens: -1 },
+      { total_input_tokens: 10, total_cached_tokens: 11 },
+    ]) {
+      expect(() => reportGeminiDecisionUsage({ capability: "ad_detect", model: "decision-m", usage: usage as never })).not.toThrow();
+    }
+    expect(reported.map(({ timestamp: _timestamp, ...rest }: AiCacheUsage) => rest)).toEqual([
+      { kind: "tokens", capability: "ad_detect", provider: "google", model: "decision-m", inputTokens: 120, cachedInputTokens: null, outputTokens: 0 },
+      { kind: "tokens", capability: "ad_detect", provider: "google", model: "decision-m", inputTokens: 200, cachedInputTokens: 80, outputTokens: 0 },
+    ]);
+    expect(warning.mock.calls).toEqual([
+      ["AI token usage unavailable.", { capability: "ad_detect", provider: "google", reason: "missing" }],
+      ["AI token usage unavailable.", { capability: "ad_detect", provider: "google", reason: "invalid" }],
+    ]);
+  } finally {
+    warning.mockRestore();
+  }
 });
 
 test("Gemini 非法分量不能相加后掩盖，缺输出保持未知，畸形 usage 不影响业务", () => {

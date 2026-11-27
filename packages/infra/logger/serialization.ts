@@ -19,7 +19,7 @@ import {
 } from "../../consts/logger";
 import { createLogRedactionReplacer, redactSensitiveFieldsInText, safeStringify } from "./redaction";
 import { redactSecretsInText } from "../../libs/redaction";
-import { jsonSerializedBytes } from "../../libs/jsonBytes";
+import { jsonSerializedBytes, jsonTextSerializedBytes } from "../../libs/jsonBytes";
 import type { AdDetectAgentConfig, AgentDeploymentConfig, BotConfig } from "../../types/config";
 import type { LogRedactionSecrets, LoggerSecretsSnapshot } from "../../types/logger";
 
@@ -27,8 +27,17 @@ import type { LogRedactionSecrets, LoggerSecretsSnapshot } from "../../types/log
 interface SerializationBudget {
   errors: number;
   items: number;
+  /** 最近一次 `serializeArg` / `serializeArgSafely` 已知的精确 UTF-8 JSON 字节数；未知时为 `-1`。 */
+  lastArgBytes: number;
   readonly secrets: LogRedactionSecrets;
 }
+
+/** 单条日志扣除数组括号、最后一个逗号与截断占位符后的初始剩余字节预算（模块加载时算一次）。 */
+const LOGGER_SERIALIZED_INITIAL_REMAINING_BYTES: number =
+  LOGGER_MAX_SERIALIZED_BYTES - jsonSerializedBytes(LOGGER_SERIALIZATION_LIMIT_VALUE) - 3;
+
+/** `LOGGER_UNSERIALIZABLE_VALUE` 的 JSON 序列化 UTF-8 字节数（模块加载时算一次）。 */
+const LOGGER_UNSERIALIZABLE_BYTES: number = jsonSerializedBytes(LOGGER_UNSERIALIZABLE_VALUE);
 
 /**
  * 本次调用要脱敏的敏感值，每条日志取一次。Telegram 与 agent loader 把成功结果
@@ -71,9 +80,22 @@ function currentSecrets(): LogRedactionSecrets {
     }
   }
   const jsonSecrets: string[] = [];
-  for (const secret of secrets) jsonSecrets.push(JSON.stringify(secret).slice(1, -1));
+  let minJsonSecretLength: number = Number.POSITIVE_INFINITY;
+  for (const secret of secrets) {
+    const escaped: string = JSON.stringify(secret).slice(1, -1);
+    jsonSecrets.push(escaped);
+    if (escaped.length < minJsonSecretLength) {
+      minJsonSecretLength = escaped.length;
+    }
+  }
   const snapshot: LoggerSecretsSnapshot = {
-    text: secrets, json: jsonSecrets, replacer: createLogRedactionReplacer(secrets), telegram, adDetect, agent,
+    text: secrets,
+    json: jsonSecrets,
+    minJsonSecretLength,
+    replacer: createLogRedactionReplacer(secrets),
+    telegram,
+    adDetect,
+    agent,
   };
   loggerSecretsMemo.current = snapshot;
   return snapshot;
@@ -94,12 +116,40 @@ function parseRedactedJson(redacted: string): unknown {
 }
 
 /**
+ * 把 JSON 形态为纯 ASCII 原语字面量（`null`、`true`、`false` 或有限数字）的日志参数做脱敏并记录精确字节数；
+ * 最短 JSON 凭据长度大于字面量长度时直接免扫描返回。
+ *
+ * @param value 已规范化（不含 `-0`）的原始值。
+ * @param text 该值的标准 ASCII JSON 字面量文本。
+ * @param budget 本次日志调用共享的展开预算与脱敏凭据。
+ * @returns 已脱敏且可安全 JSON 序列化的值。
+ */
+function serializePrimitiveLiteral(
+  value: null | boolean | number,
+  text: string,
+  budget: SerializationBudget
+): unknown {
+  const secrets: LogRedactionSecrets = budget.secrets;
+  if (secrets.minJsonSecretLength > text.length) {
+    budget.lastArgBytes = text.length;
+    return value;
+  }
+  const redacted: string = redactSecretsInText(text, secrets.json);
+  if (redacted === text) {
+    budget.lastArgBytes = text.length;
+    return value;
+  }
+  return parseRedactedJson(redacted);
+}
+
+/**
  * 把任意日志参数转成可 JSON 序列化的值。Error（含 GrammyError 等子类）
  * 由 serializeError 展开（含嵌套 Error）；其余对象尝试 JSON 序列化，
  * 失败（循环引用等）则退化为字符串。
  *
  * 展开后的整棵结构整体序列化成 JSON，字段名、原文凭据及 URL 脱敏由快照回调覆盖
  * 每一层，再用 JSON 转义后的凭据片段匹配整份 JSON，覆盖对象键中的已登记凭据。
+ * 命中精确已知 UTF-8 字节长度的分支同步写入 `budget.lastArgBytes`，免去调用方二次 `JSON.stringify`。
  *
  * @param arg 单个待序列化并脱敏的原始日志参数。
  * @param budget 本次日志调用共享的节点/条目展开预算与脱敏凭据。
@@ -116,27 +166,17 @@ function serializeArg(arg: unknown, budget: SerializationBudget): unknown {
     typeof arg === "symbol" ||
     (typeof arg === "function" && !("toJSON" in arg))
   ) {
-    if (secrets.json.length === 0) return null;
-    const redacted: string = redactSecretsInText("null", secrets.json);
-    return redacted === "null" ? null : parseRedactedJson(redacted);
+    return serializePrimitiveLiteral(null, "null", budget);
   }
   if (typeof arg === "boolean") {
-    if (secrets.json.length === 0) return arg;
-    const text: string = arg ? "true" : "false";
-    const redacted: string = redactSecretsInText(text, secrets.json);
-    return redacted === text ? arg : parseRedactedJson(redacted);
+    return serializePrimitiveLiteral(arg, arg ? "true" : "false", budget);
   }
   if (typeof arg === "number") {
     if (!Number.isFinite(arg)) {
-      if (secrets.json.length === 0) return null;
-      const redacted: string = redactSecretsInText("null", secrets.json);
-      return redacted === "null" ? null : parseRedactedJson(redacted);
+      return serializePrimitiveLiteral(null, "null", budget);
     }
     const normalized: number = arg === 0 ? 0 : arg;
-    if (secrets.json.length === 0) return normalized;
-    const text: string = String(normalized);
-    const redacted: string = redactSecretsInText(text, secrets.json);
-    return redacted === text ? normalized : parseRedactedJson(redacted);
+    return serializePrimitiveLiteral(normalized, String(normalized), budget);
   }
 
   const error: Error | null = asError(arg);
@@ -144,9 +184,18 @@ function serializeArg(arg: unknown, budget: SerializationBudget): unknown {
     ? serializeError(error, null, budget)
     : arg;
 
-  const redacted: string = redactSecretsInText(safeStringify(serializable, secrets.replacer), secrets.json);
-  // 脱敏是对整份 JSON 文本做字面替换，结果可能不是合法 JSON；解析失败时返回脱敏后的文本。
-  return parseRedactedJson(redacted);
+  const rawJson: string = safeStringify(serializable, secrets.replacer);
+  const redacted: string = redactSecretsInText(rawJson, secrets.json);
+  // 脱敏是对整份 JSON 文本做字面替换，结果可能不是合法 JSON；解析失败时按带引号回退串重新计字节。
+  try {
+    const parsed: unknown = JSON.parse(redacted);
+    if (redacted === rawJson) {
+      budget.lastArgBytes = jsonTextSerializedBytes(redacted);
+    }
+    return parsed;
+  } catch {
+    return redacted;
+  }
 }
 
 /**
@@ -376,6 +425,7 @@ function serializeArgSafely(
   try {
     return serializeArg(arg, budget);
   } catch {
+    budget.lastArgBytes = LOGGER_UNSERIALIZABLE_BYTES;
     return LOGGER_UNSERIALIZABLE_VALUE;
   }
 }
@@ -388,19 +438,25 @@ function serializeArgSafely(
  */
 export function serializeLogArgs(args: readonly unknown[]): unknown[] {
   const secrets: LogRedactionSecrets = currentSecrets();
-  const budget: SerializationBudget = { errors: LOGGER_MAX_ERROR_NODES, items: LOGGER_MAX_SERIALIZED_ITEMS, secrets };
+  const budget: SerializationBudget = {
+    errors: LOGGER_MAX_ERROR_NODES,
+    items: LOGGER_MAX_SERIALIZED_ITEMS,
+    lastArgBytes: -1,
+    secrets,
+  };
   const serialized: unknown[] = [];
   // 为数组括号、最后一个逗号和截断标记预留空间。
-  let remainingBytes: number = LOGGER_MAX_SERIALIZED_BYTES -
-    jsonSerializedBytes(LOGGER_SERIALIZATION_LIMIT_VALUE) - 3;
+  let remainingBytes: number = LOGGER_SERIALIZED_INITIAL_REMAINING_BYTES;
   for (const arg of args) {
     if (budget.items === 0) {
       serialized.push(LOGGER_SERIALIZATION_LIMIT_VALUE);
       break;
     }
     budget.items--;
+    budget.lastArgBytes = -1;
     const value: unknown = serializeArgSafely(arg, budget);
-    const bytes: number = jsonSerializedBytes(value) + 1;
+    const bytes: number =
+      (budget.lastArgBytes >= 0 ? budget.lastArgBytes : jsonSerializedBytes(value)) + 1;
     if (bytes > remainingBytes) {
       serialized.push(LOGGER_SERIALIZATION_LIMIT_VALUE);
       break;

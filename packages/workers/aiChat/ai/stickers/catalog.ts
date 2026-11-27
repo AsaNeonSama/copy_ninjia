@@ -6,7 +6,7 @@ import { logger } from "../../../../infra/logger";
 import { getStickerConfig } from "../../../../config/stickers";
 import type { Sticker, StickerSet } from "grammy/types";
 import { getStickerSet } from "./sets";
-import { pickStickerVisionSource } from "../../../../aiChat/stickerDescribe";
+import { pickStickerVisionSource } from "../../../../libs/telegramImage";
 import { describeMediaForStickerCatalog } from "../imageDescription";
 import { resampleAiText } from "../utils/resample";
 import { summaryAiProvider } from "../../provider";

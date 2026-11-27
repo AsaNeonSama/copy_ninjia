@@ -3,7 +3,7 @@
 /** 仅保留最近几天（今天及之前）的日志文件，跨天时自动清理过期文件。 */
 export const RETENTION_DAYS: number = 3;
 /** 日志与运势文件名形态（YYYY-MM-DD.json）。 */
-export const DAY_FILE_PATTERN: RegExp = /^(\d{4}-\d{2}-\d{2})\.json$/;
+export const DAY_FILE_PATTERN: Readonly<RegExp> = /^(\d{4}-\d{2}-\d{2})\.json$/;
 /** 批量落盘的累计变更阈值；各领域独立计数并调度。 */
 export const FLUSH_MAX_ENTRIES: number = 256;
 /** 批量落盘的时间阈值；从首条变更计时，未达累计阈值时到期触发。 */

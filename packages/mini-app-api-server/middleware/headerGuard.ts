@@ -41,6 +41,19 @@ export function isAllowedRequestOriginUrl(
   if (trimmed.length === 0 || trimmed.toLowerCase() === "null") {
     return false;
   }
+  const configOrigin: string = (
+    miniAppActiveUrlPartsHolder.current ??
+    deriveMiniAppPublicUrlParts(getBotMiniAppConfig())
+  ).origin;
+  if (
+    configOrigin.length > 0 &&
+    (trimmed === configOrigin ||
+      (trimmed.length > configOrigin.length &&
+        trimmed.charCodeAt(configOrigin.length) === 0x2f /* "/" */ &&
+        trimmed.startsWith(configOrigin)))
+  ) {
+    return true;
+  }
   const parsedOrigin: URL | null = URL.parse(trimmed);
   if (
     parsedOrigin === null ||
@@ -49,10 +62,6 @@ export function isAllowedRequestOriginUrl(
     return false;
   }
   const candidateOrigin: string = `${parsedOrigin.protocol}//${parsedOrigin.host.toLowerCase()}`;
-  const configOrigin: string = (
-    miniAppActiveUrlPartsHolder.current ??
-    deriveMiniAppPublicUrlParts(getBotMiniAppConfig())
-  ).origin;
   if (configOrigin.length > 0 && candidateOrigin === configOrigin) {
     return true;
   }

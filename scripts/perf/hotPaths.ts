@@ -14,7 +14,11 @@ import { median } from "./statistics";
 import { beginGcProfileWindow, endGcProfileWindow } from "./hotPaths/gcProfile";
 import { collectJitTiers, diffJitTiers } from "./hotPaths/jitTiers";
 import { readInterruptibleMemory } from "./hotPaths/liveMemory";
-import { createScenario } from "./hotPaths/scenarioRegistry";
+import {
+  createScenario,
+  isRegisteredScenarioName,
+  REGISTERED_SCENARIO_NAMES,
+} from "./hotPaths/scenarioRegistry";
 import type { HeapSnapshot } from "./heapSnapshot";
 import type { JitTierCounts, JitTierStats, Scenario, ScenarioName } from "./hotPaths/types";
 import {
@@ -152,81 +156,13 @@ function productionJitTiersAreStable(
 }
 
 /**
- * perf:hot-paths 接受的全部场景名。Record 的键在编译期与 ScenarioName 逐一对齐（缺一或
- * 多一都报错），解析与用法提示都由它生成。
- */
-const SCENARIO_NAMES: Readonly<Record<ScenarioName, true>> = {
-  "cooldown-hit": true,
-  "cooldown-renew": true,
-  "cooldown-growth": true,
-  "cooldown-saturated": true,
-  "cooldown-expiry": true,
-  "reply-admission": true,
-  "reply-delivery-normal": true,
-  "reply-delivery-capacity": true,
-  "base64-normal": true,
-  "base64-large": true,
-  "base64-head": true,
-  "base64-tail": true,
-  "voice-message-encode": true,
-  "proxy-tts-detect": true,
-  "storage-sqlite-flush": true,
-  "verification-snapshot": true,
-  "verification-snapshot-clone": true,
-  "pending-verification-lookup": true,
-  "bounded-response-empty": true,
-  "bounded-response-tiny": true,
-  "bounded-response-small": true,
-  "bounded-response-normal": true,
-  "bounded-response-large": true,
-  "wed-member-hit": true,
-  "wed-member-growth": true,
-  "wed-member-churn": true,
-  "wed-member-chat-switch": true,
-  "registered-middleware": true,
-  "sender-no-username": true,
-  "sender-stable-username": true,
-  "sender-mixed-identity": true,
-  "luck-receipt-fast-path": true,
-  "ai-activity-window": true,
-  "ai-activity-lru-miss": true,
-  "ad-empty-metadata": true,
-  "ad-wire-clone": true,
-  "ad-capacity-reject": true,
-  "identity-permission-read": true,
-  "temporary-whitelist-activity": true,
-  "join-timestamp-window": true,
-  "quota-timestamp-window": true,
-  "bounded-rolling-buffer": true,
-  "chat-state-read": true,
-  "chat-state-map-read": true,
-  "self-sent-empty": true,
-  "self-sent-active": true,
-  "incoming-message-spine": true,
-  "ai-media-direct-trigger": true,
-  "flood-window-hit": true,
-  "flood-window-growth": true,
-  "flood-window-steady": true,
-  "gag-speak-counter": true,
-  "buffered-message-build": true,
-  "transcript-render": true,
-  "reply-reference": true,
-  "mention-facts": true,
-  "mention-facts-plain": true,
-  "redact-clean-log": true,
-  "luck-tier-table": true,
-  "mini-app-status-route": true,
-  "mini-app-frontend-render": true,
-};
-
-/**
  * 校验并返回命令行传入的热路径场景名。
  * @param value 命令行第一个参数。
  * @returns 合法的热路径场景名称。
  */
 function parseScenarioName(value: string | undefined): ScenarioName {
-  if (value !== undefined && Object.hasOwn(SCENARIO_NAMES, value)) return value as ScenarioName;
-  throw new Error(`Usage: bun run perf:hot-paths -- <${Object.keys(SCENARIO_NAMES).join("|")}>`);
+  if (isRegisteredScenarioName(value)) return value;
+  throw new Error(`Usage: bun run perf:hot-paths -- <${REGISTERED_SCENARIO_NAMES.join("|")}>`);
 }
 
 /**

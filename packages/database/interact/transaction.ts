@@ -1,4 +1,6 @@
 import { and, eq, sql } from "drizzle-orm";
+import { AD_PACK_BLACKLIST_KINDS } from "../../consts/identityStorage";
+import { adPackBlacklists } from "../schema/adPackBlacklist";
 import { chatQa } from "../schema/chatQa";
 import { chatStates } from "../schema/chatState";
 import { blocklistEntries, permissionList } from "../schema/identityPolicy";
@@ -6,7 +8,9 @@ import { pendingBlockedRemovals } from "../schema/pendingRemoval";
 import { temporaryAdBypassEntries } from "../schema/temporaryAdBypass";
 import type { SQL } from "drizzle-orm";
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
+import type { AdPackBlacklistKind } from "../../types/adPackBlacklist";
 import type {
+  StorageAdPackBlacklistChange,
   StorageAiContextChange,
   StorageDatabase,
   StorageDatabaseChange,
@@ -29,6 +33,10 @@ export interface CommitStorageDatabaseChangesOptions {
   readonly chatStates: ReadonlyMap<number, StorageDatabaseChange>;
   /** 群问答按 (chatId, q) 复合主键变更；外层键为 chatId，内层键为问题文本 q。 */
   readonly chatQa: ReadonlyMap<number, ReadonlyMap<string, StorageDatabaseChange>>;
+  /** 广告包黑名单按种类与包名 `(kind, pack)` 复合主键的待提交增删映射。 */
+  readonly adPackBlacklists: Readonly<
+    Record<AdPackBlacklistKind, ReadonlyMap<string, StorageAdPackBlacklistChange>>
+  >;
   /** AI 上下文按群主键只更新 `ai_context` 列；排在群状态之后，群行不存在时不插入。 */
   readonly aiContexts: ReadonlyMap<number, StorageAiContextChange>;
 }
@@ -119,6 +127,16 @@ export function prepareStorageDatabaseWriter(database: StorageDatabase): Storage
       .prepare(),
     deleteChatQa: database.delete(chatQa)
       .where(and(eq(chatQa.chatId, sql.placeholder("id")), eq(chatQa.q, sql.placeholder("q")))).prepare(),
+    upsertAdPackBlacklist: database.insert(adPackBlacklists)
+      .values({ kind: sql.placeholder("kind"), pack: sql.placeholder("pack") })
+      .onConflictDoNothing()
+      .prepare(),
+    deleteAdPackBlacklist: database.delete(adPackBlacklists)
+      .where(and(
+        eq(adPackBlacklists.kind, sql.placeholder("kind")),
+        eq(adPackBlacklists.pack, sql.placeholder("pack"))
+      ))
+      .prepare(),
     updateAiContext: database.update(chatStates)
       .set({ aiContext: jsonbPlaceholder("data") })
       .where(eq(chatStates.chatId, sql.placeholder("id"))).prepare(),
@@ -139,6 +157,7 @@ export function commitStorageDatabaseChanges(
     removals,
     chatStates: chatStateChanges,
     chatQa: chatQaChanges,
+    adPackBlacklists: adPackBlacklistChanges,
     aiContexts,
   }: CommitStorageDatabaseChangesOptions
 ): void {
@@ -179,6 +198,12 @@ export function commitStorageDatabaseChanges(
       for (const [q, change] of questions) {
         if (change.data === null) writer.deleteChatQa.run({ id: chatId, q });
         else writer.upsertChatQa.run({ id: chatId, q, data: change.data });
+      }
+    }
+    for (const kind of AD_PACK_BLACKLIST_KINDS) {
+      for (const [pack, change] of adPackBlacklistChanges[kind]) {
+        if (change.blacklisted) writer.upsertAdPackBlacklist.run({ kind, pack });
+        else writer.deleteAdPackBlacklist.run({ kind, pack });
       }
     }
     for (const [chatId, change] of aiContexts) {

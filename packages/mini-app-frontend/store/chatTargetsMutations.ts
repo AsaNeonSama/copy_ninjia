@@ -161,6 +161,7 @@ export function createChatTargetsMutations({
     if (!(await app.requestConfirm(confirmText, "danger"))) {
       return;
     }
+    if (get().selectedChatId === null || get().mutatingTargets) return;
     await executeTargetsMutation({
       action: kind === "delete" ? "removeDeleteTarget" : "removeTranslateTarget",
       id: targetId,
@@ -169,7 +170,8 @@ export function createChatTargetsMutations({
 
   return {
     submitQaPair: async (): Promise<void> => {
-      const { qaQuestionInput, qaAnswerInput }: MiniAppChatsStoreState = get();
+      const { selectedChatId, mutatingTargets, qaQuestionInput, qaAnswerInput }: MiniAppChatsStoreState = get();
+      if (selectedChatId === null || mutatingTargets) return;
       await executeTargetsMutation(
         {
           action: "setQa",
@@ -198,6 +200,7 @@ export function createChatTargetsMutations({
       ) {
         return;
       }
+      if (get().selectedChatId === null || get().mutatingTargets) return;
       await executeTargetsMutation({
         action: "removeQa",
         q,
@@ -205,7 +208,8 @@ export function createChatTargetsMutations({
     },
 
     submitDeleteTarget: async (): Promise<void> => {
-      const { deleteTargetInput }: MiniAppChatsStoreState = get();
+      const { selectedChatId, mutatingTargets, deleteTargetInput }: MiniAppChatsStoreState = get();
+      if (selectedChatId === null || mutatingTargets) return;
       const trimmed: string = deleteTargetInput.trim();
       if (trimmed.length === 0) {
         useMiniAppStore.getState().notify("TARGET_REQUIRED", "warning");
@@ -235,9 +239,12 @@ export function createChatTargetsMutations({
 
     submitTranslateTarget: async (): Promise<void> => {
       const {
+        selectedChatId,
+        mutatingTargets,
         translateTargetInput,
         translateLanguageInput,
       }: MiniAppChatsStoreState = get();
+      if (selectedChatId === null || mutatingTargets) return;
       const trimmed: string = translateTargetInput.trim();
       if (trimmed.length === 0) {
         useMiniAppStore.getState().notify("TARGET_REQUIRED", "warning");

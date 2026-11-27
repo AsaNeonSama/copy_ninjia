@@ -212,9 +212,10 @@ function saveGlobalStateInBackground(context: string): void {
 }
 
 /**
- * 在 timeoutMs 预算内排空全局状态写入；quiesce 为 true 时此后不再接受新写入（停机最后一刷）。
+ * 在 timeoutMs 非负有限预算内排空全局状态写入；quiesce 为 true 时此后不再接受新写入（停机最后一刷）。
+ * 零预算时若无脏值且无在途写入直接返回 `"flushed"`，否则不新投递写入并立即返回 `"timedOut"`。
  *
- * @param timeoutMs 最大等待超时时间（毫秒）。
+ * @param timeoutMs 最大等待超时时间（非负有限毫秒数）。
  * @param quiesce 是否同时封口后续写入。
  * @returns 刷盘结算结果。
  */

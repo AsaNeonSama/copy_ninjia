@@ -354,3 +354,91 @@ export function CodeFormatSvgIcon({
     </svg>
   );
 }
+
+/**
+ * 渲染外部链接（新标签打开箭头）SVG 图标。
+ *
+ * @param props 图标尺寸与类名
+ * @returns SVG 节点
+ */
+export function ExternalLinkSvgIcon({
+  size = 14,
+  className = "",
+}: MiniAppIconProps): React.JSX.Element {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+      <polyline points="15 3 21 3 21 9" />
+      <line x1="10" y1="14" x2="21" y2="3" />
+    </svg>
+  );
+}
+
+/**
+ * 渲染预览查看（眼睛）SVG 图标。
+ *
+ * @param props 图标尺寸与类名
+ * @returns SVG 节点
+ */
+export function EyeSvgIcon({
+  size = 14,
+  className = "",
+}: MiniAppIconProps): React.JSX.Element {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
+
+/**
+ * 渲染复制链接（双层文档）SVG 图标。
+ *
+ * @param props 图标尺寸与类名
+ * @returns SVG 节点
+ */
+export function CopySvgIcon({
+  size = 14,
+  className = "",
+}: MiniAppIconProps): React.JSX.Element {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </svg>
+  );
+}

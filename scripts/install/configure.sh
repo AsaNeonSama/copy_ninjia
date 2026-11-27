@@ -188,8 +188,7 @@ elif confirm "现在配置 AI 能力（AI 闲聊、广告检测、生图、语�
           "${AGENT_CONFIG_VOICES[$capability_index]}"
       done
     } | bun -e '
-      const bytes = new Uint8Array(await Bun.stdin.arrayBuffer());
-      const fields = new TextDecoder().decode(bytes).split("\0");
+      const fields = (await Bun.stdin.text()).split("\0");
       fields.pop();
       if (fields.length === 0 || fields.length % 8 !== 0) {
         throw new Error("invalid agent config field stream");

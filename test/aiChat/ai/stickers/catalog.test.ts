@@ -26,7 +26,7 @@ const sleepMock = mock(async (..._args: unknown[]): Promise<void> => {});
 mock.module("../../../../packages/workers/aiChat/ai/stickers/sets", () => ({
   getStickerSet: getStickerSetMock,
 }));
-mock.module("../../../../packages/aiChat/stickerDescribe", () => ({
+mock.module("../../../../packages/libs/telegramImage", () => ({
   pickStickerVisionSource: (sticker: any) => ({ fileId: `${sticker.file_id}`, fileUniqueId: sticker.file_unique_id }),
 }));
 mock.module("../../../../packages/workers/aiChat/ai/imageDescription", () => ({

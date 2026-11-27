@@ -325,11 +325,11 @@ describe("project convention collectors", () => {
     await Bun.write(welcomePath,
       'import { sendMessage as send } from "../../../infra/telegram"; function runVerificationEffects() { return send({chatId: 1, text: "welcome"}); }');
 
-    const problems: readonly string[] = await collectTelegramMessageProblems(
-      root,
+    const problems: readonly string[] = await collectTelegramMessageProblems({
+      projectRoot: root,
       sourceRoot,
-      commandsRoot
-    );
+      commandsRoot,
+    });
     expect(problems).toEqual(expect.arrayContaining([
       expect.stringContaining("bad.ts: state-owned command photos must use sendWedResult"),
       expect.stringContaining("bad.ts: long-lived command photos must use sendHImageResult"),
@@ -354,7 +354,11 @@ describe("project convention collectors", () => {
       'import { sendTemporaryMessageFromMain } from "../../../infra/telegram/workerClient"; function runVerificationEffects() { return sendTemporaryMessageFromMain({purpose: "notice", chatId: 1, text: "welcome"}); }');
     await Bun.write(join(sourceRoot, "workers", "antiRaid", "verificationReminders.ts"),
       'import { sendMessage } from "../../../infra/telegram"; function attemptReminderDelivery() { return sendMessage({chatId: 1, text: "verify", keyboard: {inline_keyboard: []}}); }');
-    const fixedProblems: readonly string[] = await collectTelegramMessageProblems(root, sourceRoot, commandsRoot);
+    const fixedProblems: readonly string[] = await collectTelegramMessageProblems({
+      projectRoot: root,
+      sourceRoot,
+      commandsRoot,
+    });
     expect(fixedProblems.some((problem: string): boolean => /verification(?:Effects|Reminders)\.ts/.test(problem))).toBeFalse();
   });
 

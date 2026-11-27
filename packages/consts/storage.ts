@@ -7,14 +7,14 @@ import { exhaustiveList } from "./exhaustiveList";
 // DEFAULT_CHAT_STATE 与 createChatState() 的唯一形状定义位于 libs/chatState.ts。
 
 /** Linux boot_id 的内核格式；持久化时统一使用小写。 */
-export const LINUX_BOOT_ID_PATTERN: RegExp = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+export const LINUX_BOOT_ID_PATTERN: Readonly<RegExp> = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /** guard/recovery 的进程身份格式：v2:PID:/proc starttime:boot_id。 */
-export const PROCESS_IDENTITY_PATTERN: RegExp =
+export const PROCESS_IDENTITY_PATTERN: Readonly<RegExp> =
   /^v2:([1-9]\d*):(0|[1-9]\d*):([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
 
 /** bot.lock 唯一一行属主记录的格式：进程身份 + SHA-256 token 指纹；文件内容必须恰好是这一行加换行（infra/storage/instanceLock.ts）。 */
-export const BOT_LOCK_LINE_PATTERN: RegExp =
+export const BOT_LOCK_LINE_PATTERN: Readonly<RegExp> =
   /^v2:([1-9]\d*):(0|[1-9]\d*):([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}):([0-9a-f]{64})$/;
 
 /** 全局状态文件后台写入失败后的退避序列；用尽后固定使用最后一档。 */
@@ -92,9 +92,9 @@ export const CHAT_PERMISSION_KEYS: readonly (keyof ChatPermissions)[] = exhausti
 ]);
 
 /** 存储候选文件名中的 owner PID 与 UUID 格式。 */
-export const CANDIDATE_OWNER_PID_PATTERN: RegExp =
+export const CANDIDATE_OWNER_PID_PATTERN: Readonly<RegExp> =
   /\.guard\.candidate\.([1-9]\d*)\.[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 /** `libs/atomicFile.ts` 原子写临时文件去掉前导 `.` 与 `TMP_FILE_SUFFIX` 后的严格内部命名格式：`<target>.<pid>.<uuid>`。 */
-export const ATOMIC_TEMP_FILE_INNER_PATTERN: RegExp =
+export const ATOMIC_TEMP_FILE_INNER_PATTERN: Readonly<RegExp> =
   /^(.+)\.([1-9]\d*)\.([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/;

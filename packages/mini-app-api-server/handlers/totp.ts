@@ -66,8 +66,8 @@ export async function handleDeleteTotpRoute(
 ): Promise<Response> {
   const result: Readonly<MiniAppTotpMutationResponse> =
     await deleteMiniAppTotpRecord();
-  if (sessionLineageId !== undefined) {
-    revokeOtherMiniAppAuthSessions(sessionLineageId);
+  if (result.ok) {
+    revokeOtherMiniAppAuthSessions(sessionLineageId ?? "");
   }
   logger.operation("[MiniApp] totp.delete", {
     ok: result.ok,

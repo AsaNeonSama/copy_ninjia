@@ -524,8 +524,11 @@ export function JsonCodeEditor({
     }
     const drag: ActiveScrollbarDragState = activeDragRef.current;
     activeDragRef.current = null;
+    const track: EditorScrollbarTrackNode | null =
+      drag.axis === "v" ? vTrackRef.current : hTrackRef.current;
     const thumb: EditorScrollbarThumbNode | null =
       drag.axis === "v" ? vThumbRef.current : hThumbRef.current;
+    track?.releasePointerCapture?.(drag.pointerId);
     thumb?.classList?.remove?.("dragging");
   }, [disabled]);
 

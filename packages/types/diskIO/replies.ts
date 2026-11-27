@@ -1,3 +1,8 @@
+import type {
+  AdPackBlacklistCounts,
+  AdPackBlacklistKind,
+  AdPackBlacklistPage,
+} from "../adPackBlacklist";
 import type { VerificationSnapshot } from "../antiRaid/verification";
 import type { PendingBlockedRemoval } from "../blocklist";
 import type { IdentityPolicyTable } from "../identityPolicy";
@@ -33,6 +38,8 @@ export interface LoadedReply {
   chatStates: Map<number, ChatState>;
   /** 全部群问答；行数以 STATE_MANAGED_CHAT_LIMIT × CHAT_QA_MAX_PER_CHAT 为界，主线程据此建立直答热表。 */
   chatQa: Map<number, ReadonlyMap<string, string>>;
+  /** 广告贴纸包与自定义表情包黑名单总条数；主线程只保留计数与有界 LRU，不恢复整表。 */
+  adPackBlacklistCounts: Readonly<AdPackBlacklistCounts>;
   /** 恢复失败时主线程必须拒绝启动，不能把部分结果当成空状态继续。 */
   error?: string;
 }
@@ -54,6 +61,8 @@ export interface LoadedData {
   chatStates: Map<number, ChatState>;
   /** 群 -> 问题 -> 答案；行数以 STATE_MANAGED_CHAT_LIMIT × CHAT_QA_MAX_PER_CHAT 为界，启动一次性读全。 */
   chatQa: Map<number, ReadonlyMap<string, string>>;
+  /** 广告贴纸包与自定义表情包黑名单总条数；主线程只保留计数与有界 LRU，不恢复整表。 */
+  adPackBlacklistCounts: Readonly<AdPackBlacklistCounts>;
 }
 
 /** ensureLuckSecret 的逐请求回执；失败时不返回密钥，主线程不得继续抽签。 */
@@ -88,6 +97,22 @@ export interface IdentityIdPageReadReply {
   requestId: number;
   page?: IdentityIdPage;
   error?: string;
+}
+
+/** Disk I/O Worker -> 主线程：一次广告包黑名单按包名批量查询的命中包名列表。 */
+export interface AdPackBlacklistsReadReply {
+  readonly type: "adPackBlacklistsRead";
+  readonly requestId: number;
+  readonly matchedPacks?: readonly string[];
+  readonly error?: string;
+}
+
+/** Disk I/O Worker -> 主线程：按 `(kind, pack)` 升序游标读取的有界广告包黑名单分页结果。 */
+export interface AdPackBlacklistPageReadReply {
+  readonly type: "adPackBlacklistPageRead";
+  readonly requestId: number;
+  readonly page?: AdPackBlacklistPage;
+  readonly error?: string;
 }
 
 /** 停机关库的结局：残余写是否已提交，WAL checkpoint 是否被其它读连接挡住（busy）。 */
@@ -130,6 +155,13 @@ export interface ChatQaPersistedRevision {
   readonly revision: number;
 }
 
+/** 一条广告包黑名单最终状态已经由显式 SQLite 事务提交；主键是 `(kind, pack)` 复合键。 */
+export interface AdPackBlacklistPersistedRevision {
+  readonly kind: AdPackBlacklistKind;
+  readonly pack: string;
+  readonly revision: number;
+}
+
 /** 一行待踢任务最终值已经由显式 SQLite 事务提交。 */
 export interface BlocklistRemovalPersistedRevision {
   readonly removalId: number;
@@ -146,6 +178,8 @@ export interface IdentityStoragePersistedReply {
   chatStateWrites: readonly ChatStatePersistedRevision[];
   /** 本事务提交的群问答 revision；与群状态共享同一 SQLite 事务。 */
   chatQaWrites: readonly ChatQaPersistedRevision[];
+  /** 本事务提交的广告包黑名单 revision；与群状态、群问答共享同一 SQLite 事务。 */
+  adPackBlacklistWrites: readonly AdPackBlacklistPersistedRevision[];
   /** 本事务提交的待踢任务行 revision；与身份策略共享同一 SQLite 事务。 */
   removalWrites: readonly BlocklistRemovalPersistedRevision[];
 }
@@ -176,13 +210,21 @@ export type DiskIODomain =
   | "blocklistRemovalOutbox"
   | "chatState"
   | "chatQa"
+  | "adPackBlacklist"
   | "joinLog"
   | "joinLogPurge";
 
 /** 共用同一个 SQLite 事务提交的领域（含 AI 上下文）。 */
 export type StorageDatabaseDomain = Extract<
   DiskIODomain,
-  "whitelist" | "blocklist" | "temporaryAdBypass" | "blocklistRemovalOutbox" | "chatState" | "chatQa" | "aiMemory"
+  | "whitelist"
+  | "blocklist"
+  | "temporaryAdBypass"
+  | "blocklistRemovalOutbox"
+  | "chatState"
+  | "chatQa"
+  | "adPackBlacklist"
+  | "aiMemory"
 >;
 
 /** 计入未 ACK 写入预算的 SQLite 领域；aiMemory 每群至多一项，不计预算。 */
@@ -369,6 +411,8 @@ export type DiskIOReply =
   | JoinLogReadReply
   | IdentityPoliciesReadReply
   | IdentityIdPageReadReply
+  | AdPackBlacklistsReadReply
+  | AdPackBlacklistPageReadReply
   | StorageClosedReply
   | IdentityStoragePersistedReply
   | DiskFlushReply

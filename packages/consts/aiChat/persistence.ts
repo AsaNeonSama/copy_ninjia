@@ -14,7 +14,7 @@ export const BUFFERED_REPLY_REFERENCE_KEYS: readonly string[] = [
 ];
 
 /** AI 逐字记忆的单行字段不得含普通空格以外的空白，包括 NEL。 */
-export const AI_MEMORY_NON_SPACE_WHITESPACE_PATTERN: RegExp = /[^\S ]|\u0085/u;
+export const AI_MEMORY_NON_SPACE_WHITESPACE_PATTERN: Readonly<RegExp> = /[^\S ]|\u0085/u;
 
 /** AI 持久化逐字消息的字段闭集。 */
 export const BUFFERED_MESSAGE_KEYS: readonly string[] = [

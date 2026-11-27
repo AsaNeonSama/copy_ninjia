@@ -15,7 +15,9 @@ import {
   adDetectQueue,
   adDetectStopping,
   adDetectTickTimer,
-  customEmojiSetNames,
+  adDetectVisionSupport,
+  adPackBlacklistCounts,
+  customEmojiMetaCache,
   inFlightAdDetectKeys,
   inFlightReferencedAdCleanupTasks,
   pendingAdMessages,
@@ -30,7 +32,7 @@ import {
   AD_DETECT_MESSAGE_MAX_CHARS,
   AD_DETECT_QUEUE_TICK_MS,
   EMPTY_AD_CANDIDATE_ENTRIES,
-} from "../../../consts/antiRaid/adDetect";
+} from "../../../consts/antiRaid/adDetect/limits";
 import { truncateInline } from "../../../libs/text";
 import {
   admitAdCandidate,
@@ -162,7 +164,7 @@ export function enqueueAdCandidate(
       context,
       existing?.entries ?? EMPTY_AD_CANDIDATE_ENTRIES
     );
-  // 无正文也无引用（纯贴纸），或只剩本串送检文本里已有的姓名时，本条没有可送检文本。
+  // 无正文也无引用（纯图片、图片文件或贴纸），或只剩本串送检文本里已有的姓名时，本条没有可送检文本。
   const text: string =
     (textWithLinks.length === 0 && context === undefined) ||
     (rawText === senderName && knownSenderName !== undefined && hasTextEntry(existing?.entries))
@@ -173,7 +175,11 @@ export function enqueueAdCandidate(
     : message.isForwarded ? senderName : senderText;
   const decision: AdCandidateDecision = admitAdCandidate({
     textLength: text.length,
-    hasPackCandidate: message.stickerSetName !== undefined || message.customEmojiIds !== undefined,
+    hasMediaCandidate:
+      message.stickerSetName !== undefined ||
+      message.stickerFileId !== undefined ||
+      message.imageFileId !== undefined ||
+      message.customEmojiIds !== undefined,
     isChannel: message.isChannel,
     recentlyDisposed,
     blocked: message.blocked,
@@ -212,10 +218,15 @@ export function enqueueAdCandidate(
     text,
     senderText: text.length === 0 ? "" : senderText,
     directText,
+    isForwarded: message.isForwarded,
     receivedAt: now,
     withinReferencedWarning: referencedAdWarningStates.size > 0 &&
       hasActiveReferencedAdWarning(bundle.key, now),
     stickerSetName: message.stickerSetName,
+    stickerFileId: message.stickerFileId,
+    stickerFileUniqueId: message.stickerFileUniqueId,
+    imageFileId: message.imageFileId,
+    imageFileUniqueId: message.imageFileUniqueId,
     customEmojiIds: message.customEmojiIds,
     quote: context?.quote,
     replyTo: context?.replyTo,
@@ -364,7 +375,10 @@ export function stopAdDetectQueue(): void {
   adDetectQueue.clear();
   queuedAdDetectKeys.clear();
   recentlyDisposedAdKeys.clear();
-  customEmojiSetNames.clear();
+  customEmojiMetaCache.clear();
+  adPackBlacklistCounts.sticker = 0;
+  adPackBlacklistCounts.emoji = 0;
+  adDetectVisionSupport.current = "unknown";
   resetReferencedAdWarnings();
   clearPendingAdBundles();
   inFlightAdDetectKeys.clear();

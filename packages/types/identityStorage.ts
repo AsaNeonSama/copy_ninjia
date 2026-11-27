@@ -1,3 +1,4 @@
+import type { AdPackBlacklistCounts } from "./adPackBlacklist";
 import type { PendingBlockedRemoval } from "./blocklist";
 import type { ChatState } from "./chatState";
 import type { BlocklistEntryData, WhitelistEntryData } from "./identityPolicy";
@@ -125,6 +126,8 @@ export interface StorageDatabaseHydration {
   readonly chatStates: Map<number, ChatState>;
   /** 群 -> 问题 -> 答案。行数以 STATE_MANAGED_CHAT_LIMIT × CHAT_QA_MAX_PER_CHAT 为界，启动一次性读全。 */
   readonly chatQa: Map<number, ReadonlyMap<string, string>>;
+  /** 广告贴纸包与自定义表情包黑名单条数统计；主线程仅保留计数与有界 LRU，不恢复整表。 */
+  readonly adPackBlacklistCounts: Readonly<AdPackBlacklistCounts>;
 }
 
 /** 整库严格校验成功后的有限恢复快照；尚未发布到 Worker 缓存。 */

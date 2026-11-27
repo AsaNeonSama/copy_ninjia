@@ -27,10 +27,18 @@ const telegramRequests: unknown[] = [];
 const telegramTransfers: unknown[] = [];
 const adBypassIds: Set<number> = new Set<number>();
 const permanentWhitelistIds: Set<number> = new Set<number>();
+const matchedAdPackRequests: unknown[] = [];
 let identityPrefetchSucceeds: boolean = true;
 const prefetchIdentityPolicies = mock(async (): Promise<boolean> =>
   identityPrefetchSucceeds
 );
+const findFirstBlacklistedAdPack = mock(async (
+  kind: string,
+  packs: readonly string[]
+): Promise<string | null> => {
+  matchedAdPackRequests.push({ kind, packs });
+  return packs.find((pack: string): boolean => pack === "BlockedSpamPack") ?? null;
+});
 
 /** superviseDuplexWorker 收到的 options；用来直接驱动 handleRequest 等回调。 */
 const captured: { options?: Record<string, any> } = {};
@@ -86,9 +94,25 @@ mock.module("../../packages/infra/identityStorage", () => ({
   ...identityStorage,
   prefetchIdentityPolicies,
 }));
+const adPackBlacklistStorage = await import("../../packages/infra/adPackBlacklistStorage");
+mock.module("../../packages/infra/adPackBlacklistStorage", () => ({
+  ...adPackBlacklistStorage,
+  findFirstBlacklistedAdPack,
+}));
 const whitelistPolicy = await import("../../packages/infra/identityPolicy/whitelist");
+const {
+  DEFAULT_WHITELIST_PERMISSIONS,
+  TEMPORARY_AD_BYPASS_PERMISSIONS,
+} = await import("../../packages/consts/whitelist");
 mock.module("../../packages/infra/identityPolicy/whitelist", () => ({
   ...whitelistPolicy,
+  getEffectiveWhitelistPermissions: (id: number) => {
+    if (permanentWhitelistIds.has(id)) {
+      return { ...DEFAULT_WHITELIST_PERMISSIONS, isCanBypassAdDetection: false };
+    }
+    if (adBypassIds.has(id)) return TEMPORARY_AD_BYPASS_PERMISSIONS;
+    return undefined;
+  },
   hasWhitelistPermission: (id: number, key: string): boolean =>
     key === "isCanBypassAdDetection" && adBypassIds.has(id),
   isWhitelisted: (id: number): boolean => permanentWhitelistIds.has(id),
@@ -107,6 +131,7 @@ mock.module("../../packages/antiRaid/workerBridge/observers", () => ({
 const {
   clearAdDetection,
   clearFloodControl,
+  clearIdentityAdDetection,
   deactivateAntiRaidChat,
   deactivateJoinGuardChat,
   hydratePendingVerifications,
@@ -114,12 +139,18 @@ const {
   postAntiRaid,
   terminateAntiRaid,
 } = await import("../../packages/antiRaid/workerBridge/controller");
+const { adDetectDedupReleaserHolder } = await import(
+  "../../packages/cache/main/antiRaid/adDisposal"
+);
 const {
   adCandidatePostRejected,
   antiRaidRuntimeState,
 } = await import("../../packages/cache/main/antiRaid/proxy");
 const { chatIsSupergroupById } = await import("../../packages/cache/main/antiRaid/chatKind");
-const { getOrCreateChatState } = await import("../../packages/infra/chatStateStorage");
+const {
+  disableChatStateSwitch,
+  getOrCreateChatState,
+} = await import("../../packages/infra/chatStateStorage");
 const { VERIFICATION_RECORD_CAPACITY } =
   await import("../../packages/consts/antiRaid/verification");
 const {
@@ -178,8 +209,13 @@ beforeEach(() => {
   telegramTransfers.length = 0;
   adBypassIds.clear();
   permanentWhitelistIds.clear();
+  matchedAdPackRequests.length = 0;
   identityPrefetchSucceeds = true;
-  prefetchIdentityPolicies.mockClear();
+  prefetchIdentityPolicies.mockReset();
+  prefetchIdentityPolicies.mockImplementation(async (): Promise<boolean> =>
+    identityPrefetchSucceeds
+  );
+  findFirstBlacklistedAdPack.mockClear();
   delivery.accepts = true;
   delivery.rejectType = null;
   antiRaidRuntimeState.initialized = false;
@@ -238,13 +274,22 @@ describe("Anti-Raid 控制命令", () => {
     expect(workerPosts).toEqual([]);
   });
 
-  test("尽力投递的 postAntiRaid 只报结果，不上抛", () => {
+  test("尽力投递的 postAntiRaid 与广告辅助通知只报结果，不上抛", () => {
     delivery.accepts = false;
     expect(postAntiRaid({ type: "clearAdDetect", chatId: CHAT_ID })).toBeFalse();
+    expect(clearIdentityAdDetection(7)).toBeFalse();
+    adDetectDedupReleaserHolder.current?.(CHAT_ID, 7);
+    expect(workerPosts).toEqual([]);
 
     delivery.accepts = true;
     expect(postAntiRaid({ type: "clearAdDetect", chatId: CHAT_ID })).toBeTrue();
-    expect(typesOf()).toEqual(["clearAdDetect"]);
+    expect(clearIdentityAdDetection(7)).toBeTrue();
+    adDetectDedupReleaserHolder.current?.(CHAT_ID, 7);
+    expect(workerPosts).toEqual([
+      { type: "clearAdDetect", chatId: CHAT_ID },
+      { type: "clearIdentityAdDetect", identityId: 7 },
+      { type: "releaseAdDetectDedup", chatId: CHAT_ID, senderId: 7 },
+    ]);
   });
 });
 
@@ -262,6 +307,25 @@ describe("Anti-Raid 双工能力分派", () => {
     expect(telegramRequests).toEqual([]);
   });
 
+  test("广告包黑名单核对在主线程就地经 768 LRU/SQLite 结算，不进 Telegram 边界且无转移缓冲", async () => {
+    const request = {
+      operation: "matchAdPackBlacklist",
+      kind: "sticker",
+      packs: ["CleanPack", "BlockedSpamPack"],
+    } as never;
+
+    const value: unknown = await captured.options!.handleRequest(
+      request,
+      new AbortController().signal
+    );
+
+    expect(value).toBe("BlockedSpamPack");
+    expect(matchedAdPackRequests).toEqual([{ kind: "sticker", packs: ["CleanPack", "BlockedSpamPack"] }]);
+    expect(telegramRequests).toEqual([]);
+    expect(captured.options!.responseTransfer(request, value)).toBeUndefined();
+    expect(telegramTransfers).toEqual([]);
+  });
+
   test("其余能力请求交给 Telegram 边界", async () => {
     const request = { operation: "sendMessage", chatId: CHAT_ID } as never;
 
@@ -275,7 +339,7 @@ describe("Anti-Raid 双工能力分派", () => {
     expect(grantedPermits).toEqual([]);
   });
 
-  test("引用广告警告发送前复查当前单项豁免，冷读失败同样不误警告", async () => {
+  test("引用广告警告发送前复查群广告检测开关与白名单保护状态，未开启、临时免检、永久白名单与冷读失败一律抑制", async () => {
     const request = {
       operation: "sendTemporaryMessage",
       purpose: "adWarning",
@@ -284,35 +348,72 @@ describe("Anti-Raid 双工能力分派", () => {
       text: "warning",
     } as never;
 
-    adBypassIds.add(7);
     await expect(captured.options!.handleRequest(
       request,
       new AbortController().signal
     )).resolves.toEqual({ suppressed: true });
+    expect(prefetchIdentityPolicies).not.toHaveBeenCalled();
     expect(telegramRequests).toEqual([]);
 
-    adBypassIds.clear();
-    permanentWhitelistIds.add(7);
-    await expect(captured.options!.handleRequest(
-      request,
-      new AbortController().signal
-    )).resolves.toBe("telegram-result");
-    expect(telegramRequests).toEqual([request]);
+    getOrCreateChatState(CHAT_ID).isAdDetectEnabled = true;
+    try {
+      adBypassIds.add(7);
+      await expect(captured.options!.handleRequest(
+        request,
+        new AbortController().signal
+      )).resolves.toEqual({ suppressed: true });
+      expect(telegramRequests).toEqual([]);
 
-    permanentWhitelistIds.clear();
-    identityPrefetchSucceeds = false;
-    await expect(captured.options!.handleRequest(
-      request,
-      new AbortController().signal
-    )).resolves.toEqual({ suppressed: true });
-    expect(telegramRequests).toEqual([request]);
+      adBypassIds.clear();
+      permanentWhitelistIds.add(7);
+      await expect(captured.options!.handleRequest(
+        request,
+        new AbortController().signal
+      )).resolves.toEqual({ suppressed: true });
+      expect(telegramRequests).toEqual([]);
 
-    identityPrefetchSucceeds = true;
-    await expect(captured.options!.handleRequest(
-      request,
-      new AbortController().signal
-    )).resolves.toBe("telegram-result");
-    expect(telegramRequests).toEqual([request, request]);
+      permanentWhitelistIds.clear();
+      identityPrefetchSucceeds = false;
+      await expect(captured.options!.handleRequest(
+        request,
+        new AbortController().signal
+      )).resolves.toEqual({ suppressed: true });
+      expect(telegramRequests).toEqual([]);
+
+      identityPrefetchSucceeds = true;
+      await expect(captured.options!.handleRequest(
+        request,
+        new AbortController().signal
+      )).resolves.toBe("telegram-result");
+      expect(telegramRequests).toEqual([request]);
+    } finally {
+      disableChatStateSwitch(CHAT_ID, "isAdDetectEnabled");
+    }
+  });
+
+  test("引用广告警告等待身份策略预取期间若关闭群广告检测，同样按抑制处理且不发送提示", async () => {
+    const request = {
+      operation: "sendTemporaryMessage",
+      purpose: "adWarning",
+      chatId: CHAT_ID,
+      identityId: 7,
+      text: "warning",
+    } as never;
+
+    getOrCreateChatState(CHAT_ID).isAdDetectEnabled = true;
+    prefetchIdentityPolicies.mockImplementationOnce(async (): Promise<boolean> => {
+      disableChatStateSwitch(CHAT_ID, "isAdDetectEnabled");
+      return true;
+    });
+    try {
+      await expect(captured.options!.handleRequest(
+        request,
+        new AbortController().signal
+      )).resolves.toEqual({ suppressed: true });
+      expect(telegramRequests).toEqual([]);
+    } finally {
+      disableChatStateSwitch(CHAT_ID, "isAdDetectEnabled");
+    }
   });
 
   test("许可回执没有可转移缓冲；只有 Telegram 回执才问 transfer 清单", () => {
@@ -345,9 +446,10 @@ describe("Anti-Raid 初始化与重建重放", () => {
   });
 
   test.each([
+    ["adPackBlacklistSync", "ad pack blacklist snapshot"],
     ["botPermissionsChanged", "bot permissions snapshot"],
     ["chatKind", "chat kind snapshot"],
-  ])("权限或群类型重放中途被拒（%s）同样中止接管并回滚", (rejectType: string, snapshot: string) => {
+  ])("权限、黑名单或群类型重放中途被拒（%s）同样中止接管并回滚", (rejectType: string, snapshot: string) => {
     getOrCreateChatState(CHAT_ID).botPermissions = { canRestrictMembers: true, canDeleteMessages: true } as BotChatPermissions;
     chatIsSupergroupById.set(CHAT_ID, true);
     delivery.rejectType = rejectType;
@@ -401,8 +503,9 @@ describe("Anti-Raid 初始化与重建重放", () => {
 
     const types: string[] = replayed.map((message: AntiRaidWorkerMessage): string => message.type);
     expect(types[0]).toBe("agentConfig");
+    expect(types[1]).toBe("adPackBlacklistSync");
     expect(types).toContain("adoptVerifications");
-    expect(types.indexOf("agentConfig")).toBeLessThan(types.indexOf("adoptVerifications"));
+    expect(types.indexOf("adPackBlacklistSync")).toBeLessThan(types.indexOf("adoptVerifications"));
   });
 
   test("重建重放在第一条被拒时立刻停手，不继续投后面的接管快照", () => {

@@ -102,6 +102,7 @@ async function runColdStartChild(): Promise<ColdStartRound> {
     const hydrateStartedAtNs: number = Bun.nanoseconds();
     lifecycleDependencies.hydrateChatStateCache(loaded.chatStates);
     lifecycleDependencies.hydrateChatQaCache(loaded.chatQa);
+    lifecycleDependencies.hydrateAdPackBlacklistCounts(loaded.adPackBlacklistCounts);
     lifecycleDependencies.hydrateWedMembers(loaded.wedMembers);
     lifecycleDependencies.hydrateIdentityStorageCounts(
       loaded.permissionEntryCount,

@@ -12,6 +12,9 @@ import {
   seedMissingIdentity,
 } from "../helpers/identityStorage";
 import type { TelegramIdentityMetadata } from "../../packages/types/identityPolicy";
+import { STORAGE_PENDING_MAX_ENTRIES } from "../../packages/consts/diskIO/business";
+import { StorageWriteCapacityError } from "../../packages/libs/storageWriteBudget";
+import { diskIORuntime } from "../../packages/cache/main/diskIO";
 import { identityFieldView } from "../helpers/identityCacheView";
 import type { IdentityFieldView } from "../helpers/identityCacheView";
 
@@ -127,6 +130,32 @@ describe("SQLite 黑名单主线程最终值", () => {
     expect(unacknowledgedTemporaryAdBypassWrites.get(8)?.activity).toBeNull();
   });
 
+  test("黑名单写入容量已满时 blockUser 先拒绝且保持临时免检进度不变", () => {
+    const now: number = Date.now();
+    const activity = {
+      adBypass: true,
+      adBypassGrantedAt: now,
+      qualifiedDays: 7,
+      sendCount: 8,
+      countedAt: now,
+      qualifiedAt: now,
+    };
+    seedMissingIdentity(8);
+    temporaryAdBypassField.set(8, activity);
+    for (let id: number = 10_000; id < 10_000 + STORAGE_PENDING_MAX_ENTRIES; id++) {
+      unacknowledgedBlocklistWrites.set(id, { data: "{}", revision: id });
+    }
+    try {
+      expect(() => blockUser(8, NO_META)).toThrow(StorageWriteCapacityError);
+      expect(temporaryAdBypassField.peek(8)).toEqual(activity);
+      expect(unacknowledgedTemporaryAdBypassWrites.has(8)).toBeFalse();
+      expect(isUserBlocked(8)).toBeFalse();
+      expect(diskMessages).toEqual([]);
+    } finally {
+      diskIORuntime.fatalSignaled = false;
+    }
+  });
+
   test("解除拉黑发布负缓存，并裁掉冻结名单中已解除的成员", () => {
     blockedUserIds.set(7, { isBlocked: true, blockedAt: "2026/08/11 00:00:00" });
     const pending: PendingBlockedRemoval = {
@@ -235,7 +264,9 @@ describe("SQLite 黑名单主线程最终值", () => {
         writes: [{ table: "blocklist", id: 9, revision }],
         temporaryAdBypassWrites: [],
         chatStateWrites: [],
-        chatQaWrites: [], removalWrites: [],
+        chatQaWrites: [],
+        adPackBlacklistWrites: [],
+        removalWrites: [],
       });
     }
     expect(requeueUnacknowledgedIdentityWrite("blocklist", 9)).toBeFalse();

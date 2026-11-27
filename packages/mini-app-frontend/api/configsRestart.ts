@@ -6,7 +6,7 @@ import { miniAppFetchJson } from "./request";
  *
  * @returns 服务重启触发结果
  */
-export async function restartMiniAppService(): Promise<MiniAppConfigRestartResponse> {
+export function restartMiniAppService(): Promise<MiniAppConfigRestartResponse> {
   return miniAppFetchJson<MiniAppConfigRestartResponse>(
     "./api/configs/restart",
     { method: "POST" }

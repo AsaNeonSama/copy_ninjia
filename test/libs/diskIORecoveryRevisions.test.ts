@@ -11,6 +11,8 @@ const messages: readonly RevisionedMessage[] = [
   { type: "chatStateWrite", chatId: -7, data: null, revision: 2 },
   { type: "chatQaWrite", chatId: -7, q: "一", data: null, revision: 2 },
   { type: "chatQaWrite", chatId: -7, q: "二", data: null, revision: 2 },
+  { type: "adPackBlacklistWrite", kind: "sticker", pack: "PackA", blacklisted: true, revision: 2 },
+  { type: "adPackBlacklistWrite", kind: "emoji", pack: "PackA", blacklisted: false, revision: 2 },
   { type: "blocklistRemovalWrite", removalId: 7, data: null, revision: 2 },
   { type: "blocklistRemovalWrite", removalId: 8, data: null, revision: 2 },
 ];
@@ -26,6 +28,7 @@ test("每个 SQLite 领域独立按主键覆盖旧 revision，保留镜像后的
     expect(revisions.covers({ ...message, revision: 3 })).toBeFalse();
   }
   expect(revisions.covers({ type: "chatQaWrite", chatId: -7, q: "三", data: null, revision: 1 })).toBeFalse();
+  expect(revisions.covers({ type: "adPackBlacklistWrite", kind: "sticker", pack: "PackB", blacklisted: true, revision: 1 })).toBeFalse();
   expect(revisions.covers({ type: "chatStateWrite", chatId: -8, data: null, revision: 1 })).toBeFalse();
   expect(revisions.covers({ type: "blocklistRemovalWrite", removalId: 9, data: null, revision: 1 })).toBeFalse();
 });

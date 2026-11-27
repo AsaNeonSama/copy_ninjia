@@ -24,7 +24,7 @@ done
 - `config/dynamic/`: permits only `assets.json`, `ad_detect.json`, `agent.json`, `mood.json`, `stickers.json`, `cron.json`; changes are automatically hot-reloaded at runtime.
 - `config/dynamic/` must be an existing directory (it may be empty). Any non-directory occupying a config directory path, or any undeclared entry at any of the three levels (including misplaced or legacy files such as `telegram.json` or `ad_samples.json`, hidden/swap/backup files, extra subdirectories, and dangling symlinks), refuses startup.
 - During hot reload, any undeclared entry in `config/dynamic/` rejects the entire reload round and retains active snapshots.
-- Allowlist, blocklist, and per-group state live in `database/storage.sqlite` under the runtime data root and are not deployment configuration files.
+- Allowlist, blocklist, ad sticker/custom-emoji pack blacklists, and per-group state live in `database/storage.sqlite` under the runtime data root and are not deployment configuration files.
 
 Every JSON file is parsed under a strict schema: unknown keys, typos, type mismatches, invalid enums, or out-of-range values abort startup immediately or are rejected during hot reload—**the bot never repairs or silently ignores invalid configurations**.
 
@@ -69,7 +69,7 @@ Every JSON file is parsed under a strict schema: unknown keys, typos, type misma
   <tr>
     <td><code>dynamic/ad_detect.json</code></td>
     <td><nobr>Dynamic (Hot reloaded)</nobr></td>
-    <td>Ad punishment, positive reference samples, and sticker/emoji pack blacklists for ad detection</td>
+    <td>Ad punishment and positive reference samples for ad detection</td>
     <td>Ad detection halts (startup succeeds)</td>
   </tr>
   <tr>
@@ -168,7 +168,7 @@ Dynamic configuration file located at `config/dynamic/agent.json`. The root cont
 | `text` | **Core Essential** | Group chat replies generation, tool call dispatch | Must coexist with `summary` and `media` |
 | `summary` | **Core Essential** | Compressing long-term memory, generating sticker pack summaries | Must exist |
 | `media` | **Core Essential** | Image understanding, sticker description, speech-to-text | Must exist (multimodal model) |
-| `ad_detect` | Optional | Advertisement classification; flood-control muting uses separate message-count rules | Halts ad detection when missing; flood control is unaffected |
+| `ad_detect` | Optional | Multimodal and text advertisement classification (inspects text, photos, stickers, and custom emojis; `provider: "google"` supports optional `use_decision` for the Google Decisions API); flood-control muting uses separate message-count rules | Halts ad detection when missing; flood control is unaffected |
 | `image` | Optional | AI image generation tool registration (e.g., Grok Imagine, Imagen) | Omits image tool when missing |
 | `tts` | Optional | AI voice replies, `/send` voice forwarding, cron voice messages | Omits voice tool when missing; required if `cron` uses `send_voice` |
 | `web_search` | Optional | Dedicated web search tool (executed by specialized model) | Falls back to `text` model's built-in search when missing |
@@ -266,6 +266,12 @@ Applies to all capabilities (`text`, `summary`, `media`, `ad_detect`, `image`, `
 | Key | Type | Required | Constraints & Values | Description |
 | --- | --- | --- | --- | --- |
 | `max_calls_per_use` | `number` | Optional | Positive safe integer (`≥ 1`), default `WEB_SEARCH_DEFAULT_MAX_CALLS_PER_USE` | Maximum local `web_search` function invocations per reply; does not limit provider searches within one invocation or cron digests |
+
+### Ad Detection Keys (`agent.ad_detect`)
+
+| Key | Type | Required | Constraints & Values | Description |
+| --- | --- | --- | --- | --- |
+| `use_decision` | `boolean` | Optional | `true` or `false`, default `false` (**only allowed when `provider` is `"google"`**; forbidden on `"openai"`, `"anthropic"`, and all other capabilities) | When `true`, calls the Google GenAI Decisions API (`client.decisions.create`, e.g., `gemini-decision-1`) in a single multi-question request (using `AD_DETECT_DECISION_AD_THRESHOLD` for the ad verdict and `AD_DETECT_DECISION_PACK_THRESHOLD` for pack attribution). `base_url` accepts the gateway root, a `/<apiVersion>` prefix, or the full `/<apiVersion>/decisions` URL, defaulting to `GEMINI_API_BASE_URL` and `GEMINI_API_VERSION` |
 
 ---
 
@@ -456,9 +462,9 @@ Dynamic configuration file located at `config/dynamic/mood.json`. Defines AI moo
 
 ## `ad_detect.json`
 
-Dynamic configuration file located at `config/dynamic/ad_detect.json`. The root is a JSON object that must contain exactly the `punishment` object and the `samples`, `sticker_black_list`, and `emoji_black_list` arrays:
-- **Contents**: Defines the punishment applied after a positive verdict, positive advertisement text examples, blacklisted sticker pack short names, and blacklisted custom emoji pack short names.
-- **Detection order**: Runs in the order "sticker pack blacklist fast-path -> custom emoji pack blacklist -> AI text classification"; matching either blacklist skips AI classification.
+Dynamic configuration file located at `config/dynamic/ad_detect.json`. The root is a JSON object that must contain exactly the `punishment` object and the `samples` array:
+- **Contents**: Defines the punishment applied after a positive verdict and positive advertisement text examples. Ad sticker and custom emoji pack blacklists are persisted in `database/storage.sqlite` (`ad_pack_blacklists` table, with no per-kind entry cap and a shared 768-entry main-thread LRU read cache), managed via `/ad_detect sticker|emoji` commands or the Mini App, and automatically persisted to SQLite when AI classification attributes a direct ad verdict to a sticker or custom emoji pack (excluding packs configured in `stickers.json`); `ad_detect.json` is never modified at runtime.
+- **Detection order**: Runs in the order "sticker pack blacklist fast-path -> custom emoji pack blacklist -> AI multimodal and text classification"; matching either blacklist skips AI classification. The AI stage inspects sender-authored text, photos, image documents (`AD_DETECT_IMAGE_DOCUMENT_MIME_TYPES`), static/animated/video stickers, and custom emojis (up to `AD_DETECT_MAX_IMAGES_PER_BUNDLE` images per bundle within the cumulative `MEDIA_MAX_DOWNLOAD_BYTES` budget; generative models that explicitly reject vision fall back to text-only classification).
 - **Disposal**: Whichever path flags the sender, the offending messages are deleted first, then `punishment` is applied and a notice that self-deletes after `COMMAND_MESSAGE_AUTO_DELETE_MS` is posted in the triggering chat.
 
 ### Configuration Example
@@ -476,12 +482,6 @@ Dynamic configuration file located at `config/dynamic/ad_detect.json`. The root 
     "招聘日结兼职，手机就能做，日入三百起，加微信 xxxxxx",
     "长期收u出u，价格美丽，秒结，飞机 @xxxxxx",
     "出售TG老号 白号 API号 协议号，价格优惠，私聊"
-  ],
-  "sticker_black_list": [
-    "SpamStickerPack_by_example_bot"
-  ],
-  "emoji_black_list": [
-    "SpamEmojiPack_by_example_bot"
   ]
 }
 ```
@@ -514,8 +514,6 @@ Dynamic configuration file located at `config/dynamic/ad_detect.json`. The root 
 | `punishment.kick.block` | `boolean` | **Required** | — | `false` kicks without a ban; `true` bans according to `block_scope` |
 | `punishment.kick.block_scope` | `string` | Required when `block` is `true`; must be absent when `false` | `"chat"` or `"global"` after trimming (`AD_BLOCK_SCOPES`) | `"chat"` bans in the triggering chat only; `"global"` adds the sender to the permanent blocklist and bans in every managed chat |
 | `samples` | `string[]` | **Required** | Array with `0` to `MAX_CONFIGURED_AD_SAMPLES` unique entries | Positive ad message examples. Each entry, after runs of whitespace are collapsed into a single space and leading/trailing whitespace is trimmed, must be non-empty and `≤ AD_SAMPLE_MAX_CHARS` characters; uniqueness is judged on that normalized form |
-| `sticker_black_list` | `string[]` | **Required** | Array with `0` to `MAX_CONFIGURED_AD_BLACKLIST_PACKS` entries; each entry, trimmed, must match `STICKER_PACK_NAME_PATTERN` and be unique | Blacklisted sticker pack short names (the final segment of `https://t.me/addstickers/<short_name>`). When a non-exempt sender posts a sticker belonging to a pack in this list, subsequent checks are skipped and `punishment` is applied |
-| `emoji_black_list` | `string[]` | **Required** | Array with `0` to `MAX_CONFIGURED_AD_BLACKLIST_PACKS` entries; each entry, trimmed, must match `STICKER_PACK_NAME_PATTERN` and be unique | Blacklisted custom emoji pack short names (the final segment of `https://t.me/addemoji/<short_name>`). When a non-exempt sender posts a message with `custom_emoji` entities, their pack names are queried via the main thread's unified Telegram outbound client; a match skips AI classification and applies `punishment` |
 
 ---
 

@@ -129,7 +129,9 @@ describe("群问答主线程持久化边界", () => {
       temporaryAdBypassWrites: [],
       writes: [],
       chatStateWrites: [],
-      chatQaWrites: [{ chatId: CHAT_ID, q: "怎么入群？", revision: first }], removalWrites: [],
+      chatQaWrites: [{ chatId: CHAT_ID, q: "怎么入群？", revision: first }],
+      adPackBlacklistWrites: [],
+      removalWrites: [],
     });
 
     // 迟到的 ACK 对应的是已被更新值取代的那一版，不清未确认记录。
@@ -145,7 +147,9 @@ describe("群问答主线程持久化边界", () => {
       temporaryAdBypassWrites: [],
       writes: [],
       chatStateWrites: [],
-      chatQaWrites: [{ chatId: CHAT_ID, q: "怎么入群？", revision: first + 1 }], removalWrites: [],
+      chatQaWrites: [{ chatId: CHAT_ID, q: "怎么入群？", revision: first + 1 }],
+      adPackBlacklistWrites: [],
+      removalWrites: [],
     });
     expect(unacknowledgedChatQaWrites.has(CHAT_ID)).toBeFalse();
     expect(unacknowledgedChatQaTotals).toEqual({ entries: 0, bytes: 0 });

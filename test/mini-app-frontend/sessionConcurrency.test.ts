@@ -3,7 +3,10 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { miniAppFetchJson } from "../../packages/mini-app-frontend/api/request";
+import {
+  miniAppFetchJson,
+  resolveMiniAppSessionCryptoSnapshot,
+} from "../../packages/mini-app-frontend/api/request";
 import {
   MINI_APP_SESSION_EXPIRES_AT_HEADER,
   MINI_APP_SESSION_HEADER,
@@ -329,6 +332,84 @@ describe("Mini App 并发在途加密请求的令牌与密钥世代一致性", (
       expect(sessionStore.has(MINI_APP_SESSION_STORAGE_KEY)).toBeFalse();
     } finally {
       Reflect.deleteProperty(globalThis, "sessionStorage");
+    }
+  });
+
+  test("resolveMiniAppSessionCryptoSnapshot 在密钥导入期间发生多次连续轮换时可追赶恢复，耗尽重试也不清空已更新的活跃令牌", async () => {
+    const token0: string = "1".repeat(64);
+    const token1: string = "2".repeat(64);
+    const token2: string = "3".repeat(64);
+    const token3: string = "4".repeat(64);
+    const token4: string = "5".repeat(64);
+    const expiresAt: number = Date.now() + 60_000;
+    const realImportKey: typeof globalThis.crypto.subtle.importKey =
+      globalThis.crypto.subtle.importKey.bind(globalThis.crypto.subtle);
+
+    // 1. 连续 3 次轮换落在 await importKey 窗口内（含最后一次重试落地稳定）：循环追赶后最终稳定返回 token3 的成对快照且不误清会话。
+    let rotationStep: number = 0;
+    globalThis.crypto.subtle.importKey = (async (
+      ...args: Parameters<typeof globalThis.crypto.subtle.importKey>
+    ): Promise<CryptoKey> => {
+      const key: CryptoKey = await realImportKey(...args);
+      if (rotationStep === 0) {
+        rotationStep = 1;
+        setMiniAppSessionToken(token1, expiresAt, TEST_ROTATED_SESSION_KEY);
+      } else if (rotationStep === 1) {
+        rotationStep = 2;
+        setMiniAppSessionToken(token2, expiresAt, TEST_SESSION_KEY);
+      } else if (rotationStep === 2) {
+        rotationStep = 3;
+        setMiniAppSessionToken(token3, expiresAt, TEST_ROTATED_SESSION_KEY);
+      }
+      return key;
+    }) as typeof globalThis.crypto.subtle.importKey;
+    try {
+      setMiniAppSessionToken(token0, expiresAt, TEST_SESSION_KEY);
+      const snapshot = await resolveMiniAppSessionCryptoSnapshot();
+      expect(snapshot.sentSessionToken).toBe(token3);
+      expect(snapshot.cryptoKeyAtSend).not.toBeNull();
+      expect(readMiniAppSessionToken()).toBe(token3);
+      expect(hasMiniAppSessionCryptoKey()).toBeTrue();
+
+      // 2. 四次连续轮换耗尽追赶上限：抛出 PASSWORD_REQUIRED，但绝不清空更新后的 token4 活跃会话。
+      const gates: readonly PromiseWithResolvers<void>[] = [
+        Promise.withResolvers<void>(),
+        Promise.withResolvers<void>(),
+        Promise.withResolvers<void>(),
+        Promise.withResolvers<void>(),
+      ];
+      let gateIndex: number = 0;
+      globalThis.crypto.subtle.importKey = (async (
+        ...args: Parameters<typeof globalThis.crypto.subtle.importKey>
+      ): Promise<CryptoKey> => {
+        const myGate: PromiseWithResolvers<void> | undefined = gates[gateIndex];
+        gateIndex += 1;
+        if (myGate !== undefined) {
+          await myGate.promise;
+        }
+        return realImportKey(...args);
+      }) as typeof globalThis.crypto.subtle.importKey;
+      setMiniAppSessionToken(token0, expiresAt, TEST_SESSION_KEY);
+      const exhaustedPromise: Promise<unknown> = resolveMiniAppSessionCryptoSnapshot();
+      // 每次在当前代 importKey 兑现前切到下一代，迫使追赶循环耗尽 3 次重试。
+      setMiniAppSessionToken(token1, expiresAt, TEST_ROTATED_SESSION_KEY);
+      gates[0]!.resolve();
+      await Bun.sleep(0);
+      setMiniAppSessionToken(token2, expiresAt, TEST_SESSION_KEY);
+      gates[1]!.resolve();
+      await Bun.sleep(0);
+      setMiniAppSessionToken(token3, expiresAt, TEST_ROTATED_SESSION_KEY);
+      gates[2]!.resolve();
+      await Bun.sleep(0);
+      setMiniAppSessionToken(token4, expiresAt, TEST_SESSION_KEY);
+      gates[3]!.resolve();
+      await expect(exhaustedPromise).rejects.toThrow(
+        "[PASSWORD_REQUIRED] PASSWORD_REQUIRED"
+      );
+      expect(readMiniAppSessionToken()).toBe(token4);
+      expect(hasMiniAppSessionCryptoKey()).toBeTrue();
+    } finally {
+      globalThis.crypto.subtle.importKey = realImportKey;
     }
   });
 });

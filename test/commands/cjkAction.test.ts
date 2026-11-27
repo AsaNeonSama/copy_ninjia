@@ -279,10 +279,23 @@ describe("/<1~2 个中文字> 动作命令", () => {
     expect(nextCalls).toBe(1);
     expect(sendMessage).toHaveBeenCalledTimes(1);
 
-    // 既没有 from 也没有 sender_chat 的消息形态：拿不到发起人，不造句。
-    await handleCjkActionCommand(context("/咬", null), next);
+    // 当前机器人未配置公开用户名时，带 @ 的定向命令放行，裸命令仍正常执行。
+    const namelessAddressed: any = context("/咬@mybot");
+    delete namelessAddressed.me.username;
+    await handleCjkActionCommand(namelessAddressed, next);
     expect(nextCalls).toBe(2);
     expect(sendMessage).toHaveBeenCalledTimes(1);
+
+    const namelessBare: any = context("/咬");
+    delete namelessBare.me.username;
+    await handleCjkActionCommand(namelessBare, next);
+    expect(nextCalls).toBe(2);
+    expect(sendMessage).toHaveBeenCalledTimes(2);
+
+    // 既没有 from 也没有 sender_chat 的消息形态：拿不到发起人，不造句。
+    await handleCjkActionCommand(context("/咬", null), next);
+    expect(nextCalls).toBe(3);
+    expect(sendMessage).toHaveBeenCalledTimes(2);
   });
 
   test("全局配额按窗口内调用上限计数，超额后静默丢弃且不再解析目标", async () => {

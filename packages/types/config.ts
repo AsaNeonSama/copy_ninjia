@@ -47,19 +47,13 @@ export type AdDetectPunishment = AdMutePunishment | AdKickPunishment;
 /**
  * 广告检测的部署配置（config/dynamic/ad_detect.json）：
  * - `punishment`：判定为广告后的处罚设置，由 antiRaid/adDetect.ts 在主线程处置时读取；
- * - `samples`：判定口径参考示例，由 workers/antiRaid/adDetect/classifier.ts 拼入提示词；
- * - `stickerBlackList`：部署字段 `sticker_black_list`，贴纸包 short name 只读黑名单集合，作为快路径最先检测；
- * - `emojiBlackList`：部署字段 `emoji_black_list`，自定义表情所属表情包 short name 只读黑名单集合，在贴纸黑名单之后、AI 检测之前检测。
+ * - `samples`：判定口径参考示例，由 workers/antiRaid/adDetect/classifier.ts 拼入提示词。
  */
 export interface AdDetectConfig {
   /** 判定为广告（含黑名单命中）后的处罚设置。 */
   readonly punishment: AdDetectPunishment;
   /** 广告分类判定用的正例参考样本列表（单行规范化、去重）。 */
   readonly samples: readonly string[];
-  /** 命中即跳过 AI 检测直接判为广告、按 punishment 处罚的贴纸包 short name 只读黑名单集合。 */
-  readonly stickerBlackList: ReadonlySet<string>;
-  /** 命中即跳过 AI 检测直接判为广告、按 punishment 处罚的自定义表情包 short name 只读黑名单集合。 */
-  readonly emojiBlackList: ReadonlySet<string>;
 }
 
 /** `config/static/bot.json` 中可选的 Mini App HTTP 服务与入口配置；存在时 `url`、`port`、`password` 必填，`host` 可选并缺省归一化为 `MINI_APP_DEFAULT_HOST`。 */
@@ -101,14 +95,27 @@ export interface GoogleServiceAccountKey {
   readonly universe_domain?: string;
 }
 
+/** Google GenAI SDK 承载的广告检测能力配置；可选启用 Gemini Decisions API。 */
+export interface GoogleAdDetectAgentConfig extends GoogleAgentCapabilityConfig {
+  /**
+   * 部署字段 `use_decision`：为 `true` 时广告检测优先走 Google Decisions API（`decisions.create`），
+   * 缺省或为 `false` 时走普通 `generateContent` 文本/多模态模型。
+   */
+  readonly useDecision: boolean;
+}
+
 /**
  * ad_detect 能力配置。与其他能力一样显式选择 provider（AgentProvider）；端点缺省
  * 时跟随对应 SDK 的官方地址，兼容端点必须在该能力自己的 base_url 显式声明。
+ * `google` 协议额外支持可选布尔字段 `use_decision`（缺省为 `false`）。
  *
  * 与 AI agent 配置同住 config/dynamic/agent.json，运行时按消费方分段加载：广告检测
  * Worker 只接收本段，AI Worker 只接收 AI 对话能力段。分段边界见 config/agent.ts。
  */
-export type AdDetectAgentConfig = AgentCapabilityConfig;
+export type AdDetectAgentConfig =
+  | GoogleAdDetectAgentConfig
+  | OpenAiAgentCapabilityConfig
+  | AnthropicAgentCapabilityConfig;
 
 /**
  * OpenAI 兼容生图的线协议，对应请求体能力边界：`openai` 表示 OpenAI

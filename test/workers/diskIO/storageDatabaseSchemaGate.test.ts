@@ -3,6 +3,7 @@ import { DEFAULT_WHITELIST_PERMISSIONS } from
   "../../../packages/consts/whitelist";
 import { IDENTITY_DATABASE_PATH } from "../../../packages/consts/paths";
 import {
+  AD_PACK_BLACKLIST_READ_CACHE_MAX_ENTRIES,
   IDENTITY_DATABASE_METADATA_KEYS,
   IDENTITY_DATABASE_SCHEMA_KEY,
   IDENTITY_DATABASE_SCHEMA_VERSION,
@@ -49,6 +50,7 @@ afterEach((): void => {
     database.$client.run("DELETE FROM blocklist_entries;");
     database.$client.run("DELETE FROM chat_states;");
     database.$client.run("DELETE FROM chat_qa;");
+    database.$client.run("DELETE FROM ad_pack_blacklists;");
     database.$client.run("DELETE FROM temporary_ad_bypass_entries;");
     database.$client.run("DELETE FROM storage_metadata;");
     for (const row of storageMetadataRows(getTimeZone())) {
@@ -106,6 +108,7 @@ describe("共享存储库的启动 schema 闸", () => {
       pendingBlockedRemovals: new Map(),
       chatStates: new Map(),
       chatQa: new Map(),
+      adPackBlacklistCounts: { sticker: 0, emoji: 0 },
     });
   });
 
@@ -120,6 +123,7 @@ describe("共享存储库的启动 schema 闸", () => {
       pendingBlockedRemovals: new Map(),
       chatStates: new Map(),
       chatQa: new Map(),
+      adPackBlacklistCounts: { sticker: 0, emoji: 0 },
     });
 
     expect(adoptStorageDatabase(inspection)).toEqual(inspection.hydration);
@@ -236,7 +240,9 @@ describe("共享存储库的启动 schema 闸", () => {
       ]);
     });
     try {
-      expect(() => inspectStorageDatabase()).toThrow("expected the exact supported schema v13 migration lineage.");
+      expect(() => inspectStorageDatabase()).toThrow(
+        `expected the exact supported schema v${IDENTITY_DATABASE_SCHEMA_VERSION} migration lineage.`
+      );
     } finally {
       withDatabase((database: StorageDatabase): void => {
         database.$client.run("DELETE FROM __drizzle_migrations WHERE created_at = ?1;", [20_260_811_010_000]);
@@ -381,5 +387,49 @@ describe("共享存储库的启动 schema 闸", () => {
         );
       });
     }
+  });
+
+  test("ad_pack_blacklists 合法行正确 hydrate 计数，STRICT 约束拦截非法种类/包名，不再对单类条数设硬上限", () => {
+    withDatabase((database: StorageDatabase): void => {
+      database.$client.run(
+        "INSERT INTO ad_pack_blacklists (kind, pack) VALUES ('sticker', 'SpamPack_1'), ('emoji', 'SpamEmoji_1');"
+      );
+      expect(() =>
+        database.$client.run(
+          "INSERT INTO ad_pack_blacklists (kind, pack) VALUES ('invalid', 'Pack_1');"
+        )
+      ).toThrow();
+      expect(() =>
+        database.$client.run(
+          "INSERT INTO ad_pack_blacklists (kind, pack) VALUES ('sticker', 'bad-pack');"
+        )
+      ).toThrow();
+      expect(() =>
+        database.$client.run(
+          "INSERT INTO ad_pack_blacklists (kind, pack) VALUES ('sticker', '');"
+        )
+      ).toThrow();
+    });
+
+    const inspection = inspectStorageDatabase();
+    expect(inspection.hydration.adPackBlacklistCounts).toEqual({
+      sticker: 1,
+      emoji: 1,
+    });
+
+    const largeCount: number = AD_PACK_BLACKLIST_READ_CACHE_MAX_ENTRIES + 32;
+    withDatabase((database: StorageDatabase): void => {
+      database.$client.run("DELETE FROM ad_pack_blacklists;");
+      const insert = database.$client.prepare(
+        "INSERT INTO ad_pack_blacklists (kind, pack) VALUES ('sticker', ?1);"
+      );
+      for (let index: number = 0; index < largeCount; index++) {
+        insert.run(`UnlimitedPack_${index}`);
+      }
+    });
+    expect(inspectStorageDatabase().hydration.adPackBlacklistCounts).toEqual({
+      sticker: largeCount,
+      emoji: 0,
+    });
   });
 });

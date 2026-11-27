@@ -7,11 +7,14 @@
 import { handleAdSampleMessage } from "./diskIO/adSampleFile";
 import {
   closeStorageDatabaseForShutdown,
+  handleAdPackBlacklistWrite,
   handleChatQaWrite,
   handleChatStateWrite,
   handleIdentityPolicyWrite,
   handleTemporaryAdBypassWrite,
   handleBlocklistRemovalWrite,
+  readAdPackBlacklistPage,
+  readAdPackBlacklists,
   readIdentityIdPage,
   readIdentityPolicies,
   setStorageFlushHold,
@@ -263,7 +266,10 @@ export async function handleDiskIOWorkerMessage(
       );
       break;
     case "deleteAiMemory":
-      deleteAiMemorySnapshot(msg.chatId, msg.revision);
+      handleStorageMessage(
+        "aiMemory",
+        (): void => deleteAiMemorySnapshot(msg.chatId, msg.revision)
+      );
       break;
     case "forgetAiMemory":
       forgetAiMemoryChat(msg.chatId);
@@ -323,6 +329,12 @@ export async function handleDiskIOWorkerMessage(
         (): void => handleChatQaWrite(msg, postReply)
       );
       break;
+    case "adPackBlacklistWrite":
+      handleStorageMessage(
+        "adPackBlacklist",
+        (): void => handleAdPackBlacklistWrite(msg, postReply)
+      );
+      break;
     case "recoveryReplay":
       diskIOReplayWindow.current = msg.active;
       break;
@@ -345,6 +357,12 @@ export async function handleDiskIOWorkerMessage(
       break;
     case "readIdentityIdPage":
       postReply(readIdentityIdPage(msg));
+      break;
+    case "readAdPackBlacklists":
+      postReply(readAdPackBlacklists(msg));
+      break;
+    case "readAdPackBlacklistPage":
+      postReply(readAdPackBlacklistPage(msg));
       break;
     case "closeStorage":
       handleCloseStorage(msg);

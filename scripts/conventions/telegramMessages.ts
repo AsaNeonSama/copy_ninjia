@@ -1,24 +1,48 @@
 import { join, relative } from "node:path";
 import ts from "typescript";
-import { parseSourceFile, sourceFilesUnder } from "./sourceAnalysis";
+import {
+  enclosingFunctionName,
+  lineOfPosition,
+  parseSourceFile,
+  sourceFilesUnder,
+} from "./sourceAnalysis";
 import { unwrapExpression } from "./staticAccess";
+
+/** `collectTelegramMessageProblems` 的目录边界与可选预加载缓存入参。 */
+export interface CollectTelegramMessageParams {
+  /** 仓库根目录绝对路径。 */
+  readonly projectRoot: string;
+  /** `packages/` 源码根目录绝对路径。 */
+  readonly sourceRoot: string;
+  /** `packages/commands/` 目录绝对路径。 */
+  readonly commandsRoot: string;
+  /** 绝对路径到文件正文的预加载映射表。 */
+  readonly fileTexts?: ReadonlyMap<string, string>;
+  /** `sourceRoot` 下已枚举的源码绝对路径列表。 */
+  readonly sourceFiles?: readonly string[];
+}
 
 /**
  * 核对命令提示清理、状态消息豁免与长期留存话题归属。
  *
- * @param projectRoot 仓库根目录绝对路径
- * @param sourceRoot `packages/` 源码根目录绝对路径
- * @param commandsRoot `packages/commands/` 目录绝对路径
+ * @param params 仓库路径边界与可选预加载文件缓存/源码清单
  * @returns Telegram 消息发送与留存边界违规问题列表
  */
-export async function collectTelegramMessageProblems(
-  projectRoot: string,
-  sourceRoot: string,
-  commandsRoot: string
-): Promise<readonly string[]> {
+export async function collectTelegramMessageProblems({
+  projectRoot,
+  sourceRoot,
+  commandsRoot,
+  fileTexts,
+  sourceFiles: allSourceFiles,
+}: Readonly<CollectTelegramMessageParams>): Promise<readonly string[]> {
   const problems: string[] = [];
+  const filesUnder = (directory: string): readonly string[] => {
+    if (allSourceFiles === undefined) return sourceFilesUnder(directory);
+    const prefix: string = `${directory}/`;
+    return allSourceFiles.filter((file: string): boolean => file.startsWith(prefix));
+  };
   const commandTextOutputFiles: readonly string[] = [
-    ...sourceFilesUnder(commandsRoot),
+    ...filesUnder(commandsRoot),
     join(sourceRoot, "copy", "avatarQueue.ts"),
   ];
   const gagCommandPath: string = join(commandsRoot, "gag.ts");
@@ -46,8 +70,8 @@ export async function collectTelegramMessageProblems(
     ])
   );
   for (const directory of ["workers", "antiRaid", "auto", "mini-app-api-server"]) {
-    for (const path of sourceFilesUnder(join(sourceRoot, directory))) {
-      const source: ts.SourceFile = await parseSourceFile(path);
+    for (const path of filesUnder(join(sourceRoot, directory))) {
+      const source: ts.SourceFile = await parseSourceFile(path, fileTexts?.get(path));
       const sendNames: Set<string> = new Set(directSendNames);
       const relativeToSource: string = relative(sourceRoot, path);
       const expectedBoundary: string | undefined = directBoundaries[relativeToSource];
@@ -72,9 +96,7 @@ export async function collectTelegramMessageProblems(
           sendNames.add(node.name.text);
         }
         if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && sendNames.has(node.expression.text)) {
-          let owner: ts.Node | undefined = node.parent;
-          while (owner !== undefined && !ts.isFunctionDeclaration(owner)) owner = owner.parent;
-          if (owner?.name?.text !== expectedBoundary) {
+          if (enclosingFunctionName(node) !== expectedBoundary) {
             problems.push(`${relative(projectRoot, path)}: ordinary Worker/group notices must use the main-thread temporary-message boundary`);
           }
         }
@@ -93,23 +115,19 @@ export async function collectTelegramMessageProblems(
   }
 
   for (const path of commandTextOutputFiles) {
-    const source: ts.SourceFile = await parseSourceFile(path);
+    const source: ts.SourceFile = await parseSourceFile(path, fileTexts?.get(path));
     function visit(node: ts.Node): void {
       // /wed 图片由按钮状态机拥有，只有此函数可直接发送并认领返回的消息 ID。
       if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) &&
         node.expression.name.text === "sendPhoto") {
-        let owner: ts.Node | undefined = node.parent;
-        while (owner !== undefined && !ts.isFunctionDeclaration(owner)) owner = owner.parent;
-        if (path !== wedMessagesPath || owner?.name?.text !== "sendWedResult") {
+        if (path !== wedMessagesPath || enclosingFunctionName(node) !== "sendWedResult") {
           problems.push(`${relative(projectRoot, path)}: state-owned command photos must use sendWedResult`);
         }
       }
       // /h_image 结果图片是用户授权的长期保留例外，只有这一个边界函数可以发送。
       if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) &&
         node.expression.text === "sendPhotoWithResult") {
-        let owner: ts.Node | undefined = node.parent;
-        while (owner !== undefined && !ts.isFunctionDeclaration(owner)) owner = owner.parent;
-        if (path !== hImageDrawPath || owner?.name?.text !== "sendHImageResult") {
+        if (path !== hImageDrawPath || enclosingFunctionName(node) !== "sendHImageResult") {
           problems.push(`${relative(projectRoot, path)}: long-lived command photos must use sendHImageResult`);
         }
       }
@@ -121,8 +139,7 @@ export async function collectTelegramMessageProblems(
         const callee: ts.Expression = unwrapExpression(node.expression);
         if (ts.isPropertyAccessExpression(callee) && callee.name.text === "sendMessage") {
           problems.push(
-            `${relative(projectRoot, path)}:` +
-            `${source.getLineAndCharacterOfPosition(node.getStart()).line + 1} ` +
+            `${relative(projectRoot, path)}:${lineOfPosition(source, node.getStart())} ` +
             "command text must use sendCommandMessage so group prompts are deleted"
           );
         }
@@ -141,8 +158,7 @@ export async function collectTelegramMessageProblems(
           return;
         }
         problems.push(
-          `${relative(projectRoot, path)}:` +
-          `${source.getLineAndCharacterOfPosition(node.getStart()).line + 1} ` +
+          `${relative(projectRoot, path)}:${lineOfPosition(source, node.getStart())} ` +
           "command text must use sendCommandMessage so group prompts are deleted"
         );
       }
@@ -152,7 +168,7 @@ export async function collectTelegramMessageProblems(
   }
 
   for (const path of [gagCommandPath, gagNoticesPath, qaNoticesPath]) {
-    const source: ts.SourceFile = await parseSourceFile(path);
+    const source: ts.SourceFile = await parseSourceFile(path, fileTexts?.get(path));
     function visit(node: ts.Node): void {
       if (
         ts.isCallExpression(node) &&
@@ -176,8 +192,7 @@ export async function collectTelegramMessageProblems(
           owner.name?.text === "sendQaForm";
         if (!isPublicNoticeAssignment && !isSpeakNoticeBoundary && !isQaFormBoundary) {
           problems.push(
-            `${relative(projectRoot, path)}:` +
-            `${source.getLineAndCharacterOfPosition(node.getStart()).line + 1} ` +
+            `${relative(projectRoot, path)}:${lineOfPosition(source, node.getStart())} ` +
             "only the state-owned gag notices and the /qa set form boundary may " +
             "bypass sendCommandMessage"
           );
@@ -188,8 +203,8 @@ export async function collectTelegramMessageProblems(
     visit(source);
   }
 
-  for (const path of sourceFilesUnder(commandsRoot)) {
-    const source: ts.SourceFile = await parseSourceFile(path);
+  for (const path of filesUnder(commandsRoot)) {
+    const source: ts.SourceFile = await parseSourceFile(path, fileTexts?.get(path));
     function visit(node: ts.Node): void {
       if (ts.isObjectLiteralExpression(node)) {
         let preservesInGroup: boolean = false;
@@ -206,8 +221,7 @@ export async function collectTelegramMessageProblems(
         }
         if (preservesInGroup && !carriesThread) {
           problems.push(
-            `${relative(projectRoot, path)}:` +
-            `${source.getLineAndCharacterOfPosition(node.getStart()).line + 1} ` +
+            `${relative(projectRoot, path)}:${lineOfPosition(source, node.getStart())} ` +
             "preserveInGroup content stays in the chat forever and must also pass messageThreadId"
           );
         }
@@ -230,9 +244,9 @@ export async function collectTelegramMessageProblems(
     "sendVoiceWithResult",
     "sendCommandMessage",
   ]);
-  for (const path of sourceFilesUnder(join(sourceRoot, "cron"))) {
+  for (const path of filesUnder(join(sourceRoot, "cron"))) {
     if (path === cronDeliveryPath) continue;
-    const source: ts.SourceFile = await parseSourceFile(path);
+    const source: ts.SourceFile = await parseSourceFile(path, fileTexts?.get(path));
     function visit(node: ts.Node): void {
       if (ts.isCallExpression(node)) {
         const callee: ts.Expression = node.expression;
@@ -250,17 +264,15 @@ export async function collectTelegramMessageProblems(
 
   // 复读换图注复制媒体只经 copy/echo.ts 的 sendEchoPayload，一处决定哪些载荷可以复制。
   const echoPath: string = join(sourceRoot, "copy", "echo.ts");
-  for (const path of sourceFilesUnder(sourceRoot)) {
-    const source: ts.SourceFile = await parseSourceFile(path);
+  for (const path of allSourceFiles ?? sourceFilesUnder(sourceRoot)) {
+    const source: ts.SourceFile = await parseSourceFile(path, fileTexts?.get(path));
     function visit(node: ts.Node): void {
       if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "copyMessage") {
         const options: ts.Expression | undefined = node.arguments[0];
         const replacesCaption: boolean = options !== undefined && ts.isObjectLiteralExpression(options) &&
           options.properties.some((property: ts.ObjectLiteralElementLike): boolean =>
             property.name !== undefined && ts.isIdentifier(property.name) && property.name.text === "caption");
-        let owner: ts.Node | undefined = node.parent;
-        while (owner !== undefined && !ts.isFunctionDeclaration(owner)) owner = owner.parent;
-        if (replacesCaption && (path !== echoPath || owner?.name?.text !== "sendEchoPayload")) {
+        if (replacesCaption && (path !== echoPath || enclosingFunctionName(node) !== "sendEchoPayload")) {
           problems.push(`${relative(projectRoot, path)}: copies with a replaced caption must go through sendEchoPayload`);
         }
       }
@@ -270,19 +282,18 @@ export async function collectTelegramMessageProblems(
   }
 
   const fixedDelayDeleteExemptFiles: readonly string[] = [
-    ...sourceFilesUnder(join(commandsRoot, "luckChallenge")),
+    ...filesUnder(join(commandsRoot, "luckChallenge")),
     join(sourceRoot, "workers", "antiRaid", "verificationReminders.ts"),
   ];
   for (const path of fixedDelayDeleteExemptFiles) {
-    const source: ts.SourceFile = await parseSourceFile(path);
+    const source: ts.SourceFile = await parseSourceFile(path, fileTexts?.get(path));
     function visit(node: ts.Node): void {
       if (
         ts.isImportSpecifier(node) &&
         ["sendCommandMessage", "sendCommandPhoto"].includes(node.propertyName?.text ?? node.name.text)
       ) {
         problems.push(
-          `${relative(projectRoot, path)}:` +
-          `${source.getLineAndCharacterOfPosition(node.getStart()).line + 1} ` +
+          `${relative(projectRoot, path)}:${lineOfPosition(source, node.getStart())} ` +
           "state-owned button messages and inline luck results must not use fixed-delay command cleanup"
         );
       }

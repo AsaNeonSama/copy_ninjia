@@ -28,6 +28,7 @@ import {
   trimJoinLogRecordsToCapacity,
   joinLogBuffer,
   joinLogDeletions,
+  joinLogDeletionTimer,
   joinLogFileCaches,
   joinLogRetryAt,
   markJoinLogDirty,
@@ -872,7 +873,9 @@ describe("diskIO/joinLogFiles", () => {
     try {
       handleJoinLogDeleteMessage({ type: "deleteJoinLog", chatId: -1001 });
       expect(joinLogDeletions.has(-1001)).toBeTrue();
+      expect(joinLogDeletionTimer.timer).not.toBeNull();
       expect(purgeJoinLogDeletions()).toBeFalse();
+      expect(joinLogDeletionTimer.timer).not.toBeNull();
       // 别的群的入群事实照常落盘并回报成功：删除失败只影响 joinLogPurge（见 types/diskIO/replies.ts 的 DiskIODomain）。
       await handleJoinLogMessage(joinMessage(-2002, 42, todayAt()));
       expect(await flushJoinLogBuffer()).toBeTrue();
@@ -880,6 +883,7 @@ describe("diskIO/joinLogFiles", () => {
       rmSync(currentFile(-1001), { recursive: true, force: true });
       expect(purgeJoinLogDeletions()).toBeTrue();
       expect(joinLogDeletions.size).toBe(0);
+      expect(joinLogDeletionTimer.timer).toBeNull();
     } finally {
       diagnostic.mockRestore();
     }

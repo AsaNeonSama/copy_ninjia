@@ -47,7 +47,11 @@ async function problemsFor(files: Readonly<Record<string, string | null>>): Prom
     if (text === null) continue;
     await Bun.write(join(sourceRoot, relativePath), text);
   }
-  return collectTelegramMessageProblems(root, sourceRoot, commandsRoot);
+  return collectTelegramMessageProblems({
+    projectRoot: root,
+    sourceRoot,
+    commandsRoot,
+  });
 }
 
 const COMMAND_TEXT_PROBLEM: string = "command text must use sendCommandMessage so group prompts are deleted";

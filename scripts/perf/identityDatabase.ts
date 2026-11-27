@@ -34,6 +34,7 @@ import {
   removeMockRoot,
 } from "./identityDatabase/roots";
 import { perfChildEnvironment } from "./childEnvironment";
+import { decodeUtf8 } from "../utf8";
 import {
   runColdReadChild,
   runColdWriteChild,
@@ -46,9 +47,6 @@ import type {
   BenchmarkReport,
   ChildResult,
 } from "./identityDatabase/types";
-
-/** 复用单一 UTF-8 解码器解码子进程 JSON 输出。 */
-const UTF8_DECODER: TextDecoder = new TextDecoder();
 
 /** 固定执行顺序。 */
 const BENCHMARK_OPERATIONS: readonly BenchmarkOperation[] = [
@@ -142,7 +140,7 @@ function runIndependentChild(
       );
     }
     const result: ChildResult = JSON.parse(
-      UTF8_DECODER.decode(child.stdout)
+      decodeUtf8(child.stdout)
     ) as ChildResult;
     if (temporaryRoot !== null) {
       assertMainBenchmarkDatabase(temporaryRoot);
@@ -226,7 +224,7 @@ function runSingleProcessParent(mockRoot: string): BenchmarkReport {
       );
     }
     const result: BenchmarkReport = JSON.parse(
-      UTF8_DECODER.decode(child.stdout)
+      decodeUtf8(child.stdout)
     ) as BenchmarkReport;
     assertMainBenchmarkDatabase(temporaryRoot);
     return result;

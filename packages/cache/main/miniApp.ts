@@ -81,6 +81,16 @@ export const miniAppAuthSessions: FifoMap<string, Readonly<MiniAppAuthSession>> 
   new FifoMap<string, Readonly<MiniAppAuthSession>>(MINI_APP_SESSION_MAX);
 
 /**
+ * `miniAppAuthSessions` 中所有存活会话的最早过期或宽限清理水位时间戳（毫秒，`Infinity` 表示空表无需扫描）。
+ * - 填充：签发、轮换、清理宽限字段或扫描过期会话后由 `sessionLookup.ts` / `sessionCommit.ts` / `sessionLifecycle.ts` 同步更新为全表最早到期或宽限截止时刻。
+ * - 清理：`miniAppAuthSessions` 清空或 `size === 0` 时重置为 `Number.POSITIVE_INFINITY`。
+ * - 容量与重建：恒为单个数值槽位，不淘汰；与 Worker 崩溃无关，进程重启后从 `Number.POSITIVE_INFINITY` 开始。
+ */
+export const miniAppAuthSessionWatermark: {
+  nextPurgeAt: number;
+} = { nextPurgeAt: Number.POSITIVE_INFINITY };
+
+/**
  * Mini App 源站每次启动在内存中生成的不可导出 Ed25519 签名密钥对 `Promise` 句柄（仅用于对动态 X25519 握手公钥签名及向前端打包 JS 注入对应公钥）。
  * - 填充：`startMiniAppServer` 启动时重置后立即生成（或首次 `ensureMiniAppRuntimeSigningKeyPair` 按需生成并共享同一个在途 `Promise`）。
  * - 清理：`stopMiniAppServer` / `clearMiniAppRuntimeSigningKeyPair` 停止服务时置回 `null`；若生成异步失败则自清回 `null`。
@@ -211,16 +221,6 @@ export const miniAppBundledAssetsPromiseHolder: {
 export const miniAppRejectHtmlHolder: {
   current: Readonly<MiniAppRejectHtmlTemplate> | null;
 } = { current: null };
-
-/**
- * 配置管理保存接口（`saveMiniAppConfigFile`）的进程内单链串行尾节点句柄（经 `libs/serialChain.ts` 的 `runSerialChain` 读写），消除并发保存 `agent.json` 与 `cron.json` 时的跨文件校验 TOCTOU 竞态。
- * - 填充：每次调用 `saveMiniAppConfigFile` 时把 `current` 推进到本次校验与原子写盘吸收结果与异常后的链尾。
- * - 清理：链尾随本次任务结算自然兑现，句柄只保留当前尾节点（`stopMiniAppServer` 后不再入队，已在途项自行结束）。
- * - 容量与重建：恒为单个尾节点 Promise（无队列蓄积溢出风险）；与 Worker 崩溃无关，进程重启后从已兑现的空 Promise 开始，不设额外淘汰策略。
- */
-export const miniAppConfigSaveChainHolder: {
-  current: Promise<void>;
-} = { current: Promise.resolve() };
 
 /**
  * 谷歌验证器（TOTP）启用与删除写入操作的进程内单链串行尾节点句柄（经 `libs/serialChain.ts` 的 `runSerialChain` 读写），保证磁盘 `totp.json` 与内存 `miniAppTotpRecordHolder` 变更严格同序。

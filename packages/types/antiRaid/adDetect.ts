@@ -1,6 +1,75 @@
 /** 广告检测流水线的跨线程协议与 Worker 内部纯数据形状。 */
 import type { Chat, Message } from "grammy/types";
 import type { TelegramIdentityMetadata } from "../identityPolicy";
+import type { VisionImage } from "../media";
+
+/** 参与多模态广告检测的图片附件来源类型。 */
+export type AdDetectMediaKind = "photo" | "sticker" | "custom_emoji";
+
+/** 广告检测请求携带的单张视觉附件及其归属包元信息。 */
+export interface AdDetectMediaAttachment {
+  /** 本次消息束内稳定的附件标识（用于提示词与媒体顺序对齐）。 */
+  readonly id: string;
+  /** 附件来源类型：普通图片/图片文件、贴纸或自定义表情。 */
+  readonly kind: AdDetectMediaKind;
+  /** 贴纸或自定义表情所属包的 short name；普通图片或无所属包时为 undefined。 */
+  readonly packName: string | undefined;
+  /** 已转为 JPEG/PNG 的视觉输入字节。 */
+  readonly image: VisionImage;
+}
+
+/** 单次模型送检（整串或本人直发）携带的多模态视觉附件与合法包归因候选。 */
+export interface AdBundleMediaSlice {
+  /** 已下载并转为 JPEG/PNG 的视觉附件列表。 */
+  readonly attachments: readonly AdDetectMediaAttachment[];
+  /** 本切片附件中具备合法包名的贴纸包 short name 去重列表。 */
+  readonly stickerPackCandidates: readonly string[];
+  /** 本切片附件中具备合法包名的自定义表情包 short name 去重列表。 */
+  readonly emojiPackCandidates: readonly string[];
+}
+
+/** 消息束多模态素材解析结果，同时包含整串、发送者本人直发两份切片及未检附件标记。 */
+export interface ResolvedAdBundleMedia {
+  /** 整串入选条目（含转发与引用）对应的多模态切片。 */
+  readonly combined: AdBundleMediaSlice;
+  /** 仅发送者本人直发条目（`!entry.isForwarded`）对应的多模态切片。 */
+  readonly direct: AdBundleMediaSlice;
+  /** 至少有一张成功加载并纳入累积字节预算的附件来自未检条目（`entry.seq > checkedSeq`）时为 `true`。 */
+  readonly hasUncheckedAttachments: boolean;
+}
+
+/** 当前 `agent.ad_detect` 模型多模态图片输入能力探测状态。 */
+export type AdDetectVisionSupportState = "unknown" | "supported" | "unsupported";
+
+/** 自定义表情 ID 的缓存元数据：所属包名与可下载视觉素材标识。 */
+export interface CachedCustomEmojiMeta {
+  /** 自定义表情所属表情包 short name；未归属任何表情包时为 null。 */
+  readonly setName: string | null;
+  /** 可用于视觉下载的静态本体或缩略图 file_id；无可用静态图或缩略图时为 null。 */
+  readonly visionFileId: string | null;
+  /** 贴纸自身的稳定去重键 `file_unique_id`；不可用时为 null。 */
+  readonly fileUniqueId: string | null;
+}
+
+/** 广告检测各供应商传输层的统一返回态。 */
+export type AdDetectProviderResult =
+  | { readonly status: "ok"; readonly body: string }
+  | { readonly status: "visionUnsupported" }
+  | { readonly status: "failed" };
+
+/** 广告消息束分类入口（支持文本与多模态附件及包归因候选）的入参。 */
+export interface ClassifyAdBundleOptions {
+  /** 按行编号的待判定消息串（见 adDetect/bundle.ts）。 */
+  readonly text: string;
+  /** 发送者是否仍处于入群验证窗口内。 */
+  readonly justJoined: boolean;
+  /** 本次送检附带的视觉图片列表（照片、贴纸或自定义表情）。 */
+  readonly attachments?: readonly AdDetectMediaAttachment[];
+  /** 本次消息束中出现、需要模型显式归因的贴纸包 short name 候选列表。 */
+  readonly stickerPackCandidates?: readonly string[];
+  /** 本次消息束中出现、需要模型显式归因的自定义表情包 short name 候选列表。 */
+  readonly emojiPackCandidates?: readonly string[];
+}
 
 /**
  * 同一条群消息的广告累计与候选构建共用事实；构造后保持固定 shape。只为通过
@@ -43,6 +112,12 @@ export interface AdDetectJsonRequestParams {
   readonly maxOutputTokens: number;
   /** 出现在错误日志里的调用名（英文）。 */
   readonly errorLabel: string;
+  /** 可选的多模态视觉附件列表；缺省或为空时按纯文本请求发送。 */
+  readonly attachments?: readonly AdDetectMediaAttachment[];
+  /** 本次送检待归因的贴纸包 short name 候选列表。 */
+  readonly stickerPackCandidates?: readonly string[];
+  /** 本次送检待归因的自定义表情包 short name 候选列表。 */
+  readonly emojiPackCandidates?: readonly string[];
 }
 
 /**
@@ -109,6 +184,14 @@ export interface AdCandidateMessage {
   linkUrls: string[] | undefined;
   /** 消息携带的贴纸所属贴纸包 short name（message.sticker?.set_name）；无贴纸或未归属贴纸包时为 undefined。 */
   stickerSetName: string | undefined;
+  /** 贴纸用于视觉下载的静态本体或缩略图 file_id；无可用素材时为 undefined。 */
+  readonly stickerFileId: string | undefined;
+  /** 贴纸自身的稳定去重键 `file_unique_id`；无可用素材时为 undefined。 */
+  readonly stickerFileUniqueId: string | undefined;
+  /** 普通图片或图片文件用于视觉下载的 file_id；无图片素材时为 undefined。 */
+  readonly imageFileId: string | undefined;
+  /** 普通图片或图片文件的稳定去重键 `file_unique_id`；无图片素材时为 undefined。 */
+  readonly imageFileUniqueId: string | undefined;
   /** 消息或图注实体中的自定义表情 ID 去重列表（custom_emoji 实体）；没有时为 undefined。 */
   customEmojiIds: string[] | undefined;
   /**
@@ -125,17 +208,42 @@ export interface ClearAdDetectMessage {
   chatId: number;
 }
 
-/** 命中样本里的一条消息：判定读到的内容，以及单独保留的引用上下文。 */
-export interface AdSampleMessage extends AdSampleContext {
-  messageId: number;
-  /**
-   * 送检时的内容（当次用户姓名、已截断正文与 text_link 落地页），与模型读到的完全一致；
-   * 没有送检文本的纯贴纸条目记其贴纸包 short name。
-   */
-  text: string;
+/**
+ * 主线程 -> Worker：某身份进入永久白名单或刚获得临时广告免检时，清除该身份在各群
+ * 尚未结算的广告检测队列、消息束、引用警告状态与处置抑制记录。
+ */
+export interface ClearIdentityAdDetectMessage {
+  type: "clearIdentityAdDetect";
+  identityId: number;
 }
 
-/** Worker -> 主线程：发送者被判成广告，涉事消息已删除，请按 ad_detect.json 的处罚设置处置。 */
+/**
+ * 主线程 -> Worker：主线程拒绝广告处置或非全局封禁处置结算后，释放指定群与发送者的处置抑制记录。
+ */
+export interface ReleaseAdDetectDedupMessage {
+  type: "releaseAdDetectDedup";
+  chatId: number;
+  senderId: number;
+}
+
+/** 命中样本中单条消息的类型。 */
+export type AdSampleMessageType = "text" | AdDetectMediaKind;
+
+/** 命中样本里的一条消息：消息类型、实际送检文本（无送检文本时省略）、贴纸包名及单独保留的引用上下文。 */
+export interface AdSampleMessage extends AdSampleContext {
+  messageId: number;
+  /** 消息类型（`"text"`、`"photo"`、`"sticker"` 或 `"custom_emoji"`）。 */
+  type: AdSampleMessageType;
+  /**
+   * 送检时的文本内容（当次用户姓名、已截断正文/图注与 text_link 落地页），与模型读到的完全一致；
+   * 无送检文本时为 undefined（落盘序列化时省略）。
+   */
+  text?: string;
+  /** 贴纸消息所属贴纸包 short name；非贴纸或无所属包时为 undefined（落盘序列化时省略）。 */
+  stickerSetName?: string;
+}
+
+/** Worker -> 主线程：发送者被判成广告，请主线程复核开关与受保护身份后执行删消息并按 ad_detect.json 的处罚设置处置。 */
 export interface AdDetectedEvent {
   type: "adDetected";
   chatId: number;
@@ -148,6 +256,12 @@ export interface AdDetectedEvent {
   reason: string;
   /** 本次判定依据的完整消息串。 */
   messages: readonly AdSampleMessage[];
+  /** Worker 汇总的待删除涉事消息 ID（送检条目 ∪ 当前束内条目 ∪ 淘汰待删 ID）；仅主线程裁决通过后执行删除。 */
+  readonly deleteMessageIds: readonly number[];
+  /** 模型明确归因为广告的贴纸包 short name 列表（供主线程自动写入 SQLite `ad_pack_blacklists`）。 */
+  readonly adStickerPacks?: readonly string[];
+  /** 模型明确归因为广告的自定义表情包 short name 列表（供主线程自动写入 SQLite `ad_pack_blacklists`）。 */
+  readonly adEmojiPacks?: readonly string[];
 }
 
 /** 一条参与广告判定的消息。 */
@@ -161,6 +275,8 @@ export interface AdCandidateEntry extends AdSampleContext {
   readonly senderText: string;
   /** 当前发送者本人的姓名与正文；转发消息只保留转发者姓名，用于直接广告归因。 */
   directText: string;
+  /** 当前消息是否为手工转发；键恒写。 */
+  readonly isForwarded: boolean;
   /**
    * 主线程观测时刻（入队时的 now，缺省即 AdCandidateMessage.observedAt）；用于回收
    * 去重窗口外已经消费过的上下文与冻结引用广告警告窗口；处置抑制另用 Worker 单调时钟。
@@ -173,7 +289,15 @@ export interface AdCandidateEntry extends AdSampleContext {
   withinReferencedWarning: boolean;
   /** 本条消息携带的贴纸所属贴纸包 short name；用于贴纸黑名单快路径检测，没有时为 undefined，键恒写。 */
   stickerSetName: string | undefined;
-  /** 本条消息携带的自定义表情 ID 去重列表；用于自定义表情包黑名单检测，没有时为 undefined，键恒写。 */
+  /** 贴纸用于视觉下载的静态本体或缩略图 file_id；没有时为 undefined，键恒写。 */
+  readonly stickerFileId: string | undefined;
+  /** 贴纸自身的稳定去重键 `file_unique_id`；没有时为 undefined，键恒写。 */
+  readonly stickerFileUniqueId: string | undefined;
+  /** 普通图片或图片文件用于视觉下载的 file_id；没有时为 undefined，键恒写。 */
+  readonly imageFileId: string | undefined;
+  /** 普通图片或图片文件的稳定去重键 `file_unique_id`；没有时为 undefined，键恒写。 */
+  readonly imageFileUniqueId: string | undefined;
+  /** 本条消息携带的自定义表情 ID 去重列表；用于自定义表情包黑名单快路径与多模态视觉检测（workers/antiRaid/adDetect/media.ts），没有时为 undefined，键恒写。 */
   customEmojiIds: readonly string[] | undefined;
 }
 
@@ -232,6 +356,10 @@ export interface AdMessageBundle {
 export interface AdVerdict {
   isAd: boolean;
   reason: string;
+  /** 模型明确归因为广告的贴纸包 short name 列表（已按本轮候选集过滤）。 */
+  readonly adStickerPacks?: readonly string[];
+  /** 模型明确归因为广告的自定义表情包 short name 列表（已按本轮候选集过滤）。 */
+  readonly adEmojiPacks?: readonly string[];
 }
 
 /** Worker -> 主线程：广告分类命中（贴纸/自定义表情包黑名单命中或模型判定为广告，含直接广告与仅引用命中）；用于清空连续合格日累计。 */

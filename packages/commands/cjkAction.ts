@@ -149,10 +149,10 @@ export async function handleCjkActionCommand(ctx: Context, next: NextFunction): 
   if (isBotOwnMessage(message)) return next();
   if (needsBotOwnMessageWait(message) && await waitForBotOwnMessage(message)) return next();
 
-  // 指名了其它机器人时放行。
+  // 指名了其它机器人（或当前机器人未配置公开用户名）时放行。
   if (
     command.addressedBotUsername !== undefined &&
-    command.addressedBotUsername.toLowerCase() !== ctx.me.username.toLowerCase()
+    command.addressedBotUsername.toLowerCase() !== ctx.me.username?.toLowerCase()
   ) {
     return next();
   }

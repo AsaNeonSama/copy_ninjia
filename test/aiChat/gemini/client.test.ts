@@ -10,6 +10,7 @@ import { geminiResponse } from "../../helpers/geminiResponse";
 import type { GeminiRequestResult } from "../../../packages/types/aiChat/gemini";
 import type { AgentCapability } from "../../../packages/types/config";
 import {
+  GEMINI_API_VERSION,
   GEMINI_REQUEST_RETRY_ATTEMPTS,
   GEMINI_REQUEST_TIMEOUTS_MS,
 } from "../../../packages/consts/aiChat/gemini";
@@ -94,6 +95,7 @@ describe("Gemini request safety settings", () => {
     expect(createdClientOptions[0]?.enterprise).toBe(false);
     expect(createdClientOptions[0]?.httpOptions).toEqual({
       baseUrl: "https://google.example",
+      apiVersion: GEMINI_API_VERSION,
       timeout: GEMINI_REQUEST_TIMEOUTS_MS.text,
       retryOptions: { attempts: GEMINI_REQUEST_RETRY_ATTEMPTS },
     });

@@ -7,9 +7,13 @@ import { geminiResponse } from "../helpers/geminiResponse";
 import { geminiClientCache } from "../../packages/cache/workers/aiChat/gemini";
 import { openAiClientCache } from "../../packages/cache/workers/aiChat/openai";
 import { adDetectOpenAiClientHolder } from "../../packages/cache/workers/antiRaid/openai";
-import { adDetectGoogleClientHolder } from "../../packages/cache/workers/antiRaid/google";
+import {
+  adDetectGoogleClientHolder,
+  adDetectGoogleDecisionClientHolder,
+} from "../../packages/cache/workers/antiRaid/google";
 import { diskIORuntime } from "../../packages/cache/main/diskIO";
 import { resetAiCacheState } from "../../packages/cache/workers/diskIO/aiCache";
+import { GEMINI_API_BASE_URL, GEMINI_API_VERSION } from "../../packages/consts/aiChat/gemini";
 import { AI_CACHE_FILE_PATH, AI_CACHE_MEMORY_DIR } from "../../packages/consts/paths";
 import { TEST_DATA_ROOT } from "../preloadEnv";
 import { getAgentDeploymentConfig, getAdDetectAgentConfig, adoptAgentDeploymentConfig, adoptAdDetectAgentConfig } from "../../packages/config/agent";
@@ -20,6 +24,7 @@ import { acceptDiskIODiagnosticBatch, resetDiskIODiagnosticChannel } from "../..
 import { handleAntiRaidWorkerEvent } from "../../packages/antiRaid/workerBridge/events";
 import { requestOpenAiAdDetectJson } from "../../packages/workers/antiRaid/adDetect/ai/openai";
 import { requestGoogleAdDetectJson } from "../../packages/workers/antiRaid/adDetect/ai/google";
+import { classifyWithGoogleDecision } from "../../packages/workers/antiRaid/adDetect/ai/googleDecision";
 import { requestGeminiResult } from "../../packages/workers/aiChat/gemini/client";
 import { generateGeminiImage } from "../../packages/workers/aiChat/gemini/image";
 import { synthesizeGeminiSpeech } from "../../packages/workers/aiChat/gemini/speech";
@@ -46,6 +51,7 @@ afterEach(() => {
   openAiClientCache.current = null;
   adDetectOpenAiClientHolder.current = null;
   adDetectGoogleClientHolder.current = null;
+  adDetectGoogleDecisionClientHolder.current = null;
   adoptAgentDeploymentConfig(initialAgent);
   adoptAdDetectAgentConfig(initialAd);
   rmSync(AI_CACHE_MEMORY_DIR, { recursive: true, force: true });
@@ -91,6 +97,7 @@ test("六种能力的真实响应适配经 Worker 转发和诊断 ACK 落盘，t
   const fakeGoogle = {
     models: { generateContent },
     interactions: { create: async () => ({ output_audio: { data: new Uint8Array([0x52, 0x49, 0x46, 0x46, 1, 2, 3, 4]).toBase64(), mime_type: "audio/wav" }, usage: { total_input_tokens: 4, total_output_tokens: 8, total_thought_tokens: 1, total_cached_tokens: 1 } }) },
+    decisions: { create: async () => ({ answers: { ad: { type: "noul", noul: 0.1, confidence: 0.9 }, category: { type: "choice", choice: "not_ad", confidence: 0.9, probabilities: { not_ad: 0.9 } } }, usage: { total_input_tokens: 40, total_cached_tokens: 10 } }) },
   } as unknown as GoogleGenAI;
   const completion = mock(async () => ({ choices: [{ message: { content: "{}" } }], usage: { prompt_tokens: 50, completion_tokens: 5 } }));
   const fakeOpenAi = {
@@ -121,11 +128,23 @@ test("六种能力的真实响应适配经 Worker 转发和诊断 ACK 落盘，t
     adoptAdDetectAgentConfig(openai);
     adDetectOpenAiClientHolder.current = fakeOpenAi;
     completion.mockResolvedValueOnce({ choices: [{ message: { content: "" } }], usage: { prompt_tokens: 50, completion_tokens: 5 } });
-    expect(await requestOpenAiAdDetectJson(adRequest)).toBe("{}");
+    expect(await requestOpenAiAdDetectJson(adRequest)).toEqual({ status: "ok", body: "{}" });
     expect(completion).toHaveBeenCalledTimes(2);
-    adoptAdDetectAgentConfig(google);
+    adoptAdDetectAgentConfig({ ...google, useDecision: false });
     adDetectGoogleClientHolder.current = fakeGoogle;
-    expect(await requestGoogleAdDetectJson(adRequest)).toBe("ok");
+    expect(await requestGoogleAdDetectJson(adRequest)).toEqual({ status: "ok", body: "ok" });
+    adoptAdDetectAgentConfig({ ...google, useDecision: true });
+    adDetectGoogleDecisionClientHolder.current = {
+      key: `${google.apiKey}\0${GEMINI_API_BASE_URL}\0${GEMINI_API_VERSION}`,
+      client: fakeGoogle,
+    };
+    expect(await classifyWithGoogleDecision({
+      model: "ad-decision",
+      instructions: "rules",
+      fact: "fixture fact",
+      userContent: "fixture",
+      errorLabel: "fixture",
+    })).toEqual({ isAd: false, reason: "decision(0.10): not_ad" });
     await flushDeliveries();
     const rows = Object.values(await Bun.file(AI_CACHE_FILE_PATH).json()) as {
       readonly capability: string;
@@ -133,17 +152,17 @@ test("六种能力的真实响应适配经 Worker 转发和诊断 ACK 落盘，t
       readonly outputTokens: number;
       readonly searchCalls?: number;
     }[];
-    expect(rows).toHaveLength(10);
+    expect(rows).toHaveLength(11);
     expect(rows.find((row) => row.capability === "text")).toMatchObject({ inputTokens: 10, outputTokens: 5, searchCalls: 2 });
-    expect(rows.filter((row) => row.capability === "ad_detect")).toHaveLength(3);
+    expect(rows.filter((row) => row.capability === "ad_detect")).toHaveLength(4);
     expect(new Set(rows.map((row) => row.capability))).toEqual(new Set(["text", "summary", "media", "image", "tts", "ad_detect"]));
-    expect(rows.reduce((sum, row) => sum + row.inputTokens, 0)).toBe(180);
+    expect(rows.reduce((sum, row) => sum + row.inputTokens, 0)).toBe(220);
     expect(rows.reduce((sum, row) => sum + row.outputTokens, 0)).toBe(81);
 
     // 供应商成功但没有 usage 时仍交付正文，同时提供可区分的缺计量诊断。
     adoptAdDetectAgentConfig(openai);
     completion.mockResolvedValueOnce({ choices: [{ message: { content: "{}" } }] } as any);
-    expect(await requestOpenAiAdDetectJson(adRequest)).toBe("{}");
+    expect(await requestOpenAiAdDetectJson(adRequest)).toEqual({ status: "ok", body: "{}" });
     expect(warning.mock.calls).toContainEqual([
       "AI token usage unavailable.",
       { capability: "ad_detect", provider: "openai", reason: "missing" },
@@ -154,13 +173,19 @@ test("六种能力的真实响应适配经 Worker 转发和诊断 ACK 落盘，t
     resetAiCacheState();
     adoptAiCacheFile(await inspectAiCacheFile());
     installAiCacheUsageSink(fromWorker);
-    expect(await requestOpenAiAdDetectJson(adRequest)).toBe("{}");
+    expect(await requestOpenAiAdDetectJson(adRequest)).toEqual({ status: "ok", body: "{}" });
     await flushDeliveries();
     await summarizeAiCache("2026-09-27");
     const document = await Bun.file(AI_CACHE_FILE_PATH).json();
     expect(Object.keys(document)).toEqual(["summary"]);
-    expect(document.summary).toMatchObject({ day: "2026-09-26", requests: 11, inputTokens: 230, outputTokens: 86, searchCalls: 2 });
+    expect(document.summary).toMatchObject({ day: "2026-09-26", requests: 12, inputTokens: 270, outputTokens: 86, searchCalls: 2 });
     expect(document.summary.byModel["ad_detect/openai/ad-fixture"].requests).toBe(3);
+    expect(document.summary.byModel["ad_detect/google/ad-decision"]).toMatchObject({
+      requests: 1,
+      inputTokens: 40,
+      cachedInputTokens: 10,
+      outputTokens: 0,
+    });
   } finally {
     clock.mockRestore();
   }

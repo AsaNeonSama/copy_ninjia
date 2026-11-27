@@ -168,7 +168,7 @@ config/
     ├── assets.json         # 界面素材缩略图、默认头像与图库路径
     ├── stickers.json       # AI 贴纸包白名单
     ├── mood.json           # AI 心情挡位与权重配置
-    ├── ad_detect.json      # 广告处罚设置、识别参考样本与贴纸/表情黑名单
+    ├── ad_detect.json      # 广告处罚设置与识别参考样本
     └── cron.json           # 定时任务配置（可选）
 ```
 
@@ -197,12 +197,11 @@ config/
   - 配置 AI 心情轮换挡位（`moods` 数组）。每项包含 `name`（心情名称）、`weight`（抽取权重）与 `instruction`（注入模型的行为指示），可选配置天气与时段权重加成。
 
 - **`config/dynamic/ad_detect.json`**（参考 [示例](../../config_example/dynamic/ad_detect.json)）
-  - 广告检测配置对象，包含以下四个必填字段：
+  - 广告检测配置对象，包含以下两个必填字段（贴纸包与自定义表情包黑名单独立持久化在 SQLite `ad_pack_blacklists` 表中，不设条数硬上限并由主线程 768 条共享 LRU 缓存加速查询，通过 `/ad_detect sticker|emoji` 或 Mini App 管理并在 AI 归因到广告包时自动落库；运行期不会改写本文件）：
     - `punishment`：判定为广告后的处罚方式，`mute` 与 `kick` 互斥、恰好配置其一：
       - `mute`：在触发群禁言；`permanent` 为 `true` 时永久禁言，为 `false` 时按 `duration` 限时禁言。
       - `kick`：移出触发群；`block` 为 `false` 时只踢不封，为 `true` 时按 `block_scope` 仅在本群封禁（`"chat"`）或写入永久黑名单并在全部受管群封禁（`"global"`）。频道身份在 `"global"` 永久拉黑以外的处罚设置下只删除涉事消息。
     - `samples`：广告检测模型的少样本参考集；空白规范化并去掉首尾空白后须非空、互不重复，单条最长 `AD_SAMPLE_MAX_CHARS` 字符，总数最多 `MAX_CONFIGURED_AD_SAMPLES` 条。
-    - `sticker_black_list` 与 `emoji_black_list`：分别为贴纸包与自定义表情包的 short name 黑名单（贴纸黑名单作为快路径最先核对，自定义表情黑名单在 AI 判定前核对）。元素去掉首尾空白后须匹配 `STICKER_PACK_NAME_PATTERN` 且互不重复，每份最多 `MAX_CONFIGURED_AD_BLACKLIST_PACKS` 条；命中即跳过 AI 判定，直接按 `punishment` 处罚。
 
 - **`config/dynamic/agent.json`**（参考 [示例](../../config_example/dynamic/agent.json)）
   - 配置 AI 系统的各项模型能力，顶层为 `agent` 对象。每项能力独立配置，各自声明 provider、api_key、model 及端点，能力之间不设自动回退：
@@ -215,7 +214,7 @@ config/
        - `tts`：语音合成能力。必须指定 `voice` 音色。可选配置 `bot_language`（台词语言）以及每日合成额度预算。
     3. **检索与风控能力**：
        - `web_search`：联网检索工具。未单独配置时，将回退使用 `text` 模型的服务商内建搜索能力。
-       - `ad_detect`：进群消息的广告自动识别模型。未配置时广告检测不可用。
+       - `ad_detect`：进群消息的多模态与文本广告自动识别模型（支持文本、图片、贴纸与自定义表情）；`provider: "google"` 可额外配置可选布尔值 `use_decision`（缺省 `false`）以使用 Google Decisions API。未配置时广告检测不可用。
     4. **通用配置项**：
        - `provider`：模型供应商，支持 `AGENT_PROVIDERS`（`google`、`openai`、`anthropic`；生图与语音仅支持前两者）。
        - `api_key`：访问密钥；占位字符串会被校验拦截。

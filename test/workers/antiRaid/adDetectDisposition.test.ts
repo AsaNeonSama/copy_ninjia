@@ -69,6 +69,8 @@ const sendMessage = mock(async (params: SendMessageMockParams): Promise<number |
   return NOTICE_MESSAGE_ID;
 });
 const deleteMessageAfter = mock((..._args: unknown[]): void => {});
+const deleteMessages = mock(async (..._args: unknown[]): Promise<boolean> => true);
+const releasedDedupKeys: { readonly chatId: number; readonly senderId: number }[] = [];
 const clearTemporaryAdBypassActivity = mock((_id: number): boolean => true);
 const muteChatMemberWithOutcome = mock(async (..._args: unknown[]): Promise<MuteChatMemberOutcome> => "muted");
 const muteChatMemberPermanentlyWithOutcome = mock(async (..._args: unknown[]): Promise<MuteChatMemberOutcome> => "muted");
@@ -110,11 +112,13 @@ mock.module("../../../packages/infra/identityPolicy/whitelist", () => ({
       key === "isCanBypassAdDetection"),
   isWhitelisted: (id: number): boolean =>
     id === 1 || id === 100 || id === 101 || id === -200,
-  readWhitelistPermissionOrBlocked: (id: number, key: string): "allowed" | "blocked" | "none" => {
+  readEffectiveWhitelistOrBlocked: (id: number): "allowed" | "blocked" | "none" => {
     if (
       id === 1 ||
-      ((id === 100 || id === -200 || temporaryAdBypassIds.has(id)) &&
-        key === "isCanBypassAdDetection")
+      id === 100 ||
+      id === 101 ||
+      id === -200 ||
+      temporaryAdBypassIds.has(id)
     ) {
       return "allowed";
     }
@@ -128,6 +132,7 @@ mock.module("../../../packages/infra/telegram/actions/messages", () => ({ ...rea
 mock.module("../../../packages/infra/telegram/actions/messageLifecycle", () => ({
   ...realMessageLifecycle,
   deleteMessageAfter,
+  deleteMessages,
 }));
 // 本群处罚（adPunishment.ts）经 infra/telegram 发出禁言、移出与封禁请求。
 mock.module("../../../packages/infra/telegram", () => ({
@@ -177,6 +182,13 @@ mock.module("../../../packages/infra/chatStateStorage", () => ({
 }));
 
 mock.module("../../../packages/infra/botAdmin", () => ({
+  botCanDeleteMessagesIn: (chatId: number): boolean | undefined => {
+    const permissions: unknown = chatStates.get(chatId)?.botPermissions;
+    if (typeof permissions !== "object" || permissions === null) return undefined;
+    return "canDeleteMessages" in permissions && typeof permissions.canDeleteMessages === "boolean"
+      ? permissions.canDeleteMessages
+      : undefined;
+  },
   botCanRestrictMembersIn: (chatId: number): boolean | undefined => {
     const permissions: unknown = chatStates.get(chatId)?.botPermissions;
     if (typeof permissions !== "object" || permissions === null) return undefined;
@@ -196,7 +208,13 @@ const {
 const { blockedMemberRemoverHolder } = await import("../../../packages/cache/main/blocklist");
 blockedMemberRemoverHolder.current = dispatchBlockedRemovals;
 const { COMMAND_MESSAGE_AUTO_DELETE_MS } = await import("../../../packages/consts/commands");
-const { inFlightAdDisposals } = await import("../../../packages/cache/main/antiRaid/adDisposal");
+const {
+  adDetectDedupReleaserHolder,
+  inFlightAdDisposals,
+} = await import("../../../packages/cache/main/antiRaid/adDisposal");
+adDetectDedupReleaserHolder.current = (chatId: number, senderId: number): void => {
+  releasedDedupKeys.push({ chatId, senderId });
+};
 const { blocklistIdentityMutationQueues } = await import("../../../packages/cache/main/blocklist");
 const { blocklistIdentityMutationRunner } = await import("../../../packages/cache/main/blocklist");
 const { runProtectedIdentityMutation } = await import("../../../packages/infra/identityPolicy/coordination");
@@ -237,7 +255,8 @@ function detected(overrides: Partial<AdDetectedEvent> = {}): AdDetectedEvent {
     label: "@spammer",
     meta: { firstName: "Spammer", lastName: "", username: "spammer" },
     reason: "引流",
-    messages: [{ messageId: 11, text: "加我微信", replyTo: "在吗", quote: "别人说过的话" }],
+    messages: [{ messageId: 11, type: "text", text: "加我微信", replyTo: "在吗", quote: "别人说过的话" }],
+    deleteMessageIds: [11],
     ...overrides,
   };
 }
@@ -247,11 +266,12 @@ beforeEach(() => {
   chatStates.set(-1001, {
     isAdDetectEnabled: true,
     isInitEnabled: true,
-    botPermissions: botPermissions({ canRestrictMembers: true }),
+    botPermissions: botPermissions({ canRestrictMembers: true, canDeleteMessages: true }),
   });
   activeVerificationSnapshots.clear();
   dispatched.length = 0;
   errorLogs.length = 0;
+  releasedDedupKeys.length = 0;
   removalCounter = 0;
   resweepRequests.length = 0;
   requestBlocklistResweep.mockClear();
@@ -285,6 +305,8 @@ beforeEach(() => {
     return NOTICE_MESSAGE_ID;
   });
   deleteMessageAfter.mockClear();
+  deleteMessages.mockReset();
+  deleteMessages.mockImplementation(async (): Promise<boolean> => true);
   diskMessages.length = 0;
   postDiskIO.mockClear();
   postDiskIO.mockImplementation((message: unknown): boolean => (diskMessages.push(message), true));
@@ -508,7 +530,7 @@ describe("按 ad_detect.json 的处罚设置处置", () => {
     chatStates.set(-1001, {
       isAdDetectEnabled: true,
       isInitEnabled: true,
-      botPermissions: botPermissions({ canRestrictMembers: false }),
+      botPermissions: botPermissions({ canRestrictMembers: false, canDeleteMessages: true }),
     });
     chatIsSupergroupById.set(-1001, true);
     const punishments: AdDetectPunishment[] = [
@@ -536,7 +558,7 @@ describe("按 ad_detect.json 的处罚设置处置", () => {
     chatStates.set(-1001, {
       isAdDetectEnabled: true,
       isInitEnabled: true,
-      botPermissions: botPermissions({ canRestrictMembers: true }),
+      botPermissions: botPermissions({ canRestrictMembers: true, canDeleteMessages: true }),
     });
     chatIsSupergroupById.set(-1001, false);
     usePunishment({ kind: "mute", durationMs: 30 * MINUTE_MS });
@@ -811,8 +833,7 @@ describe("广告判定命中后的处置", () => {
     expect(notice).toContain("2 个群没封动");
   });
 
-  test("回归用例：播报不断言删消息——删除跑在判定线程上、排在事件回投之后，" +
-    "主线程根本不知道它成没成，机器人也可能压根没有 can_delete_messages", () => {
+  test("回归用例：播报不断言删消息——删除与处罚并行执行，机器人也可能没有 can_delete_messages", () => {
     // 播报只说确证得了的两件事：记进名单、封了几个群；不断言删消息。
     for (const enforcedChats of [0, 2]) {
       const notice: string = formatAdNotice({
@@ -851,6 +872,8 @@ describe("广告判定命中后的处置", () => {
       messageId: NOTICE_MESSAGE_ID,
       delayMs: COMMAND_MESSAGE_AUTO_DELETE_MS,
     }));
+    // 触发群移除批次在播报前已移交 Worker，播报被停机 abort 中断也不应提前释放处置抑制标记。
+    expect(releasedDedupKeys).toEqual([]);
   });
 
   test("自己人即使被判成广告也不处置", async () => {
@@ -927,7 +950,7 @@ describe("广告判定命中后的处置", () => {
       label: "@spammer",
       detectedAt: expect.any(String),
       reason: "引流",
-      messages: [{ messageId: 11, text: "加我微信", replyTo: "在吗", quote: "别人说过的话" }],
+      messages: [{ messageId: 11, type: "text", text: "加我微信", replyTo: "在吗", quote: "别人说过的话" }],
     }]);
   });
 
@@ -981,6 +1004,7 @@ describe("广告判定命中后的处置", () => {
     await drainAdDisposals(5_000);
 
     expect(inFlightAdDisposals.size).toBe(0);
+    expect(releasedDedupKeys).toEqual([{ chatId: -1001, senderId: 7 }]);
     expect(errorLogs).toContainEqual([
       "Failed to dispose the ad verdict:",
       { chatId: -1001, senderId: 7 },

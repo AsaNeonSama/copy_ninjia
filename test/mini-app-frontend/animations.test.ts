@@ -731,7 +731,7 @@ describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
       expect(css).not.toMatch(/(?<![\w-])scroll-behavior\s*:/u);
     }
 
-    // 3. 平行四边形骨架条、异形多边形骨架规则、电流感刷新扫描与按钮内水平方形加载块样式规则
+    // 3. 平行四边形骨架条、异形多边形骨架规则与按钮内水平方形加载块样式规则
     for (const token of [
       "border: 1.5px solid var(--border-subtle);", "border-radius: 2px;",
       "box-shadow: 2px 2px 0 var(--border-subtle);", "transform: skewX(var(--skew-chip, -8deg));",
@@ -739,10 +739,7 @@ describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
       "clip-path: var(--clip-chamfer);", "clip-path: var(--clip-dogear);",
       "clip-path: polygon(28% 0, 72% 0, 100% 28%, 100% 72%, 72% 100%, 28% 100%, 0 72%, 0 28%);",
       "border-radius: 2px 10px 2px 10px;", "border-radius: 10px 2px 10px 2px;",
-      "background: var(--surface-elevated);", "--refresh-arc-band:", "opacity: 0.86;",
-      "@keyframes miniapp-electric-flicker", "@keyframes miniapp-electric-arc-sweep",
-      "animation: miniapp-electric-flicker 0.56s var(--ease-brutal) infinite;",
-      ".content-refreshing::after", "animation: miniapp-electric-arc-sweep 0.56s var(--ease-brutal) infinite;",
+      "background: var(--surface-elevated);",
       "@keyframes miniapp-brutal-scan", "@keyframes miniapp-brutal-dot-step",
       ".join-clean-loading-dots.loading-dots-wave > .loading-dot-block",
     ]) {

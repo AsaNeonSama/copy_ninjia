@@ -5,7 +5,7 @@
  * 属性定义：https://www.unicode.org/reports/tr38/#kSimplifiedVariant
  * © 2025 Unicode®, Inc.；许可见 LICENSES/Unicode-3.0.txt。
  */
-export const TRANSLATE_TRADITIONAL_HAN: RegExp = new RegExp(
+export const TRANSLATE_TRADITIONAL_HAN: Readonly<RegExp> = new RegExp(
   "[" +
   "㑮㑯㑳㑶㒓㒖㒜㒣㒿㓄㓖㓨㔃㔅㔋㔝㔢㕒㕢㖦㖮㗙㗢㗣㗰㗲㗶㗻㗼㗿㘓㘔㘖㘙㘚㘤㙔㙡㙢㙬㙺㙾㛍㛝㜄㜏㜐㜕㜗㜞㜢㜥㜭㜮㜰㜷㜺㝞㝟㞞㟦㟺㠁㠆㠏㠠㠣㡓㡞㢗㢝㤲㥮㥷㦊㦎㦖㦛㦞㦡㦦㦬㦭㨛㨟㨥㨻㩇㩋㩌㩜㩣㩭㩳㩵㩷㩹㪎㪹" +
   "㬢㬣㬮㮓㮝㮲㮿㯂㯆㯤㯸㯼㰂㰄㰅㰍㰰㰳㲯㲰㲲㴸㴿㵍㵑㵒㵗㵤㵾㶆㶌㶍㶏㶒㶕㷃㷍㷲㷶㷻㷿㸅㸊㸐㹓㹽㺏㺑㺜㻶㻽㼀㼁㼆㼈㼻㾵㾺㿉㿎㿖㿗㿧㿹䀉䀍䀴䀹䁝䁪䁱䁻䂎䂓䃁䃕䃘䃢-䃤䃮䃴䅐䅘䅳䆅䆉䇓䉆䉍䉐䉑䉙䉬䉱䉲䉶䊜䊟䊭" +

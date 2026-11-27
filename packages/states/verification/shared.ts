@@ -1,3 +1,9 @@
+/**
+ * 入群验证纯状态机构造与公共辅助函数。
+ *
+ * 现行不变量：`PendingState` 等验证状态对象的引用同时作为运行时定时器保活与取消令牌使用；
+ * 仅更新状态内部字段而不替换对象引用时沿用同一令牌，返回新状态对象或 `undefined` 时使旧令牌失效。
+ */
 import type {
   CheckingInviterState,
   ExemptState,

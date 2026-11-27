@@ -3,6 +3,7 @@ import { adoptLogLevel, getLogLevel } from "../../../packages/config/logLevel";
 import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { loggerStub } from "../../helpers/loggerMock";
 import { TOKYO_TIME_ZONE } from "../../../packages/consts/time";
+import { AI_WORKER_JOB_UNAVAILABLE } from "../../../packages/consts/aiChat/workerJob";
 import type { AiChatWorkerMessage } from "../../../packages/types/aiChat/protocol";
 import type { AgentDeploymentConfig } from "../../../packages/types/config";
 import type { LogLevel } from "../../../packages/types/diskIO/messages";
@@ -515,6 +516,31 @@ describe("AI Chat Worker lifecycle", () => {
     );
     expect(refundIndex).toBeGreaterThanOrEqual(0);
     expect(refundIndex).toBeLessThan(flushedIndex);
+  });
+
+  test("runAiWorkerJob 的 run 意外 reject 时摘除登记、记错误日志并回执不可用失败", async () => {
+    const jobs = new Map<number, AbortController>();
+    const published: (string | AiWorkerJobFailure)[] = [];
+    const boom: Error = new Error("unexpected job crash");
+    runAiWorkerJob<string>({
+      jobs,
+      requestId: 88,
+      run: async (): Promise<string> => {
+        throw boom;
+      },
+      publish: (result: string | AiWorkerJobFailure): void => {
+        published.push(result);
+      },
+    });
+
+    await Bun.sleep(0);
+    expect(jobs.has(88)).toBeFalse();
+    expect(published).toEqual([AI_WORKER_JOB_UNAVAILABLE]);
+    expect(loggerError).toHaveBeenCalledWith(
+      "Unexpected error while running an AI worker job:",
+      { requestId: 88 },
+      boom
+    );
   });
 
   test("flush 阶段单项拒绝仍等待另一项结算，并按阶段名留下聚合诊断", async () => {

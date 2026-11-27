@@ -234,6 +234,7 @@ export async function dispatchMiniAppTestRequest(
       : new Request(wireUrl, {
         method: request.method,
         headers: request.headers,
+        signal: request.signal,
       });
   if (flags.encryptRequest && method !== "GET" && method !== "HEAD") {
     const headers: Headers = new Headers(request.headers);
@@ -250,6 +251,7 @@ export async function dispatchMiniAppTestRequest(
         method: request.method,
         headers,
         body: wireBytes,
+        signal: request.signal,
       });
     } else {
       const rawBody: string = await request.text();
@@ -275,6 +277,7 @@ export async function dispatchMiniAppTestRequest(
         method: request.method,
         headers,
         body: wireBody,
+        signal: request.signal,
       });
     }
   }

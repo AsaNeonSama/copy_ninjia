@@ -227,6 +227,7 @@ describe("Disk I/O 批量身份策略读取", () => {
       removals: new Map(),
       chatStates: new Map(),
       chatQa: new Map(),
+      adPackBlacklists: { sticker: new Map(), emoji: new Map() },
       aiContexts: new Map(),
     });
   });

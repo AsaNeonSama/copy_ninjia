@@ -3,7 +3,7 @@
  * 提示词拼装与 JSON 收窄由 workers/antiRaid/adDetect/classifier.ts 负责。
  *
  * 系统提示词分段携带判定规则与部署示例（params.instructions，配置缓存断点）及系统事实（params.fact）；
- * 输出经 `output_config.format`（json_schema）约束为 AD_DETECT_JSON_SCHEMA。客户端构造、拒答回退、
+ * 输出经 `output_config.format`（json_schema）约束为 AD_DETECT_JSON_SCHEMA（存在贴纸/自定义表情包候选时切换为 AD_DETECT_PACK_JSON_SCHEMA）。客户端构造、拒答回退、
  * 用量上报与回退诊断复用 aiProviders/anthropic/sdkClient.ts，单例持有于 cache/workers/antiRaid/anthropic.ts。
  */
 
@@ -19,16 +19,26 @@ import {
   logAnthropicFallback,
   pinnedFallbackIndex,
 } from "../../../../aiProviders/anthropic/sdkClient";
+import { isExplicitUnsupportedMediaError, numericErrorStatus } from "../../../../aiProviders/mediaSupportError";
 import { getAdDetectAgentConfig } from "../../../../config/agent";
 import {
   AD_DETECT_ANTHROPIC_REQUEST_MAX_RETRIES,
   AD_DETECT_ANTHROPIC_REQUEST_TIMEOUT_MS,
+} from "../../../../consts/antiRaid/adDetect/limits";
+import {
   AD_DETECT_JSON_SCHEMA,
-} from "../../../../consts/antiRaid/adDetect";
+  AD_DETECT_PACK_JSON_SCHEMA,
+  formatAdDetectAttachmentLabel,
+} from "../../../../consts/antiRaid/adDetect/prompts";
+import { errorMessage } from "../../../../libs/errorMessage";
 import { requestAdDetectJsonWithRetry } from "./emptyBodyRetry";
 import type { AnthropicClient } from "../../../../types/aiChat/anthropic";
 import type { AdDetectAgentConfig } from "../../../../types/config";
-import type { AdDetectJsonRequestParams } from "../../../../types/antiRaid/adDetect";
+import type {
+  AdDetectJsonRequestParams,
+  AdDetectMediaAttachment,
+  AdDetectProviderResult,
+} from "../../../../types/antiRaid/adDetect";
 
 /**
  * 取得线程内唯一 Anthropic 广告检测客户端（构造见 createAnthropicClient）。
@@ -63,9 +73,39 @@ interface AnthropicAdDetectAttempt {
 }
 
 /**
- * 发一次请求并收窄结果；异常就地归一成 null。本次请求改道到回退模型时按 logAnthropicFallback 记一条 warn。
+ * 组装 Anthropic user 消息 content：无附件时保持纯字符串，有附件时使用图文内容块数组。
+ * @param userContent 待判定消息串文本。
+ * @param attachments 可选的视觉附件列表。
+ * @returns 纯字符串或 Anthropic 内容块数组。
+ */
+function buildAnthropicUserContent(
+  userContent: string,
+  attachments: readonly AdDetectMediaAttachment[] | undefined
+): string | Anthropic.Beta.Messages.BetaContentBlockParam[] {
+  if (attachments === undefined || attachments.length === 0) return userContent;
+  const blocks: Anthropic.Beta.Messages.BetaContentBlockParam[] = [
+    { type: "text", text: userContent },
+  ];
+  for (let index: number = 0; index < attachments.length; index++) {
+    const attachment: AdDetectMediaAttachment = attachments[index]!;
+    blocks.push({ type: "text", text: formatAdDetectAttachmentLabel(index + 1, attachment) });
+    blocks.push({
+      type: "image",
+      source: {
+        type: "base64",
+        media_type: attachment.image.mime,
+        data: attachment.image.bytes.toBase64(),
+      },
+    });
+  }
+  return blocks;
+}
+
+/**
+ * 发一次请求并收窄结果；带图请求遇明确模态不支持错误时返回 `"visionUnsupported"`，其余异常就地归一成 null。
+ * 本次请求改道到回退模型时按 logAnthropicFallback 记一条 warn。
  * @param params 结构化广告判定请求参数。
- * @returns 单次尝试结果；请求异常时返回 null。
+ * @returns 单次尝试结果、`"visionUnsupported"` 标记或表示请求异常的 null。
  */
 async function attemptAnthropicAdDetectJson({
   model,
@@ -74,7 +114,13 @@ async function attemptAnthropicAdDetectJson({
   userContent,
   maxOutputTokens,
   errorLabel,
-}: AdDetectJsonRequestParams): Promise<AnthropicAdDetectAttempt | null> {
+  attachments,
+  stickerPackCandidates,
+  emojiPackCandidates,
+}: AdDetectJsonRequestParams): Promise<AnthropicAdDetectAttempt | "visionUnsupported" | null> {
+  const hasAttachments: boolean = attachments !== undefined && attachments.length > 0;
+  const hasPackCandidates: boolean =
+    (stickerPackCandidates?.length ?? 0) > 0 || (emojiPackCandidates?.length ?? 0) > 0;
   const fallbackState: BetaFallbackState = new BetaFallbackState();
   const indexBefore: number = pinnedFallbackIndex(fallbackState);
   let client: AnthropicClient | undefined;
@@ -87,11 +133,11 @@ async function attemptAnthropicAdDetectJson({
         { type: "text", text: instructions, cache_control: { type: "ephemeral" } },
         { type: "text", text: fact },
       ],
-      messages: [{ role: "user", content: userContent }],
+      messages: [{ role: "user", content: buildAnthropicUserContent(userContent, attachments) }],
       output_config: {
         format: {
           type: "json_schema",
-          schema: AD_DETECT_JSON_SCHEMA,
+          schema: hasPackCandidates ? AD_DETECT_PACK_JSON_SCHEMA : AD_DETECT_JSON_SCHEMA,
         },
       },
     }, { fallbackState });
@@ -109,6 +155,12 @@ async function attemptAnthropicAdDetectJson({
     if (client !== undefined) {
       logAnthropicFallback({ errorLabel, client, requestedModel: model, indexBefore, fallbackState, message: undefined });
     }
+    if (
+      hasAttachments &&
+      isExplicitUnsupportedMediaError(numericErrorStatus(error), errorMessage(error))
+    ) {
+      return "visionUnsupported";
+    }
     if (error instanceof Anthropic.APIError) {
       logger.error(
         "Ad detection API request failed.",
@@ -125,13 +177,14 @@ async function attemptAnthropicAdDetectJson({
  * 发一次要求 JSON 输出的 Messages 请求。拒答立即放弃，不重采样；成功响应正文为空、被截断或上下文超长时按
  * AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS 有界重采样；请求异常已经由 SDK 重试过，不在业务层叠加。
  * @param params 结构化广告判定请求参数。
- * @returns 可用的模型 JSON 响应正文；拒答、重试耗尽或请求失败时返回 null。
+ * @returns 传输层统一结果（成功正文、明确不支持视觉输入或失败）。
  */
-export async function requestAnthropicAdDetectJson(
+export function requestAnthropicAdDetectJson(
   params: AdDetectJsonRequestParams
-): Promise<string | null> {
+): Promise<AdDetectProviderResult> {
   return requestAdDetectJsonWithRetry<AnthropicAdDetectAttempt>({
-    attemptRequest: (): Promise<AnthropicAdDetectAttempt | null> => attemptAnthropicAdDetectJson(params),
+    attemptRequest: (): Promise<AnthropicAdDetectAttempt | "visionUnsupported" | null> =>
+      attemptAnthropicAdDetectJson(params),
     extractUsableBody: (result: AnthropicAdDetectAttempt): string | null =>
       !result.refused && !result.unusable && result.body.trim().length > 0 ? result.body : null,
     canRetry: (result: AnthropicAdDetectAttempt): boolean => !result.refused,

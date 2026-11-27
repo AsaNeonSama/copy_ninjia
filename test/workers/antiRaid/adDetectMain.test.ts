@@ -91,11 +91,13 @@ mock.module("../../../packages/infra/identityPolicy/whitelist", () => ({
       key === "isCanBypassAdDetection"),
   isWhitelisted: (id: number): boolean =>
     id === 1 || id === 100 || id === 101 || id === -200,
-  readWhitelistPermissionOrBlocked: (id: number, key: string): "allowed" | "blocked" | "none" => {
+  readEffectiveWhitelistOrBlocked: (id: number): "allowed" | "blocked" | "none" => {
     if (
       id === 1 ||
-      ((id === 100 || id === -200 || temporaryAdBypassIds.has(id)) &&
-        key === "isCanBypassAdDetection")
+      id === 100 ||
+      id === 101 ||
+      id === -200 ||
+      temporaryAdBypassIds.has(id)
     ) {
       return "allowed";
     }
@@ -258,6 +260,10 @@ describe("广告检测投递门禁", () => {
       justJoined: false,
       linkUrls: undefined,
       stickerSetName: undefined,
+      stickerFileId: undefined,
+      stickerFileUniqueId: undefined,
+      imageFileId: undefined,
+      imageFileUniqueId: undefined,
       customEmojiIds: undefined,
       sampleQuote: undefined,
       sampleReplyTo: undefined,
@@ -282,10 +288,12 @@ describe("广告检测投递门禁", () => {
     }), 999);
     expect(stickerOnly?.text).toBe("");
     expect(stickerOnly?.stickerSetName).toBe("SpamStickerPack");
+    expect(stickerOnly?.stickerFileId).toBe("sticker-1");
+    expect(stickerOnly?.stickerFileUniqueId).toBe("u-1");
     expect(stickerOnly?.customEmojiIds).toBeUndefined();
 
-    // 缺少 set_name 且无正文、无引用、无自定义表情时不算有效候选。
-    expect(buildAdCandidate(message({
+    // 缺少 set_name 但含可下载静态图时仍作为视觉候选保留。
+    const looseStaticSticker = buildAdCandidate(message({
       text: undefined,
       sticker: {
         file_id: "sticker-2",
@@ -294,6 +302,24 @@ describe("广告检测投递门禁", () => {
         width: 512,
         height: 512,
         is_animated: false,
+        is_video: false,
+      },
+    }), 999);
+    expect(looseStaticSticker?.text).toBe("");
+    expect(looseStaticSticker?.stickerSetName).toBeUndefined();
+    expect(looseStaticSticker?.stickerFileId).toBe("sticker-2");
+    expect(looseStaticSticker?.stickerFileUniqueId).toBe("u-2");
+
+    // 既缺少 set_name 又无可用视觉素材（无缩略图动态贴纸）且无正文/引用/自定义表情时不算有效候选。
+    expect(buildAdCandidate(message({
+      text: undefined,
+      sticker: {
+        file_id: "sticker-3",
+        file_unique_id: "u-3",
+        type: "regular",
+        width: 512,
+        height: 512,
+        is_animated: true,
         is_video: false,
       },
     }), 999)).toBeUndefined();
@@ -418,11 +444,11 @@ describe("广告检测投递门禁", () => {
     }), 999)).toBeUndefined();
   });
 
-  test("永久白名单成员关闭广告豁免后仍进入检测", () => {
+  test("永久白名单成员即使关闭广告豁免开关也不进入检测", () => {
     const candidate = buildAdCandidate(message({
       from: { id: 101, is_bot: false, first_name: "Audited Member" },
     }), 999);
-    expect(candidate?.senderId).toBe(101);
+    expect(candidate).toBeUndefined();
   });
 
   test("回复消息照常判定：正文在 message.text 里，回复关系不影响取值", () => {

@@ -97,7 +97,7 @@ WantedBy=multi-user.target
 > [!WARNING]
 > **Data Isolation in Multi-Tenant Environments**:
 > New files under `memory/` are created with `PERSISTED_FILE_MODE` (`packages/consts/diskIO/common.ts`, `0644`). If parent directories leave `other` read/traverse bits open, other local accounts on a shared host can read group records. On multi-user hosts, tighten the data root and `memory/` to `0750` and existing files to `0600` or `0640` (runtime code preserves existing file modes).
-> Configure `database/` up to `IDENTITY_DATABASE_DIRECTORY_MODE` (`02770` with `setgid` when shared across a service group); the main database and WAL/SHM sidecars are created with `IDENTITY_DATABASE_FILE_MODE`. **Never run recursive `chmod 0750` across the entire data root**, because `database/` must retain group write access when shared by a service group. Keep `config/` read-only by default; if Mini App online config editing is used, grant the service user write and atomic-rename access on `config/dynamic/` and/or `config/static/` (newly created optional files default to `0600`), and configure polkit `restart` authorization permitting the service user to restart `copy-ninjia.service` when using non-`root` online static-config restarts (see [10 Mini App](10-mini-app.md)).
+> Configure `database/` up to `IDENTITY_DATABASE_DIRECTORY_MODE` (`02770` with `setgid` when shared across a service group); the main database and WAL/SHM sidecars are created with `IDENTITY_DATABASE_FILE_MODE`. **Never run recursive `chmod 0750` across the entire data root**, because `database/` must retain group write access when shared by a service group. Keep `config/` read-only by default; grant the service user write and atomic-rename access on `config/dynamic/` and/or `config/static/` only when Mini App online config editing is used (newly created optional files default to `0600`), and configure polkit `restart` authorization permitting the service user to restart `copy-ninjia.service` when using non-`root` online static-config restarts (see [10 Mini App](10-mini-app.md)).
 
 - **Automated crash recovery**: On an unexpected crash or non-zero exit, systemd restarts the process (`Restart=on-failure`). Pending join verifications, lockdown timers, identity writes, AI conversation memory, and unacknowledged Telegram updates recover deterministically per [04 Runtime Invariants](04-invariants.md#persistence).
 
@@ -181,6 +181,7 @@ Accompanied while open by SQLite WAL (`-wal`) and shared-memory (`-shm`) sidecar
   - `temporary_ad_bypass_entries`: Accumulated temporary ad-detection bypass credits.
   - `pending_blocked_removals`: Pending cross-chat ban enforcement queue.
   - `chat_qa`: Per-chat Q&A pairs keyed by `(chat_id, q)`.
+  - `ad_pack_blacklists`: STRICT table keyed by `(kind, pack)` storing global ad sticker (`'sticker'`) and custom-emoji (`'emoji'`) pack blacklists (no per-kind entry cap; backed by a 768-entry shared main-thread LRU read cache).
   - `chat_states`: Up to `STATE_MANAGED_CHAT_LIMIT` managed-chat rows containing required `status` JSONB (including `translate` sessions capped at `TRANSLATE_CHAT_USER_LIMIT`) and nullable `ai_context` JSONB (verbatim dialogue memory and rolling summaries).
 - **Exclusive ownership**: Only the Disk I/O Worker opens `storage.sqlite` read-write. Startup runs SQLite integrity checks, JSONB decoding, schema/lineage verification, and mutual-exclusion checks before hydrating chat state and AI memory.
 - **Shutdown close**:
@@ -190,7 +191,7 @@ Accompanied while open by SQLite WAL (`-wal`) and shared-memory (`-shm`) sidecar
 - **Backup rule**: **Always back up and restore `storage.sqlite` together with its contemporaneous `-wal` and `-shm` sidecars (when present) as a single atomic unit**—never copy `.sqlite` alone.
 
 ### 7. Ad Samples and AI Usage: `memory/ad-detected/` and `memory/ai-daily-usage/`
-- **`memory/ad-detected/sample.json`**: Audit log of messages caught by ad detection (timestamp, raw text, verdict reason, context; sticker-only hits record the sticker pack short name). Rotates to `sample.<date>[.<seq>].json` at `AD_SAMPLE_FILE_MAX_BYTES` and prunes archives older than `AD_SAMPLE_ARCHIVE_RETENTION_DAYS`.
+- **`memory/ad-detected/sample.json`**: Audit log of messages caught by ad detection (timestamp, verdict reason, reply/quote context, and per-message `type`: `text` / `photo` / `sticker` / `custom_emoji`; `text` is included only when submitted text/caption is present, and sticker pack short names are recorded in `stickerSetName`). Rotates to `sample.<date>[.<seq>].json` at `AD_SAMPLE_FILE_MAX_BYTES` and prunes archives older than `AD_SAMPLE_ARCHIVE_RETENTION_DAYS`.
 - **`memory/ai-daily-usage/usage.json`**: Token and request counters containing zero message text:
   - **Layout**: `summary` holds the most recently completed local calendar day grouped by capability, provider, and model; remaining entries record unsummarized calls for the current day.
   - **Coverage**: Tracks every capability in `AGENT_CAPABILITY_NAMES`.
@@ -225,6 +226,27 @@ Before any offline migration, create an external backup directory with `mktemp -
 
 If `database/storage.sqlite` is missing at startup, the bot exits with an error instead of creating an implicit database. Fresh deployments initialize an empty current-schema database via the [identity storage initialization steps in 01 Getting Started](01-getting-started.md#initializing-identity-storage) (`install.sh` runs this automatically when no database exists, and the initializer refuses to overwrite an existing file).
 
+<a id="upgrade-ad-pack-blacklists"></a>
+
+### Ad Pack Blacklists and Schema v13 → v14 Cold Migration (`migrate:ad-pack-blacklists`)
+
+Use [`scripts/migrateAdPackBlacklists.ts`](../../scripts/migrateAdPackBlacklists.ts) to non-destructively migrate a schema v13 `database/storage.sqlite` and an optional legacy 4-key `config/dynamic/ad_detect.json` to schema v14 (adding `ad_pack_blacklists`) and a cleaned 2-key `ad_detect.json`:
+- **Accepted inputs**: Accepts only schema v13 databases (matching `STORAGE_MIGRATION_LINEAGE.slice(0, -1)`, `PRAGMA integrity_check`, all JSONB columns, and canonical IANA `time-zone`). When `--config-root` is omitted, `<source-root>/config` is inspected; if `<configRoot>/dynamic/ad_detect.json` exists, it must be the exact legacy 4-key format (`punishment`, `samples`, `sticker_black_list`, `emoji_black_list`; already-migrated 2-key files, symlinks, duplicates, and invalid pack names are rejected, with no per-kind entry cap). If `ad_detect.json` is absent, the database migrates to v14 with empty `ad_pack_blacklists` and no `ad_detect.json` is created.
+- **Non-destructive staging and validation**: Never opens SQLite directly on the source backup. Copies the source database (and optional WAL/SHM) byte-for-byte into a new `--output-root` with SHA-256 verification, runs Drizzle migration to v14, imports sticker/emoji blacklists, runs `validateStorageDatabase` under the source database's bound time zone, executes `PRAGMA wal_checkpoint(TRUNCATE)` and removes output WAL/SHM, atomically writes cleaned 2-key `{ punishment, samples }` `ad_detect.json` validated via `parseAdDetectConfig` (when present), verifies source backup immutability (contents, hashes, modes, and `mtimeMs`), and writes `ready.json` while deleting `incomplete.json` (rerun into a fresh output directory after any interruption).
+
+1. **Stop service and back up**: Stop the service, confirm `inactive`, and back up `database/` (including `-wal` and `-shm`) plus `config/dynamic/ad_detect.json` (if present) with ownership, modes, and SHA-256 digests to an external directory via `mktemp -d`.
+2. **Execute the migration script**:
+   ```bash
+   bun run migrate:ad-pack-blacklists \
+     --source-root /absolute/cold-backup \
+     --config-root /absolute/config-backup \
+     --output-root /absolute/new-staging-directory
+   ```
+   Omit `--config-root` if `config/` already lives inside `--source-root`. Binary releases run `BUN_BE_BUN=1 ./copy-ninjia scripts/migrations/migrateAdPackBlacklists.js` with the same flags.
+3. **Verify migration output**: Inspect `ready.json` in the output directory, reconciling SHA-256 digests in `sourceFiles` and `outputFiles` along with `sourceSchema: 13`, `targetSchema: 14`, `timeZone`, `migratedStickerPacks`, `migratedEmojiPacks`, and `adDetectConfigMigrated`.
+4. **Replace deployed files**: While stopped, replace `database/storage.sqlite` (removing stale deployment `-wal`/`-shm` only after confirming the backup) and `config/dynamic/ad_detect.json` (if generated), restoring original ownership and modes from `sourceFiles` and ensuring the service user can write `database/`.
+5. **Verify startup**: Validate config and state, start the service, observe two supervisor restart intervals cleanly, and only then remove external backups.
+
 <a id="upgrade-wed-member-window"></a>
 
 ### /wed Member Window Cold Migration (Member ID Arrays → `{ id, enteredAt }`)
@@ -233,8 +255,8 @@ Use [`scripts/migrateWedMemberWindow.ts`](../../scripts/migrateWedMemberWindow.t
 - **Window conversion**: Keeps the last (most recent) `WED_MEMBER_LIMIT` IDs per chat in original order with `enteredAt` set to the migration start timestamp; older excess IDs are dropped from the front and counted under `truncatedMembers` in `ready.json`.
 - **Accepted inputs**: Accepts only 17.2.1 member-ID arrays (up to `WED_MEMBER_WINDOW_SOURCE_LIMIT` unique positive safe-integer IDs per file across at most `STATE_MANAGED_CHAT_LIMIT` chat files). Already migrated files, non-canonical filenames, and symlinks are rejected; non-`.json` files such as `*.tmp` are ignored.
 - **Other persistent files & `ad_samples.json` → `ad_detect.json` config change**:
-  - All other `memory/` subdirectories and `database/storage.sqlite` (Schema v13) from 17.2.1–18.2.0 use the same format and carry over directly.
-  - If `config/dynamic/ad_samples.json` is present (from 17.2.1–18.2.0), manually migrate it while stopped to `config/dynamic/ad_detect.json`—carrying over `samples` and adding required `punishment` (`mute` or `kick`), `sticker_black_list`, and `emoji_black_list`—and remove `ad_samples.json` (`packages/config/layout.ts` and `install.sh` reject `ad_samples.json`).
+  - The two active cold-migration edges cover disjoint datasets: `migrate:wed-member-window` migrates `memory/wed/`, and `migrate:ad-pack-blacklists` migrates `database/storage.sqlite` (v13 → v14) and optional legacy 4-key `ad_detect.json`; all other `memory/` subdirectories carry over unchanged.
+  - If `config/dynamic/ad_samples.json` is present (from 17.2.1–18.2.0), run `migrate:ad-pack-blacklists` first on the v13 database while `ad_detect.json` is absent, then manually migrate `ad_samples.json` while stopped to the current 2-key `config/dynamic/ad_detect.json` (`{ punishment, samples }`, see [Deployment Configuration Guide](../../config_example/README/en.md#ad_detectjson)) and remove `ad_samples.json` (`packages/config/layout.ts` and `install.sh` reject `ad_samples.json`).
 
 1. **Stop service and back up**: Stop the service, confirm it is `inactive`, and back up `memory/wed/` (plus `config/` if migrating `ad_samples.json`) with ownership, modes, and SHA-256 manifest to an external directory preserving the `memory/wed/` relative path.
 2. **Execute the migration script**:
@@ -245,7 +267,7 @@ Use [`scripts/migrateWedMemberWindow.ts`](../../scripts/migrateWedMemberWindow.t
    ```
    Binary releases run `BUN_BE_BUN=1 ./copy-ninjia scripts/migrations/migrateWedMemberWindow.js` with the same flags.
 3. **Verify migration output**: Check `ready.json` in the output directory, reconciling SHA-256 digests in `sourceFiles` and `outputFiles` along with `chatCount`, `keptMembers`, `truncatedMembers`, and `enteredAt` (staged files are created readable/writable only by the current user).
-4. **Swap migrated files and update `ad_detect.json` if needed**: While stopped, replace each deployed `memory/wed/<chatId>.json` with its staged counterpart, restore ownership and modes from `sourceFiles`, and confirm the service user can write `memory/wed/`. If `config/dynamic/ad_samples.json` exists, convert it to `config/dynamic/ad_detect.json` (with `punishment`, `samples`, `sticker_black_list`, and `emoji_black_list`) and delete `ad_samples.json`.
+4. **Swap migrated files and update `ad_detect.json` if needed**: While stopped, replace each deployed `memory/wed/<chatId>.json` with its staged counterpart, restore ownership and modes from `sourceFiles`, and confirm the service user can write `memory/wed/`. If `config/dynamic/ad_samples.json` exists, convert it to the 2-key `config/dynamic/ad_detect.json` (`{ punishment, samples }`) and delete `ad_samples.json` after completing `migrate:ad-pack-blacklists`.
 5. **Verify startup**: Start the service, observe two supervisor restart intervals cleanly, and only then remove external backups.
 
 ---
@@ -254,7 +276,9 @@ Use [`scripts/migrateWedMemberWindow.ts`](../../scripts/migrateWedMemberWindow.t
 
 ### Staged Upgrades from Older Layouts
 
-- **Deployments older than 17.2.1**: Current cold-migration scripts accept only 17.2.1 inputs. Upgrade to 17.2.1 first and complete its migrations (16.3.2 runs `migrate:chat-persona-removal`; earlier versions step through their own guides up to 16.3.2), confirm 17.2.1 starts stably, and then stop the service to run this release's [/wed member window cold migration](#upgrade-wed-member-window) and manually migrate any `config/dynamic/ad_samples.json` to `config/dynamic/ad_detect.json` (adding `punishment`, `sticker_black_list`, and `emoji_black_list`, then deleting `ad_samples.json`).
+- **From 19.x (Schema v13 + 4-key `ad_detect.json`)**: Stop the service, back up externally, and run the [ad pack blacklists and schema v13 → v14 cold migration](#upgrade-ad-pack-blacklists) (`migrate:ad-pack-blacklists`); `memory/wed/` is already in sliding-window format.
+- **From 17.2.1–18.2.0**: Run [/wed member window cold migration](#upgrade-wed-member-window) on 17.2.1 deployments (`memory/wed/` is already migrated on 18.0.0–18.2.0), run `migrate:ad-pack-blacklists` on the v13 database (with `ad_detect.json` absent), and manually migrate any `config/dynamic/ad_samples.json` to the 2-key `config/dynamic/ad_detect.json` (`{ punishment, samples }`) before deleting `ad_samples.json`.
+- **Deployments older than 17.2.1**: Current cold-migration scripts accept only schema v13 databases and 17.2.1 `memory/wed/` files. Upgrade to 17.2.1 first and complete its migrations (16.3.2 runs `migrate:chat-persona-removal`; earlier versions step through their own guides up to 16.3.2), confirm 17.2.1 starts stably, and then stop the service to run both `migrate:wed-member-window` and `migrate:ad-pack-blacklists` plus the manual `ad_samples.json` → 2-key `ad_detect.json` conversion.
 - **Major version path from 11.0.9 (Schema v8)**:
   Run each historical cold-migration edge sequentially in isolated checkouts:
   1. Commit `500e848fae`: `migrate:ai-context` (v8 → v9)
@@ -263,7 +287,7 @@ Use [`scripts/migrateWedMemberWindow.ts`](../../scripts/migrateWedMemberWindow.t
   4. Tag `14.0.0`: `migrate:translate-sessions`
   5. Tag `16.3.2`: `migrate:global-state` and `migrate:random-image-names`
   6. Tag `17.2.1`: `migrate:chat-persona-removal` (v11 → v13)
-  7. Latest version: `migrate:wed-member-window`, plus manual migration of any `config/dynamic/ad_samples.json` → `config/dynamic/ad_detect.json` (adding `punishment`, `sticker_black_list`, and `emoji_black_list`, then removing `ad_samples.json`)
+  7. Latest version: run `migrate:wed-member-window` and `migrate:ad-pack-blacklists` (v13 → v14), plus manual migration of any `config/dynamic/ad_samples.json` → 2-key `config/dynamic/ad_detect.json` (`{ punishment, samples }`) and remove `ad_samples.json`
 
   *Tip*: Step 1 can also use `copy-ninjia-schema-v9-source-500e848f.tar.gz` attached to the 12.0.0 Release (SHA-256: `df6502625512d8fde136dc66d8470e1d4c977856e8a0bd3909b9b6c763c820f8`).
 
@@ -285,15 +309,15 @@ Startup follows a strict **Fail-Fast** contract: any config or persistence viola
 
 ### 3. Configuration Directory Layout Mismatch
 - **Cause**: `config/`, `config/static/`, or `config/dynamic/` contains non-allowlisted entries (misplaced files, legacy `telegram.json` or `ad_samples.json`, dotfiles/swap/backup files, extra subdirectories, or broken symlinks), `config/dynamic/` is missing, or a config directory path is not a directory.
-- **Solution**: While stopped, leave only `bot.json` and `g-auth.json` in `config/static/`, leave only the 6 dynamic JSON configs in `config/dynamic/`, and move backups or stray files outside `config/`. For legacy `telegram.json`, follow the [staged upgrade](#staged-upgrade) (`migrate:bot-config`); for legacy `ad_samples.json`, manually migrate it to `config/dynamic/ad_detect.json` (preserving `samples` and adding required `punishment`, `sticker_black_list`, and `emoji_black_list`) and remove `ad_samples.json`.
+- **Solution**: While stopped, leave only `bot.json` and `g-auth.json` in `config/static/`, leave only the 6 dynamic JSON configs in `config/dynamic/`, and move backups or stray files outside `config/`. For legacy `telegram.json`, follow the [staged upgrade](#staged-upgrade) (`migrate:bot-config`); for legacy `ad_samples.json`, manually migrate it to the 2-key `config/dynamic/ad_detect.json` (`{ punishment, samples }`) and remove `ad_samples.json`.
 
 ### 4. Config Schema Validation Failure
 - **Cause**: A file in `config/{static,dynamic}/*.json` is missing required keys, has wrong types/bounds/enums, or includes unknown keys.
 - **Solution**: Fix the exact file and JSONPath reported in the startup error against the [Deployment Configuration Guide](../../config_example/README/en.md).
 
 ### 5. Identity Database Validation Failure
-- **Cause**: `storage.sqlite` is unwritable or corrupt, its schema version is unmigrated, `bot.json` `time_zone` disagrees with `storage_metadata.time-zone`, or an ID appears in both the blocklist and temporary ad-bypass table.
-- **Solution**: Restore `time_zone` in `bot.json` to match `storage_metadata.time-zone`; for pre-v13 databases (such as v11 from 16.3.2), run the [staged upgrade](#staged-upgrade) through 17.2.1; for physical corruption, restore `storage.sqlite` together with its matching `-wal`/`-shm` sidecars from backup. Never overwrite with a blank DB or hand-edit rows.
+- **Cause**: `storage.sqlite` is unwritable or corrupt, its schema version is unmigrated (not current v14), `bot.json` `time_zone` disagrees with `storage_metadata.time-zone`, or an ID appears in both the blocklist and temporary ad-bypass table.
+- **Solution**: Restore `time_zone` in `bot.json` to match `storage_metadata.time-zone`; for schema v13 databases, back up while stopped and run the [ad pack blacklists and schema v13 → v14 cold migration](#upgrade-ad-pack-blacklists) (`migrate:ad-pack-blacklists`); for pre-v13 databases (such as v11 from 16.3.2), follow the [staged upgrade](#staged-upgrade) to v13 first; for physical corruption, restore `storage.sqlite` together with its matching `-wal`/`-shm` sidecars from backup. Never overwrite with a blank DB or hand-edit rows.
 
 ### 6. Inconsistent Fortune Results and Receipt Key
 - **Cause**: Today's fortune file and `receipt-secret.json` come from mismatched backups, failing HMAC verification.

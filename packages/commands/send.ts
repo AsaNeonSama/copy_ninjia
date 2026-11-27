@@ -2,12 +2,9 @@ import { telegramSignal } from "../libs/telegramSignal";
 import { chatAtmosphere } from "../infra/atmosphere";
 import type { CommandContext, Context } from "grammy";
 import { disableChatStateSwitch, getActiveProxySendTarget, getChatState, getOrCreateChatState, persistChatState } from "../infra/chatStateStorage";
-import { logApiError, replyCommandNotice } from "../infra/telegram";
+import { replyCommandNotice } from "../infra/telegram";
+import { runTelegramAction } from "../infra/telegram/actions/core";
 import { bot } from "../infra/telegram/mainClient";
-import {
-  currentUpdateAbortSignal,
-  throwIfUpdateAborted,
-} from "../infra/updateContext";
 import { SUPER_ADMIN_USER_ID } from "../config/bot";
 import { parseChatIdArgument } from "../libs/telegramId";
 import type { ChatFullInfo } from "grammy/types";
@@ -56,18 +53,20 @@ export async function handleSendCommand(ctx: CommandContext<Context>): Promise<v
     return;
   }
 
-  try {
-    const signal: AbortSignal | undefined = currentUpdateAbortSignal();
-    const targetChat: ChatFullInfo =
-      await bot.api.getChat(targetChatId, telegramSignal(signal));
-    if (targetChat.type !== "group" && targetChat.type !== "supergroup") {
-      await replyCommandNotice(ctx, chatAtmosphere().NOTICE_TEXTS.proxyNotGroup(targetChatId));
-      return;
-    }
-  } catch (error: unknown) {
-    throwIfUpdateAborted();
-    logApiError("resolve /send target chat", error, { targetChatId });
+  const targetChat: ChatFullInfo | undefined = await runTelegramAction({
+    action: "resolve /send target chat",
+    errorContext: { targetChatId },
+    execute: (signal?: AbortSignal): Promise<ChatFullInfo> =>
+      bot.api.getChat(targetChatId, telegramSignal(signal)),
+    map: (value: ChatFullInfo): ChatFullInfo => value,
+    fallback: undefined,
+  });
+  if (targetChat === undefined) {
     await replyCommandNotice(ctx, chatAtmosphere().NOTICE_TEXTS.proxyUnavailable(targetChatId));
+    return;
+  }
+  if (targetChat.type !== "group" && targetChat.type !== "supergroup") {
+    await replyCommandNotice(ctx, chatAtmosphere().NOTICE_TEXTS.proxyNotGroup(targetChatId));
     return;
   }
 

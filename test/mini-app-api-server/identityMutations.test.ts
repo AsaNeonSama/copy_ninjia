@@ -54,6 +54,7 @@ const {
 const { setBlocklistEntryMembership } = await import(
   "../../packages/mini-app-api-server/view/identities/blocklist"
 );
+const antiRaid = await import("../../packages/antiRaid");
 
 /** 夹具里机器人自身的用户 ID。 */
 const BOT_USER_ID: number = 4_242_001;
@@ -172,6 +173,34 @@ describe("Mini App 白名单成员变更护栏", () => {
       await setWhitelistEntryPermission({ id: 50_012, key: "isCanMute", value: true }),
       "WHITELIST_NOT_FOUND"
     );
+  });
+  test("新增永久白名单通知 Worker 清理残留广告检测状态，移除或失败时不通知", async () => {
+    const clearSpy = spyOn(antiRaid, "clearIdentityAdDetection").mockReturnValue(true);
+    try {
+      const added: Readonly<MiniAppIdentityMutationResult> = await setWhitelistEntryMembership({
+        id: 50_099,
+        enabled: true,
+        meta: { firstName: "Trusted", lastName: "", username: "" },
+      });
+      expect(added.ok).toBeTrue();
+      expect(clearSpy).toHaveBeenCalledTimes(1);
+      expect(clearSpy).toHaveBeenLastCalledWith(50_099);
+
+      const removed: Readonly<MiniAppIdentityMutationResult> = await setWhitelistEntryMembership({
+        id: 50_099,
+        enabled: false,
+      });
+      expect(removed.ok).toBeTrue();
+      expect(clearSpy).toHaveBeenCalledTimes(1);
+
+      expectRejected(
+        await setWhitelistEntryMembership({ id: SUPER_ADMIN_USER_ID, enabled: true }),
+        "SUPER_ADMIN_EXEMPT"
+      );
+      expect(clearSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      clearSpy.mockRestore();
+    }
   });
 });
 

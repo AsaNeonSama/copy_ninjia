@@ -66,6 +66,7 @@ const {
 const {
   joinLogBuffer,
   joinLogDeletions,
+  joinLogDeletionTimer,
   joinLogFileCaches,
   joinLogPersistedNotifier,
   joinLogRetryAt,
@@ -213,6 +214,7 @@ export {
   trimJoinLogRecordsToCapacity,
   joinLogBuffer,
   joinLogDeletions,
+  joinLogDeletionTimer,
   joinLogFileCaches,
   joinLogRetryAt,
   markJoinLogDirty,

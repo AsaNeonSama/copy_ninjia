@@ -166,13 +166,18 @@ describe("shouldPassInitGate", () => {
 });
 
 describe("isBotCommandText", () => {
-  test("只匹配 /send 及发给当前机器人的 @BotUsername 变体", () => {
+  test("只匹配 /send 及发给当前机器人的 @BotUsername 变体，缺省用户名时仅匹配裸命令", () => {
     expect(isBotCommandText("/send", "/send", ME.username)).toBe(true);
     expect(isBotCommandText("/send -100123", "/send", ME.username)).toBe(true);
     expect(isBotCommandText("/send@Test_Bot finish", "/send", ME.username)).toBe(true);
     expect(isBotCommandText("/send@other_bot finish", "/send", ME.username)).toBe(false);
     expect(isBotCommandText("/sendx", "/send", ME.username)).toBe(false);
     expect(isBotCommandText("/copy", "/send", ME.username)).toBe(false);
+    expect(isBotCommandText("/send", "/send", undefined)).toBe(true);
+    expect(isBotCommandText("/send@", "/send", undefined)).toBe(false);
+    expect(isBotCommandText("/send@Test_Bot", "/send", undefined)).toBe(false);
+    expect(isBotCommandText("/send", "/send", "")).toBe(true);
+    expect(isBotCommandText("/send@", "/send", "")).toBe(false);
   });
 });
 

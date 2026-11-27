@@ -660,7 +660,7 @@ test("撞上工具轮上限时不再执行剩余调用，点名后收尾", async
   );
 });
 
-test("最后一轮才遇到工具调用超限时，降级重试没有剩余轮次，本轮以无正文收尾", async () => {
+test("最后一轮才遇到工具调用超限时直接收尾，不再打出重试日志", async () => {
   for (let round: number = 0; round < MAX_TOOL_ROUNDS; round++) {
     turns.push(okTurn({ calls: [call(VIEW_STICKER_PACK_TOOL)] }));
   }
@@ -674,9 +674,9 @@ test("最后一轮才遇到工具调用超限时，降级重试没有剩余轮�
 
   expect(requestMock).toHaveBeenCalledTimes(MAX_TOOL_ROUNDS + 1);
   expect(requests[MAX_TOOL_ROUNDS]!.webSearchEnabled).toBe(true);
-  expect(loggerErrorMock).toHaveBeenCalledWith(
+  expect(loggerErrorMock).not.toHaveBeenCalledWith(
     "AI reply hit the provider server-side tool-call limit; retrying once with web search disabled.",
-    { chatId: -1001, round: MAX_TOOL_ROUNDS }
+    expect.anything()
   );
 });
 

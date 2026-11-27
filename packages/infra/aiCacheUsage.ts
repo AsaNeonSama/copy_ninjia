@@ -447,3 +447,37 @@ export function reportGeminiInteractionUsage({ capability, model, usage }: Gemin
     outputTokens: geminiOutputTokens(usage?.total_output_tokens, usage?.total_thought_tokens),
   });
 }
+
+/** reportGeminiDecisionUsage 的入参。 */
+export interface GeminiDecisionUsageReport {
+  /** 调用所属的 AI 能力域。 */
+  readonly capability: AiCacheCapability;
+  /** 本次请求实际使用的模型名。 */
+  readonly model: string;
+  /** Gemini Decisions 响应中的 usage 对象。 */
+  readonly usage: Interactions.Usage | undefined;
+}
+
+/**
+ * 上报 Gemini Decisions 响应用量；Decisions API 不生成文本输出，响应省略 `total_output_tokens` 与 `total_thought_tokens` 时输出按 0 计入，未提供缓存命中数时保持未知。
+ * @param params Gemini Decisions 响应的用量上报参数。
+ */
+export function reportGeminiDecisionUsage({ capability, model, usage }: GeminiDecisionUsageReport): void {
+  if (usage !== undefined && (usage === null || typeof usage !== "object" || Array.isArray(usage))) {
+    warnAiUsageUnavailable(capability, "google", "invalid");
+    return;
+  }
+  const outputTokens: number | undefined = usage === undefined
+    ? undefined
+    : usage.total_output_tokens === undefined && usage.total_thought_tokens === undefined
+      ? 0
+      : geminiOutputTokens(usage.total_output_tokens, usage.total_thought_tokens);
+  reportAiCacheUsage({
+    capability,
+    provider: "google",
+    model,
+    inputTokens: usage?.total_input_tokens,
+    cachedInputTokens: usage?.total_cached_tokens,
+    outputTokens,
+  });
+}

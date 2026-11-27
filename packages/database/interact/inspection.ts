@@ -1,13 +1,21 @@
 import { asc, count, gt } from "drizzle-orm";
 import { BLOCKLIST_REMOVAL_HYDRATION_PAGE_SIZE } from
   "../../consts/antiRaid/blocklist";
-import { STORAGE_MIGRATION_LINEAGE } from "../../consts/identityStorage";
+import {
+  IDENTITY_DATABASE_SCHEMA_VERSION,
+  STORAGE_MIGRATION_LINEAGE,
+} from "../../consts/identityStorage";
+import {
+  assertAdPackBlacklistKind,
+  assertAdPackBlacklistPack,
+} from "../codec/adPackBlacklist";
 import {
   assertTelegramIdentityId,
   decodeBlocklistEntryData,
   decodeWhitelistEntryData,
 } from "../codec/identity";
 import { assertTemporaryAdBypassActivity } from "../codec/temporaryAdBypass";
+import { readStoredAdPackBlacklistCounts } from "./adPackBlacklist";
 import { readStoredChatStates } from "./chatState";
 import { readStoredChatQa } from "./chatQa";
 import { blocklistEntries, permissionList } from "../schema/identityPolicy";
@@ -27,6 +35,7 @@ import type {
   StorageDatabaseJsonStorageRow,
   StorageDatabaseStartupRows,
   StorageDatabaseMigrationJournalEntry,
+  StoredAdPackBlacklistRow,
   StoredChatStateRow,
   StoredIdentityPolicyRow,
   StoredPendingRemovalStartupRow,
@@ -209,7 +218,9 @@ export function assertStorageDatabaseMigrationLineage(
   source: string
 ): void {
   if (!isSameMigrationLineage(readStorageDatabaseMigrationJournal(database, source), STORAGE_MIGRATION_LINEAGE)) {
-    throw new Error(`${source}: expected the exact supported schema v13 migration lineage.`);
+    throw new Error(
+      `${source}: expected the exact supported schema v${IDENTITY_DATABASE_SCHEMA_VERSION} migration lineage.`
+    );
   }
 }
 
@@ -308,6 +319,32 @@ export function assertStoredIdentityPolicies(
 }
 
 /**
+ * 流式严格校验 `ad_pack_blacklists` 表全部行的种类与包名形态，不将全表载入内存，也不设条数硬上限。
+ *
+ * @param database 共享存储数据库连接。
+ * @param source 数据库来源路径标识，用于构造错误消息。
+ */
+export function assertStoredAdPackBlacklists(
+  database: StorageDatabase,
+  source: string
+): void {
+  const rows: IterableIterator<StoredAdPackBlacklistRow> = database.$client
+    .query<StoredAdPackBlacklistRow, []>(
+      "SELECT kind, pack FROM ad_pack_blacklists ORDER BY kind ASC, pack ASC;"
+    )
+    .iterate();
+  for (const row of rows) {
+    const path: string = storageRowSource(
+      source,
+      "ad_pack_blacklists",
+      `${row.kind}:${row.pack}`
+    );
+    assertAdPackBlacklistKind(row.kind, path);
+    assertAdPackBlacklistPack(row.pack, path);
+  }
+}
+
+/**
  * 校验 `storage_metadata.data` 列为严格 JSONB BLOB。
  * @param database 共享存储数据库连接。
  * @param source 数据库来源路径标识，用于构造错误消息。
@@ -338,7 +375,7 @@ export function readStorageDatabaseSchemaMetadata(
 }
 
 /**
- * 读取启动恢复所需的名单条数统计、群状态全表行与群问答全表行。
+ * 读取启动恢复所需的名单与广告包黑名单条数统计、群状态全表行及群问答全表行。
  * @param database 共享存储数据库连接。
  * @returns 启动恢复所需的原始行与条数汇总。
  */
@@ -355,6 +392,7 @@ export function readStorageDatabaseStartupRows(
     blocklistEntryCount,
     chatStates: storedChatStates,
     chatQa: readStoredChatQa(database),
+    adPackBlacklistCounts: readStoredAdPackBlacklistCounts(database),
   };
 }
 

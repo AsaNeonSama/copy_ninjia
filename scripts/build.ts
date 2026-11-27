@@ -1,10 +1,15 @@
-/** 编译当前 Linux 平台的发行包；仅收集显式列出的源码资产，不携带 node_modules。 */
+/** 编译当前 Linux 平台的发行包；仅收集显式列出的受跟踪源码资产，不携带 node_modules。 */
 import { chmodSync, mkdirSync, mkdtempSync, renameSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { familySync, GLIBC, MUSL } from "detect-libc";
 import { ACTIVE_COLD_MIGRATION_EDGES } from "./migrations/active";
 import { copyFixtureTree } from "./fixtures/copyTree";
-import { createReleaseCommand, readBuildSourceTree } from "./release/command";
+import {
+  createReleaseCommand,
+  listTrackedBundledSourceFiles,
+  readBuildSourceTree,
+  tryListTrackedBundledSourceFiles,
+} from "./release/command";
 import { fileSha256 } from "./fileSha256";
 import {
   RELEASE_BUNDLED_PATHS,
@@ -16,6 +21,62 @@ import type { ReleaseCommand } from "./release/command";
 /** 构建脚本校验 `package.json` 中 `packageManager` 版本所需的最小结构。 */
 interface PackageManifest {
   readonly packageManager?: string;
+}
+
+/** `stageBundledSourceFiles` 复制发行包白名单源码资产的入参。 */
+export interface StageBundledSourceFilesOptions {
+  /** 仓库根目录绝对路径。 */
+  readonly projectRoot: string;
+  /** 发行包暂存根目录绝对路径。 */
+  readonly packageRoot: string;
+  /** 可选 Git 命令执行器；在 Git 工作树内时严格按 `git ls-files` 清单复制。 */
+  readonly sourceCommand: ReleaseCommand | null;
+  /** 已核验的干净 Git tree 哈希；非 `null` 时必须通过 `git ls-files` 取得受跟踪清单。 */
+  readonly sourceTree: string | null;
+}
+
+/**
+ * 将发行包随附的源码资产复制到暂存包根目录：
+ * - 在 Git 工作树内严格只拷贝 `git ls-files` 返回的受跟踪文件（排除 `.gitignore` 忽略文件与未跟踪杂项）；
+ * - 仅当无 Git 仓库（如无 `.git` 的源码归档）且 `sourceTree` 为 `null` 时回退到目录树与 Glob 复制。
+ *
+ * @param options 源码根、暂存包根及可选 Git 命令与谱系参数
+ */
+export async function stageBundledSourceFiles({
+  projectRoot,
+  packageRoot,
+  sourceCommand,
+  sourceTree,
+}: Readonly<StageBundledSourceFilesOptions>): Promise<void> {
+  let trackedFiles: readonly string[] | null;
+  if (sourceTree !== null) {
+    if (sourceCommand === null) {
+      throw new Error("Clean sourceTree build requires a Git command runner.");
+    }
+    trackedFiles = listTrackedBundledSourceFiles(sourceCommand);
+  } else if (sourceCommand !== null) {
+    trackedFiles = tryListTrackedBundledSourceFiles(sourceCommand);
+  } else {
+    trackedFiles = null;
+  }
+
+  if (trackedFiles !== null) {
+    for (const relativePath of trackedFiles) {
+      const destination: string = join(packageRoot, relativePath);
+      mkdirSync(dirname(destination), { recursive: true, mode: 0o755 });
+      await Bun.write(destination, Bun.file(join(projectRoot, relativePath)));
+    }
+    return;
+  }
+
+  for (const relative of RELEASE_BUNDLED_PATHS) {
+    await copyFixtureTree(join(projectRoot, relative), join(packageRoot, relative));
+  }
+  for await (const file of new Bun.Glob(RELEASE_INSTALL_SCRIPT_GLOB).scan(projectRoot)) {
+    const destination: string = join(packageRoot, file);
+    mkdirSync(dirname(destination), { recursive: true, mode: 0o755 });
+    await Bun.write(destination, Bun.file(join(projectRoot, file)));
+  }
 }
 
 /** 构建脚本在独立函数内执行，仅当作为主模块直接运行时触发真实打包与子进程检验。 */
@@ -89,12 +150,12 @@ async function runBuildCli(): Promise<void> {
       });
       if (!migration.success) throw new AggregateError(migration.logs, `Migration compilation failed: ${edge.command}`);
     }
-    for (const relative of RELEASE_BUNDLED_PATHS) {
-      await copyFixtureTree(join(projectRoot, relative), join(packageRoot, relative));
-    }
-    for await (const file of new Bun.Glob(RELEASE_INSTALL_SCRIPT_GLOB).scan(projectRoot)) {
-      await Bun.write(join(packageRoot, file), Bun.file(join(projectRoot, file)));
-    }
+    await stageBundledSourceFiles({
+      projectRoot,
+      packageRoot,
+      sourceCommand,
+      sourceTree,
+    });
     for await (const file of new Bun.Glob("**/*.map").scan({ cwd: packageRoot, dot: true })) {
       await Bun.file(join(packageRoot, file)).delete();
     }

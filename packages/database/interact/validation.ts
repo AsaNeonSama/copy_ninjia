@@ -10,6 +10,7 @@ import {
   assertStorageDatabaseJsonbStorage,
   assertStorageDatabaseMigrationLineage,
   assertStorageDatabaseStartupJsonbStorage,
+  assertStoredAdPackBlacklists,
   assertStoredIdentityPolicies,
   readStorageDatabasePendingRemovalPage,
   readStorageDatabaseSchemaMetadata,
@@ -129,6 +130,7 @@ export function validateStorageDatabase(database: StorageDatabase, source: strin
   assertStorageDatabaseMigrationLineage(database, source);
   assertStorageDatabaseJsonbStorage(database, source);
   assertStoredIdentityPolicies(database, source);
+  assertStoredAdPackBlacklists(database, source);
   const rows: StorageDatabaseStartupRows = readStorageDatabaseStartupRows(database);
   const removals: PendingRemovalInspection = inspectPendingRemovalPages(database, source);
   const chatStates: Map<number, ChatState> = decodeStoredChatStates(
@@ -150,6 +152,7 @@ export function validateStorageDatabase(database: StorageDatabase, source: strin
       pendingBlockedRemovals: removals.values,
       chatStates,
       chatQa: chatQaEntries,
+      adPackBlacklistCounts: rows.adPackBlacklistCounts,
     },
     aiMemories: readStoredAiContexts(database, source),
   };

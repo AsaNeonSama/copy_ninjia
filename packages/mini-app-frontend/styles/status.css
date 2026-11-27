@@ -716,14 +716,6 @@
   transition: width 0.32s var(--ease-brutal);
 }
 
-.stat-bar-queue {
-  height: 100%;
-  border-radius: 0;
-  background: var(--danger);
-  border-right: 1.5px solid var(--border);
-  transition: width 0.32s var(--ease-brutal);
-}
-
 @media (max-width: 360px) {
   .stat-quad-mosaic {
     grid-template-rows: minmax(96px, auto) 32px minmax(96px, auto);

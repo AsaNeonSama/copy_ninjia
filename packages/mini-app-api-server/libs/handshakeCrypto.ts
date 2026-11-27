@@ -239,37 +239,46 @@ export async function deriveMiniAppHandshakeKeys({
       `${MINI_APP_HANDSHAKE_HKDF_S2C_INFO_PREFIX}${contextSuffix}`
     );
 
-    const c2sKey: CryptoKey = await crypto.subtle.deriveKey(
-      {
-        name: MINI_APP_HKDF_ALGORITHM,
-        hash: MINI_APP_HKDF_HASH,
-        salt,
-        info: c2sInfo,
-      },
-      hkdfBaseKey,
-      {
-        name: MINI_APP_AES_GCM_ALGORITHM,
-        length: MINI_APP_SESSION_KEY_BITS,
-      },
-      false,
-      ["decrypt"]
-    );
-    const s2cKey: CryptoKey = await crypto.subtle.deriveKey(
-      {
-        name: MINI_APP_HKDF_ALGORITHM,
-        hash: MINI_APP_HKDF_HASH,
-        salt,
-        info: s2cInfo,
-      },
-      hkdfBaseKey,
-      {
-        name: MINI_APP_AES_GCM_ALGORITHM,
-        length: MINI_APP_SESSION_KEY_BITS,
-      },
-      false,
-      ["encrypt"]
-    );
-    return { c2sKey, s2cKey };
+    const [c2sResult, s2cResult]: readonly PromiseSettledResult<CryptoKey>[] =
+      await Promise.allSettled([
+        crypto.subtle.deriveKey(
+          {
+            name: MINI_APP_HKDF_ALGORITHM,
+            hash: MINI_APP_HKDF_HASH,
+            salt,
+            info: c2sInfo,
+          },
+          hkdfBaseKey,
+          {
+            name: MINI_APP_AES_GCM_ALGORITHM,
+            length: MINI_APP_SESSION_KEY_BITS,
+          },
+          false,
+          ["decrypt"]
+        ),
+        crypto.subtle.deriveKey(
+          {
+            name: MINI_APP_HKDF_ALGORITHM,
+            hash: MINI_APP_HKDF_HASH,
+            salt,
+            info: s2cInfo,
+          },
+          hkdfBaseKey,
+          {
+            name: MINI_APP_AES_GCM_ALGORITHM,
+            length: MINI_APP_SESSION_KEY_BITS,
+          },
+          false,
+          ["encrypt"]
+        ),
+      ]);
+    if (
+      c2sResult?.status !== "fulfilled" ||
+      s2cResult?.status !== "fulfilled"
+    ) {
+      return null;
+    }
+    return { c2sKey: c2sResult.value, s2cKey: s2cResult.value };
   } catch (_error: unknown) {
     return null;
   } finally {

@@ -8,6 +8,13 @@ import {
   readIdentityPolicyEntries,
   readIdentitySweepPage,
 } from "../../../infra/identityStorage";
+import {
+  clampPageSize,
+  clampRequestedPage,
+  overlayCursorPage,
+  totalPagesFor,
+} from "../../../libs/pagination";
+import type { OverlaidCursorPage } from "../../../libs/pagination";
 import { stripLeadingAtSigns } from "../../../libs/text";
 import {
   formatIdentityDisplayName,
@@ -53,27 +60,19 @@ async function readOverlaySweepPage(
   const pendingWrites: ReadonlyMap<number, UnacknowledgedIdentityWrite> =
     unacknowledgedIdentityWrites(table);
   if (pendingWrites.size === 0) return sweep;
-  const idSet: Set<number> = new Set(sweep.ids);
-  for (const [id, change] of pendingWrites) {
-    if (change.data === null) {
-      idSet.delete(id);
-      continue;
-    }
-    if (afterId !== null && id <= afterId) continue;
-    if (!sweep.done && sweep.nextCursor !== null && id > sweep.nextCursor) {
-      continue;
-    }
-    idSet.add(id);
-  }
-  const ids: number[] = [...idSet].sort(
-    (left: number, right: number): number => left - right
-  );
-  return {
-    ids,
-    nextCursor: sweep.done
-      ? (ids.length === 0 ? afterId : ids[ids.length - 1]!)
-      : sweep.nextCursor,
+  const overlaid: Readonly<OverlaidCursorPage<number>> = overlayCursorPage({
+    items: sweep.ids,
+    afterCursor: afterId,
+    nextCursor: sweep.nextCursor,
     done: sweep.done,
+    pendingWrites,
+    isDeleted: (change: UnacknowledgedIdentityWrite): boolean => change.data === null,
+    compare: (left: number, right: number): number => left - right,
+  });
+  return {
+    ids: overlaid.items,
+    nextCursor: overlaid.nextCursor,
+    done: overlaid.done,
   };
 }
 
@@ -187,13 +186,12 @@ async function collectIdentityPageIds(
   table: IdentityPolicyTable,
   params: ListIdentityPageParams
 ): Promise<Readonly<CollectedIdentityPageSlice>> {
-  const rawPageSize: number =
-    params.pageSize ?? params.limit ?? MINI_APP_IDENTITY_DEFAULT_PAGE_SIZE;
-  const pageSize: number = Math.min(
-    MINI_APP_IDENTITY_MAX_PAGE_SIZE,
-    Math.max(1, Math.trunc(rawPageSize))
+  const pageSize: number = clampPageSize(
+    params.pageSize ?? params.limit,
+    MINI_APP_IDENTITY_DEFAULT_PAGE_SIZE,
+    MINI_APP_IDENTITY_MAX_PAGE_SIZE
   );
-  const requestedPage: number = Math.max(1, Math.trunc(params.page ?? 1));
+  const requestedPage: number = clampRequestedPage(params.page);
 
   if (params.afterId !== undefined && params.afterId !== null) {
     const cursorSweep: IdentityIdPage = await readOverlaySweepPage(
@@ -207,7 +205,7 @@ async function collectIdentityPageIds(
     const nextAfterId: number | null =
       hasMore && sliceIds.length > 0 ? sliceIds[sliceIds.length - 1]! : null;
     const total: number = Math.max(knownTotal, sliceIds.length);
-    const totalPages: number = Math.max(1, Math.ceil(total / pageSize));
+    const totalPages: number = totalPagesFor(total, pageSize);
     return {
       sliceIds,
       page: requestedPage,
@@ -222,7 +220,7 @@ async function collectIdentityPageIds(
   const knownTotal: number = getIdentityEntryCount(table);
   if (firstSweep.done) {
     const total: number = Math.max(knownTotal, firstSweep.ids.length);
-    const totalPages: number = Math.max(1, Math.ceil(total / pageSize));
+    const totalPages: number = totalPagesFor(total, pageSize);
     const page: number = Math.min(requestedPage, totalPages);
     const offset: number = (page - 1) * pageSize;
     const sliceIds: readonly number[] = firstSweep.ids.slice(
@@ -243,7 +241,7 @@ async function collectIdentityPageIds(
   }
 
   let total: number = Math.max(knownTotal, firstSweep.ids.length);
-  let totalPages: number = Math.max(1, Math.ceil(total / pageSize));
+  let totalPages: number = totalPagesFor(total, pageSize);
   const page: number = Math.min(requestedPage, totalPages);
   const offset: number = (page - 1) * pageSize;
   const targetEnd: number = offset + pageSize;
@@ -270,7 +268,7 @@ async function collectIdentityPageIds(
 
   if (scanned > total) {
     total = scanned;
-    totalPages = Math.max(1, Math.ceil(total / pageSize));
+    totalPages = totalPagesFor(total, pageSize);
   }
   const hasMore: boolean =
     offset + sliceIds.length < total || !currentSweep.done;
@@ -385,13 +383,12 @@ export async function listIdentityPolicyPage<
   const otherTable: IdentityPolicyTable = isWhitelist ? "blocklist" : "whitelist";
   const normalizedQuery: string = params.query?.trim().toLowerCase() ?? "";
   if (normalizedQuery.length > 0) {
-    const rawPageSize: number =
-      params.pageSize ?? params.limit ?? MINI_APP_IDENTITY_DEFAULT_PAGE_SIZE;
-    const pageSize: number = Math.min(
-      MINI_APP_IDENTITY_MAX_PAGE_SIZE,
-      Math.max(1, Math.trunc(rawPageSize))
+    const pageSize: number = clampPageSize(
+      params.pageSize ?? params.limit,
+      MINI_APP_IDENTITY_DEFAULT_PAGE_SIZE,
+      MINI_APP_IDENTITY_MAX_PAGE_SIZE
     );
-    const requestedPage: number = Math.max(1, Math.trunc(params.page ?? 1));
+    const requestedPage: number = clampRequestedPage(params.page);
     const allIds: readonly number[] = await collectAllIdentityIds(table);
     const tableTotal: number = Math.max(
       getIdentityEntryCount(table),
@@ -418,7 +415,7 @@ export async function listIdentityPolicyPage<
       matchedItems.push(toView(base, entry));
     }
     const total: number = matchedItems.length;
-    const totalPages: number = Math.max(1, Math.ceil(total / pageSize));
+    const totalPages: number = totalPagesFor(total, pageSize);
     const page: number = Math.min(requestedPage, totalPages);
     const offset: number = (page - 1) * pageSize;
     return {

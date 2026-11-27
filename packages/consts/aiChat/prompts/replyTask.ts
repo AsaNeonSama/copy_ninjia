@@ -136,12 +136,15 @@ export function queuedTriggerInstruction(description: string): string {
 /**
  * 只读参考记忆区块里的自我身份声明：转录中哪个发言人、哪个编号是机器人自己。
  * @param selfId 机器人自身的 Telegram 账号 ID。
- * @param username 机器人自身的 Telegram 公开用户名（不含 @）。
+ * @param username 机器人自身的 Telegram 公开用户名（不含 `@`）；缺失或空串时省略用户名说明。
  * @returns 自我身份声明文本。
  */
-export function selfIdentityStatement(selfId: number, username: string): string {
+export function selfIdentityStatement(selfId: number, username?: string): string {
+  const usernameSentence: string = username !== undefined && username.length > 0
+    ? `你的 Telegram 用户名是 @${username}。`
+    : "";
   return `本群中 [id:${selfId}] 的发言人「${SELF_SPEAKER_NAME}」就是你。` +
-    `你的 Telegram 用户名是 @${username}。` +
+    usernameSentence +
     `转录里编号写作「${SELF_ROSTER_CODE}」的行就是你自己之前说过的话（行内不会再出现这个 id）；` +
     "回复这个发言人的消息，指向的对象也是你。";
 }

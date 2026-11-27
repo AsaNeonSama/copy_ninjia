@@ -4,6 +4,10 @@
  */
 
 import { afterEach, beforeEach, describe, expect, jest, spyOn, test } from "bun:test";
+import {
+  classifyMiniAppAuthError,
+  isSuppressedStaleMiniAppAuthError,
+} from "../../packages/mini-app-frontend/api/authError";
 import { precheckMiniAppAccess } from "../../packages/mini-app-frontend/api/authPrecheck";
 import { downloadMiniAppGalleryImageByName } from "../../packages/mini-app-frontend/api/galleryDownload";
 import { fetchMiniAppGalleryImageObjectUrl } from "../../packages/mini-app-frontend/api/galleryFile";
@@ -12,9 +16,14 @@ import {
   pollMiniAppPickerResult,
   waitForMiniAppPickerResult,
 } from "../../packages/mini-app-frontend/api/pickerResult";
-import { miniAppFetchJson, toLocalEpochMs } from "../../packages/mini-app-frontend/api/request";
+import {
+  miniAppFetchJson,
+  resolveMiniAppSessionCryptoSnapshot,
+  toLocalEpochMs,
+} from "../../packages/mini-app-frontend/api/request";
 import {
   MINI_APP_DOWNLOAD_OBJECT_URL_REVOKE_DELAY_MS,
+  MINI_APP_EXPIRED_AUTH_DATE_CODE,
   MINI_APP_INIT_DATA_HEADER,
   MINI_APP_PICKER_POLL_INTERVAL_MS,
   MINI_APP_SESSION_EXPIRES_AT_HEADER,
@@ -32,6 +41,7 @@ import {
   hasMiniAppSessionCryptoKey,
   readMiniAppSessionExpiresAt,
   readMiniAppSessionToken,
+  setMiniAppSessionToken,
 } from "../../packages/mini-app-frontend/libs/credentials";
 import {
   importMiniAppAesGcmKey,
@@ -577,8 +587,22 @@ describe("会话与传输", () => {
     await expect(miniAppFetchJson("./api/status")).rejects.toThrow("[PASSWORD_REQUIRED] SESSION_EXPIRED");
     expect(readMiniAppSessionToken()).toBe("");
 
-    // 3. 对照：旧令牌在途请求遇 400 INVALID_ENCRYPTED_PAYLOAD 时同样不误清已轮换的新会话；一层拒绝（PASSWORD_LOCKED / EXPIRED_AUTH_DATE）无条件清除全部会话凭据。
-    await (async (): Promise<void> => {
+    // 3. 对照：旧令牌在途请求遇 400 INVALID_ENCRYPTED_PAYLOAD 或延展期 401 EXPIRED_AUTH_DATE 时均不误清已轮换的新会话；
+    // 未轮换时的 EXPIRED_AUTH_DATE 与无条件一层拒绝（PASSWORD_LOCKED / FORBIDDEN_USER）仍清除会话凭据。
+    for (const [staleLabel, stalePayload, staleStatus, expectedError] of [
+      [
+        "400 INVALID_ENCRYPTED_PAYLOAD",
+        { error: MINI_APP_INVALID_ENCRYPTED_PAYLOAD_CODE },
+        400,
+        `[PASSWORD_REQUIRED] ${MINI_APP_INVALID_ENCRYPTED_PAYLOAD_CODE}`,
+      ],
+      [
+        `401 ${MINI_APP_EXPIRED_AUTH_DATE_CODE}`,
+        { code: MINI_APP_EXPIRED_AUTH_DATE_CODE, error: MINI_APP_EXPIRED_AUTH_DATE_CODE },
+        401,
+        `[${MINI_APP_EXPIRED_AUTH_DATE_CODE}] ${MINI_APP_EXPIRED_AUTH_DATE_CODE}`,
+      ],
+    ] as const) {
       seedTestMiniAppSession(session, Date.now() + 60_000, TEST_SESSION_KEY);
       const gate: PromiseWithResolvers<Response> = Promise.withResolvers<Response>();
       const entered: PromiseWithResolvers<void> = Promise.withResolvers<void>();
@@ -589,18 +613,28 @@ describe("会话与传输", () => {
       const pending: Promise<unknown> = miniAppFetchJson("./api/status");
       await entered.promise;
       seedTestMiniAppSession(rotatedSession, Date.now() + 120_000, TEST_ROTATED_SESSION_KEY);
-      gate.resolve(
-        Response.json({ error: MINI_APP_INVALID_ENCRYPTED_PAYLOAD_CODE }, 400)
+      gate.resolve(Response.json(stalePayload, { status: staleStatus }));
+      await expect(pending).rejects.toThrow(expectedError);
+      expect(`${staleLabel} -> ${readMiniAppSessionToken()}`).toBe(
+        `${staleLabel} -> ${rotatedSession}`
       );
-      await expect(pending).rejects.toThrow(
-        `[PASSWORD_REQUIRED] ${MINI_APP_INVALID_ENCRYPTED_PAYLOAD_CODE}`
-      );
-      expect(readMiniAppSessionToken()).toBe(rotatedSession);
-    })();
+    }
+
+    seedTestMiniAppSession(session, Date.now() + 60_000, TEST_SESSION_KEY);
+    responses.set("GET /api/status", (): Response =>
+      Response.json(
+        { code: MINI_APP_EXPIRED_AUTH_DATE_CODE, error: MINI_APP_EXPIRED_AUTH_DATE_CODE },
+        { status: 401 }
+      )
+    );
+    await expect(miniAppFetchJson("./api/status")).rejects.toThrow(
+      `[${MINI_APP_EXPIRED_AUTH_DATE_CODE}] ${MINI_APP_EXPIRED_AUTH_DATE_CODE}`
+    );
+    expect(readMiniAppSessionToken()).toBe("");
 
     for (const [denyCode, denyStatus] of [
       ["PASSWORD_LOCKED", 403],
-      ["EXPIRED_AUTH_DATE", 401],
+      ["FORBIDDEN_USER", 403],
     ] as const) {
       seedTestMiniAppSession(session, Date.now() + 60_000, TEST_SESSION_KEY);
       const gate: PromiseWithResolvers<Response> = Promise.withResolvers<Response>();
@@ -651,6 +685,77 @@ describe("会话与传输", () => {
     const orderedUrl: string = await orderedFetch;
     URL.revokeObjectURL(orderedUrl);
     expect(requests.at(-1)?.headers[MINI_APP_SESSION_HEADER]).toBe(rotatedSession);
+  });
+
+  test("resolveMiniAppSessionCryptoSnapshot 连续 3 次轮换耗尽追赶次数时附带 sentSessionToken 且保留新会话；本地真正缺密钥时仍触发 reauth", async () => {
+    const realImportKey: typeof crypto.subtle.importKey = crypto.subtle.importKey.bind(crypto.subtle);
+    const tokens: readonly string[] = [
+      "a".repeat(64),
+      "b".repeat(64),
+      "c".repeat(64),
+      "d".repeat(64),
+      "e".repeat(64),
+    ];
+    const expiresAt: number = Date.now() + MINI_APP_SESSION_TTL_MS;
+    const importGates: PromiseWithResolvers<void>[] = [];
+    let importIndex: number = 0;
+    (crypto.subtle as { importKey: typeof crypto.subtle.importKey }).importKey = (async (
+      ...args: Parameters<typeof crypto.subtle.importKey>
+    ): Promise<CryptoKey> => {
+      const idx: number = importIndex++;
+      if (idx < 4) {
+        const gate: PromiseWithResolvers<void> = Promise.withResolvers<void>();
+        importGates.push(gate);
+        await gate.promise;
+      }
+      return realImportKey(...args);
+    }) as typeof crypto.subtle.importKey;
+
+    try {
+      setMiniAppSessionToken(tokens[0]!, expiresAt, TEST_SESSION_KEY);
+      const pendingSnapshot: ReturnType<typeof resolveMiniAppSessionCryptoSnapshot> =
+        resolveMiniAppSessionCryptoSnapshot();
+      for (let step: number = 0; step < 4; step++) {
+        await Bun.sleep(0);
+        setMiniAppSessionToken(
+          tokens[step + 1]!,
+          expiresAt,
+          step % 2 === 0 ? TEST_ROTATED_SESSION_KEY : TEST_SESSION_KEY
+        );
+        importGates[step]!.resolve();
+      }
+
+      let rotationError: unknown;
+      try {
+        await pendingSnapshot;
+      } catch (error: unknown) {
+        rotationError = error;
+      }
+      expect(rotationError).toBeInstanceOf(Error);
+      const tagged: Error = rotationError as Error;
+      expect(tagged.message).toBe("[PASSWORD_REQUIRED] PASSWORD_REQUIRED");
+      expect(readMiniAppSessionToken()).toBe(tokens[4]!);
+      expect(hasMiniAppSessionCryptoKey()).toBeTrue();
+      expect(await getMiniAppSessionCryptoKey()).not.toBeNull();
+      expect(classifyMiniAppAuthError(tagged.message, tagged)).toBeNull();
+      expect(isSuppressedStaleMiniAppAuthError(tagged.message, tagged)).toBeTrue();
+    } finally {
+      (crypto.subtle as { importKey: typeof crypto.subtle.importKey }).importKey = realImportKey;
+    }
+
+    // 对照：本地真正无会话/缺密钥时，抛出的错误不被抑制且仍分类为 "reauth"。
+    clearMiniAppSessionToken();
+    let missingError: unknown;
+    try {
+      await resolveMiniAppSessionCryptoSnapshot();
+    } catch (error: unknown) {
+      missingError = error;
+    }
+    expect(missingError).toBeInstanceOf(Error);
+    const missing: Error = missingError as Error;
+    expect(missing.message).toBe("[PASSWORD_REQUIRED] PASSWORD_REQUIRED");
+    expect(classifyMiniAppAuthError(missing.message, missing)).toBe("reauth");
+    expect(isSuppressedStaleMiniAppAuthError(missing.message, missing)).toBeFalse();
   });
 
 });

@@ -16,6 +16,7 @@ export const DEFAULT_MAX_PENDING_BUSINESS_MESSAGES: number = 45_000;
 export const DISK_IO_RESPAWN_PRIORITIES: Readonly<{
   CHAT_STATE: number;
   CHAT_QA: number;
+  AD_PACK_BLACKLIST: number;
   TEMPORARY_AD_BYPASS: number;
   BLOCKLIST: number;
   AI_MEMORY: number;
@@ -27,6 +28,8 @@ export const DISK_IO_RESPAWN_PRIORITIES: Readonly<{
   CHAT_STATE: 50,
   // 排在群状态之后：问答挂在群上，先重放群状态再重放它的问答。
   CHAT_QA: 60,
+  // 广告包黑名单为独立全局 STRICT 关系表，排在群问答之后、身份策略之前重放。
+  AD_PACK_BLACKLIST: 70,
   // 先重放广告 true 产生的累计删除，再重放同身份的永久拉黑最终值。
   TEMPORARY_AD_BYPASS: 90,
   BLOCKLIST: 100,

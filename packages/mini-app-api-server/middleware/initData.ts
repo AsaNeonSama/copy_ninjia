@@ -75,26 +75,17 @@ function verifyInitDataSignatureAndLockout({
   sessionToken,
   nowMs,
 }: Readonly<VerifyInitDataSignatureAndLockoutOptions>): Readonly<AccessErrorResponseParams> | null {
-  let authResult: MiniAppAuthResult = verifyMiniAppInitData({
+  const authResult: MiniAppAuthResult = verifyMiniAppInitData({
     initData,
     secretKey: MINI_APP_INIT_DATA_SECRET_KEY,
     superAdminUserId: SUPER_ADMIN_USER_ID,
     maxAgeSeconds: MINI_APP_AUTH_MAX_AGE_SECONDS,
     nowMs,
+    resolveExtendedMaxAgeSeconds: (): number | undefined =>
+      hasActiveMiniAppAuthSession(sessionToken, nowMs)
+        ? MINI_APP_ACTIVE_SESSION_INIT_DATA_MAX_AGE_SECONDS
+        : undefined,
   });
-  if (
-    !authResult.ok &&
-    authResult.reason === "expired_auth_date" &&
-    hasActiveMiniAppAuthSession(sessionToken, nowMs)
-  ) {
-    authResult = verifyMiniAppInitData({
-      initData,
-      secretKey: MINI_APP_INIT_DATA_SECRET_KEY,
-      superAdminUserId: SUPER_ADMIN_USER_ID,
-      maxAgeSeconds: MINI_APP_ACTIVE_SESSION_INIT_DATA_MAX_AGE_SECONDS,
-      nowMs,
-    });
-  }
   if (!authResult.ok) {
     const status: number = authResult.reason === "forbidden_user" ? 403 : 401;
     const code: string = authResult.reason.toUpperCase();

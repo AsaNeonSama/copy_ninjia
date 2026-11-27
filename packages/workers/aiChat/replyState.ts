@@ -2,7 +2,9 @@
 import { aiChatAtmosphere } from "./atmosphere";
 import type { TelegramWorkerTemporaryMessageResult } from "../../types/telegramWorker";
 import { sendTemporaryMessageFromMain } from "../../infra/telegram/workerClient";
+import { logger } from "../../infra/logger";
 import { RATE_LIMIT_NOTICE_COOLDOWN_MS } from "../../consts/aiChat/rateLimit";
+import { isRecordedWithinExclusive } from "../../libs/clockWindow";
 
 import {
   cachedReplyGeneration,
@@ -40,8 +42,11 @@ export function notifyRateLimited({
   generation = cachedReplyGeneration(chatId),
   messageThreadId,
 }: NotifyRateLimitedParams): void {
-  const lastNoticeTime: number = rateLimitNoticeTimes.get(chatId) ?? 0;
-  if (now - lastNoticeTime < RATE_LIMIT_NOTICE_COOLDOWN_MS) return;
+  const lastNoticeTime: number | undefined = rateLimitNoticeTimes.get(chatId);
+  if (
+    lastNoticeTime !== undefined &&
+    isRecordedWithinExclusive(lastNoticeTime, now, RATE_LIMIT_NOTICE_COOLDOWN_MS)
+  ) return;
   rateLimitNoticeTimes.set(chatId, now);
   const signal: AbortSignal = replyGenerationSignal(generation);
   const text: string = aiChatAtmosphere().RATE_LIMIT_NOTICE_TEXT;
@@ -62,6 +67,8 @@ export function notifyRateLimited({
         text,
       }));
     }
+  }).catch((error: unknown): void => {
+    logger.error("Failed to send or record rate-limit notice:", { chatId }, error);
   });
   trackReplyGenerationTask(chatId, generation, task);
 }

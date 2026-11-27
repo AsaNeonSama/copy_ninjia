@@ -1,6 +1,6 @@
 /**
  * Anti-Raid Worker 冷启动与崩溃重生时的状态重放构建器：推进 Worker 代际，并按固定顺序重放
- * 广告检测配置、机器人群权限、群类型、待验证与延后快照，以及开关已关闭群的残留守卫清理。
+ * 广告检测配置、广告包黑名单、机器人群权限、群类型、待验证与延后快照，以及开关已关闭群的残留守卫清理。
  */
 import { chatIsSupergroupById } from "../../cache/main/antiRaid/chatKind";
 import { antiRaidRuntimeState } from "../../cache/main/antiRaid/proxy";
@@ -15,13 +15,16 @@ import { adDetectConfigReadiness } from "../../config/readiness";
 import { botAtmosphere } from "../../infra/atmosphere";
 import { getLogLevel } from "../../config/logLevel";
 import { getTimeZone } from "../../config/time";
+import { getAdPackBlacklistCounts } from "../../infra/adPackBlacklistStorage";
 import { logger } from "../../infra/logger";
 import { projectBotActionPermissions } from "../../libs/chatMember";
 import {
   getChatState,
   getChatStateCache,
 } from "../../infra/chatStateStorage";
+import type { AdPackBlacklistCounts } from "../../types/adPackBlacklist";
 import type {
+  AdPackBlacklistSyncMessage,
   AdoptVerificationsMessage,
   AntiRaidWorkerMessage,
 } from "../../types/antiRaid/protocol";
@@ -89,6 +92,35 @@ export function replayAdDetectAgentConfig(
     adDetect: adDetectAgentConfigSnapshot(),
     adDetectConfig: adDetectConfigReadiness().ok ? getAdDetectConfig() : null,
   });
+}
+
+/**
+ * 将主线程广告包黑名单两类条数统计编码为发往 Anti-Raid Worker 的同步消息。
+ *
+ * @param counts 主线程当前的贴纸包与自定义表情包黑名单条数统计
+ * @returns 广告包黑名单条数同步消息载荷
+ */
+export function buildAdPackBlacklistSyncMessage(
+  counts: Readonly<AdPackBlacklistCounts>
+): AdPackBlacklistSyncMessage {
+  return {
+    type: "adPackBlacklistSync",
+    stickerCount: counts.sticker,
+    emojiCount: counts.emoji,
+  };
+}
+
+/**
+ * 把主线程当前生效的广告包黑名单条数统计投给 Worker；
+ * 初始化与 Worker 重建时排在业务消息之前。
+ *
+ * @param postTo 向目标 Anti-Raid Worker 投递消息的函数
+ * @returns 黑名单条数同步消息成功投出时返回 true，否则返回 false
+ */
+export function replayAdPackBlacklists(
+  postTo: (message: AntiRaidWorkerMessage) => boolean
+): boolean {
+  return postTo(buildAdPackBlacklistSyncMessage(getAdPackBlacklistCounts()));
 }
 
 /**

@@ -101,7 +101,7 @@ describe("黑名单处置副作用（守卫线程侧）", () => {
   });
 
   test("「目标是管理员」只结算这个 id，不把整个群标成权限受阻", async () => {
-    // Telegram 对「机器人没权限」和「目标本身是管理员」返回同一句 400；
+    // 封禁返回 forbidden 时可能是机器人缺权限，也可能是目标本身为管理员/群主；
     // probeChatAdmin 区分两者，目标是管理员时只结算这个 id，不把群标成 permissionDenied。
     banChatMemberWithOutcome.mockImplementation(async (..._args: unknown[]): Promise<string> =>
       _args[1] === 7 ? "forbidden" : "banned");
@@ -195,6 +195,29 @@ describe("黑名单处置副作用（守卫线程侧）", () => {
     expect(recordedChatId).toBe(-1001);
     expect(recordedAt).toBeGreaterThanOrEqual(before);
     expect(deleteMessage).toHaveBeenCalledWith(-1001, 88, guardApi);
+  });
+
+  test("墙钟回拨导致 joinedAt 晚于当前时刻时不补记入群计数", async () => {
+    const now: number = 1_700_000_000_000;
+    const clock = spyOn(Date, "now").mockReturnValue(now);
+    try {
+      handleRemoveBlockedMembers({
+        msg: {
+          type: "removeBlockedMembers",
+          chatId: -1001,
+          userIds: [7],
+          probeMembership: false,
+          removalId: 60,
+          joinedAt: now + 1,
+        },
+        publish,
+      });
+      await settle();
+
+      expect(recordJoin).not.toHaveBeenCalled();
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   test("确证没有删消息权限时不发那次注定 400 的公告删除", async () => {

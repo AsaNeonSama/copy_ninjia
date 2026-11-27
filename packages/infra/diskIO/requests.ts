@@ -1,6 +1,8 @@
 /** Disk I/O 主线程逐请求通道：投递、结局解包与回执结算，等待表机制见 libs/workerRequestTable.ts。 */
 
 import {
+  adPackBlacklistPageReadRequests,
+  adPackBlacklistReadRequests,
   DISK_IO_REQUEST_CHANNELS,
   diskIORuntime,
   identityIdPageReadRequests,
@@ -18,9 +20,15 @@ import {
 } from "../../consts/diskIO/common";
 import { DISK_IO_STORAGE_CLOSE_TIMEOUT_MS } from "../../consts/lifecycle";
 import type {
+  AdPackBlacklistKind,
+  AdPackBlacklistPage,
+} from "../../types/adPackBlacklist";
+import type {
   CloseStorageRequest,
   DiskIORequestMessage,
   EnsureLuckSecretRequest,
+  ReadAdPackBlacklistPageRequest,
+  ReadAdPackBlacklistsRequest,
   ReadIdentityIdPageRequest,
   ReadIdentityPoliciesRequest,
   ReadJoinLogRequest,
@@ -318,6 +326,68 @@ export function readIdentityIdPage(
       channel: identityIdPageReadRequests,
       timeoutMs,
       buildRequest: (requestId: number): ReadIdentityIdPageRequest => ({ type: "readIdentityIdPage", requestId, table, afterId }),
+    }),
+  });
+}
+
+/**
+ * 广告贴纸包/自定义表情包黑名单主线程 768 LRU 冷缺失的唯一跨线程批量查询边界。
+ *
+ * @param kind 目标黑名单种类（`"sticker"` 或 `"emoji"`）。
+ * @param packs 待查询的合法包名列表。
+ * @param timeoutMs 请求超时毫秒数。
+ * @returns 在 SQLite（叠加未提交写缓冲）中命中的包名列表。
+ */
+export function readAdPackBlacklists(
+  kind: AdPackBlacklistKind,
+  packs: readonly string[],
+  timeoutMs: number = LOAD_TIMEOUT_MS
+): Promise<readonly string[]> {
+  return requestFromWritableWorker({
+    timeoutMs,
+    timeoutLabel: "Ad pack blacklist read timeout",
+    action: `read ${kind} ad pack blacklists`,
+    request: (worker: Worker): Promise<readonly string[]> => requestDiskIO({
+      worker,
+      channel: adPackBlacklistReadRequests,
+      timeoutMs,
+      buildRequest: (requestId: number): ReadAdPackBlacklistsRequest => ({
+        type: "readAdPackBlacklists",
+        requestId,
+        kind,
+        packs,
+      }),
+    }),
+  });
+}
+
+/**
+ * 按 `(kind, pack)` 升序稳定游标读取一页广告包黑名单；供命令分页与 Mini App 列表/搜索使用。
+ *
+ * @param kind 目标黑名单种类（`"sticker"` 或 `"emoji"`）。
+ * @param afterPack 分页起始游标包名（不含）；首批次传 `null`。
+ * @param timeoutMs 请求超时毫秒数。
+ * @returns 下一页包名列表与游标状态。
+ */
+export function readAdPackBlacklistPage(
+  kind: AdPackBlacklistKind,
+  afterPack: string | null,
+  timeoutMs: number = LOAD_TIMEOUT_MS
+): Promise<AdPackBlacklistPage> {
+  return requestFromWritableWorker({
+    timeoutMs,
+    timeoutLabel: "Ad pack blacklist page read timeout",
+    action: `read a ${kind} ad pack blacklist page`,
+    request: (worker: Worker): Promise<AdPackBlacklistPage> => requestDiskIO({
+      worker,
+      channel: adPackBlacklistPageReadRequests,
+      timeoutMs,
+      buildRequest: (requestId: number): ReadAdPackBlacklistPageRequest => ({
+        type: "readAdPackBlacklistPage",
+        requestId,
+        kind,
+        afterPack,
+      }),
     }),
   });
 }

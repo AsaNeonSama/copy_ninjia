@@ -165,6 +165,7 @@ export class ApplicationLifecycle {
     const loaded: LoadedData = await this.dependencies.loadPersistedData();
     this.dependencies.hydrateChatStateCache(loaded.chatStates);
     this.dependencies.hydrateChatQaCache(loaded.chatQa);
+    this.dependencies.hydrateAdPackBlacklistCounts(loaded.adPackBlacklistCounts);
     this.dependencies.hydrateWedMembers(loaded.wedMembers);
     this.dependencies.initTelegramClients();
     this.dependencies.hydrateIdentityStorageCounts(
@@ -207,7 +208,9 @@ export class ApplicationLifecycle {
     await this.dependencies.sweepManagedBlocklistChats();
 
     this.dependencies.logger.info("Bot started.", {
-      username: `@${this.dependencies.bot.botInfo.username}`,
+      ...(this.dependencies.bot.botInfo.username
+        ? { username: `@${this.dependencies.bot.botInfo.username}` }
+        : {}),
       restoredChats: this.dependencies.getChatStateCache().size,
       ...(restoredCopiedUser ? { copiedUserId: restoredCopiedUser.id } : {}),
     });
@@ -273,15 +276,23 @@ export class ApplicationLifecycle {
     if (lastSeenUpdateId > 0 && confirmationPrerequisitesMet) {
       const offsetConfirmBudgetMs: number =
         budgetWithinDeadline(FINAL_OFFSET_CONFIRM_TIMEOUT_MS, deadline, this.dependencies.monotonicNow);
-      try {
-        await this.dependencies.bot.api.getUpdates(
-          { offset: lastSeenUpdateId + 1, limit: 1, timeout: 0 },
-          telegramSignal(AbortSignal.timeout(offsetConfirmBudgetMs))
-        );
-      } catch (error: unknown) {
+      if (offsetConfirmBudgetMs === 0) {
         this.finalOffsetGateSucceeded = false;
         process.exitCode = 1;
-        this.dependencies.logger.error("Failed to confirm update offset on shutdown:", error);
+        this.dependencies.logger.error(
+          "Withholding the final Telegram offset because the shutdown budget is exhausted."
+        );
+      } else {
+        try {
+          await this.dependencies.bot.api.getUpdates(
+            { offset: lastSeenUpdateId + 1, limit: 1, timeout: 0 },
+            telegramSignal(AbortSignal.timeout(offsetConfirmBudgetMs))
+          );
+        } catch (error: unknown) {
+          this.finalOffsetGateSucceeded = false;
+          process.exitCode = 1;
+          this.dependencies.logger.error("Failed to confirm update offset on shutdown:", error);
+        }
       }
     } else if (lastSeenUpdateId > 0) {
       this.finalOffsetGateSucceeded = false;

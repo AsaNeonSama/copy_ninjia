@@ -6,6 +6,7 @@
  */
 
 import type { Context } from "grammy";
+import { isPendingWithin } from "../libs/clockWindow";
 import { telegramSignal } from "../libs/telegramSignal";
 import { logger } from "./logger";
 import { bot } from "./telegram/mainClient";
@@ -153,7 +154,7 @@ export async function completeChatDeparture(chatId: number, reason: ChatDepartur
 function admitBotPermissionProbe(chatId: number): boolean {
   const observedAt: number = Date.now();
   const retryAt: number | undefined = botPermissionProbeBackoff.get(chatId);
-  if (retryAt !== undefined && observedAt < retryAt) return false;
+  if (retryAt !== undefined && isPendingWithin(retryAt, observedAt, BOT_PERMISSION_PROBE_RETRY_MS)) return false;
   botPermissionProbeBackoff.set(chatId, observedAt + BOT_PERMISSION_PROBE_RETRY_MS);
   return true;
 }

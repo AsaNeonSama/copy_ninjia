@@ -9,11 +9,13 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import * as serverMemoryConsts from "../../packages/consts/aiChat/memory";
+import * as serverStickersConsts from "../../packages/consts/aiChat/stickers";
 import * as serverDeleteMessageConsts from "../../packages/consts/deleteMessage";
 import * as serverExhaustiveList from "../../packages/consts/exhaustiveList";
 import * as serverImageGalleryConsts from "../../packages/consts/imageGallery";
 import { WHITELIST_PERMISSION_HELP as teasingWhitelistPermissionHelp } from "../../packages/consts/atmosphere/teasing/whitelist";
 import * as serverMiniAppConsts from "../../packages/consts/miniApp";
+import * as serverMiniAppFeatureConsts from "../../packages/consts/miniApp/features";
 import * as serverMiniAppConfigConsts from "../../packages/consts/miniAppConfig";
 import * as serverMiniAppCryptoConsts from "../../packages/consts/miniAppCrypto";
 import { MINI_APP_FAVICON_PATH, MINI_APP_REJECT_HTML_PATH } from "../../packages/consts/paths";
@@ -49,6 +51,7 @@ import { buildMiniAppGalleryDownloadFileName as buildServerDownloadFileName } fr
 import { buildMiniAppHandshakeTranscript as buildServerHandshakeTranscript } from "../../packages/mini-app-api-server/libs/handshakeCrypto";
 import type * as ServerIdentityPolicy from "../../packages/types/identityPolicy";
 import type * as ServerMiniApp from "../../packages/types/miniApp";
+import type * as ServerMiniAppAdBlacklists from "../../packages/types/miniApp/adBlacklists";
 import type * as ServerMiniAppTotp from "../../packages/types/miniAppTotp";
 
 /** 两个类型在恒等关系下完全一致时为 true。 */
@@ -122,6 +125,16 @@ const contractTypeParity: Readonly<Record<string, true>> = {
   MiniAppTotpMutationResponse: true satisfies Exact<FrontendMiniAppTotp.MiniAppTotpMutationResponse, ServerMiniAppTotp.MiniAppTotpMutationResponse>,
   WhitelistPermissions: true satisfies Exact<FrontendIdentityPolicy.WhitelistPermissions, ServerIdentityPolicy.WhitelistPermissions>,
   WhitelistPermissionKey: true satisfies Exact<FrontendIdentityPolicy.WhitelistPermissionKey, ServerIdentityPolicy.WhitelistPermissionKey>,
+  MiniAppAdBlacklistKind: true satisfies Exact<FrontendMiniApp.MiniAppAdBlacklistKind, ServerMiniAppAdBlacklists.MiniAppAdBlacklistKind>,
+  MiniAppAdBlacklistItem: true satisfies Exact<FrontendMiniApp.MiniAppAdBlacklistItem, ServerMiniAppAdBlacklists.MiniAppAdBlacklistItem>,
+  MiniAppAdBlacklistsResponse: true satisfies Exact<FrontendMiniApp.MiniAppAdBlacklistsResponse, ServerMiniAppAdBlacklists.MiniAppAdBlacklistsResponse>,
+  MiniAppAdBlacklistMutationCode: true satisfies Exact<FrontendMiniApp.MiniAppAdBlacklistMutationCode, ServerMiniAppAdBlacklists.MiniAppAdBlacklistMutationCode>,
+  MiniAppAdBlacklistMutationRequest: true satisfies Exact<FrontendMiniApp.MiniAppAdBlacklistMutationRequest, ServerMiniAppAdBlacklists.MiniAppAdBlacklistMutationRequest>,
+  MiniAppAdBlacklistMutationResponse: true satisfies Exact<FrontendMiniApp.MiniAppAdBlacklistMutationResponse, ServerMiniAppAdBlacklists.MiniAppAdBlacklistMutationResponse>,
+  MiniAppAdBlacklistStickerFormat: true satisfies Exact<FrontendMiniApp.MiniAppAdBlacklistStickerFormat, ServerMiniAppAdBlacklists.MiniAppAdBlacklistStickerFormat>,
+  MiniAppAdBlacklistStickerSetType: true satisfies Exact<FrontendMiniApp.MiniAppAdBlacklistStickerSetType, ServerMiniAppAdBlacklists.MiniAppAdBlacklistStickerSetType>,
+  MiniAppAdBlacklistPreviewItem: true satisfies Exact<FrontendMiniApp.MiniAppAdBlacklistPreviewItem, ServerMiniAppAdBlacklists.MiniAppAdBlacklistPreviewItem>,
+  MiniAppAdBlacklistPreviewResponse: true satisfies Exact<FrontendMiniApp.MiniAppAdBlacklistPreviewResponse, ServerMiniAppAdBlacklists.MiniAppAdBlacklistPreviewResponse>,
 };
 
 describe("Mini App 前端副本与服务端定义一致", () => {
@@ -153,6 +166,14 @@ describe("Mini App 前端副本与服务端定义一致", () => {
     expect(frontendMiniAppConsts.RANDOM_IMAGE_MAX_BYTES).toBe(serverImageGalleryConsts.RANDOM_IMAGE_MAX_BYTES);
     expect(frontendMiniAppConsts.MINI_APP_MESSAGES_DEFAULT_PAGE_SIZE).toBe(serverMiniAppConsts.MINI_APP_MESSAGES_DEFAULT_PAGE_SIZE);
     expect(frontendMiniAppConsts.MINI_APP_IDENTITY_DEFAULT_PAGE_SIZE).toBe(serverMiniAppConsts.MINI_APP_IDENTITY_DEFAULT_PAGE_SIZE);
+    expect(frontendMiniAppConsts.MINI_APP_AD_BLACKLIST_KINDS).toEqual(serverMiniAppFeatureConsts.MINI_APP_AD_BLACKLIST_KINDS);
+    expect(frontendMiniAppConsts.MINI_APP_AD_BLACKLIST_DEFAULT_PAGE_SIZE).toBe(serverMiniAppFeatureConsts.MINI_APP_AD_BLACKLIST_DEFAULT_PAGE_SIZE);
+    expect(frontendMiniAppConsts.MINI_APP_AD_BLACKLIST_MAX_PAGE_SIZE).toBe(serverMiniAppFeatureConsts.MINI_APP_AD_BLACKLIST_MAX_PAGE_SIZE);
+    expect(frontendMiniAppConsts.MINI_APP_AD_BLACKLIST_QUERY_MAX_LENGTH).toBe(serverMiniAppFeatureConsts.MINI_APP_AD_BLACKLIST_QUERY_MAX_LENGTH);
+    expect(frontendMiniAppConsts.MINI_APP_AD_BLACKLIST_PREVIEW_PAGE_SIZE).toBe(serverMiniAppFeatureConsts.MINI_APP_AD_BLACKLIST_PREVIEW_PAGE_SIZE);
+    expect(frontendMiniAppConsts.MINI_APP_AD_BLACKLIST_PREVIEW_SKELETON_INDICES).toHaveLength(
+      frontendMiniAppConsts.MINI_APP_AD_BLACKLIST_PREVIEW_PAGE_SIZE
+    );
     expect(frontendMiniAppConsts.MINI_APP_BATCH_KICK_MIN_HOURS).toBe(serverMiniAppConsts.MINI_APP_BATCH_KICK_MIN_HOURS);
     expect(frontendMiniAppConsts.MINI_APP_BATCH_KICK_MAX_HOURS).toBe(serverMiniAppConsts.MINI_APP_BATCH_KICK_MAX_HOURS);
     expect(frontendMiniAppConsts.MINI_APP_FEATURE_KEYS).toEqual(serverMiniAppConsts.MINI_APP_FEATURE_KEYS);
@@ -219,12 +240,13 @@ describe("Mini App 前端副本与服务端定义一致", () => {
   });
 
   test("前端复制的正则与服务端对应正则的模式和标志一致", () => {
-    const pairs: readonly (readonly [RegExp, RegExp])[] = [
+    const pairs: readonly (readonly [Readonly<RegExp>, Readonly<RegExp>])[] = [
       [frontendMiniAppConsts.MINI_APP_SHA256_HEX_PATTERN, serverMiniAppConsts.MINI_APP_SHA256_HEX_PATTERN],
       [frontendMiniAppConsts.MINI_APP_SIGNED_INTEGER_PATTERN, serverMiniAppConsts.MINI_APP_SIGNED_INTEGER_PATTERN],
       [frontendMiniAppConsts.MINI_APP_BIDI_CONTROL_CHARS_PATTERN, serverTextConsts.BIDI_CONTROL_PATTERN],
       [frontendMiniAppConsts.MINI_APP_BIDI_CONTROL_CHARS_TEST_PATTERN, serverTextConsts.BIDI_CONTROL_TEST_PATTERN],
       [frontendMiniAppCryptoConsts.MINI_APP_HANDSHAKE_ID_HEX_PATTERN, serverMiniAppCryptoConsts.MINI_APP_HANDSHAKE_ID_HEX_PATTERN],
+      [frontendMiniAppConsts.STICKER_PACK_NAME_PATTERN, serverStickersConsts.STICKER_PACK_NAME_PATTERN],
     ];
     for (const [frontend, server] of pairs) {
       expect(frontend.source).toBe(server.source);
@@ -274,6 +296,11 @@ describe("Mini App 前端副本与服务端定义一致", () => {
         frontendMiniAppConsts.MINI_APP_IDENTITY_PAGE_SIZE_OPTIONS,
         serverMiniAppConsts.MINI_APP_IDENTITY_MAX_PAGE_SIZE,
         frontendMiniAppConsts.MINI_APP_IDENTITY_DEFAULT_PAGE_SIZE,
+      ],
+      [
+        frontendMiniAppConsts.MINI_APP_AD_BLACKLIST_PAGE_SIZE_OPTIONS,
+        serverMiniAppFeatureConsts.MINI_APP_AD_BLACKLIST_MAX_PAGE_SIZE,
+        frontendMiniAppConsts.MINI_APP_AD_BLACKLIST_DEFAULT_PAGE_SIZE,
       ],
     ];
     for (const [options, serverMax, frontendDefault] of tables) {
@@ -399,20 +426,37 @@ describe("Mini App 前端副本与服务端定义一致", () => {
       `const { window, document, navigator, location, fetch } = env;\nreturn ${scriptBody.trim()}`
     ) as (env: Record<string, unknown>) => Promise<void> | undefined;
 
+    const statusByCode: Readonly<Record<string, number>> = {
+      MISSING_INIT_DATA: 401,
+      MALFORMED_INIT_DATA: 401,
+      MISSING_HASH: 401,
+      MISSING_USER: 401,
+      INVALID_SIGNATURE: 401,
+      EXPIRED_AUTH_DATE: 401,
+      FORBIDDEN_USER: 403,
+      CROSS_SITE_FORBIDDEN: 403,
+      DIRECT_NAVIGATION_FORBIDDEN: 403,
+      PASSWORD_REQUIRED: 401,
+      SESSION_EXPIRED: 401,
+      PASSWORD_LOCKED: 403,
+    };
+    const rejectHandledCodes: readonly string[] = [
+      ...[...frontendMiniAppConsts.MINI_APP_ACCESS_DENIED_ERROR_CODES].filter(
+        (code: string): boolean => code !== frontendMiniAppCryptoConsts.MINI_APP_WEBCRYPTO_UNSUPPORTED_CODE
+      ),
+      ...[...frontendMiniAppConsts.MINI_APP_SESSION_REAUTH_ERROR_CODES].filter(
+        (code: string): boolean => code === "PASSWORD_REQUIRED" || code === "SESSION_EXPIRED"
+      ),
+    ];
     const denyCodes: readonly (readonly [string, number, number | undefined])[] = [
-      ["MISSING_INIT_DATA", 401, undefined],
-      ["MALFORMED_INIT_DATA", 401, undefined],
-      ["MISSING_HASH", 401, undefined],
-      ["MISSING_USER", 401, undefined],
-      ["INVALID_SIGNATURE", 401, undefined],
-      ["EXPIRED_AUTH_DATE", 401, undefined],
-      ["FORBIDDEN_USER", 403, undefined],
-      ["CROSS_SITE_FORBIDDEN", 403, undefined],
-      ["DIRECT_NAVIGATION_FORBIDDEN", 403, undefined],
-      ["PASSWORD_REQUIRED", 401, undefined],
-      ["SESSION_EXPIRED", 401, undefined],
+      ...rejectHandledCodes.map(
+        (code: string): readonly [string, number, number | undefined] => [
+          code,
+          statusByCode[code] ?? 403,
+          undefined,
+        ]
+      ),
       ["PASSWORD_LOCKED", 403, 29],
-      ["PASSWORD_LOCKED", 403, undefined],
       ["ACCESS_DENIED", 403, undefined],
       ["constructor", 403, undefined],
     ];
@@ -538,6 +582,11 @@ describe("Mini App 前端副本与服务端定义一致", () => {
       readonly fetchImpl: (url: string, init: RequestInit) => Promise<Response>;
     }
 
+    const reloadGuardKeyMatch: RegExpMatchArray | null = scriptBody.match(
+      /const RELOAD_GUARD_KEY = "([^"]+)";/u
+    );
+    expect(reloadGuardKeyMatch).not.toBeNull();
+    const reloadGuardStorageKey: string = reloadGuardKeyMatch![1]!;
     const validSessionToken: string = "a".repeat(64);
     const runWithInitData = async (
       options: Readonly<RunRejectWithInitDataOptions>
@@ -561,7 +610,7 @@ describe("Mini App 前端副本与服务端定义一致", () => {
       const localStore: Map<string, string> = new Map<string, string>();
       const sessionStore: Map<string, string> = new Map<string, string>();
       if (options.reloadGuardTs !== null) {
-        sessionStore.set("copy_ninja_mini_app_gate_reload_ts", options.reloadGuardTs);
+        sessionStore.set(reloadGuardStorageKey, options.reloadGuardTs);
       }
       if (options.telegramInitParamsRaw !== undefined && options.telegramInitParamsRaw !== null) {
         sessionStore.set("__telegram__initParams", options.telegramInitParamsRaw);
@@ -578,7 +627,7 @@ describe("Mini App 前端副本与服务端定义一致", () => {
         getItem: (key: string): string | null => sessionStore.get(key) ?? null,
         setItem: (key: string, val: string): void => {
           sessionStore.set(key, val);
-          if (key === "copy_ninja_mini_app_gate_reload_ts") savedGuardTs = val;
+          if (key === reloadGuardStorageKey) savedGuardTs = val;
         },
         removeItem: (key: string): void => { sessionStore.delete(key); },
       };

@@ -34,7 +34,8 @@ export function createPermissionDrawerStore(
 ): MiniAppPermissionDrawerStore {
   return createStore<MiniAppPermissionDrawerStoreState>()(
     (
-      set: (partial: Partial<MiniAppPermissionDrawerStoreState>) => void
+      set: (partial: Partial<MiniAppPermissionDrawerStoreState>) => void,
+      get: () => MiniAppPermissionDrawerStoreState
     ): MiniAppPermissionDrawerStoreState => ({
       busyKey: null,
 
@@ -43,6 +44,7 @@ export function createPermissionDrawerStore(
         permission: WhitelistPermissionKey | "all",
         enabled: boolean
       ): Promise<void> => {
+        if (get().busyKey !== null) return;
         const startedAt: number = Date.now();
         set({ busyKey: permission });
         try {

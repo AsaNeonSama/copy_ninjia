@@ -166,7 +166,7 @@ config/
     ├── assets.json         # サムネイル、デフォルトアバター、画像ライブラリパス
     ├── stickers.json       # スタンプパックの許可リスト
     ├── mood.json           # ムード段階と重み配分
-    ├── ad_detect.json      # 広告の処罰設定、判定用の参照サンプルとステッカー／絵文字ブラックリスト
+    ├── ad_detect.json      # 広告の処罰設定および判定用の参照サンプル
     └── cron.json           # 定期実行タスク定義（任意）
 ```
 
@@ -196,13 +196,12 @@ config/
   - AI の感情ステータス配列 `moods` を定義します。各項目は `name`、`weight`、`instruction` を含み、必要に応じて `weatherMultipliers` や `timeMultipliers` を設定できます。名前の重複は不可、重みは正の整数であり、全要素の合計値が厳密に `MOOD_WEIGHT_TOTAL` と一致する必要があります。
 
 - **`config/dynamic/ad_detect.json`**（[サンプル](../../config_example/dynamic/ad_detect.json)）
-  - 広告判定後の処罰方式、分類器への参照サンプル、および高速照合ブラックリストを定義します：
+  - 広告判定後の処罰方式と分類器への参照サンプルを定義します（広告ステッカーパックおよびカスタム絵文字パックのブラックリストは SQLite `ad_pack_blacklists` に独立永続化され、件数上限は設けずメインスレッドの 768 件共有 LRU キャッシュで検索を高速化し、`/ad_detect sticker|emoji` または Mini App で管理され AI の広告帰属時にも自動登録されます。稼働中に本ファイルを書き換えることはありません）：
     - `punishment`：広告と判定された送信者への処罰。`mute` と `kick` は排他で、**必ず一方のみ**を指定します：
       - `mute`：発生グループで送信者を禁言します（`permanent: true` なら無期限、それ以外は `duration` の期間）。
       - `kick`：発生グループから送信者を退出させます（`block: false` なら BAN なし、`block: true` なら `block_scope` に応じて該当グループのみ BAN（`"chat"`）または恒久ブラックリスト登録＋全管理グループ横断 BAN（`"global"`））。
       - チャンネル身元は `"global"` BAN 以外の設定ではメッセージ削除のみを行います。
     - `samples`：AI 広告分類モデルに渡す few-shot 参照サンプル配列。空白正規化・トリム後に非空かつ最大 `AD_SAMPLE_MAX_CHARS` 文字で重複不可（最大 `MAX_CONFIGURED_AD_SAMPLES` 件）。
-    - `sticker_black_list` / `emoji_black_list`：AI 判定より**前**に高速経路としてこの順で照合するステッカーパックおよびカスタム絵文字パックの short name ブラックリスト。各要素はトリム後に `STICKER_PACK_NAME_PATTERN` と一致し重複不可（各リスト最大 `MAX_CONFIGURED_AD_BLACKLIST_PACKS` 件）。一致した場合は AI 分類をスキップして直ちに `punishment` を適用します。
 
 - **`config/dynamic/agent.json`**（[サンプル](../../config_example/dynamic/agent.json)）
   - AI システムの各機能を定義します。トップレベルキーは `agent` のみです。各機能は独立して設定され、機能間での自動フォールバックは行われません。未知のキーが存在する場合は起動を拒否します：
@@ -217,7 +216,7 @@ config/
          - `daily_limit`（省略時は `TTS_DEFAULT_DAILY_LIMIT`）および `daily_reserve_quota`（省略時は `TTS_DEFAULT_DAILY_RESERVE_QUOTA`。`daily_limit` 未満である必要があります）：1 日あたりの合成回数クォータを AI 返信用と `/send`・cron 共用の予約枠に分割し、それぞれ独立して消費をカウントします。
     3. **検索および安全管理機能**：
        - `web_search`：ローカル Web 検索ツール機能。`max_calls_per_use`（正の整数。省略時は `WEB_SEARCH_DEFAULT_MAX_CALLS_PER_USE`）で 1 ターンあたりの最大呼び出し回数を制限できます。未設定時は `text` モデル内蔵のグラウンディング検索が使用されます。
-       - `ad_detect`：グループチャット内の発言に対するスパム・広告検出機能。未設定時は広告検出が無効化されます。
+       - `ad_detect`：グループチャット内の発言に対するマルチモーダル・テキスト広告検出機能（テキスト・画像・ステッカー・カスタム絵文字を検査）。`provider: "google"` では任意の真偽値 `use_decision`（既定 `false`）で Google Decisions API に切り替え可能です。未設定時は広告検出が無効化されます。
     4. **各機能の共通フィールド**：
        - `provider`：`google` | `openai` | `anthropic`（`image` と `tts` は Google と OpenAI のみ対応）。
        - `api_key`：アクセスキー。サンプル内のプレースホルダー文字列は拒否されます。

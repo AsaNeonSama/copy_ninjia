@@ -111,7 +111,7 @@ export const DYNAMIC_CONFIG_DIR: string = join(CONFIG_ROOT, DYNAMIC_CONFIG_DIR_N
 export const STICKERS_CONFIG_PATH: string = join(DYNAMIC_CONFIG_DIR, "stickers.json");
 /** AI 心情档位配置（文案、base weight、天气/时段倍率；可选、可热重载），见 packages/config/mood.ts。 */
 export const MOOD_CONFIG_PATH: string = join(DYNAMIC_CONFIG_DIR, "mood.json");
-/** 广告检测的部署配置（处罚设置、样本清单与贴纸包/表情包黑名单；可选、可热重载），见 packages/config/adDetectConfig.ts。 */
+/** 广告检测的部署配置（处罚设置与样本清单；可选、可热重载），见 packages/config/adDetectConfig.ts。 */
 export const AD_DETECT_CONFIG_PATH: string = join(DYNAMIC_CONFIG_DIR, "ad_detect.json");
 
 /** Bot token、超级管理员 ID、通知风格、默认时区与可选 Mini App 配置的静态部署文件（修改后须重启）。 */

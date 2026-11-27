@@ -527,8 +527,6 @@ describe("Mini App 配置管理、会话临时密钥直接加密保存与热重�
         payload: {
           punishment: { mute: { permanent: true } },
           samples: ["spam sample"],
-          sticker_black_list: [],
-          emoji_black_list: [],
           unknownField: 1,
         },
       },
@@ -916,8 +914,6 @@ describe("Mini App 配置管理、会话临时密钥直接加密保存与热重�
       {
         punishment: { mute: { permanent: true } },
         samples: largeSamples,
-        sticker_black_list: [],
-        emoji_black_list: [],
       },
       null,
       2

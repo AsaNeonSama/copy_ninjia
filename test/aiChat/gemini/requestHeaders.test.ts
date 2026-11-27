@@ -17,7 +17,7 @@ import {
 } from "../../../packages/config/agent";
 import { geminiClientCache } from "../../../packages/cache/workers/aiChat/gemini";
 import { adDetectGoogleClientHolder } from "../../../packages/cache/workers/antiRaid/google";
-import { GEMINI_API_BASE_URL } from "../../../packages/consts/aiChat/gemini";
+import { GEMINI_API_BASE_URL, GEMINI_API_VERSION } from "../../../packages/consts/aiChat/gemini";
 import { requestGeminiResult } from "../../../packages/workers/aiChat/gemini/client";
 import { synthesizeGeminiSpeech } from "../../../packages/workers/aiChat/gemini/speech";
 import { requestGoogleAdDetectJson } from "../../../packages/workers/antiRaid/adDetect/ai/google";
@@ -98,7 +98,7 @@ describe("google provider 自定义端点与凭据头", () => {
     }), errorLabel: "Gemini header test" });
 
     expect(captured).toHaveLength(1);
-    expect(captured[0]!.url.startsWith(`${PROXY}/`)).toBe(true);
+    expect(captured[0]!.url.startsWith(`${PROXY}/${GEMINI_API_VERSION}/`)).toBe(true);
     expect(captured[0]!.url).toContain(":generateContent");
     expect(captured[0]!.headers.get("x-goog-api-key")).toBe("text-key");
   });
@@ -108,7 +108,7 @@ describe("google provider 自定义端点与凭据头", () => {
 
     expect(speech?.bytes).toEqual(WAV_BYTES);
     expect(captured).toHaveLength(1);
-    expect(captured[0]!.url.startsWith(`${PROXY}/`)).toBe(true);
+    expect(captured[0]!.url.startsWith(`${PROXY}/${GEMINI_API_VERSION}/`)).toBe(true);
     expect(captured[0]!.url).toContain("/interactions");
     expect(captured[0]!.headers.get("x-goog-api-key")).toBe("tts-key");
   });
@@ -128,6 +128,7 @@ describe("google provider 自定义端点与凭据头", () => {
       GOOGLE_GEMINI_BASE_URL: undefined,
       GOOGLE_GENAI_USE_ENTERPRISE: undefined,
       GOOGLE_GENAI_USE_VERTEXAI: undefined,
+      GOOGLE_GENAI_API_VERSION: undefined,
       GOOGLE_CLOUD_PROJECT: undefined,
       GOOGLE_CLOUD_LOCATION: undefined,
     }, async (): Promise<void> => {
@@ -143,9 +144,10 @@ describe("google provider 自定义端点与凭据头", () => {
     });
   });
 
-  test("base_url 缺省时 aiChat 与 ad_detect 均不受 GOOGLE_GEMINI_BASE_URL 与 Vertex 开关环境变量污染", async () => {
+  test("base_url 缺省时 aiChat 与 ad_detect 均不受 GOOGLE_GEMINI_BASE_URL、GOOGLE_GENAI_API_VERSION 与 Vertex 开关环境变量污染", async () => {
     await withProcessEnv({
       GOOGLE_GEMINI_BASE_URL: "http://evil.google.example",
+      GOOGLE_GENAI_API_VERSION: "v1alpha",
       GOOGLE_GENAI_USE_ENTERPRISE: "true",
       GOOGLE_GENAI_USE_VERTEXAI: "true",
       GOOGLE_CLOUD_PROJECT: "evil-project",
@@ -158,7 +160,7 @@ describe("google provider 自定义端点与凭据头", () => {
         summary: googleCapability("summary-key", undefined),
         media: googleCapability("media-key", undefined),
       });
-      adoptAdDetectAgentConfig(googleCapability("ad-default-key", undefined));
+      adoptAdDetectAgentConfig({ ...googleCapability("ad-default-key", undefined), useDecision: false });
 
       await requestGeminiResult({
         capability: "text",
@@ -179,7 +181,8 @@ describe("google provider 自定义端点与凭据头", () => {
       const urls: string[] = captured.map((req: CapturedRequest): string => req.url);
       expect(urls.filter((url: string): boolean => url.endsWith(":generateContent"))).toHaveLength(2);
       for (const url of urls) {
-        expect(url.startsWith(GEMINI_API_BASE_URL)).toBe(true);
+        expect(url.startsWith(`${GEMINI_API_BASE_URL}${GEMINI_API_VERSION}/`)).toBe(true);
+        expect(url).not.toContain("v1alpha");
         expect(url).not.toContain("aiplatform.googleapis.com");
       }
     });

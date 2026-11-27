@@ -338,14 +338,16 @@ function enabledOrOmitted(enabled: boolean): true | undefined {
 }
 
 /**
- * 将 ChatState 编码为 JSON 文本并经 decodeChatStateData 复核。
+ * 将 ChatState 编码为 JSON 文本并经 decodeChatStateData 复核；提供 `chatId` 时同步校验自动删帖目标不包含本群。
  * @param state 待编码的群状态对象。
  * @param source 来源标识，用于复核失败时的错误诊断。
+ * @param chatId 可选的所属群聊 ID，用于复核自动删帖目标不自引用本群。
  * @returns 序列化并通过复核的 JSON 字符串。
  */
 export function encodeChatStateData(
   state: Readonly<ChatState>,
-  source: string = "chat state"
+  source: string = "chat state",
+  chatId?: number
 ): string {
   const text: string = JSON.stringify({
     quietUntil: state.quietUntil,
@@ -362,6 +364,6 @@ export function encodeChatStateData(
     translate: state.translate,
     deleteMessageTargets: state.deleteMessageTargets,
   });
-  decodeChatStateData(text, source);
+  decodeChatStateData(text, source, chatId);
   return text;
 }

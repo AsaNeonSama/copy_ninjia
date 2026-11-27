@@ -1,7 +1,7 @@
 import { dirname, relative, resolve } from "node:path";
 import ts from "typescript";
 import { MINI_APP_FRONTEND_CONSTS_ROOT } from "./miniAppFrontend";
-import { runtimeModuleReferences } from "./sourceAnalysis";
+import { lineOfPosition as lineOf, runtimeModuleReferences } from "./sourceAnalysis";
 import { globalPropertyName } from "./staticAccess";
 
 /**
@@ -23,17 +23,6 @@ export interface ModuleBoundaryParams {
   readonly path: string;
   /** 该文件唯一一次解析得到的 AST。 */
   readonly source: ts.SourceFile;
-}
-
-/**
- * 节点所在行号（1 起）。
- *
- * @param source 源文件 AST
- * @param position 字符偏移位置
- * @returns 1-based 行号
- */
-function lineOf(source: ts.SourceFile, position: number): number {
-  return source.getLineAndCharacterOfPosition(position).line + 1;
 }
 
 /** 允许读取 `process.env` / `Bun.env` 的边界文件，相对仓库根。 */

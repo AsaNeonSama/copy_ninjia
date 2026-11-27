@@ -3,7 +3,10 @@
  */
 
 import { mock } from "bun:test";
-import { BLOCKLIST_SWEEP_PAGE_SIZE } from "../../packages/consts/identityStorage";
+import {
+  AD_PACK_BLACKLIST_PAGE_SIZE,
+  BLOCKLIST_SWEEP_PAGE_SIZE,
+} from "../../packages/consts/identityStorage";
 import {
   MINI_APP_INIT_DATA_HEADER,
   MINI_APP_SESSION_HEADER,
@@ -12,6 +15,10 @@ import {
 } from "../../packages/consts/miniApp";
 import { MINI_APP_SESSION_ROTATE_AT_SEEN_IVS } from "../../packages/consts/miniAppCrypto";
 import { miniAppAuthSessions } from "../../packages/cache/main/miniApp";
+import type {
+  AdPackBlacklistKind,
+  AdPackBlacklistPage,
+} from "../../packages/types/adPackBlacklist";
 import type { MiniAppAuthSession } from "../../packages/types/miniApp/auth";
 import type {
   AiMemoryDeletedPersistedReply,
@@ -36,6 +43,12 @@ export const miniAppTestWhitelistRows: Map<number, string> = new Map<number, str
 
 /** Mini App 集成测试共享的黑名单数据库行夹具。 */
 export const miniAppTestBlocklistRows: Map<number, string> = new Map<number, string>();
+
+/** Mini App 集成测试共享的广告包黑名单数据库行夹具。 */
+export const miniAppTestAdPackBlacklistRows: Readonly<Record<AdPackBlacklistKind, Set<string>>> = {
+  sticker: new Set<string>(),
+  emoji: new Set<string>(),
+};
 
 /** Mini App 集成测试共享的入群日志与 flush 钩子可变状态。 */
 export const miniAppTestJoinLogState: {
@@ -111,6 +124,49 @@ async function readFixtureIdentityIdPage(
 export const readIdentityIdPageMock = mock(readFixtureIdentityIdPage);
 
 /**
+ * 按夹具集合回答广告包黑名单批量存在性冷读。
+ *
+ * @param kind 目标黑名单种类。
+ * @param packs 待查询包名列表。
+ * @returns 命中的包名数组。
+ */
+async function readFixtureAdPackBlacklists(
+  kind: AdPackBlacklistKind,
+  packs: readonly string[]
+): Promise<readonly string[]> {
+  const rows: ReadonlySet<string> = miniAppTestAdPackBlacklistRows[kind];
+  return packs.filter((pack: string): boolean => rows.has(pack));
+}
+
+/** Mini App 集成测试共享的 `readAdPackBlacklists` 桩函数。 */
+export const readAdPackBlacklistsMock = mock(readFixtureAdPackBlacklists);
+
+/**
+ * 按 SQLite 游标页契约从夹具集合切出 `afterPack` 之后的一页包名。
+ *
+ * @param kind 目标黑名单种类。
+ * @param afterPack 上一页游标包名（首页传 `null`）。
+ * @returns 游标分页结果。
+ */
+async function readFixtureAdPackBlacklistPage(
+  kind: AdPackBlacklistKind,
+  afterPack: string | null
+): Promise<AdPackBlacklistPage> {
+  const sorted: string[] = [...miniAppTestAdPackBlacklistRows[kind]]
+    .filter((pack: string): boolean => afterPack === null || pack > afterPack)
+    .sort((left: string, right: string): number => (left < right ? -1 : left > right ? 1 : 0));
+  const packs: string[] = sorted.slice(0, AD_PACK_BLACKLIST_PAGE_SIZE);
+  return {
+    packs,
+    nextCursor: packs.length === 0 ? afterPack : packs[packs.length - 1]!,
+    done: sorted.length <= AD_PACK_BLACKLIST_PAGE_SIZE,
+  };
+}
+
+/** Mini App 集成测试共享的 `readAdPackBlacklistPage` 桩函数。 */
+export const readAdPackBlacklistPageMock = mock(readFixtureAdPackBlacklistPage);
+
+/**
  * 幂等安装 Mini App 服务端测试共用的 `packages/infra/diskIO` 模块替身，使多文件同进程运行与 `--isolate` 具有一致的回执监听。
  */
 export function installMiniAppTestDiskIOMock(): void {
@@ -128,6 +184,11 @@ export function installMiniAppTestDiskIOMock(): void {
         );
         const latestChatRevisions: Map<number, number> = new Map<number, number>();
         const identityWrites: IdentityPolicyPersistedRevision[] = [];
+        const adPackBlacklistWrites: {
+          readonly kind: "sticker" | "emoji";
+          readonly pack: string;
+          readonly revision: number;
+        }[] = [];
         for (const msg of queuedMessages) {
           if (msg.type === "chatStateWrite") {
             latestChatRevisions.set(msg.chatId, msg.revision);
@@ -137,6 +198,17 @@ export function installMiniAppTestDiskIOMock(): void {
               msg.table === "whitelist" ? miniAppTestWhitelistRows : miniAppTestBlocklistRows;
             if (msg.data === null) targetMap.delete(msg.id);
             else targetMap.set(msg.id, msg.data);
+          } else if (msg.type === "adPackBlacklistWrite") {
+            adPackBlacklistWrites.push({
+              kind: msg.kind,
+              pack: msg.pack,
+              revision: msg.revision,
+            });
+            if (msg.blacklisted) {
+              miniAppTestAdPackBlacklistRows[msg.kind].add(msg.pack);
+            } else {
+              miniAppTestAdPackBlacklistRows[msg.kind].delete(msg.pack);
+            }
           }
         }
         const chatStateWrites: { chatId: number; revision: number }[] = [];
@@ -150,6 +222,7 @@ export function installMiniAppTestDiskIOMock(): void {
             temporaryAdBypassWrites: [],
             chatStateWrites,
             chatQaWrites: [],
+            adPackBlacklistWrites,
             removalWrites: [],
           });
         }
@@ -196,6 +269,8 @@ export function installMiniAppTestDiskIOMock(): void {
       },
       readIdentityPolicies: readIdentityPoliciesMock,
       readIdentityIdPage: readIdentityIdPageMock,
+      readAdPackBlacklists: readAdPackBlacklistsMock,
+      readAdPackBlacklistPage: readAdPackBlacklistPageMock,
       relayLogMessage: (): boolean => true,
     })
   );
@@ -208,6 +283,8 @@ export function resetMiniAppTestDiskIOState(): void {
   miniAppTestDiskMessages.length = 0;
   miniAppTestWhitelistRows.clear();
   miniAppTestBlocklistRows.clear();
+  miniAppTestAdPackBlacklistRows.sticker.clear();
+  miniAppTestAdPackBlacklistRows.emoji.clear();
   miniAppTestJoinLogState.records = [];
   miniAppTestJoinLogState.shouldThrow = false;
   miniAppTestJoinLogState.onFlushDiskIODomain = undefined;
@@ -215,6 +292,10 @@ export function resetMiniAppTestDiskIOState(): void {
   readIdentityPoliciesMock.mockImplementation(readFixtureIdentityPolicies);
   readIdentityIdPageMock.mockReset();
   readIdentityIdPageMock.mockImplementation(readFixtureIdentityIdPage);
+  readAdPackBlacklistsMock.mockReset();
+  readAdPackBlacklistsMock.mockImplementation(readFixtureAdPackBlacklists);
+  readAdPackBlacklistPageMock.mockReset();
+  readAdPackBlacklistPageMock.mockImplementation(readFixtureAdPackBlacklistPage);
 }
 
 /**

@@ -19,7 +19,7 @@ import type { AdCandidateAdmissionInput } from "../../packages/types/states/adDe
 
 const CANDIDATE: AdCandidateAdmissionInput = {
   textLength: 10,
-  hasPackCandidate: false,
+  hasMediaCandidate: false,
   isChannel: false,
   recentlyDisposed: false,
   blocked: false,
@@ -45,8 +45,8 @@ describe("投递闸 admitAdCandidate", () => {
     expect(admitAdCandidate({ ...CANDIDATE, textLength: 0 })).toBe("ignore");
   });
 
-  test("无正文但带贴纸包名或自定义表情 ID 时接纳，交给黑名单核对", () => {
-    expect(admitAdCandidate({ ...CANDIDATE, textLength: 0, hasPackCandidate: true })).toBe("accept");
+  test("无正文但带贴纸、图片或自定义表情候选时接纳，交给黑名单与视觉检测", () => {
+    expect(admitAdCandidate({ ...CANDIDATE, textLength: 0, hasMediaCandidate: true })).toBe("accept");
   });
 
   test("自身 TTL 内刚处置过：普通账号与频道马甲都顺手删这一条", () => {
@@ -65,17 +65,17 @@ describe("投递闸 admitAdCandidate", () => {
   test("空正文优先于其余判据：连删都不必删", () => {
     expect(admitAdCandidate({
       textLength: 0,
-      hasPackCandidate: false,
+      hasMediaCandidate: false,
       isChannel: true,
       recentlyDisposed: true,
       blocked: false,
     })).toBe("ignore");
   });
 
-  test("无正文的贴纸候选同样走黑名单与处置抑制：普通账号忽略，频道马甲删这一条", () => {
-    const sticker: AdCandidateAdmissionInput = { ...CANDIDATE, textLength: 0, hasPackCandidate: true };
-    expect(admitAdCandidate({ ...sticker, blocked: true })).toBe("ignore");
-    expect(admitAdCandidate({ ...sticker, blocked: true, isChannel: true })).toBe("deleteStraggler");
+  test("无正文的媒体候选同样走黑名单与处置抑制：普通账号忽略，频道马甲删这一条", () => {
+    const media: AdCandidateAdmissionInput = { ...CANDIDATE, textLength: 0, hasMediaCandidate: true };
+    expect(admitAdCandidate({ ...media, blocked: true })).toBe("ignore");
+    expect(admitAdCandidate({ ...media, blocked: true, isChannel: true })).toBe("deleteStraggler");
   });
 });
 

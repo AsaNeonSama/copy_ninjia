@@ -6,13 +6,13 @@ import type { TelegramParseMode } from "../types/telegram";
 export const MARKDOWN_V2_PARSE_MODE: TelegramParseMode = "MarkdownV2";
 
 /** 正文里必须加 `\` 的字符：Bot API 列出的保留字符与 `\` 本身，全局匹配。 */
-export const MARKDOWN_V2_TEXT_ESCAPE_PATTERN: RegExp = /[_*[\]()~`>#+\-=|{}.!\\]/g;
+export const MARKDOWN_V2_TEXT_ESCAPE_PATTERN: Readonly<RegExp> = /[_*[\]()~`>#+\-=|{}.!\\]/g;
 
 /** `code` 与 `pre` 内部必须加 `\` 的字符：只有反引号与 `\`，全局匹配。 */
-export const MARKDOWN_V2_CODE_ESCAPE_PATTERN: RegExp = /[`\\]/g;
+export const MARKDOWN_V2_CODE_ESCAPE_PATTERN: Readonly<RegExp> = /[`\\]/g;
 
 /** 内联链接 `(...)` 内部必须加 `\` 的字符：只有 `)` 与 `\`，全局匹配。 */
-export const MARKDOWN_V2_URL_ESCAPE_PATTERN: RegExp = /[)\\]/g;
+export const MARKDOWN_V2_URL_ESCAPE_PATTERN: Readonly<RegExp> = /[)\\]/g;
 
 /** 转义替换串：在匹配到的字符前加一个 `\`。 */
 export const MARKDOWN_V2_ESCAPE_REPLACEMENT: string = "\\$&";

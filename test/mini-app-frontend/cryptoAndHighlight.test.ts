@@ -153,6 +153,67 @@ describe("Web Crypto 256-bit 会话加解密与密钥生命周期", () => {
     expect((): Uint8Array => base64ToBytes("abc")).toThrow(
       MINI_APP_INVALID_ENCRYPTED_PAYLOAD_CODE
     );
+    // 验证原生 Uint8Array.prototype.toBase64 / Uint8Array.fromBase64 快路径与纯 JS 回退路径编解码及严格拒绝集合完全一致。
+    const origToBase64Desc: PropertyDescriptor | undefined =
+      Reflect.getOwnPropertyDescriptor(Uint8Array.prototype, "toBase64");
+    const origFromBase64Desc: PropertyDescriptor | undefined =
+      Reflect.getOwnPropertyDescriptor(Uint8Array, "fromBase64");
+    const invalidBase64Cases: readonly string[] = [
+      "",
+      " ",
+      "ab cd",
+      "AAAA\n",
+      "abc",
+      "ab==",
+      "AB==",
+      "AAB=",
+      "A===",
+      "====",
+      "ab-c",
+      "ab_c",
+      "ab!c",
+    ];
+    for (const invalidSample of invalidBase64Cases) {
+      expect((): Uint8Array => base64ToBytes(invalidSample)).toThrow(
+        MINI_APP_INVALID_ENCRYPTED_PAYLOAD_CODE
+      );
+    }
+    try {
+      Object.defineProperty(Uint8Array.prototype, "toBase64", {
+        configurable: true,
+        writable: true,
+        value: undefined,
+      });
+      Object.defineProperty(Uint8Array, "fromBase64", {
+        configurable: true,
+        writable: true,
+        value: undefined,
+      });
+      for (const byteLen of [0, 1, 2, 3, 12, 16, MINI_APP_SESSION_KEY_BYTES]) {
+        const sample: Uint8Array<ArrayBuffer> = new Uint8Array(byteLen);
+        for (let i: number = 0; i < byteLen; i += 1) {
+          sample[i] = (i * 53 + 7) & 0xff;
+        }
+        const fallbackEncoded: string = bytesToBase64(sample);
+        if (byteLen === 0) {
+          expect(fallbackEncoded).toBe("");
+        } else {
+          expect(Array.from(base64ToBytes(fallbackEncoded))).toEqual(Array.from(sample));
+        }
+      }
+      for (const invalidSample of invalidBase64Cases) {
+        expect((): Uint8Array => base64ToBytes(invalidSample)).toThrow(
+          MINI_APP_INVALID_ENCRYPTED_PAYLOAD_CODE
+        );
+      }
+    } finally {
+      if (origToBase64Desc !== undefined) {
+        Object.defineProperty(Uint8Array.prototype, "toBase64", origToBase64Desc);
+      }
+      if (origFromBase64Desc !== undefined) {
+        Object.defineProperty(Uint8Array, "fromBase64", origFromBase64Desc);
+      }
+    }
     expect(isValidMiniAppHexKey(TEST_SESSION_KEY)).toBeTrue();
     expect(isValidMiniAppHexKey("short")).toBeFalse();
 

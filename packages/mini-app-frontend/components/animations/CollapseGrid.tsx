@@ -109,12 +109,13 @@ export function InlineNoticeCollapse<T>({
   animateOnInitialExpand = false,
   children,
 }: InlineNoticeCollapseProps<T>): React.JSX.Element {
-  const { displayValue }: Readonly<DelayedUnmountState<T>> = useDelayedUnmount(
-    activeValue,
-    MINI_APP_FLIP_COLLAPSE_CONTENT_RETAIN_MS
-  );
   const normalizedResetKey: string | null | undefined =
     typeof resetKey === "number" ? String(resetKey) : resetKey;
+  const { displayValue }: Readonly<DelayedUnmountState<T>> = useDelayedUnmount(
+    activeValue,
+    MINI_APP_FLIP_COLLAPSE_CONTENT_RETAIN_MS,
+    normalizedResetKey ?? undefined
+  );
   return (
     <CollapseGrid
       expanded={activeValue !== null}

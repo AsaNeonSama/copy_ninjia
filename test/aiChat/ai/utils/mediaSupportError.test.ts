@@ -1,9 +1,12 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import {
+  isExplicitUnsupportedMediaError,
+  numericErrorStatus,
+} from "../../../../packages/aiProviders/mediaSupportError";
+import {
   classifyProviderApiFailure,
   handleProviderRequestError,
   logAndClassifyProviderApiError,
-  numericErrorStatus,
   providerApiFailureResult,
 } from "../../../../packages/workers/aiChat/ai/utils/mediaSupportError";
 import type { ProviderApiFailureKind } from
@@ -20,11 +23,31 @@ const UNSUPPORTED_MEDIA_MESSAGE: string =
   "This model does not support image input for the requested modality.";
 
 describe("供应商 API 失败的状态读取", () => {
-  test("只认数值 status，其余形态一律读成未知", () => {
+  test("只认数值 status，其余形态（含 null、undefined 与原始值）一律读成未知", () => {
     expect(numericErrorStatus({ status: 404 })).toBe(404);
     expect(numericErrorStatus({ status: "404" })).toBeUndefined();
     expect(numericErrorStatus({})).toBeUndefined();
     expect(numericErrorStatus(new Error("network"))).toBeUndefined();
+    expect(numericErrorStatus(null)).toBeUndefined();
+    expect(numericErrorStatus(undefined)).toBeUndefined();
+    expect(numericErrorStatus("404")).toBeUndefined();
+    expect(numericErrorStatus(500)).toBeUndefined();
+  });
+
+  test("isExplicitUnsupportedMediaError 覆盖所有拒绝能力措辞与模态关键词分支", () => {
+    for (const message of [
+      "Model is not capable of handling this content type",
+      "Model can't process this input type",
+      "Model cannot process voice input",
+      "Model doesn't support audio input",
+      "Model does not support vision input",
+      "This model is not supported for media input",
+      "Model has unsupported modality",
+    ]) {
+      expect(isExplicitUnsupportedMediaError(400, message)).toBeTrue();
+    }
+    expect(isExplicitUnsupportedMediaError(400, "Model is not capable of handling this request")).toBeFalse();
+    expect(isExplicitUnsupportedMediaError(400, "Model rejects this content type")).toBeFalse();
   });
 });
 

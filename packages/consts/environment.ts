@@ -5,12 +5,15 @@ export const RUNTIME_DATA_ROOT_ENV: string = "COPY_NINJIA_DATA_ROOT";
 export const CONFIG_ROOT_ENV: string = "COPY_NINJIA_CONFIG_ROOT";
 
 /**
- * AI SDK 会并入每个请求头、且构造参数关不掉的环境变量名（可追加或覆盖同名头，包括 Authorization）。
+ * AI SDK 会自动读取、且构造参数关不掉的请求头与调试日志环境变量名（如向请求追加/覆盖头字段、
+ * 注入 `x-goog-user-project` 或将 `@google/genai` NextGen 客户端日志直通 `console` 绕过脱敏）。
  * 进程环境里出现任一（含空串）即在 consts/paths.ts 加载时拒绝启动。
  */
 export const SDK_REQUEST_HEADER_ENVS: readonly string[] = [
   "ANTHROPIC_CUSTOM_HEADERS",
   "OPENAI_CUSTOM_HEADERS",
+  "GOOGLE_GENAI_USER_PROJECT",
+  "GOOGLE_GENAI_DEBUG",
 ];
 
 /** 性能子进程启用 JSC GC 暂停日志的环境变量名。 */

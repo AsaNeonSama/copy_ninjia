@@ -29,6 +29,8 @@ export function diskIOStub(overrides: Partial<typeof diskIO> = {}): typeof diskI
     readJoinLog: unavailableRead,
     readIdentityPolicies: unavailableRead,
     readIdentityIdPage: unavailableRead,
+    readAdPackBlacklists: unavailableRead,
+    readAdPackBlacklistPage: unavailableRead,
     flushDiskIO: async (): Promise<FlushResult> => "failed",
     flushDiskIODomain: async (): Promise<DomainFlushOutcome> => ({ result: "failed" }),
     terminateDiskIO: async (): Promise<void> => {},
@@ -74,7 +76,7 @@ export function acknowledgeIdentityPolicyWrites(
     writes.push({ table: write.table!, id: write.id!, revision: write.revision! });
   }
   for (const listener of listeners) {
-    listener({ type: "identityStoragePersisted", writes, temporaryAdBypassWrites: [], chatStateWrites: [], chatQaWrites: [], removalWrites: [] });
+    listener({ type: "identityStoragePersisted", writes, temporaryAdBypassWrites: [], chatStateWrites: [], chatQaWrites: [], adPackBlacklistWrites: [], removalWrites: [] });
   }
 }
 

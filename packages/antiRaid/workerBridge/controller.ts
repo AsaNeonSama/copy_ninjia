@@ -2,6 +2,7 @@
  * Anti-Raid 主线程控制器：只负责 Worker 生命周期、代际切换和公开控制命令。
  * 事件归并、重放数据构建及外部观察者注册分别位于同目录的叶子模块。
  */
+import { adDetectDedupReleaserHolder } from "../../cache/main/antiRaid/adDisposal";
 import { emergencyLockdownRecoveryRuntime } from "../../cache/main/antiRaid/lockdownMirror";
 import {
   adCandidatePostRejected,
@@ -14,6 +15,8 @@ import {
 } from "../../cache/main/antiRaid/verificationMirror";
 import { VERIFICATION_RECORD_CAPACITY } from "../../consts/antiRaid/verification";
 import { ANTI_RAID_WORKER_URL } from "../../consts/paths";
+import { findFirstBlacklistedAdPack } from "../../infra/adPackBlacklistStorage";
+import { getChatState } from "../../infra/chatStateStorage";
 import {
   postDiskIO,
 } from "../../infra/diskIO";
@@ -49,7 +52,7 @@ import {
   grantVerificationAttempt,
   resetVerificationAttemptRuntime,
 } from "../verificationAttempts";
-import { canBypassAdDetection } from "../memberFacts";
+import { isProtectedFromAdDisposal } from "../memberFacts";
 import { handleAntiRaidWorkerEvent } from "./events";
 import { registerAntiRaidBridgeObservers } from "./observers";
 import {
@@ -61,13 +64,16 @@ import {
   nextAntiRaidGeneration,
   purgeDisabledJoinGuards,
   replayAdDetectAgentConfig,
+  replayAdPackBlacklists,
   replayBotPermissions,
   replayChatKinds,
 } from "./replay";
 import { isTerminalVerificationPhase } from "../../states/verification/shared";
 
 /**
- * Anti-Raid 专属进程级许可与 Telegram 能力共用既有双工边界。
+ * Anti-Raid 专属进程级许可与 Telegram 能力共用既有双工边界；
+ * 其中引用广告警告发送前复查主线程当前群广告检测开关与白名单保护状态，
+ * 开关已关闭、身份策略冷读失败或命中白名单保护时返回 `{ suppressed: true }`。
  *
  * @param request Worker 发起的双工请求载荷
  * @param signal 请求取消信号
@@ -80,13 +86,20 @@ async function handleAntiRaidWorkerRequest(
   if (request.operation === "verificationAttemptPermit") {
     return grantVerificationAttempt(request);
   }
+  if (request.operation === "matchAdPackBlacklist") {
+    return findFirstBlacklistedAdPack(request.kind, request.packs);
+  }
   if (request.operation === "sendTemporaryMessage" && request.purpose === "adWarning") {
-    // 引用警告晚于候选入队和模型判定，发送前以主线程当前权限为准；
-    // 身份策略冷读失败时按抑制处理。
+    // 引用警告晚于候选入队和模型判定，发送前以主线程当前群广告检测开关与白名单保护状态为准；
+    // 开关已关闭或身份策略冷读失败时按抑制处理。
+    if (getChatState(request.chatId).isAdDetectEnabled !== true) {
+      return { suppressed: true };
+    }
     const prefetched: boolean = await prefetchIdentityPolicies([request.identityId]);
     if (
       !prefetched ||
-      canBypassAdDetection(request.identityId)
+      getChatState(request.chatId).isAdDetectEnabled !== true ||
+      isProtectedFromAdDisposal(request.identityId)
     ) return { suppressed: true };
   }
   return handleAntiRaidWorkerTelegramRequest(request, signal);
@@ -103,7 +116,12 @@ function antiRaidWorkerResponseTransfer(
   request: AntiRaidWorkerRequest,
   value: unknown
 ): Bun.Transferable[] | undefined {
-  if (request.operation === "verificationAttemptPermit") return undefined;
+  if (
+    request.operation === "verificationAttemptPermit" ||
+    request.operation === "matchAdPackBlacklist"
+  ) {
+    return undefined;
+  }
   return telegramWorkerResponseTransfer(request, value);
 }
 
@@ -134,8 +152,9 @@ const {
       advanceDeferredVerificationGeneration(generation);
       advanceActiveVerificationGeneration(generation);
 
-      // FIFO：配置、权限与群类型必须先于所有接管快照和新业务消息。
+      // FIFO：配置、广告包黑名单、权限与群类型必须先于所有接管快照和新业务消息。
       if (!replayAdDetectAgentConfig(postToNext)) return;
+      if (!replayAdPackBlacklists(postToNext)) return;
       if (!replayBotPermissions(postToNext)) return;
       if (!replayChatKinds(postToNext)) return;
       if (!postToNext(buildAdoptVerificationsMessage(generation))) return;
@@ -180,9 +199,23 @@ registerAntiRaidBridgeObservers({
   post: postAntiRaid,
   deactivateChat: deactivateAntiRaidChat,
 });
+adDetectDedupReleaserHolder.current = (chatId: number, senderId: number): void => {
+  postAntiRaid({ type: "releaseAdDetectDedup", chatId, senderId });
+};
 
 /** 尽力把一条消息投给当前代际的 Anti-Raid Worker；返回是否已投出。 */
 export { postAntiRaid };
+
+/**
+ * 某身份进入永久白名单或获得临时广告免检时，尽力通知 Anti-Raid Worker 清除其在各群
+ * 尚未结算的广告检测状态、引用警告与处置抑制标记；Worker 未就绪或不可用时返回 false。
+ *
+ * @param identityId 目标用户或频道身份 ID
+ * @returns 已提交给当前代际 Worker 时返回 true，否则返回 false
+ */
+export function clearIdentityAdDetection(identityId: number): boolean {
+  return postAntiRaid({ type: "clearIdentityAdDetect", identityId });
+}
 
 /**
  * 热重载替换广告检测配置后，把主线程当前快照投给 Worker（见 app/configReload.ts）。
@@ -224,6 +257,11 @@ export function initAntiRaid(): void {
     if (!replayAdDetectAgentConfig(postAntiRaid)) {
       throw new WorkerUndeliveredError(
         "Anti-Raid Worker rejected the agent configuration snapshot."
+      );
+    }
+    if (!replayAdPackBlacklists(postAntiRaid)) {
+      throw new WorkerUndeliveredError(
+        "Anti-Raid Worker rejected the ad pack blacklist snapshot."
       );
     }
     if (!replayBotPermissions(postAntiRaid)) {

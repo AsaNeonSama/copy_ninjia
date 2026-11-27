@@ -107,7 +107,7 @@ export function aiChatReadinessFromHolders(): ConfigReadiness {
 
 /**
  * 按主线程当前快照容器判定广告检测功能的部署前提：
- * 需同时具备已校验的 `ad_detect.json`（处罚设置、样本与黑名单）与 `agent.json` 的 `ad_detect` 能力段（仅读容器，不读盘）。
+ * 需同时具备已校验的 `ad_detect.json`（处罚设置与样本）与 `agent.json` 的 `ad_detect` 能力段（仅读容器，不读盘）。
  * @returns 广告检测功能的配置可用性结论。
  */
 export function adDetectReadinessFromHolders(): ConfigReadiness {

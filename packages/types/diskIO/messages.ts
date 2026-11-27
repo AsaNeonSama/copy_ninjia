@@ -6,6 +6,7 @@
  * JSON 文本。
  */
 
+import type { AdPackBlacklistKind } from "../adPackBlacklist";
 import type { AiCacheUsage } from "../aiCache";
 import type { AdSampleMessage } from "../antiRaid/adDetect";
 import type { VerificationSnapshot } from "../antiRaid/verification";
@@ -209,6 +210,19 @@ export interface ChatQaWriteDiskMessage {
 }
 
 /**
+ * 主线程 -> Disk I/O Worker：一条广告贴纸包或自定义表情包黑名单的最终状态；
+ * `blacklisted` 为 `true` 表示写入该 `(kind, pack)`，`false` 表示删除。
+ */
+export interface AdPackBlacklistWriteDiskMessage {
+  readonly type: "adPackBlacklistWrite";
+  readonly kind: AdPackBlacklistKind;
+  readonly pack: string;
+  readonly blacklisted: boolean;
+  /** 主线程广告包黑名单写入的单调修订号。 */
+  readonly revision: number;
+}
+
+/**
  * 主线程 -> diskIOWorker：一条广告判定命中样本，追加进 memory/ad-detected/sample.json。
  *
  * 只写不读：进程不加载它，启动恢复也不读取，供人工查阅原始素材
@@ -225,7 +239,7 @@ export interface AdSampleDiskMessage {
   detectedAt: string;
   /** 模型给出的判定理由。 */
   reason: string;
-  /** 本次判定依据的整串消息（正文，外加只给人看的引用/回复上下文）。 */
+  /** 本次判定依据的整串消息（含消息类型、实际送检文本、贴纸包名及引用/回复上下文）。 */
   messages: readonly AdSampleMessage[];
 }
 
@@ -293,6 +307,7 @@ export type DiskBusinessMessage =
   | TemporaryAdBypassWriteDiskMessage
   | ChatStateWriteDiskMessage
   | ChatQaWriteDiskMessage
+  | AdPackBlacklistWriteDiskMessage
   | JoinLogDiskMessage
   | JoinLogDeleteDiskMessage;
 
@@ -420,6 +435,23 @@ export interface ReadIdentityIdPageRequest {
   afterId: number | null;
 }
 
+/** 主线程 -> Disk I/O Worker：按 `(kind, pack)` 批量查询广告包黑名单存在性，供主线程 LRU 缓存冷缺失打库。 */
+export interface ReadAdPackBlacklistsRequest {
+  readonly type: "readAdPackBlacklists";
+  readonly requestId: number;
+  readonly kind: AdPackBlacklistKind;
+  readonly packs: readonly string[];
+}
+
+/** 主线程 -> Disk I/O Worker：按 `(kind, pack)` 升序稳定游标读取一页广告包黑名单（不污染热查询 LRU）。 */
+export interface ReadAdPackBlacklistPageRequest {
+  readonly type: "readAdPackBlacklistPage";
+  readonly requestId: number;
+  readonly kind: AdPackBlacklistKind;
+  /** `null` 从最小包名开始；其余值只读取严格大于该包名的行。 */
+  readonly afterPack: string | null;
+}
+
 /**
  * 主线程 -> Disk I/O Worker：停机时关闭共享 SQLite。Worker 先以一个事务提交残余写，
  * 再 `PRAGMA wal_checkpoint(TRUNCATE)` 并关闭连接；主线程发送前已置不可写、不再投递存储写，
@@ -440,6 +472,8 @@ export type DiskIORequestMessage =
   | ReadJoinLogRequest
   | ReadIdentityPoliciesRequest
   | ReadIdentityIdPageRequest
+  | ReadAdPackBlacklistsRequest
+  | ReadAdPackBlacklistPageRequest
   | CloseStorageRequest;
 
 /**

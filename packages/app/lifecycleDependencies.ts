@@ -41,6 +41,7 @@ import { logger } from "../infra/logger";
 import { setBusinessWorkerFatalHandler } from "../infra/workerSupervisor";
 import { cleanupOrphanedTempFiles } from "../infra/storage/cleanup";
 import { acquireSingleInstanceLock, releaseSingleInstanceLock } from "../infra/storage/instanceLock";
+import { hydrateAdPackBlacklistCounts } from "../infra/adPackBlacklistStorage";
 import { hydrateChatQaCache } from "../infra/qaStore";
 import {
   flushStateToDisk,
@@ -104,6 +105,7 @@ export const lifecycleDependencies = {
   hydrateIdentityStorageCounts,
   hydrateChatStateCache,
   hydrateChatQaCache,
+  hydrateAdPackBlacklistCounts,
   hydrateWedMembers,
   hydrateAiMemory,
   hydrateBlocklist,

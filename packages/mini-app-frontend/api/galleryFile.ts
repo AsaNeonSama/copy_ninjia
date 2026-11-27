@@ -1,3 +1,4 @@
+import { throwIfAborted } from "../libs/abort";
 import {
   evictCachedMiniAppGalleryImage,
   readCachedMiniAppGalleryImage,
@@ -11,17 +12,6 @@ import {
   syncRefreshedMiniAppSession,
 } from "./request";
 import type { PreparedEncryptedMiniAppQueryRequest } from "./request";
-
-/**
- * 在请求取消信号已触发时抛出标准 `AbortError`，避免在异步查询加密或读取本地协商缓存前后继续派发陈旧网络请求。
- *
- * @param signal 可选 `AbortSignal`
- */
-function throwIfAborted(signal?: AbortSignal): void {
-  if (signal?.aborted === true) {
-    throw new DOMException("The operation was aborted.", "AbortError");
-  }
-}
 
 /**
  * 以已认证加密查询参数请求 `GET ./api/gallery/file?e=...` 拉取单张图库图片二进制流，

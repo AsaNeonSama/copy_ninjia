@@ -86,7 +86,7 @@ export function hexToBytes(hex: string): Uint8Array<ArrayBuffer> {
 }
 
 /**
- * 将字节数组按标准 RFC 4648 Base64 编码为字符串。
+ * 将字节数组按标准 RFC 4648 Base64 编码为字符串；宿主提供原生 `Uint8Array.prototype.toBase64` 时直走原生快路径，否则回退纯 JS 实现。
  *
  * @param bytes 待编码的字节视图
  * @returns 标准 Base64 字符串
@@ -94,6 +94,9 @@ export function hexToBytes(hex: string): Uint8Array<ArrayBuffer> {
 export function bytesToBase64(bytes: Uint8Array): string {
   const len: number = bytes.length;
   if (len === 0) return "";
+  if (typeof bytes.toBase64 === "function") {
+    return bytes.toBase64();
+  }
   const fullTriplets: number = len - (len % 3);
   const chunks: string[] = [];
   for (let i: number = 0; i < fullTriplets; i += 3) {
@@ -126,7 +129,8 @@ export function bytesToBase64(bytes: Uint8Array): string {
 }
 
 /**
- * 将标准 RFC 4648 Base64 字符串严格解码为 `Uint8Array<ArrayBuffer>`，空串、含空白、长度不齐、字符非法或填充残位非零时抛错。
+ * 将标准 RFC 4648 Base64 字符串严格解码为 `Uint8Array<ArrayBuffer>`，空串、含空白、长度不齐、字符非法或填充残位非零时抛错；
+ * 宿主提供原生 `Uint8Array.fromBase64` 时在完成无空白核验后直走严格模式原生快路径，否则回退纯 JS 实现。
  *
  * @param base64 待解码的 Base64 文本
  * @returns 解码后的字节数组
@@ -134,6 +138,16 @@ export function bytesToBase64(bytes: Uint8Array): string {
 export function base64ToBytes(base64: string): Uint8Array<ArrayBuffer> {
   if (base64.length === 0 || /\s/u.test(base64)) {
     throw new Error(MINI_APP_INVALID_ENCRYPTED_PAYLOAD_CODE);
+  }
+  if (typeof Uint8Array.fromBase64 === "function") {
+    try {
+      return Uint8Array.fromBase64(base64, {
+        alphabet: "base64",
+        lastChunkHandling: "strict",
+      });
+    } catch (error: unknown) {
+      throw new Error(MINI_APP_INVALID_ENCRYPTED_PAYLOAD_CODE, { cause: error });
+    }
   }
   if (base64.length % 4 !== 0) {
     throw new Error(MINI_APP_INVALID_ENCRYPTED_PAYLOAD_CODE);
@@ -195,7 +209,7 @@ export function base64ToBytes(base64: string): Uint8Array<ArrayBuffer> {
  */
 function toArrayBufferView(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
   if (bytes.buffer instanceof ArrayBuffer) {
-    return new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    return bytes as Uint8Array<ArrayBuffer>;
   }
   const copy: Uint8Array<ArrayBuffer> = new Uint8Array(bytes.byteLength);
   copy.set(bytes);

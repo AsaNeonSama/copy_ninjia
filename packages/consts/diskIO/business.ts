@@ -37,6 +37,7 @@ export const STORAGE_DATABASE_DOMAINS: readonly StorageDatabaseDomain[] = exhaus
   "blocklistRemovalOutbox",
   "chatState",
   "chatQa",
+  "adPackBlacklist",
   "aiMemory",
 ]);
 

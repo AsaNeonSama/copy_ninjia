@@ -136,7 +136,7 @@
 - **编译期不可变**：
   - `packages/` 下禁止使用 `Object.freeze`。
   - 字面量常量、`packages/config/` 的部署配置解析结果、构造后只读的句柄对象均须在编译期表达不可变性。
-  - 容器声明为 `readonly T[]`、`Readonly<T>`、`ReadonlyArray<T>`、`ReadonlyMap` 或 `ReadonlySet`；对象元素使用 `readonly Readonly<T>[]` 或将元素接口字段声明为 `readonly`。
+  - 容器声明为 `readonly T[]`、`Readonly<T>`、`ReadonlyArray<T>`、`ReadonlyMap` 或 `ReadonlySet`；对象元素使用 `readonly Readonly<T>[]` 或将元素接口字段声明为 `readonly`；导出正则常量及其容器/属性内的正则统一标注为 `Readonly<RegExp>`（由 `bun run check:conventions` 强制核验）。
 - **不可变性测试**：
   - 带对象元素的常量表必须在 `test/consts/immutability.test.ts` 中添加 `@ts-expect-error` 断言。
   - 调用方不可变性必须用 `@ts-expect-error` 验证，不得用运行期 `Object.isFrozen`。
@@ -236,11 +236,11 @@
 
 所有业务接口、配置编辑、多图上传、选择器轮询、图库预览与后台轮询统一经 `packages/mini-app-frontend/api/authError.ts` 归类处置：
 
-- **会话重认证错误**：按令牌一致性清理本地会话，经根 store 重定向至 `AuthGatePage`。
+- **会话重认证错误**：传输层按发包令牌一致性清理本地会话，并通过私有 `Symbol` 标记向异常绑定发包时刻 `sentSessionToken`；`classifyMiniAppAuthError` 仅当发包令牌仍为当前活跃会话或无发包令牌上下文时返回 `"reauth"`，由根 store 重定向至 `AuthGatePage`，已被更新一代会话取代的滞后旧请求不触发锁定或清理。
   - 触发范围：`MINI_APP_SESSION_REAUTH_ERROR_CODES`（`PASSWORD_REQUIRED`、`SESSION_EXPIRED`、`INVALID_ENCRYPTED_PAYLOAD`、`INVALID_HANDSHAKE`）、响应解密或轮换密钥解封失败、裸 HTTP `401`。
-- **一层拒绝错误**：无条件清除本地会话，经 `checking` 重新预检进入 `AccessDeniedPage`。
+- **一层拒绝错误**：非会话依赖的一层门禁拒绝无条件清除本地会话，经 `checking` 重新预检进入 `AccessDeniedPage`；依赖活跃会话延展窗口的 `MINI_APP_EXPIRED_AUTH_DATE_CODE`（`EXPIRED_AUTH_DATE`）按发包令牌一致性防误清，仅在未轮换为新会话或无发包令牌上下文时清除并重定向。
   - 触发范围：`MINI_APP_ACCESS_DENIED_ERROR_CODES`（`PASSWORD_LOCKED`、`EXPIRED_AUTH_DATE`、`MISSING_INIT_DATA`、`MALFORMED_INIT_DATA`、`MISSING_HASH`、`MISSING_USER`、`INVALID_SIGNATURE`、`FORBIDDEN_USER`、`CROSS_SITE_FORBIDDEN`、`DIRECT_NAVIGATION_FORBIDDEN`、`WEBCRYPTO_UNSUPPORTED`）。
-- **竞态保护**：过时请求序号竞态不得吞掉鉴权重定向；待重预检或已处于 `denied` 状态时不得被滞后重认证错误退回 `password`。
+- **竞态保护**：过时请求序号竞态不得吞掉当前会话的鉴权重定向；待重预检或已处于 `denied` 状态时不得被滞后重认证错误退回 `password`；已轮换或重新登录至新会话令牌后，滞后旧令牌的重认证与延展期 `EXPIRED_AUTH_DATE` 响应不得清除或锁定新会话。
 
 #### 默认加密策略与免加密边界
 
@@ -406,7 +406,7 @@
 - `bun run build -- --version <tag>` 和 `bun run release:check -- --version <tag>` 必须显式传入无前缀的 `MAJOR.MINOR.PATCH`，不提供默认版本，也不从源码 manifest 推断；传入值写入包内 `package.json` 与 `binary.json`，缺失或非法版本在构建或安装依赖前拒绝。
 - `release:check` 包含二进制构建及隔离启动、版本、无 `.map` 文件与 `node_modules`、Worker、内置图片编解码和安装器验证；正式发行包必须在代码与基准提交后重新通过 `release:build` 生成。
 - 二进制平台为 `linux-x64`、`linux-arm64`、`linux-x64-musl`、`linux-arm64-musl`；`--platforms` 必须明确列出本次发布平台，不得缺包后静默缩减。每个平台在对应环境原生构建和验证，使用同一 Git tree、Bun version/revision。
-- 每个平台上传 `copy-ninjia-<平台>.tar.gz` 与对应 `.tar.gz.sha256`（多机汇总目录用 `--directory` 指定）。发布脚本核对 SHA-256 及包内版本、平台、Git tree、Bun 构建；`development` 或未提交工作树的产物不得发布。
+- 每个平台上传 `copy-ninjia-<平台>.tar.gz` 与对应 `.tar.gz.sha256`（多机汇总目录用 `--directory` 指定）。构建在 Git 工作树内严格按 `git ls-files` 受跟踪清单暂存发行包源码资产（排除 `.gitignore` 忽略文件与未跟踪杂项）；发布脚本核对 SHA-256、精确归档条目白名单（拒绝任何多余文件、目录或符号链接）及包内版本、平台、Git tree、Bun 构建；`development` 或未提交工作树的产物不得发布。
 - 构建产物与发行包不得包含任何敏感信息。
 - 二进制安装从 Release 下载发行包，不在目标机器检出源码或执行构建。
 

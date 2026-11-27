@@ -1,6 +1,7 @@
 import {
   miniAppAuthHandshakes,
   miniAppAuthSessions,
+  miniAppAuthSessionWatermark,
   miniAppInFlightHandshakeIds,
 } from "../../cache/main/miniApp";
 import {
@@ -31,7 +32,9 @@ import {
 import {
   findLiveMiniAppSessionByLineage,
   findMiniAppAuthSessionMatch,
+  noteMiniAppSessionPurgeDeadline,
   purgeExpiredAuthSessions,
+  recomputeMiniAppSessionPurgeWatermark,
 } from "./sessionLookup";
 import type { MatchedMiniAppAuthSession } from "./sessionLookup";
 
@@ -67,6 +70,7 @@ export function clearPendingMiniAppSessionKey(sessionToken: string): void {
     ...existing,
     pendingSessionKey: undefined,
   });
+  recomputeMiniAppSessionPurgeWatermark();
 }
 
 /**
@@ -74,6 +78,7 @@ export function clearPendingMiniAppSessionKey(sessionToken: string): void {
  */
 export function clearAllMiniAppAuthSessions(): void {
   miniAppAuthSessions.clear();
+  miniAppAuthSessionWatermark.nextPurgeAt = Number.POSITIVE_INFINITY;
   miniAppAuthHandshakes.clear();
   miniAppInFlightHandshakeIds.clear();
   clearAllMiniAppGalleryDownloadTickets();
@@ -95,6 +100,7 @@ export function revokeMiniAppAuthSession(
     findMiniAppAuthSessionMatch(sessionToken, nowMs);
   if (match === null) return false;
   miniAppAuthSessions.delete(match.session.token);
+  recomputeMiniAppSessionPurgeWatermark();
   revokeMiniAppGalleryDownloadTicketsForSession(match.session.lineageId);
   return true;
 }
@@ -118,6 +124,7 @@ export function revokeMiniAppAuthSessionByLineage(
     return false;
   }
   miniAppAuthSessions.delete(liveSession.token);
+  recomputeMiniAppSessionPurgeWatermark();
   revokeMiniAppGalleryDownloadTicketsForSession(lineageId);
   return true;
 }
@@ -141,6 +148,7 @@ export function revokeOtherMiniAppAuthSessions(
       }
     }
   );
+  recomputeMiniAppSessionPurgeWatermark();
 }
 
 /**
@@ -176,12 +184,14 @@ export function issueMiniAppAuthSession(
   nowMs: number = Date.now()
 ): Readonly<MiniAppAuthSession> {
   purgeExpiredAuthSessions(nowMs);
+  let evictedOldest: boolean = false;
   if (miniAppAuthSessions.size >= MINI_APP_SESSION_MAX) {
     const oldestToken: string | undefined = miniAppAuthSessions.oldestKey();
     if (oldestToken !== undefined) {
       const oldestSession: Readonly<MiniAppAuthSession> | undefined =
         miniAppAuthSessions.get(oldestToken);
       miniAppAuthSessions.delete(oldestToken);
+      evictedOldest = true;
       if (oldestSession !== undefined) {
         revokeMiniAppGalleryDownloadTicketsForSession(oldestSession.lineageId);
       }
@@ -209,5 +219,10 @@ export function issueMiniAppAuthSession(
     absoluteExpiresAt,
   };
   miniAppAuthSessions.set(token, session);
+  if (evictedOldest) {
+    recomputeMiniAppSessionPurgeWatermark();
+  } else {
+    noteMiniAppSessionPurgeDeadline(session);
+  }
   return session;
 }

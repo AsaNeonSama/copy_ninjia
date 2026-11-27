@@ -14,6 +14,7 @@ import {
   buildSignedTestInitData,
   ensureReusableTestSession,
   installMiniAppTestDiskIOMock,
+  miniAppTestAdPackBlacklistRows,
   miniAppTestBlocklistRows,
   miniAppTestWhitelistRows,
   resetMiniAppTestDiskIOState,
@@ -22,6 +23,10 @@ import {
 installMiniAppTestDiskIOMock();
 
 const { latestAiMemories } = await import("../../packages/cache/main/aiChat");
+const {
+  adPackBlacklistCounts,
+  resetAdPackBlacklistCache,
+} = await import("../../packages/cache/main/adPackBlacklist");
 const { resetChatStateCache } = await import("../../packages/cache/main/chatState");
 const { resetIdentityStorageCache } = await import("../../packages/cache/main/identityStorage");
 const {
@@ -236,6 +241,10 @@ async function seedProtectedStateFixture(): Promise<SeededSecurityFixture> {
   chatState.isTranslationEnabled = true;
   chatState.deleteMessageTargets = [700_001];
   chatQaEntries.set(TEST_CHAT_ID, new Map<string, string>([["seed-trigger", "seed-answer"]]));
+  miniAppTestAdPackBlacklistRows.sticker.add("SeededStickerPack");
+  miniAppTestAdPackBlacklistRows.emoji.add("SeededEmojiPack");
+  adPackBlacklistCounts.sticker = 1;
+  adPackBlacklistCounts.emoji = 1;
 
   const galleryDir: string = getAssetConfig().randomHImageDirectory;
   rmSync(galleryDir, { recursive: true, force: true });
@@ -290,6 +299,10 @@ function captureBusinessStateSnapshot(): BusinessStateSnapshot {
       translate: chatState.translate,
     }),
     qaEntries: [...(chatQaEntries.get(TEST_CHAT_ID)?.entries() ?? [])],
+    adPackBlacklists: {
+      sticker: [...miniAppTestAdPackBlacklistRows.sticker].sort(),
+      emoji: [...miniAppTestAdPackBlacklistRows.emoji].sort(),
+    },
     pendingPickerSize: miniAppPendingPickers.size,
     completedPickerSize: miniAppCompletedPickerResults.size,
     galleryFiles: readdirSync(getAssetConfig().randomHImageDirectory).sort(),
@@ -304,6 +317,7 @@ afterEach(async (): Promise<void> => {
   resetMiniAppTestDiskIOState();
   resetIdentityStorageCache();
   resetChatStateCache();
+  resetAdPackBlacklistCache();
   chatQaEntries.clear();
   latestAiMemories.clear();
   miniAppAuthSessions.clear();

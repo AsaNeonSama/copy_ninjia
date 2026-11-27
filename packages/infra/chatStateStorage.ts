@@ -224,7 +224,7 @@ function encodeCurrentChatState(chatId: number): EncodedChatStateWrite {
   if (state === undefined) return { data: null, deleted: true };
   normalizeChatState(state);
   if (isEmptyChatState(state)) return { data: null, deleted: true };
-  return { data: encodeChatStateData(state, `chat state ${chatId}`), deleted: false };
+  return { data: encodeChatStateData(state, `chat state ${chatId}`, chatId), deleted: false };
 }
 
 /**

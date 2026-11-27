@@ -1,6 +1,8 @@
 /** Disk I/O Worker 工厂与回执路由；请求通道和恢复状态机位于同目录叶子模块。 */
 
 import {
+  adPackBlacklistPageReadRequests,
+  adPackBlacklistReadRequests,
   diskIOFlushBarrier,
   diskIORuntime,
   identityIdPageReadRequests,
@@ -189,6 +191,22 @@ export function createDiskIOWorker(): Worker {
       case "identityIdPageRead":
         settleDiskIOReply({
           channel: identityIdPageReadRequests,
+          requestId: data.requestId,
+          error: data.error,
+          payload: data.page,
+        });
+        return;
+      case "adPackBlacklistsRead":
+        settleDiskIOReply({
+          channel: adPackBlacklistReadRequests,
+          requestId: data.requestId,
+          error: data.error,
+          payload: data.matchedPacks,
+        });
+        return;
+      case "adPackBlacklistPageRead":
+        settleDiskIOReply({
+          channel: adPackBlacklistPageReadRequests,
           requestId: data.requestId,
           error: data.error,
           payload: data.page,

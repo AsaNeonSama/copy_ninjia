@@ -118,10 +118,7 @@ export function markSelfSent(chatId: number, messageId: number): void {
   if (existing !== undefined) clearTimeout(existing);
   byMessage.set(
     messageId,
-    setTimeout(
-      (): void => forgetSelfSent(chatId, messageId),
-      SELF_SENT_MESSAGE_TTL_MS
-    ).unref()
+    setTimeout(forgetSelfSent, SELF_SENT_MESSAGE_TTL_MS, chatId, messageId).unref()
   );
   settleSelfSentWaiters(chatId, messageId);
 }

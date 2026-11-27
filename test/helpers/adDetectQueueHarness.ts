@@ -6,6 +6,7 @@ import { mock } from "bun:test";
 import type { Sticker } from "grammy/types";
 import { loggerStub } from "./loggerMock";
 import { defaultAdDetectConfigCache } from "../../packages/cache/perThread/config";
+import type { AdPackBlacklistKind } from "../../packages/types/adPackBlacklist";
 import type { AdCandidateMessage } from "../../packages/types/antiRaid";
 import type { AdVerdict } from "../../packages/types/antiRaid/adDetect";
 import type {
@@ -14,7 +15,7 @@ import type {
 } from "../../packages/types/telegramWorker";
 
 export const classifyAdText = mock(async (_text: string): Promise<AdVerdict | null> => ({ isAd: false, reason: "" }));
-export const disposeAdSender = mock(async (..._args: unknown[]): Promise<void> => {});
+export const disposeAdSender = mock((..._args: unknown[]): void => {});
 let warningNow: number = 1_000;
 export const warnReferencedAdSender = mock(async (): Promise<TelegramWorkerTemporaryMessageResult | undefined> => ({
   messageId: 555,
@@ -47,6 +48,22 @@ mock.module("../../packages/workers/antiRaid/adDetect/classifier", () => ({
 /** 迟到警告的定向撤回：verdict 直接走 infra/telegram 的 deleteMessage。 */
 export const deleteMessage = mock(async (..._args: unknown[]): Promise<boolean> => true);
 export const getCustomEmojiStickers = mock(async (_ids: readonly string[]): Promise<Sticker[]> => []);
+export const adBlacklistFixture: Readonly<Record<AdPackBlacklistKind, Set<string>>> = {
+  sticker: new Set<string>(),
+  emoji: new Set<string>(),
+};
+export const requestMatchAdPackBlacklist = mock(
+  async (kind: AdPackBlacklistKind, packs: readonly string[]): Promise<string | null> => {
+    const blocked: ReadonlySet<string> = adBlacklistFixture[kind];
+    for (const pack of packs) {
+      if (blocked.has(pack)) return pack;
+    }
+    return null;
+  }
+);
+mock.module("../../packages/workers/antiRaid/adDetect/blacklistLookup", () => ({
+  requestMatchAdPackBlacklist,
+}));
 const realTelegram = await import("../../packages/infra/telegram");
 const mockedTelegramApi: TelegramApi = {
   ...realTelegram.telegramApi,
@@ -101,6 +118,10 @@ export function candidate(overrides: Partial<AdCandidateMessage> = {}): AdCandid
     justJoined: false,
     linkUrls: undefined,
     stickerSetName: undefined,
+    stickerFileId: undefined,
+    stickerFileUniqueId: undefined,
+    imageFileId: undefined,
+    imageFileUniqueId: undefined,
     customEmojiIds: undefined,
     sampleQuote: undefined,
     sampleReplyTo: undefined,
@@ -114,8 +135,6 @@ export function resetAdDetectQueueHarness(stopAdDetectQueue: () => void): void {
   defaultAdDetectConfigCache.current = {
     punishment: { kind: "kick", blockScope: "global" },
     samples: [],
-    stickerBlackList: new Set(),
-    emojiBlackList: new Set(),
   };
   errorLogs.length = 0;
   classifiedTexts.length = 0;
@@ -124,6 +143,18 @@ export function resetAdDetectQueueHarness(stopAdDetectQueue: () => void): void {
   classifyAdText.mockImplementation(async (): Promise<AdVerdict | null> => ({ isAd: false, reason: "" }));
   getCustomEmojiStickers.mockReset();
   getCustomEmojiStickers.mockImplementation(async (): Promise<Sticker[]> => []);
+  adBlacklistFixture.sticker.clear();
+  adBlacklistFixture.emoji.clear();
+  requestMatchAdPackBlacklist.mockReset();
+  requestMatchAdPackBlacklist.mockImplementation(
+    async (kind: AdPackBlacklistKind, packs: readonly string[]): Promise<string | null> => {
+      const blocked: ReadonlySet<string> = adBlacklistFixture[kind];
+      for (const pack of packs) {
+        if (blocked.has(pack)) return pack;
+      }
+      return null;
+    }
+  );
   disposeAdSender.mockClear();
   warnReferencedAdSender.mockReset();
   warningNow = 1_000;

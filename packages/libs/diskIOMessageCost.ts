@@ -99,6 +99,18 @@ export function diskIOMessageCost(message: QueuedDiskIOOperationMessage): number
     case "chatQaWrite":
       payloadBytes = (message.q.length + (message.data?.length ?? 0)) * 2;
       break;
+    case "adPackBlacklistWrite":
+      payloadBytes = (message.kind.length + message.pack.length) * 2;
+      break;
+    case "readAdPackBlacklists": {
+      let packChars: number = message.kind.length;
+      for (const pack of message.packs) packChars += pack.length;
+      payloadBytes = packChars * 2;
+      break;
+    }
+    case "readAdPackBlacklistPage":
+      payloadBytes = (message.kind.length + (message.afterPack?.length ?? 0)) * 2;
+      break;
     case "readIdentityPolicies":
       payloadBytes = message.ids.length * 8;
       break;
@@ -151,6 +163,8 @@ export function isDiskBusinessMessage(message: QueuedDiskIOOperationMessage): me
     case "flush":
     case "readIdentityPolicies":
     case "readIdentityIdPage":
+    case "readAdPackBlacklists":
+    case "readAdPackBlacklistPage":
     case "readJoinLog":
     case "ensureLuckSecret":
     case "closeStorage":

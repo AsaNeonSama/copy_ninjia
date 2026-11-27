@@ -4,7 +4,7 @@
  * 跨场景组共用（hotPaths/ 下各领域场景文件）；各场景文件从这里取夹具，不互相 import。
  */
 
-import type { ChatMemberAdministrator, Message, UserFromGetMe } from "grammy/types";
+import type { BotFullInfo, ChatMemberAdministrator, Message } from "grammy/types";
 
 /** 基准群聊 id；仅用于进程内 Map，不产生任何 Telegram 或磁盘副作用。 */
 export const BENCHMARK_CHAT_ID: number = -100_000_000_000_001;
@@ -84,11 +84,13 @@ export function channelMessageFixture(index: number, username?: string): Message
 }
 
 /** 注册链与成员观察共用的罐头机器人身份。 */
-export const BENCHMARK_BOT_INFO: Readonly<UserFromGetMe> = {
+export const BENCHMARK_BOT_INFO: Readonly<BotFullInfo> = {
   id: 1, is_bot: true, first_name: "perf", username: "perf_bot",
-  can_join_groups: true, can_read_all_group_messages: true, supports_inline_queries: true,
+  can_join_groups: true, can_read_all_group_messages: true, supports_guest_queries: false,
+  supports_inline_queries: true, needs_inline_query_location: false,
   can_connect_to_business: false, has_main_web_app: false, has_topics_enabled: false,
-  allows_users_to_create_topics: false, can_manage_bots: false, supports_join_request_queries: false,
+  allows_users_to_create_topics: false, has_topic_sidebar: false,
+  can_manage_bots: false, supports_join_request_queries: false,
 };
 
 /**

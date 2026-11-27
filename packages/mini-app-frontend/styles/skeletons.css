@@ -1,4 +1,4 @@
-/* 骨架屏占位、刷新电流电弧扫掠与三点方形节拍加载动效。 */
+/* 骨架屏占位与三点方形节拍加载动效。 */
 :root,
 [data-theme="light"] {
   --skeleton-card-bg: var(--surface-inset);
@@ -20,25 +20,6 @@
     color-mix(in srgb, var(--accent) 68%, #ffffff) 74%,
     color-mix(in srgb, var(--accent) 68%, #ffffff) 88%,
     transparent 88%,
-    transparent 100%
-  );
-  --refresh-arc-band: linear-gradient(
-    104deg,
-    transparent 0%,
-    transparent 14%,
-    color-mix(in srgb, var(--brutal-cyan) 76%, transparent) 14%,
-    color-mix(in srgb, var(--brutal-cyan) 76%, transparent) 25%,
-    transparent 25%,
-    transparent 31%,
-    rgba(255, 255, 255, 0.86) 31%,
-    rgba(255, 255, 255, 0.86) 51%,
-    color-mix(in srgb, var(--brutal-yellow) 80%, transparent) 51%,
-    color-mix(in srgb, var(--brutal-yellow) 80%, transparent) 66%,
-    transparent 66%,
-    transparent 72%,
-    color-mix(in srgb, var(--accent) 62%, transparent) 72%,
-    color-mix(in srgb, var(--accent) 62%, transparent) 85%,
-    transparent 85%,
     transparent 100%
   );
   --loading-dot-shadow: rgba(20, 20, 19, 0.28);
@@ -66,25 +47,6 @@
     transparent 88%,
     transparent 100%
   );
-  --refresh-arc-band: linear-gradient(
-    104deg,
-    transparent 0%,
-    transparent 14%,
-    color-mix(in srgb, var(--brutal-cyan) 82%, transparent) 14%,
-    color-mix(in srgb, var(--brutal-cyan) 82%, transparent) 26%,
-    transparent 26%,
-    transparent 31%,
-    rgba(251, 249, 245, 0.78) 31%,
-    rgba(251, 249, 245, 0.78) 50%,
-    color-mix(in srgb, var(--brutal-yellow) 84%, transparent) 50%,
-    color-mix(in srgb, var(--brutal-yellow) 84%, transparent) 66%,
-    transparent 66%,
-    transparent 72%,
-    color-mix(in srgb, var(--accent) 76%, transparent) 72%,
-    color-mix(in srgb, var(--accent) 76%, transparent) 86%,
-    transparent 86%,
-    transparent 100%
-  );
   --loading-dot-shadow: var(--shadow-ink);
 }
 
@@ -97,43 +59,6 @@
   }
   100% {
     transform: translate3d(260%, 0, 0) skewX(-22deg);
-  }
-}
-
-@keyframes miniapp-electric-arc-sweep {
-  0% {
-    transform: translate3d(-145%, 0, 0) skewX(-24deg);
-  }
-  46% {
-    transform: translate3d(52%, 0, 0) skewX(-18deg);
-  }
-  100% {
-    transform: translate3d(245%, 0, 0) skewX(-24deg);
-  }
-}
-
-@keyframes miniapp-electric-flicker {
-  0%,
-  100% {
-    outline: 2px solid var(--brutal-cyan);
-    outline-offset: -2px;
-    box-shadow:
-      -2px 0 0 var(--brutal-cyan),
-      2px 2px 0 var(--shadow-ink);
-  }
-  36% {
-    outline: 2px solid var(--brutal-yellow);
-    outline-offset: -2px;
-    box-shadow:
-      2px -1px 0 var(--brutal-yellow),
-      -2px 2px 0 var(--accent);
-  }
-  68% {
-    outline: 2px solid var(--accent);
-    outline-offset: -2px;
-    box-shadow:
-      -1.5px 1.5px 0 var(--brutal-cyan),
-      2.5px 2px 0 var(--brutal-yellow);
   }
 }
 
@@ -163,29 +88,6 @@
 
 .card.loading-box {
   padding: 13px;
-}
-
-.content-refreshing {
-  position: relative;
-  overflow: hidden;
-  opacity: 0.86;
-  pointer-events: none;
-  transition: opacity 0.14s var(--ease-brutal);
-  animation: miniapp-electric-flicker 0.56s var(--ease-brutal) infinite;
-}
-
-.content-refreshing::after {
-  content: "";
-  position: absolute;
-  top: -18%;
-  bottom: -18%;
-  left: 0;
-  width: 46%;
-  z-index: 4;
-  background: var(--refresh-arc-band);
-  animation: miniapp-electric-arc-sweep 0.56s var(--ease-brutal) infinite;
-  pointer-events: none;
-  will-change: transform;
 }
 
 .skeleton-stack {

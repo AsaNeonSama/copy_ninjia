@@ -4,7 +4,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import type { Stats } from "node:fs";
 import { STATE_MANAGED_CHAT_LIMIT } from "../packages/consts/storage";
 import { WED_MEMBER_LIMIT } from "../packages/consts/wed";
-import { atomicWriteText } from "../packages/libs/atomicFile";
+import { atomicWriteText, syncDirectory } from "../packages/libs/atomicFile";
 import { InputValidationError, invalidInput, readJsonInput } from "../packages/libs/inputValidation";
 import { parseWedMemberFile, parseWedMemberFileName, serializeWedMemberEntries } from "../packages/libs/wedMemberFile";
 import { parseSourceOutputRoots } from "./migrations/cli";
@@ -112,6 +112,7 @@ export async function prepareWedMemberWindowMigration({ sourceRoot, outputRoot }
   };
   await atomicWriteText(join(output, "ready.json"), `${JSON.stringify(result, null, JSON_INDENT)}\n`, STAGING_FILE_MODE);
   await Bun.file(join(output, "incomplete.json")).delete();
+  await syncDirectory(join(output, "incomplete.json"));
   return result;
 }
 

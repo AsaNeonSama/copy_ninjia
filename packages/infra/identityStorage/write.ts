@@ -45,21 +45,29 @@ interface QueuedIdentityWrite {
   readonly change: UnacknowledgedIdentityWrite;
 }
 
+/** 校验通过、尚未修改内存状态前准备好的身份策略写入上下文。 */
+interface PreparedIdentityPolicyWrite {
+  readonly entry: IdentityPolicyCacheEntry;
+  readonly previous: Readonly<WhitelistEntryData> | Readonly<BlocklistEntryData> | null;
+  readonly message: IdentityPolicyWriteDiskMessage;
+  readonly pendingWrites: Map<number, UnacknowledgedIdentityWrite>;
+  readonly bytes: number;
+}
+
 /**
- * 校验并发布一次身份策略最终值：容量准入后写合并身份缓存的该表字段（并刷新条目热度）与表计数，
- * 登记未 ACK revision，返回待投递消息。白名单与黑名单两项都必须已加载；所有拒绝都发生在任何
- * 状态变化之前。
+ * 以只读方式校验并组装一次身份策略写入：依次核对身份 ID、预热缓存、白/黑名单互斥、
+ * revision 空间、载荷编码、未 ACK 写入容量预算与 Disk I/O 业务队列准入；不改动任何缓存或计数。
  *
  * @param table 目标身份策略表名（`"whitelist"` 或 `"blocklist"`）。
  * @param id 目标用户或频道身份 ID。
  * @param value 待发布的白名单或黑名单条目数据；`null` 表示删除该条目。
- * @returns 已登记 revision 的待投递 Disk I/O 身份策略写入消息。
+ * @returns 通过全部准入校验后的写入上下文。
  */
-function publishIdentityPolicyWrite(
+function prepareIdentityPolicyWrite(
   table: IdentityPolicyTable,
   id: number,
   value: Readonly<WhitelistEntryData> | Readonly<BlocklistEntryData> | null
-): IdentityPolicyWriteDiskMessage {
+): PreparedIdentityPolicyWrite {
   assertTelegramIdentityId(id, `identity ${table} write`);
   const entry: IdentityPolicyCacheEntry | undefined = identityPolicyCache.peek(id);
   if (entry?.whitelist === undefined || entry.blocklist === undefined) {
@@ -94,6 +102,47 @@ function publishIdentityPolicyWrite(
     (pendingPrevious === undefined ? 0 : storageWriteCost(pendingPrevious.data));
   assertStorageAdmission(pendingWrites.size + (pendingPrevious === undefined ? 1 : 0), bytes);
   if (!canQueueDiskIOBusiness(message)) throw new Error("Disk I/O refused identity state publication.");
+  return { entry, previous, message, pendingWrites, bytes };
+}
+
+/**
+ * 在不改动缓存、计数与未 ACK 表的前提下，校验指定身份策略写入是否满足预热、互斥与容量准入条件。
+ * 与 `queueIdentityPolicyWrite` 共用同一套只读校验，供调用方在执行先导副作用前提前拒绝超限写入。
+ *
+ * @param table 目标身份策略表名（`"whitelist"` 或 `"blocklist"`）。
+ * @param id 目标用户或频道身份 ID。
+ * @param value 待发布的白名单或黑名单条目数据；`null` 表示删除该条目。
+ */
+export function assertIdentityPolicyWriteAdmissible(
+  table: IdentityPolicyTable,
+  id: number,
+  value: Readonly<WhitelistEntryData> | Readonly<BlocklistEntryData> | null
+): void {
+  prepareIdentityPolicyWrite(table, id, value);
+}
+
+/**
+ * 校验并发布一次身份策略最终值：容量准入后写合并身份缓存的该表字段（并刷新条目热度）与表计数，
+ * 登记未 ACK revision，返回待投递消息。白名单与黑名单两项都必须已加载；所有拒绝都发生在任何
+ * 状态变化之前。
+ *
+ * @param table 目标身份策略表名（`"whitelist"` 或 `"blocklist"`）。
+ * @param id 目标用户或频道身份 ID。
+ * @param value 待发布的白名单或黑名单条目数据；`null` 表示删除该条目。
+ * @returns 已登记 revision 的待投递 Disk I/O 身份策略写入消息。
+ */
+function publishIdentityPolicyWrite(
+  table: IdentityPolicyTable,
+  id: number,
+  value: Readonly<WhitelistEntryData> | Readonly<BlocklistEntryData> | null
+): IdentityPolicyWriteDiskMessage {
+  const {
+    entry,
+    previous,
+    message,
+    pendingWrites,
+    bytes,
+  }: PreparedIdentityPolicyWrite = prepareIdentityPolicyWrite(table, id, value);
   if (table === "whitelist") {
     entry.whitelist = value as Readonly<WhitelistEntryData> | null;
   } else {
@@ -104,7 +153,7 @@ function publishIdentityPolicyWrite(
   if (previous === null && value !== null) identityEntryCounts[table]++;
   if (previous !== null && value === null) identityEntryCounts[table]--;
   identityWriteRevision.current++;
-  pendingWrites.set(id, { data, revision });
+  pendingWrites.set(id, { data: message.data, revision: message.revision });
   unacknowledgedIdentityBytes.current[table] = bytes;
   return message;
 }

@@ -3,15 +3,17 @@
 import {
   AD_DETECT_CUSTOM_EMOJI_SET_CACHE_MAX,
   AD_DETECT_MAX_PENDING_SENDERS,
-} from "../../../consts/antiRaid/adDetect";
+} from "../../../consts/antiRaid/adDetect/limits";
 import { FifoMap } from "../../../libs/fifoMap";
 import { LinkedQueue } from "../../../libs/linkedQueue";
 import { LruCache } from "../../../libs/lruCache";
 import type {
   AdDetectedEvent,
   AdDetectPrompts,
+  AdDetectVisionSupportState,
   AdMessageBundle,
   AdVerdictTrueEvent,
+  CachedCustomEmojiMeta,
 } from "../../../types/antiRaid/adDetect";
 import type { ReferencedAdWarningState } from "../../../types/states/adReferenceWarning";
 
@@ -30,21 +32,31 @@ export const queuedAdDetectKeys: Set<string> = new Set<string>();
 /**
  * 已判定为广告并触发处置的发言者键 -> Worker 单调时钟处置时刻（见 docs/cn/04-invariants.md）。
  * 填充：workers/antiRaid/adDetect/verdict.ts 的 detectOne 触发处置前写入。
- * 清理：满 AD_DETECT_JUDGED_RETENTION_WINDOW_MS 到期淘汰，或封禁取得确定结果时由 blocklistEffects 提前删除。
+ * 清理：满 AD_DETECT_JUDGED_RETENTION_WINDOW_MS 到期淘汰；主线程拒绝处置、完成本群处罚或未移交触发群全局封禁时经 releaseAdDetectDedup 提前删除；全局封禁取得确定结果时由 blocklistEffects 提前删除；身份进入白名单/临时免检或群停用时一并移除。
  * 重建：Worker 崩溃重启后从空表开始。
  * 容量：FifoMap 限制为 AD_DETECT_MAX_PENDING_SENDERS，满载时淘汰最早处置键。
  */
 export const recentlyDisposedAdKeys: FifoMap<string, number> = new FifoMap(AD_DETECT_MAX_PENDING_SENDERS);
 
 /**
- * 自定义表情 ID -> 所属表情包 short name（不属于任何表情包时为 null），供 emoji_black_list 核对时跳过已查过的 ID。
- * 填充：workers/antiRaid/adDetect/blacklistFastPath.ts 的 queryBlacklistedCustomEmojiSet 查询成功后按返回的每个贴纸写入；未返回的 ID 不写入，下次照常查询。
- * 清理：Worker 停止时清空；ID 与所属包的对应不随 emoji_black_list 热重载变化，不另行失效。
+ * 自定义表情 ID -> 所属表情包 short name 与可下载视觉素材标识（不属于任何表情包时 `setName` 为 null，无可用静态图或缩略图时 `visionFileId` 为 null），
+ * 供自定义表情黑名单核对与多模态广告视觉检测共用。
+ * 填充：workers/antiRaid/adDetect/blacklistFastPath.ts 的 resolveCustomEmojiMetadata 与 matchCustomEmojiBlacklistFastPath 经 fetchUncachedCustomEmojiMetadata 调用 `getCustomEmojiStickers` 成功后按返回的贴纸 `custom_emoji_id` 写入，对本批成功响应中缺省的 ID 写入全 null 负缓存；查询失败的批次不写入缓存。
+ * 清理：Worker 停止时清空；ID 与所属包及视觉素材的对应不随 `ad_detect.json` 热重载变化，不另行失效。
  * 重建：Worker 崩溃重启后从空表开始。
  * 容量：LruCache 限制为 AD_DETECT_CUSTOM_EMOJI_SET_CACHE_MAX，满载时淘汰最久未使用的 ID。
  */
-export const customEmojiSetNames: LruCache<string, string | null> =
+export const customEmojiMetaCache: LruCache<string, CachedCustomEmojiMeta> =
   new LruCache(AD_DETECT_CUSTOM_EMOJI_SET_CACHE_MAX);
+
+/**
+ * 当前 `agent.ad_detect` 模型是否支持多模态图片输入的探测缓存（`"unknown"` 未探测、`"supported"` 已确认支持、`"unsupported"` 已确认纯文本模型）。
+ * 填充：workers/antiRaid/adDetect/classifier.ts 在带图请求成功时写入 `"supported"`，在收到明确模态不支持错误时写入 `"unsupported"` 供后续回退纯文本。
+ * 清理：收到新的 `agent.ad_detect` 配置快照时（workers/antiRaid/adDetect/config.ts）或 Worker 停止时重置为 `"unknown"`。
+ * 重建：Worker 崩溃重启后从 `"unknown"` 重新探测。
+ * 容量：固定为单个状态槽位。
+ */
+export const adDetectVisionSupport: { current: AdDetectVisionSupportState } = { current: "unknown" };
 
 /**
  * 引用类广告已公开警告的发送者键 -> 警告状态与失效时刻。
@@ -78,6 +90,22 @@ export const pendingAdMessages: Map<number, Map<number, AdMessageBundle>> = new 
 export const pendingAdBundleCount: { current: number } = { current: 0 };
 
 /**
+ * 主线程同步过来的贴纸包与自定义表情包黑名单条数只读镜像（权威存储位于主线程 768 LRU 与 SQLite `ad_pack_blacklists` 表）。
+ * 填充：Worker 启动、崩溃重建及主线程黑名单条数变化时由 workers/antiRaid/adDetect/config.ts 的 `adoptAdPackBlacklistSyncMessage` 更新。
+ * 清理：Worker 停止时由 workers/antiRaid/adDetect/queue.ts 的 `stopAdDetectQueue` 重置为 0。
+ * 重建：Worker 崩溃重启后由主线程 `replayAdPackBlacklists` 在新业务消息之前重放。
+ * 无条目含义：条数为 0 表示对应分类无黑名单条目，快路径直接 O(1) 短路跳过跨线程与 Telegram 表情查询，不得把 0 解释为沿用旧值。
+ * 容量与淘汰：固定两个数值字段，不设淘汰。
+ */
+export const adPackBlacklistCounts: {
+  sticker: number;
+  emoji: number;
+} = {
+  sticker: 0,
+  emoji: 0,
+};
+
+/**
  * 按当前广告检测配置（`ad_detect.json`）中的示例拼接的判定提示词缓存。
  * 填充：classifier.ts 首次判定时构造并写入；清理：收到新广告检测配置（`ad_detect.json`）快照时由 workers/antiRaid/adDetect/config.ts 重置为 null；重建：Worker 重启后从 null 按需重建；容量：固定为单个槽位。
  */
@@ -85,7 +113,7 @@ export const adDetectPrompts: { current: AdDetectPrompts | null } = { current: n
 
 /**
  * 正在执行广告分类/管理员核查或首次引用警告发送的发言者键集合。
- * 填充：批次派发时登记，首次引用警告在 `warnReferencedOnlySender` 发送前再次登记；清理：分类与管理员核查结算后移除、首次警告发送结算后移除，或 Worker 停止时清空；重建：Worker 重启后从空集合开始；容量：派发阶段上限为 AD_DETECT_MAX_IN_FLIGHT。
+ * 填充：批次派发时登记，首次引用警告在 workers/antiRaid/adDetect/referencedWarning.ts 的 `warnReferencedOnlySender` 发送前再次登记；清理：分类与管理员核查结算后移除、首次警告发送结算后移除，或 Worker 停止时清空；重建：Worker 重启后从空集合开始；容量：派发阶段上限为 AD_DETECT_MAX_IN_FLIGHT。
  */
 export const inFlightAdDetectKeys: Set<string> = new Set<string>();
 

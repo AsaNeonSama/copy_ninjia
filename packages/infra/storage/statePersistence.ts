@@ -16,6 +16,7 @@ import {
   parseJsonInput,
   readOptionalRegularTextInput,
 } from "../../libs/inputValidation";
+import { assertTimeoutMs } from "../../libs/inflight";
 import { createLatestValueRunner } from "../../libs/latestValueRunner";
 import type { LatestValueRunner } from "../../libs/latestValueRunner";
 import { decodeGlobalStateFile } from "../../libs/stateFileCodec";
@@ -364,17 +365,17 @@ export class StateStore {
   }
 
   /**
-   * 在 timeoutMs 内等待最新值落盘。quiesce 为 true 时此后不再接受写入，并取消重试退避立即做最后一次写出；
-   * 非 quiesce 时若失败重试已排期，等重试 timer 按退避写出，不提前投递、不额外消耗重试次数。
+   * 在 timeoutMs 非负有限预算内等待最新值落盘。quiesce 为 true 时此后不再接受写入，并取消重试退避，
+   * 预算为正时立即做最后一次写出；非 quiesce 时若失败重试已排期，等重试 timer 按退避写出，不提前投递、
+   * 不额外消耗重试次数。无脏值且无在途写入时直接返回 `"flushed"`；零预算且存在未落盘写入或在途写入时
+   * 不新投递，立即返回 `"timedOut"`。
    *
-   * @param timeoutMs 最大等待超时时间（毫秒）。
+   * @param timeoutMs 最大等待超时时间（非负有限毫秒数）。
    * @param quiesce 是否进入静默停机态并拒绝后续新写入。
    * @returns 刷盘结算结果（`flushed`、`timedOut` 或 `failed`）。
    */
   flush(timeoutMs: number = STATE_FLUSH_TIMEOUT_MS, quiesce: boolean = false): Promise<FlushResult> {
-    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
-      throw new RangeError("StateStore flush timeout must be a positive finite number.");
-    }
+    assertTimeoutMs(timeoutMs, "StateStore flush timeout");
     if (quiesce) {
       this.quiescing = true;
       if (this.retryTimer !== null) {
@@ -384,6 +385,8 @@ export class StateStore {
     }
     this.clearBackgroundTimer();
     const write: StateWrite | null = this.dirtyWrite;
+    if (write === null && this.observedWriterPromise === null) return Promise.resolve("flushed");
+    if (timeoutMs === 0) return Promise.resolve("timedOut");
     // 最新值已在 writer 中排队或正在写：等它结算，不重复投递。
     const alreadyQueued: boolean = write !== null && write === this.pushedWrite && this.observedWriterPromise !== null;
     const run: Promise<void> | null = write === null || alreadyQueued

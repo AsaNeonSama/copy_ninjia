@@ -124,6 +124,7 @@ describe("侧边栏收起后置切页、顶层同级隔离、transitionend 即�
       chats: zh.chats.sectionTitle(0),
       identities: zh.identities.whitelistTab,
       configs: "config-editor-skeleton",
+      adBlacklists: zh.adBlacklists.stickerTab,
       gallery: "gallery-upload-btn",
       totp: "skeleton-totp-btn",
     };

@@ -248,6 +248,8 @@ test("排队触发独立携带回复对象和转发路径，不依赖原消息�
   expect(sections.referenceMemory).toStartWith(`[BEGIN ${REPLY_CONTEXT_SECTION_NAMES.referenceMemory}]\n${REPLY_CONTEXT_SECTION_TEXT.referenceMemory.header}`);
   expect(sections.referenceMemory).toContain("更早时 Alice 和 Bob 约好周末去看展。");
   expect(sections.referenceMemory).toContain(selfIdentityStatement(99, "ninja_bot"));
+  expect(selfIdentityStatement(99)).not.toContain("@");
+  expect(selfIdentityStatement(99, "")).not.toContain("@");
   expect(sections.referenceMemory).not.toContain("Ninja");
   expect(sections.referenceMemory).toEndWith(`[END ${REPLY_CONTEXT_SECTION_NAMES.referenceMemory}]`);
 

@@ -25,7 +25,7 @@ export const MINI_APP_AUTH_CLOCK_SKEW_SECONDS: number = 300;
  * 所属模块：`packages/libs/miniAppAuth.ts`、`packages/mini-app-api-server/auth/sessionLookup.ts`、
  * `packages/mini-app-api-server/auth/sessionLifecycle.ts` 与 `packages/mini-app-api-server/middleware/sessionToken.ts`。
  */
-export const MINI_APP_SHA256_HEX_PATTERN: RegExp = /^[0-9a-f]{64}$/i;
+export const MINI_APP_SHA256_HEX_PATTERN: Readonly<RegExp> = /^[0-9a-f]{64}$/i;
 
 /**
  * Mini App API 请求携带 Telegram WebApp `initData` 原始查询串的 HTTP 请求头名（小写）。
@@ -115,7 +115,7 @@ export const MINI_APP_PASSWORD_PLACEHOLDER: string = "replace-with-mini-app-pass
  * `mini_app.password` 必须包含至少 6 位阿拉伯数字（`0-9`）的匹配规则。
  * 不变量：不带全局标志 `g`，供配置解析器无状态复用。所属模块：`packages/config/botInput.ts`。
  */
-export const MINI_APP_PASSWORD_AT_LEAST_SIX_DIGITS_PATTERN: RegExp =
+export const MINI_APP_PASSWORD_AT_LEAST_SIX_DIGITS_PATTERN: Readonly<RegExp> =
   /^(?:\D*\d){6}/u;
 
 /**
@@ -130,7 +130,7 @@ export const MINI_APP_MAX_INIT_DATA_LENGTH: number = 4_096;
  * 不变量：不带全局标志 `g`，用于在鉴权快路径拦截含控制字符的畸形凭据头。
  * 所属模块：`packages/libs/miniAppAuth.ts` 与 `packages/mini-app-api-server/middleware/headerGuard.ts`。
  */
-export const MINI_APP_CONTROL_CHARS_PATTERN: RegExp = /\p{Cc}/u;
+export const MINI_APP_CONTROL_CHARS_PATTERN: Readonly<RegExp> = /\p{Cc}/u;
 
 /**
  * `Authorization: tma <initData>` 请求头的认证方案前缀（小写含尾空格）。

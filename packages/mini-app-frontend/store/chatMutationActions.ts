@@ -115,7 +115,7 @@ export function createChatMutationActions({
       enabled: boolean
     ): Promise<void> => {
       const chatId: number | null = get().selectedChatId;
-      if (chatId === null) return;
+      if (chatId === null || get().togglingFeature !== null) return;
       const app: MiniAppUiStoreState = useMiniAppStore.getState();
       if (
         feature === "init" &&
@@ -127,6 +127,7 @@ export function createChatMutationActions({
       ) {
         return;
       }
+      if (get().selectedChatId !== chatId || get().togglingFeature !== null) return;
       cancelWindowJoinedRefresh();
       const startedAt: number = Date.now();
       set({ togglingFeature: feature, loadingWindowJoined: false });
@@ -208,6 +209,9 @@ export function createChatMutationActions({
           "danger"
         ))
       ) {
+        return;
+      }
+      if (get().selectedChatId !== selectedChatId || get().batchKickSubmitting) {
         return;
       }
       cancelWindowJoinedRefresh();

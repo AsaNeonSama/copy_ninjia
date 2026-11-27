@@ -17,18 +17,20 @@ import { TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS } from "../consts/telegram";
 import { isIdentityPolicyCached } from "../infra/identityStorage";
 import { inlineResultSourceOf } from "../infra/inlineResultSources";
 import { isBotOwnMessage } from "../infra/selfSentTracker";
+import { pickAdImageSource, pickStickerVisionSource } from "../libs/telegramImage";
 import { sanitizeInline, truncateInline } from "../libs/text";
 import type {
   AdCandidateMessage,
   AdDetectionMessageContext,
   AdSampleContext,
 } from "../types/antiRaid/adDetect";
+import type { TelegramVisionSource } from "../types/media";
 import { messageOriginIdentityId } from "../users/messageOrigin";
 import { visibleSenderId } from "../users/visibleSender";
 import { identityFirstName, identityLastName, identityUsername } from "../users/identityMetadata";
 import { hasActiveTemporaryAdBypassAt } from "../infra/identityPolicy/temporaryAdBypass";
 import { isWhitelisted } from "../infra/identityPolicy/whitelist";
-import type { WhitelistPermissionOrBlocklistStatus } from
+import type { WhitelistOrBlocklistStatus } from
   "../infra/identityPolicy/whitelist";
 import { readAdCandidateSenderStatus } from "./memberFacts";
 
@@ -198,7 +200,7 @@ export function buildAdCandidate(
   }: AdDetectionMessageContext
 ): AdCandidateMessage | undefined {
   const chatId: number = message.chat.id;
-  const senderStatus: WhitelistPermissionOrBlocklistStatus =
+  const senderStatus: WhitelistOrBlocklistStatus =
     readAdCandidateSenderStatus(senderId, now);
   if (senderStatus === "allowed") return undefined;
   const blocked: boolean = senderStatus === "blocked";
@@ -232,12 +234,26 @@ export function buildAdCandidate(
   const stickerSetName: string | undefined = selfInlineResult
     ? undefined
     : message.sticker?.set_name;
+  // 仅从发送者自身消息提取贴纸与图片视觉源，绝不提取 reply_to_message 或 quote 中的媒体。
+  const stickerSource: TelegramVisionSource | null =
+    selfInlineResult || message.sticker === undefined
+      ? null
+      : pickStickerVisionSource(message.sticker);
+  const stickerFileId: string | undefined = stickerSource?.fileId;
+  const stickerFileUniqueId: string | undefined = stickerSource?.fileUniqueId;
+  const imageSource: TelegramVisionSource | undefined = selfInlineResult
+    ? undefined
+    : pickAdImageSource(message);
+  const imageFileId: string | undefined = imageSource?.fileId;
+  const imageFileUniqueId: string | undefined = imageSource?.fileUniqueId;
   const customEmojiIds: string[] | undefined = collectCustomEmojiIds(entities);
   const sampleContext: AdSampleContext | undefined = buildSampleContext(message, now);
   if (
     text.length === 0 &&
     linkUrls === undefined &&
     stickerSetName === undefined &&
+    stickerFileId === undefined &&
+    imageFileId === undefined &&
     customEmojiIds === undefined &&
     sampleContext === undefined
   ) return undefined;
@@ -258,6 +274,10 @@ export function buildAdCandidate(
     justJoined: isActiveVerificationUser(chatId, senderId),
     linkUrls,
     stickerSetName,
+    stickerFileId,
+    stickerFileUniqueId,
+    imageFileId,
+    imageFileUniqueId,
     customEmojiIds,
     sampleQuote: sampleContext?.quote,
     sampleReplyTo: sampleContext?.replyTo,

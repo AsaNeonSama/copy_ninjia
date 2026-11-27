@@ -39,7 +39,8 @@
 | `bun run release:verify -- --version <tag> --platforms <一覧>` | 配布パッケージ検証 | 全対象プラットフォームのアーカイブ、SHA-256、バージョン、Git tree の一致を検証 |
 | `bun run release:publish -- --version <tag> --platforms <一覧> --notes-file <ファイル>` | GitHub Release 公開 | リモート参照を検証し、下書き作成、資産アップロード・再検証を経て Latest として公開 |
 | `bun run audit:release` | 依存関係セキュリティ監査 | 依存パッケージの脆弱性をスキャン（`moderate` 以上を検出） |
-| `bun run migrate:wed-member-window` | `/wed` メンバー窓コールド移行 | 停止中オフラインで 17.2.1 の `memory/wed` ID 配列を `{ id, enteredAt }` スライディングウィンドウ形式へ変換（詳細は [07 運用マニュアル](07-operations.md)） |
+| `bun run migrate:wed-member-window` | `/wed` メンバー窓コールド移行 | 停止中オフラインで 17.2.1 の `memory/wed` ID 配列を `{ id, enteredAt }` スライディングウィンドウ形式へ変換（詳細は [07 運用マニュアル](07-operations.md#upgrade-wed-member-window)） |
+| `bun run migrate:ad-pack-blacklists` | 広告パックブラックリスト・v13 → v14 コールド移行 | 停止中オフラインで Schema v13 DB と任意の旧 4 キー `ad_detect.json` を Schema v14（`ad_pack_blacklists`）および 2 キー設定へ移行（詳細は [07 運用マニュアル](07-operations.md#upgrade-ad-pack-blacklists)） |
 
 ---
 
@@ -76,7 +77,7 @@
     - `states/` の閉包境界：直接・間接の実行時依存は `consts`、`libs`、`types`、`states` に限定されます（唯一の例外は `STATES_CLOSURE_OPAQUE_MODULES` に登録された `config/time.ts`）。
     - `infra/` のレイヤー境界：実行時依存は `cache`、`config`、`consts`、`database`、`infra`、`libs`、`states`、`types`、`users`（`INFRA_ALLOWED_PREFIXES`、唯一の例外は `workers/diskIO/diagnosticSink.ts`）に限定され、業務レイヤーへの逆依存を禁止します。また全量ベンチマークの親プロセスは純粋定数と型のみを import できます。
   - **定数テーブルの制約**：
-    - オブジェクト要素を持つエクスポート定数テーブル（正規表現・関数値を除く）は、`test/consts/immutability.test.ts` で `@ts-expect-error` 直後の行から参照して不変性を検証する必要があります（`scripts/conventions/constImmutability.ts`）。
+    - エクスポートされる正規表現定数およびコンテナ・プロパティ内に露出する `RegExp` は `Readonly<RegExp>` として注釈する必要があります。オブジェクト要素を持つエクスポート定数テーブル（`Readonly<RegExp>` と関数値を除く）は、`test/consts/immutability.test.ts` で `@ts-expect-error` 直後の行から参照して不変性を検証する必要があります（`scripts/conventions/constImmutability.ts`）。
     - リテラル union を要素とするエクスポート配列テーブルは `exhaustiveList<U>()([...])`（`packages/consts/exhaustiveList.ts`、フロントエンドは `packages/mini-app-frontend/consts/exhaustiveList.ts`）で記述し、`U` と要素リテラルを網羅させて型の増減時にコンパイルエラーで検知します。
     - 意図的に部分集合のみを列挙するテーブルは `scripts/conventions/constExhaustiveLists.ts` の `PARTIAL_LITERAL_TABLES` に `<相対パス>#<テーブル名>` で登録します（失効した登録もエラー）。
   - **安全な API 呼び出し**：
@@ -124,7 +125,7 @@
 
 ### このドキュメント版の実測値
 
-`bun run test:coverage`：**7448 tests / 649 files / 592390 `expect()` calls**。全ソースコードの**関数カバレッジは 98.02%、行カバレッジは 98.07%**です。3 言語の各プロジェクト README の Coverage badge は行カバレッジを表示します。
+`bun run test:coverage`：**7674 tests / 667 files / 595279 `expect()` calls**。全ソースコードの**関数カバレッジは 98.00%、行カバレッジは 97.97%**です。3 言語の各プロジェクト README の Coverage badge は行カバレッジを表示します。
 
 ---
 
@@ -143,7 +144,7 @@
 ### 主要テストスイートの分布
 
 - **インストール・更新テスト**：`test/scripts/installStartup.test.ts` と `test/scripts/installMigration.test.ts` が、インストーラー、新規 DB 初期化、起動シーケンス、および旧形式の設定・DB・`/wed` メンバーファイル検出時の無改変での事前拒否を検証します。
-- **コールドマイグレーションテスト**：`test/scripts/migrateWedMemberWindow.test.ts` が、17.2.1 の `memory/wed` メンバー ID 配列のみを受け付け、末尾 `WED_MEMBER_LIMIT` 件を順序どおり同一 `enteredAt` の `{ id, enteredAt }` ウィンドウへ変換して本番起動検証を通過すること、および移行済み・不正入力・シンボリックリンク・既存出力先をバックアップ無改変で拒否することを検証します。
+- **コールドマイグレーションテスト**：`test/scripts/migrateWedMemberWindow.test.ts` が、17.2.1 の `memory/wed` メンバー ID 配列のみを受け付け、末尾 `WED_MEMBER_LIMIT` 件を順序どおり同一 `enteredAt` の `{ id, enteredAt }` ウィンドウへ変換して本番起動検証を通過すること、および移行済み・不正入力・シンボリックリンク・既存出力先をバックアップ無改変で拒否することを検証します。`test/scripts/migrateAdPackBlacklists.test.ts` は Schema v13 DB と任意の旧 4 キー `ad_detect.json` のみを受け付け、Schema v14 の `ad_pack_blacklists` へ移行して `parseAdDetectConfig` 検証済みの 2 キー設定を出力し、`wal_checkpoint(TRUNCATE)` とバックアップ不変性を検証します。
 - **メディア・外部送信ゲートテスト**：`test/aiChat/ai/mediaAdmission.test.ts`、`test/aiChat/ai/imageDescription.test.ts`、`test/infra/telegramWorkerCapabilities.test.ts` がマルチモーダル審査と Worker 双方向 Telegram ゲートを検証します。
 - **統一送信統合テスト**：`test/infra/telegramOutboundIntegration.test.ts` が実クライアント初期化・送信スケジューラ・チャット別レーンを動かし、最内層の HTTP 応答のみをスタブ化してスレッド横断の同一チャット FIFO、種別別 429 バックオフ、ダウンロード流量制限、停止時ドレインを検証します。
 - **セキュリティ・ログテスト**：`test/infra/loggerSecurity.test.ts` が各種例外展開時の機密トークン脱敏を検証します。
@@ -262,7 +263,7 @@ bun run test:coverage 2>&1 | grep 'All files'  # 関数・行カバレッジ率
      ```bash
      bun run release:verify -- --version <tag> --platforms <カンマ区切りのプラットフォーム一覧> --directory <集約ディレクトリ>
      ```
-   - SHA-256、内包バージョン・Git tree、対象アーキテクチャ、必須ランタイム資源とコールドマイグレーション CLI、依存整合性、および `.map` や `node_modules` の非混入を検査します。
+   - SHA-256、内包バージョン・Git tree、対象アーキテクチャ、必須ランタイム資源とコールドマイグレーション CLI、Git 追跡済みファイルに基づく厳密なアーカイブエントリホワイトリスト（余分なファイル・無視ファイル・ディレクトリ・シンボリックリンクを拒否）、依存整合性、および `.map` や `node_modules` の非混入を検査します。
 5. **マージとタグ打ち**：
    - `git merge --squash` で `dev` を `master` へ統合し、Git tree ハッシュがビルド時と完全一致することを確認します。
    - `master` をプッシュし、そのコミットに注釈付きタグ（annotated tag）を作成してプッシュします。

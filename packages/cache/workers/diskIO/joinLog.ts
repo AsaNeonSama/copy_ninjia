@@ -8,6 +8,7 @@ import { LruCache } from "../../../libs/lruCache";
 import type { JoinLogPersistedReply } from "../../../types/diskIO/replies";
 import type {
   BufferedJoinLogEntry,
+  FlushTimerSlot,
   JoinLogFileCache,
 } from "../../../types/diskIO/storage";
 
@@ -32,10 +33,16 @@ export const joinLogCleanupDay: { current: string | null } = { current: null };
 
 /**
  * 已收到 `deleteJoinLog` 但尚未删净对应群日文件的群 ID 集合：
- * 收到整群删除时登记，该群日文件全部 `unlink` 成功后摘除（失败保留至下次统一 flush 重试）；
- * 容量与受管群数上限同阶，Worker 重建后由主线程重投未确认删除。
+ * 收到整群删除时登记，该群日文件全部 `unlink` 成功后摘除（失败保留并按 `FLUSH_INTERVAL_MS` 定时重试，
+ * 显式 `joinLogPurge` flush 也会立即重试）；容量与受管群数上限同阶，Worker 重建后由主线程重投未确认删除。
  */
 export const joinLogDeletions: Set<number> = new Set();
+
+/**
+ * 入群日志删除失败后的定时重试 timer 槽（`joinLogDeletions` 非空时武装）：
+ * 清理失败时按 `FLUSH_INTERVAL_MS` 排期重试，`purgeJoinLogDeletions` 或 `resetJoinLogCache` 时取消；单例对象。
+ */
+export const joinLogDeletionTimer: FlushTimerSlot = { timer: null };
 
 /**
  * 待刷入群事实缓冲、定时刷盘 timer 与处置回执水位状态：
@@ -74,11 +81,13 @@ export function markJoinLogDirty(entry: BufferedJoinLogEntry): number {
   return joinLogBuffer.entries.length;
 }
 
-/** 取消定时刷盘 timer 并清空入群日志游标、退避缓存、待删集合与待刷缓冲。 */
+/** 取消定时刷盘与删除重试 timer，并清空入群日志游标、退避缓存、待删集合与待刷缓冲。 */
 export function resetJoinLogCache(): void {
   if (joinLogBuffer.timer !== null) clearTimeout(joinLogBuffer.timer);
+  if (joinLogDeletionTimer.timer !== null) clearTimeout(joinLogDeletionTimer.timer);
   joinLogBuffer.entries = [];
   joinLogBuffer.timer = null;
+  joinLogDeletionTimer.timer = null;
   joinLogBuffer.receivedThrough = 0;
   joinLogBuffer.acknowledgedThrough = 0;
   joinLogBuffer.acknowledgedPending = 0;

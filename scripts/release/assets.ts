@@ -2,11 +2,9 @@ import { fileSha256 } from "../fileSha256";
 import { ACTIVE_COLD_MIGRATION_EDGES } from "../migrations/active";
 import type { ColdMigrationEdge } from "../migrations/active";
 import { join } from "node:path";
-import { checked } from "./command";
+import { checked, listTrackedBundledSourceFiles } from "./command";
 import type { ReleaseCommand } from "./command";
 import {
-  RELEASE_BUNDLED_PATHS,
-  RELEASE_INSTALL_SCRIPT_GLOB,
   RELEASE_PLATFORMS,
   RELEASE_REQUIRED_FILES,
   RELEASE_VERSION_PATTERN,
@@ -39,7 +37,26 @@ export interface VerifyAssetsOptions {
 }
 
 /**
- * 核对哈希、两份清单版本、必需普通文件、主程序执行位、依赖隔离及构建谱系。
+ * 根据发行包必需的普通文件相对路径集合推导所有合法的祖先目录条目（统一以 `/` 结尾）。
+ * @param requiredFiles 发行包允许出现的普通文件相对路径列表。
+ * @returns 允许出现在 tar 归档中的祖先目录路径集合。
+ */
+function collectExpectedArchiveDirectories(
+  requiredFiles: readonly string[]
+): ReadonlySet<string> {
+  const directories: Set<string> = new Set<string>();
+  for (const filePath of requiredFiles) {
+    let slashIndex: number = filePath.indexOf("/");
+    while (slashIndex !== -1) {
+      directories.add(filePath.slice(0, slashIndex + 1));
+      slashIndex = filePath.indexOf("/", slashIndex + 1);
+    }
+  }
+  return directories;
+}
+
+/**
+ * 核对哈希、两份清单版本、必需唯一普通文件、精确归档条目白名单、主程序执行位、依赖隔离及构建谱系。
  * @param options 发行包校验所需的目录、版本、平台、Git tree 与命令执行器。
  * @returns 通过全部门禁校验的发行包与校验和资产记录列表。
  */
@@ -48,13 +65,20 @@ export async function verifyReleaseAssets({ directory, version, platforms, sourc
   if (platforms.length === 0 || new Set(platforms).size !== platforms.length || platforms.some((value: string): boolean => !RELEASE_PLATFORMS.includes(value))) {
     throw new Error("--platforms must contain unique supported Linux platforms.");
   }
-  const bundledSourceFiles: readonly string[] = checked(
-    command,
-    ["git", "ls-files", "-z", "--", ...RELEASE_BUNDLED_PATHS, `:(glob)${RELEASE_INSTALL_SCRIPT_GLOB}`]
-  )
-    .split("\0")
-    .filter((entry: string): boolean => entry.length > 0)
-    .map((entry: string): string => `copy-ninjia/${entry}`);
+  const bundledSourceFiles: readonly string[] = listTrackedBundledSourceFiles(command).map(
+    (entry: string): string => `copy-ninjia/${entry}`
+  );
+  const migrations: readonly string[] = ACTIVE_COLD_MIGRATION_EDGES.map(
+    (edge: ColdMigrationEdge): string => `copy-ninjia/${edge.bundledPath}`
+  );
+  const requiredFiles: readonly string[] = [
+    ...RELEASE_REQUIRED_FILES,
+    ...bundledSourceFiles,
+    ...migrations,
+  ];
+  const expectedFiles: ReadonlySet<string> = new Set<string>(requiredFiles);
+  const expectedDirectories: ReadonlySet<string> =
+    collectExpectedArchiveDirectories(requiredFiles);
   const assets: ReleaseAsset[] = [];
   for (const platform of platforms) {
     const name: string = `copy-ninjia-${platform}.tar.gz`;
@@ -69,9 +93,6 @@ export async function verifyReleaseAssets({ directory, version, platforms, sourc
       throw new Error(`${name}: binary.json must match the release version, platform, clean source tree and current Bun build.`);
     }
     const entries: readonly string[] = checked(command, ["tar", "-tzf", path]).split("\n");
-    const migrations: readonly string[] = ACTIVE_COLD_MIGRATION_EDGES.map(
-      (edge: ColdMigrationEdge): string => `copy-ninjia/${edge.bundledPath}`
-    );
     if (migrations.some((entry: string): boolean => !entries.includes(entry)) ||
       entries.some((entry: string): boolean => entry.endsWith(".map") ||
         (/^copy-ninjia\/scripts\/(?:migrations\/)?migrate[^/]*\.js$/.test(entry) && !migrations.includes(entry)))) {
@@ -82,7 +103,7 @@ export async function verifyReleaseAssets({ directory, version, platforms, sourc
     }
     const details: readonly string[] = checked(command, ["tar", "-tvzf", path]).split("\n");
     if (details.length !== entries.length) throw new Error(`${name}: tar entry and mode listings must align.`);
-    for (const required of [...RELEASE_REQUIRED_FILES, ...bundledSourceFiles, ...migrations]) {
+    for (const required of requiredFiles) {
       const index: number = entries.indexOf(required);
       const detail: string | undefined = index !== -1 && index === entries.lastIndexOf(required)
         ? details[index]
@@ -90,6 +111,26 @@ export async function verifyReleaseAssets({ directory, version, platforms, sourc
       if (detail?.[0] !== "-" || !detail.endsWith(` ${required}`) ||
         (required === "copy-ninjia/copy-ninjia" && detail[3] !== "x")) {
         throw new Error(`${name}: ${required} must be a unique regular file; the executable must retain its owner execute bit.`);
+      }
+    }
+    const seenDirectories: Set<string> = new Set<string>();
+    for (let index: number = 0; index < entries.length; index += 1) {
+      const entry: string = entries[index]!;
+      const detail: string = details[index]!;
+      if (detail.startsWith("d")) {
+        const normalizedDir: string = entry.endsWith("/") ? entry : `${entry}/`;
+        if (
+          !detail.endsWith(` ${entry}`) ||
+          !expectedDirectories.has(normalizedDir) ||
+          seenDirectories.has(normalizedDir)
+        ) {
+          throw new Error(`${name}: unexpected archive entry ${entry}.`);
+        }
+        seenDirectories.add(normalizedDir);
+        continue;
+      }
+      if (!expectedFiles.has(entry)) {
+        throw new Error(`${name}: unexpected archive entry ${entry}.`);
       }
     }
     const manifest: unknown = JSON.parse(checked(command, ["tar", "-xOf", path, "copy-ninjia/package.json"])) as unknown;

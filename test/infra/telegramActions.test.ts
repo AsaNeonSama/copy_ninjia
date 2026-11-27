@@ -6,6 +6,7 @@ import {
   resetSelfSentTracker,
 } from "../../packages/cache/perThread/selfSentTracker";
 import { sentMessageCount } from "../helpers/selfSentCount";
+import { grammyApiError } from "../helpers/grammyError";
 import { MUTED_CHAT_PERMISSIONS, UNMUTED_CHAT_PERMISSIONS } from "../../packages/consts/telegram";
 import { MARKDOWN_V2_PARSE_MODE } from "../../packages/consts/telegramMarkdown";
 import {
@@ -25,6 +26,9 @@ import {
   sendEphemeralMessage,
   sendMessageWithResult,
 } from "../../packages/infra/telegram/actions/messages";
+import {
+  isPermissionDenied,
+} from "../../packages/infra/telegram/actions/core";
 import {
   kickChatMemberWithOutcome,
   muteChatMemberPermanentlyWithOutcome,
@@ -528,28 +532,83 @@ describe("Telegram 常规动作封装", () => {
         chatId: -1001, userId: 7, mutedUntil: 60_000, dispatchTimeoutMs: 30_000, api,
       });
 
-    // 缺 can_restrict_members 与「目标本身是管理员」共用这一句 400，都归到 forbidden。
-    expect(await mute(failWith(new GrammyError(
+    // 缺 can_restrict_members 与「目标本身是管理员/群主」对应的 400 都归到 forbidden。
+    for (const description of [
       "Bad Request: not enough rights",
-      { ok: false, error_code: 400, description: "Bad Request: not enough rights" },
-      "restrictChatMember",
-      {}
-    )))).toBe("forbidden");
+      "Bad Request: not enough rights to restrict/unrestrict chat member",
+      "Bad Request: user is an administrator of the chat",
+      "Bad Request: can't remove chat owner",
+      "Bad Request: can't restrict chat owner",
+      "Bad Request: can't restrict self",
+      "Bad Request: USER_ADMIN_INVALID",
+      "Bad Request: USER_CREATOR",
+      "Bad Request: CHAT_ADMIN_REQUIRED",
+      "Bad Request: RIGHT_FORBIDDEN",
+    ]) {
+      expect(await mute(failWith(grammyApiError(400, description)))).toBe("forbidden");
+    }
+    // Worker 双工重建错误中的管理员/群主 400 同样归到 forbidden。
+    expect(await mute(failWith(Object.assign(new Error("Telegram request failed"), {
+      telegramErrorCode: 400,
+      telegramDescription: "Bad Request: user is an administrator of the chat",
+    })))).toBe("forbidden");
     // 403 一律算：不在群、被踢出，共同点是这次调用永远不会成功。
-    expect(await mute(failWith(new GrammyError(
-      "Forbidden: bot was kicked",
-      { ok: false, error_code: 403, description: "Forbidden: bot was kicked" },
-      "restrictChatMember",
-      {}
-    )))).toBe("forbidden");
-    // 限流/网络抖动归到可重试的一档，与上面分开。
+    expect(await mute(failWith(grammyApiError(403, "Forbidden: bot was kicked")))).toBe("forbidden");
+    // 其它非权限类 400、限流/网络抖动归到 failed，与上面分开。
+    expect(await mute(failWith(grammyApiError(400, "Bad Request: user not found")))).toBe("failed");
     expect(await mute(failWith(new Error("socket hang up")))).toBe("failed");
-    expect(await mute(failWith(new GrammyError(
-      "Too Many Requests",
-      { ok: false, error_code: 429, description: "Too Many Requests: retry after 3" },
-      "restrictChatMember",
-      {}
-    )))).toBe("failed");
+    expect(await mute(failWith(grammyApiError(429, "Too Many Requests: retry after 3")))).toBe("failed");
+  });
+
+  test("isPermissionDenied 精确区分权限/管理员身份保护拒绝与其它错误", () => {
+    for (const description of [
+      "Bad Request: not enough rights",
+      "Bad Request: not enough rights to restrict/unrestrict chat member",
+      "Bad Request: you don't have enough rights",
+      "Bad Request: have no rights to send a message",
+      "Bad Request: need administrator rights in the channel chat",
+      "Bad Request: bot is not an administrator",
+      "Bad Request: method is available only for administrators",
+      "Bad Request: user is an administrator of the chat",
+      "Bad Request: the user is an administrator in the chat",
+      "Bad Request: user is the owner of the chat",
+      "Bad Request: can't remove chat owner",
+      "Bad Request: can't restrict chat owner",
+      "Bad Request: can't ban chat owner",
+      "Bad Request: can't demote chat creator",
+      "Bad Request: can't restrict an administrator",
+      "Bad Request: can't restrict self",
+      "Bad Request: CHAT_ADMIN_REQUIRED",
+      "Bad Request: CHANNEL_ADMIN_REQUIRED",
+      "Bad Request: CHAT_CREATOR_REQUIRED",
+      "Bad Request: RIGHT_FORBIDDEN",
+      "Bad Request: CHAT_WRITE_FORBIDDEN",
+      "Bad Request: USER_ADMIN_INVALID",
+      "Bad Request: USER_CREATOR",
+    ]) {
+      expect(isPermissionDenied(grammyApiError(400, description))).toBeTrue();
+    }
+    expect(isPermissionDenied(grammyApiError(403, "Forbidden: bot is not a member of the supergroup chat"))).toBeTrue();
+
+    for (const description of [
+      "Bad Request: user not found",
+      "Bad Request: chat not found",
+      "Bad Request: PARTICIPANT_ID_INVALID",
+      "Bad Request: USER_NOT_PARTICIPANT",
+      "Bad Request: PEER_ID_INVALID",
+      "Bad Request: CHAT_NOT_MODIFIED",
+      "Bad Request: message to delete not found",
+      "Bad Request: message can't be deleted",
+      "Bad Request: message can't be deleted for everyone",
+      "Bad Request: method is available only for supergroups",
+      "Bad Request: query is too old",
+    ]) {
+      expect(isPermissionDenied(grammyApiError(400, description))).toBeFalse();
+    }
+    expect(isPermissionDenied(grammyApiError(429, "Too Many Requests: retry after 3"))).toBeFalse();
+    expect(isPermissionDenied(grammyApiError(500, "Internal Server Error"))).toBeFalse();
+    expect(isPermissionDenied(new Error("socket hang up"))).toBeFalse();
+    expect(isPermissionDenied(undefined)).toBeFalse();
   });
 
   test("永久禁言收走全部发言权限，不带 until_date，并区分权限拒绝", async () => {
@@ -603,13 +662,15 @@ describe("Telegram 常规动作封装", () => {
     const unmute = (api: TelegramApi): Promise<string> =>
       unmuteChatMemberWithOutcome({ chatId: -1001, userId: 7, api });
 
-    // 与禁言同一判据：400「权限不足」和 403 都归 forbidden。
-    expect(await unmute(failWith(new GrammyError(
+    // 与禁言同一判据：400 权限不足/目标为管理员或群主与 403 都归 forbidden。
+    for (const description of [
       "Bad Request: not enough rights",
-      { ok: false, error_code: 400, description: "Bad Request: not enough rights" },
-      "restrictChatMember",
-      {}
-    )))).toBe("forbidden");
+      "Bad Request: user is an administrator of the chat",
+      "Bad Request: can't remove chat owner",
+      "Bad Request: USER_ADMIN_INVALID",
+    ]) {
+      expect(await unmute(failWith(grammyApiError(400, description)))).toBe("forbidden");
+    }
     expect(await unmute(failWith(new GrammyError(
       "Forbidden: bot was kicked",
       { ok: false, error_code: 403, description: "Forbidden: bot was kicked" },
@@ -646,21 +707,20 @@ describe("Telegram 常规动作封装", () => {
       isSupergroup: true,
       api: kickWith(new TelegramRetryPreconditionChangedError()),
     })).toBe("absent");
-    expect(await kickChatMemberWithOutcome({
-      chatId: -1001,
-      userId: 7,
-      isSupergroup: true,
-      api: kickWith(new GrammyError(
-        "Bad Request: not enough rights",
-        {
-          ok: false,
-          error_code: 400,
-          description: "Bad Request: not enough rights",
-        },
-        "unbanChatMember",
-        {}
-      )),
-    })).toBe("forbidden");
+    for (const description of [
+      "Bad Request: not enough rights",
+      "Bad Request: user is an administrator of the chat",
+      "Bad Request: can't remove chat owner",
+      "Bad Request: USER_ADMIN_INVALID",
+      "Bad Request: CHAT_ADMIN_REQUIRED",
+    ]) {
+      expect(await kickChatMemberWithOutcome({
+        chatId: -1001,
+        userId: 7,
+        isSupergroup: true,
+        api: kickWith(grammyApiError(400, description)),
+      })).toBe("forbidden");
+    }
     expect(await kickChatMemberWithOutcome({
       chatId: -1001,
       userId: 7,

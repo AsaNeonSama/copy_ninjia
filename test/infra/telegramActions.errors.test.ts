@@ -508,10 +508,20 @@ describe("黑名单封禁结果归一化", () => {
     const api: Api = { banChatMember } as unknown as Api;
     expect(await actions.banChatMemberWithOutcome(-1001, 7, api)).toBe("banned");
 
-    banChatMember.mockImplementation((): never => {
-      throw new GrammyError("x", { ok: false, error_code: 400, description: "Bad Request: not enough rights to restrict/unrestrict chat member" }, "banChatMember", {});
-    });
-    expect(await actions.banChatMemberWithOutcome(-1001, 7, api)).toBe("forbidden");
+    for (const description of [
+      "Bad Request: not enough rights to restrict/unrestrict chat member",
+      "Bad Request: user is an administrator of the chat",
+      "Bad Request: can't remove chat owner",
+      "Bad Request: USER_ADMIN_INVALID",
+      "Bad Request: USER_CREATOR",
+      "Bad Request: CHAT_ADMIN_REQUIRED",
+      "Bad Request: RIGHT_FORBIDDEN",
+    ]) {
+      banChatMember.mockImplementation((): never => {
+        throw new GrammyError("x", { ok: false, error_code: 400, description }, "banChatMember", {});
+      });
+      expect(await actions.banChatMemberWithOutcome(-1001, 7, api)).toBe("forbidden");
+    }
 
     banChatMember.mockImplementation((): never => {
       throw new GrammyError("x", { ok: false, error_code: 403, description: "Forbidden: bot was kicked" }, "banChatMember", {});
@@ -526,6 +536,27 @@ describe("黑名单封禁结果归一化", () => {
 
     banChatMember.mockImplementation((): never => { throw new Error("socket hang up"); });
     expect(await actions.banChatMemberWithOutcome(-1001, 7, api)).toBe("failed");
+  });
+
+  test("deleteMessageWithOutcome 将权限拒绝归为 forbidden，消息不可删仍优先归为 gone", async () => {
+    const deleteMessage = mock(async (..._args: unknown[]): Promise<true> => true);
+    const api: Api = { deleteMessage } as unknown as Api;
+
+    for (const description of [
+      "Bad Request: CHAT_ADMIN_REQUIRED",
+      "Bad Request: RIGHT_FORBIDDEN",
+      "Bad Request: not enough rights",
+    ]) {
+      deleteMessage.mockImplementationOnce((): never => {
+        throw new GrammyError("x", { ok: false, error_code: 400, description }, "deleteMessage", {});
+      });
+      expect(await actions.deleteMessageWithOutcome(-1001, 3, api)).toBe("forbidden");
+    }
+
+    deleteMessage.mockImplementationOnce((): never => {
+      throw new GrammyError("x", { ok: false, error_code: 400, description: "Bad Request: message can't be deleted for everyone" }, "deleteMessage", {});
+    });
+    expect(await actions.deleteMessageWithOutcome(-1001, 3, api)).toBe("gone");
   });
 
   test("banChatMember 传 revoke_messages", async () => {

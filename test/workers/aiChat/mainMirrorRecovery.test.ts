@@ -29,6 +29,7 @@ import type {
   DiskBusinessMessage,
   DiskIORecoveryTransport,
   DiskIORespawnListener,
+  StickerCatalogPersistedReply,
 } from "../../../packages/types/diskIO";
 
 const workerPosts: AiChatWorkerMessage[] = [];
@@ -49,6 +50,7 @@ let supervisorOptions: {
 let diskRespawn: DiskIORespawnListener | undefined;
 let diskDeletePersisted: ((reply: AiMemoryDeletedPersistedReply) => void) | undefined;
 let diskMemoryPersisted: ((reply: AiMemoryPersistedReply) => void) | undefined;
+let diskStickerPersisted: ((reply: StickerCatalogPersistedReply) => void) | undefined;
 let diskGaveUp: (() => void) | undefined;
 const aiEnabledChats = new Set<number>();
 
@@ -79,6 +81,9 @@ mock.module("../../../packages/infra/diskIO", () => (diskIOStub({
     },
     aiMemoryPersisted: (callback: (reply: AiMemoryPersistedReply) => void): void => {
       diskMemoryPersisted = callback;
+    },
+    stickerCatalogPersisted: (callback: (reply: StickerCatalogPersistedReply) => void): void => {
+      diskStickerPersisted = callback;
     },
   }),
   // 按 owner 名捕获，只保存 owner 为 "AI memory" 的重放回调，同一 isolate 里其它领域登记的回调不覆盖它。
@@ -939,6 +944,34 @@ describe("AI main-thread persistence mirror", () => {
     workerPosts.length = 0;
     await expect(aiChat.flushAiMemory(1_000)).resolves.toBe("flushed");
     expect(workerPosts).toEqual([]);
+  });
+
+  test("Disk I/O 重建时仅重放尚未 ACK 的贴纸目录，启动 hydrate 与已确认快照不重复写盘", async () => {
+    adoptStickerConfig({ packs: ["pack_a", "pack_b"] });
+    aiChat.initAiChat({ id: 99, username: "ninja_bot", first_name: "Ninja" });
+    aiChat.hydrateStickerCatalog(new Map([["pack_a", "hydrated-a"]]));
+    supervisorOptions!.onEvent({ type: "stickerCatalog", pack: "pack_a", snapshot: "dirty-a" });
+    supervisorOptions!.onEvent({ type: "stickerCatalog", pack: "pack_b", snapshot: "dirty-b" });
+    const revA: number = pendingStickerCatalogRevisions.get("pack_a")!;
+    const revB: number = pendingStickerCatalogRevisions.get("pack_b")!;
+    diskStickerPersisted!({ type: "stickerCatalogPersisted", pack: "pack_a", revision: revA });
+    expect(pendingStickerCatalogRevisions.has("pack_a")).toBeFalse();
+    expect(pendingStickerCatalogRevisions.get("pack_b")).toBe(revB);
+
+    const replayed: DiskBusinessMessage[] = [];
+    const recoveryTransport: DiskIORecoveryTransport = {
+      post: (message: DiskBusinessMessage): boolean => {
+        replayed.push(message);
+        return true;
+      },
+      ensureLuckReceiptSecret: async (): Promise<never> => {
+        throw new Error("Unexpected luck secret request.");
+      },
+    };
+    expect(await diskRespawn!(recoveryTransport)).toBeTrue();
+    expect(replayed).toEqual([
+      { type: "stickerCatalog", pack: "pack_b", snapshot: "dirty-b", revision: revB },
+    ]);
   });
 });
 

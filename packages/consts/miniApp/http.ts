@@ -21,19 +21,19 @@ export const MINI_APP_PORT_MAX: number = 65_535;
  * 不变量：不带全局标志 `g`，供 `verifyMiniAppInitData` 与客户端 IP 可选端口校验无状态复用。
  * 所属模块：`packages/libs/miniAppAuth.ts` 与 `packages/mini-app-api-server/libs/request.ts`。
  */
-export const MINI_APP_POSITIVE_INTEGER_PATTERN: RegExp = /^[1-9]\d*$/;
+export const MINI_APP_POSITIVE_INTEGER_PATTERN: Readonly<RegExp> = /^[1-9]\d*$/;
 
 /**
  * 十进制有符号整数参数的匹配规则。
  * 不变量：不带全局标志 `g`，供 HTTP 查询参数解析无状态复用。所属模块：`packages/mini-app-api-server/libs/request.ts`。
  */
-export const MINI_APP_SIGNED_INTEGER_PATTERN: RegExp = /^-?\d+$/u;
+export const MINI_APP_SIGNED_INTEGER_PATTERN: Readonly<RegExp> = /^-?\d+$/u;
 
 /**
  * IPv4 字面量主机名的匹配规则（用于拦截 `Host` 请求头回显源站 IP 字面量）。
  * 不变量：不带全局标志 `g`，供 `buildMiniAppAccessDiagnostics` 无状态复用。所属模块：`packages/mini-app-api-server/libs/response.ts`。
  */
-export const MINI_APP_IPV4_HOST_PATTERN: RegExp = /^(?:\d{1,3}\.){3}\d{1,3}$/u;
+export const MINI_APP_IPV4_HOST_PATTERN: Readonly<RegExp> = /^(?:\d{1,3}\.){3}\d{1,3}$/u;
 
 /**
  * Mini App 响应禁止 Cloudflare Tunnel 边缘节点与浏览器缓存的 `Cache-Control` 取值。
@@ -86,7 +86,7 @@ export const MINI_APP_GALLERY_FILE_VARY_HEADER_VALUE: string =
  * Mini App 前端打包产物候选根路径的匹配规则（单层文件名加打包静态资源扩展名）。
  * 不变量：不带全局标志 `g`，供兜底路由匹配单层打包静态资源路径。所属模块：`packages/mini-app-api-server/routes/page.ts`。
  */
-export const MINI_APP_BUNDLE_ASSET_ROUTE_PATTERN: RegExp =
+export const MINI_APP_BUNDLE_ASSET_ROUTE_PATTERN: Readonly<RegExp> =
   /^\/[^/]+\.(?:js|css|ico|svg|png|webp|woff2?)$/iu;
 
 /**
@@ -94,7 +94,7 @@ export const MINI_APP_BUNDLE_ASSET_ROUTE_PATTERN: RegExp =
  * 不变量：不带全局标志 `g`，大小写不敏感匹配常见图片与矢量图扩展名。
  * 所属模块：`packages/mini-app-api-server/server/register.ts` 与 `packages/mini-app-api-server/routes/page.ts`。
  */
-export const MINI_APP_PROTECTED_ASSET_EXT_PATTERN: RegExp =
+export const MINI_APP_PROTECTED_ASSET_EXT_PATTERN: Readonly<RegExp> =
   /\.(?:svg|png|jpe?g|webp|gif|avif)$/iu;
 
 /**

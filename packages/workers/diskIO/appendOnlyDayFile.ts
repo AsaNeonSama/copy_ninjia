@@ -72,8 +72,7 @@ export async function openAppendOnlyFile(
     if (!isPlainRecord(repairedParsed)) {
       throw new AppendOnlyFileFormatError(path, "must contain a top-level JSON object.");
     }
-    atomicWriteTextSync(path, repaired, mode);
-    state.size = statSync(path).size;
+    state.size = atomicWriteTextSync(path, repaired, mode);
     state.empty = Object.keys(repairedParsed).length === 0;
     return state;
   }
@@ -88,9 +87,10 @@ export async function openAppendOnlyFile(
         "must use the canonical append-only JSON object formatting."
       );
     }
-    atomicWriteTextSync(path, JSON.stringify(parsed, null, DAY_FILE_JSON_INDENT), mode);
+    state.size = atomicWriteTextSync(path, JSON.stringify(parsed, null, DAY_FILE_JSON_INDENT), mode);
+  } else {
+    state.size = statSync(path).size;
   }
-  state.size = statSync(path).size;
   state.empty = false;
   return state;
 }

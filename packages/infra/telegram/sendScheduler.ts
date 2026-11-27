@@ -92,14 +92,18 @@ function armLaneTimer(lane: TelegramSendLane, at: number, now: number): void {
 }
 
 /**
- * 空闲车道：分钟窗口、保守档与冻结都已结束时删除，否则挂一个到期复查的定时器。已有定时器
- * 时不重挂，它到点后复查并按新的到期时刻续挂。
+ * 空闲车道：分钟窗口、保守档与冻结都已结束时删除，否则挂一个到期复查的定时器。从未发出过消息的车道
+ * （`lastSendAt < 0`）不计入群级分钟保留窗口，无保守档与冻结时立即退役；已有定时器时不重挂，
+ * 它到点后复查并按新的到期时刻续挂。
  * @param lane 待检查退役的空闲车道。
  * @param now 当前单调时钟毫秒数。
  */
 function retireIdleLane(lane: TelegramSendLane, now: number): void {
+  const groupWindowExpiresAt: number = lane.lastSendAt >= 0
+    ? lane.lastSendAt + TELEGRAM_SEND_GROUP_WINDOW_MS
+    : 0;
   const expiresAt: number = Math.max(
-    lane.lastSendAt + TELEGRAM_SEND_GROUP_WINDOW_MS,
+    groupWindowExpiresAt,
     lane.cautiousUntil,
     lane.frozenUntil
   );

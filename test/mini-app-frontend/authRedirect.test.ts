@@ -9,10 +9,21 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { App } from "../../packages/mini-app-frontend/App";
+import {
+  classifyMiniAppAuthError,
+  createMiniAppAuthError,
+  isStaleMiniAppSessionToken,
+  isSuppressedStaleMiniAppAuthError,
+} from "../../packages/mini-app-frontend/api/authError";
 import { downloadMiniAppGalleryImageByName } from "../../packages/mini-app-frontend/api/galleryDownload";
 import { fetchMiniAppGalleryImageObjectUrl } from "../../packages/mini-app-frontend/api/galleryFile";
-import { miniAppFetchJson } from "../../packages/mini-app-frontend/api/request";
+import { waitForMiniAppPickerResult } from "../../packages/mini-app-frontend/api/pickerResult";
 import {
+  miniAppFetchJson,
+  resolveMiniAppSessionCryptoSnapshot,
+} from "../../packages/mini-app-frontend/api/request";
+import {
+  MINI_APP_EXPIRED_AUTH_DATE_CODE,
   MINI_APP_SESSION_EXPIRES_AT_HEADER,
   MINI_APP_SESSION_HEADER,
   MINI_APP_SESSION_TTL_MS,
@@ -25,7 +36,9 @@ import {
 import { getMiniAppTranslations } from "../../packages/mini-app-frontend/i18n";
 import {
   clearMiniAppSessionToken,
+  hasMiniAppSessionCryptoKey,
   readMiniAppSessionToken,
+  setMiniAppSessionToken,
 } from "../../packages/mini-app-frontend/libs/credentials";
 import {
   buildMiniAppEnvelopeAad,
@@ -447,5 +460,475 @@ describe("Mini App 密钥吊销、登录过期与门禁重定向", () => {
     await totpStore.getState().verifyEnable();
     expect(useMiniAppStore.getState().gateState).toBe("unlocked");
     expect(readMiniAppSessionToken()).toBe(activeTotpToken);
+  });
+
+  test("旧令牌判定辅助函数、重新登录延迟回执与滞后响应解密失败均不误清、不锁定且不弹过期 Toast", async () => {
+    const staleToken: string = "d".repeat(64);
+    const rotatedToken: string = "e".repeat(64);
+    const rotateLocalSession = (): void => {
+      seedTestMiniAppSession(
+        rotatedToken,
+        Date.now() + MINI_APP_SESSION_TTL_MS,
+        TEST_ROTATED_SESSION_KEY
+      );
+    };
+
+    // 1. 辅助函数边界：空串/缺省或已清空态不视作过时，已被新令牌取代时视作过时；外层包装 Error 透传内层 cause 上的发包令牌标记。
+    seedActiveSession(rotatedToken);
+    expect(isStaleMiniAppSessionToken(undefined)).toBeFalse();
+    expect(isStaleMiniAppSessionToken("")).toBeFalse();
+    expect(isStaleMiniAppSessionToken(rotatedToken)).toBeFalse();
+    expect(isStaleMiniAppSessionToken(staleToken)).toBeTrue();
+
+    const wrappedStaleReauth: Error = new Error("outer wrapper", {
+      cause: createMiniAppAuthError(
+        "[PASSWORD_REQUIRED] SESSION_EXPIRED",
+        { code: "PASSWORD_REQUIRED", error: "SESSION_EXPIRED" },
+        staleToken
+      ),
+    });
+    expect(classifyMiniAppAuthError(wrappedStaleReauth.message, wrappedStaleReauth)).toBeNull();
+    expect(isSuppressedStaleMiniAppAuthError(wrappedStaleReauth.message, wrappedStaleReauth)).toBeTrue();
+    const wrappedStaleLocked: Error = new Error("outer wrapper", {
+      cause: createMiniAppAuthError(
+        "[PASSWORD_LOCKED] PASSWORD_LOCKED",
+        { code: "PASSWORD_LOCKED", error: "PASSWORD_LOCKED" },
+        staleToken
+      ),
+    });
+    expect(classifyMiniAppAuthError(wrappedStaleLocked.message, wrappedStaleLocked)).toBe(
+      "accessDenied"
+    );
+    expect(isSuppressedStaleMiniAppAuthError(wrappedStaleLocked.message, wrappedStaleLocked)).toBeFalse();
+    const directStaleReauth: Error = createMiniAppAuthError(
+      "[PASSWORD_REQUIRED] SESSION_EXPIRED",
+      undefined,
+      staleToken
+    );
+    expect(classifyMiniAppAuthError(directStaleReauth.message, directStaleReauth)).toBeNull();
+    expect(isSuppressedStaleMiniAppAuthError(directStaleReauth.message, directStaleReauth)).toBeTrue();
+    const directStaleExpiredAuthDate: Error = createMiniAppAuthError(
+      `[${MINI_APP_EXPIRED_AUTH_DATE_CODE}] ${MINI_APP_EXPIRED_AUTH_DATE_CODE}`,
+      undefined,
+      staleToken
+    );
+    expect(
+      isSuppressedStaleMiniAppAuthError(
+        directStaleExpiredAuthDate.message,
+        directStaleExpiredAuthDate
+      )
+    ).toBeTrue();
+    const activeTokenReauth: Error = createMiniAppAuthError(
+      "[PASSWORD_REQUIRED] SESSION_EXPIRED",
+      undefined,
+      rotatedToken
+    );
+    expect(isSuppressedStaleMiniAppAuthError(activeTokenReauth.message, activeTokenReauth)).toBeFalse();
+    const staleBusinessError: Error = createMiniAppAuthError(
+      "HTTP 500",
+      { code: "INTERNAL_ERROR" },
+      staleToken
+    );
+    expect(isSuppressedStaleMiniAppAuthError(staleBusinessError.message, staleBusinessError)).toBeFalse();
+
+    // 2. 旧请求先返回 401（传输层清空旧令牌）并在 waitMinimumLoadingDuration 期间完成重新登录后，滞后 notify 不得清除新登录会话，也不得弹出误导性过期 Toast。
+    seedActiveSession(staleToken);
+    useMiniAppStore.setState({ toastText: "", toastSeq: 0 });
+    registerRoute("GET /api/chats", (): Response =>
+      jsonRes({ code: "PASSWORD_REQUIRED", error: "SESSION_EXPIRED" }, 401)
+    );
+    const delayedReLoginChatsStore: MiniAppChatsStore = createChatsStore();
+    const delayedPending: Promise<void> = delayedReLoginChatsStore.getState().loadChatList();
+    await Bun.sleep(20);
+    expect(readMiniAppSessionToken()).toBe("");
+    seedActiveSession(rotatedToken);
+    await delayedPending;
+    expect(useMiniAppStore.getState().gateState).toBe("unlocked");
+    expect(readMiniAppSessionToken()).toBe(rotatedToken);
+    expect(useMiniAppStore.getState().toastText).toBe("");
+    expect(useMiniAppStore.getState().toastSeq).toBe(0);
+
+    // 3. 响应解密失败（旧密钥滞后密文失步）经 statusStore 流入 notify 时同样不误清、不锁定且不弹过期 Toast。
+    const savedWrappedFetch: typeof fetch = globalThis.fetch;
+    try {
+      seedActiveSession(staleToken);
+      useMiniAppStore.setState({ toastText: "", toastSeq: 0 });
+      const decryptGate: PromiseWithResolvers<Response> = Promise.withResolvers<Response>();
+      const decryptEntered: PromiseWithResolvers<void> = Promise.withResolvers<void>();
+      globalThis.fetch = ((): Promise<Response> => {
+        decryptEntered.resolve();
+        return decryptGate.promise;
+      }) as unknown as typeof fetch;
+      const statusStore: MiniAppStatusStore = createStatusStore();
+      const pendingStatus: Promise<void> = statusStore.getState().loadStatus(false);
+      await decryptEntered.promise;
+      rotateLocalSession();
+      const wrongKey: CryptoKey = await importMiniAppAesGcmKey(TEST_ROTATED_SESSION_KEY);
+      decryptGate.resolve(
+        Response.json(
+          await encryptMiniAppEnvelope(
+            wrongKey,
+            JSON.stringify({ ok: true }),
+            buildMiniAppEnvelopeAad("GET", "/api/status", "res")
+          ),
+          { status: 200 }
+        )
+      );
+      await pendingStatus;
+      expect(useMiniAppStore.getState().gateState).toBe("unlocked");
+      expect(readMiniAppSessionToken()).toBe(rotatedToken);
+      expect(useMiniAppStore.getState().toastText).toBe("");
+      expect(useMiniAppStore.getState().toastSeq).toBe(0);
+    } finally {
+      globalThis.fetch = savedWrappedFetch;
+    }
+  });
+
+  test("令牌轮换后滞后旧令牌的 401/400/裸 401/EXPIRED_AUTH_DATE 经 Status/Chats/Configs Store 流入时保持 unlocked 且不显示过期提示", async () => {
+    const staleToken: string = "d".repeat(64);
+    const rotatedToken: string = "e".repeat(64);
+    const rotateLocalSession = (): void => {
+      seedTestMiniAppSession(
+        rotatedToken,
+        Date.now() + MINI_APP_SESSION_TTL_MS,
+        TEST_ROTATED_SESSION_KEY
+      );
+    };
+
+    const staleFailureResponses: readonly (readonly [string, () => Response])[] = [
+      [
+        "401 PASSWORD_REQUIRED",
+        (): Response => jsonRes({ code: "PASSWORD_REQUIRED", error: "SESSION_EXPIRED" }, 401),
+      ],
+      [
+        "bare HTTP 401",
+        (): Response => new Response("Unauthorized", { status: 401 }),
+      ],
+      [
+        "400 INVALID_ENCRYPTED_PAYLOAD",
+        (): Response => jsonRes({ error: MINI_APP_INVALID_ENCRYPTED_PAYLOAD_CODE }, 400),
+      ],
+      [
+        `401 ${MINI_APP_EXPIRED_AUTH_DATE_CODE}`,
+        (): Response =>
+          jsonRes(
+            { code: MINI_APP_EXPIRED_AUTH_DATE_CODE, error: MINI_APP_EXPIRED_AUTH_DATE_CODE },
+            401
+          ),
+      ],
+    ];
+
+    for (const [label, buildResponse] of staleFailureResponses) {
+      // 1. 后台静默拉取（loadMood -> notifyMiniAppIfAuthError -> notify）
+      seedActiveSession(staleToken);
+      useMiniAppStore.setState({ toastText: "", toastSeq: 0 });
+      const moodGate: PromiseWithResolvers<Response> = Promise.withResolvers<Response>();
+      const moodEntered: PromiseWithResolvers<void> = Promise.withResolvers<void>();
+      registerRoute("GET /api/mood", (): Promise<Response> => {
+        moodEntered.resolve();
+        return moodGate.promise;
+      });
+      const statusStore: MiniAppStatusStore = createStatusStore();
+      const pendingMood: Promise<void> = statusStore.getState().loadMood();
+      await moodEntered.promise;
+      rotateLocalSession();
+      moodGate.resolve(buildResponse());
+      await pendingMood;
+      expect(`${label} loadMood gate -> ${useMiniAppStore.getState().gateState}`).toBe(
+        `${label} loadMood gate -> unlocked`
+      );
+      expect(`${label} loadMood token -> ${readMiniAppSessionToken()}`).toBe(
+        `${label} loadMood token -> ${rotatedToken}`
+      );
+      expect(hasMiniAppSessionCryptoKey()).toBeTrue();
+      expect(useMiniAppStore.getState().toastText).toBe("");
+      expect(useMiniAppStore.getState().toastSeq).toBe(0);
+
+      // 2. 前台列表拉取（loadChatList -> waitMinimumLoadingDuration -> notify）
+      seedActiveSession(staleToken);
+      useMiniAppStore.setState({ toastText: "", toastSeq: 0 });
+      const chatsGate: PromiseWithResolvers<Response> = Promise.withResolvers<Response>();
+      const chatsEntered: PromiseWithResolvers<void> = Promise.withResolvers<void>();
+      registerRoute("GET /api/chats", (): Promise<Response> => {
+        chatsEntered.resolve();
+        return chatsGate.promise;
+      });
+      const chatsStore: MiniAppChatsStore = createChatsStore();
+      const pendingChats: Promise<void> = chatsStore.getState().loadChatList();
+      await chatsEntered.promise;
+      rotateLocalSession();
+      chatsGate.resolve(buildResponse());
+      await pendingChats;
+      expect(`${label} loadChatList gate -> ${useMiniAppStore.getState().gateState}`).toBe(
+        `${label} loadChatList gate -> unlocked`
+      );
+      expect(`${label} loadChatList token -> ${readMiniAppSessionToken()}`).toBe(
+        `${label} loadChatList token -> ${rotatedToken}`
+      );
+      expect(useMiniAppStore.getState().toastText).toBe("");
+      expect(useMiniAppStore.getState().toastSeq).toBe(0);
+
+      // 3. ConfigsStore 并发目录 + 文件拉取（handleConfigLoadError -> notify）
+      seedActiveSession(staleToken);
+      useMiniAppStore.setState({ toastText: "", toastSeq: 0 });
+      const cfgFileGate: PromiseWithResolvers<Response> = Promise.withResolvers<Response>();
+      const cfgFileEntered: PromiseWithResolvers<void> = Promise.withResolvers<void>();
+      registerRoute("GET /api/configs", (): Response =>
+        jsonRes({
+          dynamicFiles: [{ scope: "dynamic", fileName: "ad_detect.json", exists: true }],
+          staticFiles: [{ scope: "static", fileName: "bot.json", exists: true }],
+        })
+      );
+      registerRoute("GET /api/configs/file", (): Promise<Response> => {
+        cfgFileEntered.resolve();
+        return cfgFileGate.promise;
+      });
+      const configsStore: MiniAppConfigsStore = createConfigsStore();
+      const pendingConfigs: Promise<void> = configsStore.getState().loadInitialCatalogAndFile();
+      await cfgFileEntered.promise;
+      rotateLocalSession();
+      cfgFileGate.resolve(buildResponse());
+      await pendingConfigs;
+      expect(`${label} configs gate -> ${useMiniAppStore.getState().gateState}`).toBe(
+        `${label} configs gate -> unlocked`
+      );
+      expect(`${label} configs token -> ${readMiniAppSessionToken()}`).toBe(
+        `${label} configs token -> ${rotatedToken}`
+      );
+      expect(configsStore.getState().errorBanner).toBeNull();
+      expect(useMiniAppStore.getState().toastText).toBe("");
+      expect(useMiniAppStore.getState().toastSeq).toBe(0);
+    }
+  });
+
+  test("多图上传与选择器轮询遇旧令牌 401 时继续使用新令牌完成；旧令牌遇无条件一层拒绝仍立即清空并重预检", async () => {
+    const staleToken: string = "d".repeat(64);
+    const rotatedToken: string = "e".repeat(64);
+    const rotateLocalSession = (): void => {
+      seedTestMiniAppSession(
+        rotatedToken,
+        Date.now() + MINI_APP_SESSION_TTL_MS,
+        TEST_ROTATED_SESSION_KEY
+      );
+    };
+
+    // 1. 多图上传：首张图片携带旧令牌遇 401 不中断后续上传也不锁屏，次张图片使用新令牌成功入库。
+    seedActiveSession(staleToken);
+    let uploadAttempt: number = 0;
+    const firstUploadGate: PromiseWithResolvers<Response> = Promise.withResolvers<Response>();
+    const firstUploadEntered: PromiseWithResolvers<void> = Promise.withResolvers<void>();
+    registerRoute("POST /api/gallery/upload", (): Response | Promise<Response> => {
+      uploadAttempt += 1;
+      if (uploadAttempt === 1) {
+        firstUploadEntered.resolve();
+        return firstUploadGate.promise;
+      }
+      return jsonRes({ ok: true, outcome: "added", message: "GALLERY_IMAGE_ADDED" });
+    });
+    registerRoute("GET /api/gallery", (): Response =>
+      jsonRes({ exists: true, directory: "h_image", page: 1, pageSize: 12, total: 1, totalPages: 1, items: [] })
+    );
+    const galleryStore = createGalleryStore();
+    const uploadPromise: Promise<void> = galleryStore.getState().uploadFiles([
+      new File([new Uint8Array([1, 2, 3])], "a.png", { type: "image/png" }),
+      new File([new Uint8Array([4, 5, 6])], "b.png", { type: "image/png" }),
+    ]);
+    await firstUploadEntered.promise;
+    rotateLocalSession();
+    firstUploadGate.resolve(jsonRes({ code: "PASSWORD_REQUIRED", error: "SESSION_EXPIRED" }, 401));
+    await uploadPromise;
+    expect(uploadAttempt).toBe(2);
+    expect(useMiniAppStore.getState().gateState).toBe("unlocked");
+    expect(readMiniAppSessionToken()).toBe(rotatedToken);
+
+    // 2. 选择器轮询：首轮旧令牌遇 401 后不中止轮询，下一轮用新令牌取回回执。
+    seedActiveSession(staleToken);
+    let pickerAttempt: number = 0;
+    const pickerGate: PromiseWithResolvers<Response> = Promise.withResolvers<Response>();
+    const pickerEntered: PromiseWithResolvers<void> = Promise.withResolvers<void>();
+    registerRoute("GET /api/picker/result", (): Response | Promise<Response> => {
+      pickerAttempt += 1;
+      if (pickerAttempt === 1) {
+        pickerEntered.resolve();
+        return pickerGate.promise;
+      }
+      return jsonRes({ result: { requestId: 42, summary: "PICKER_IMPORT_ADDED", addedIds: [1] } });
+    });
+    const pickerPromise = waitForMiniAppPickerResult(42);
+    await pickerEntered.promise;
+    rotateLocalSession();
+    pickerGate.resolve(jsonRes({ code: "PASSWORD_REQUIRED", error: "SESSION_EXPIRED" }, 401));
+    const pickerOutcome = await pickerPromise;
+    expect(pickerOutcome).not.toBe("timeout");
+    expect(pickerOutcome).not.toBe("aborted");
+    expect(pickerAttempt).toBe(2);
+    expect(readMiniAppSessionToken()).toBe(rotatedToken);
+
+    // 3. 对照：旧令牌遇无条件一层拒绝（PASSWORD_LOCKED / FORBIDDEN_USER）仍立即清空新会话并转入 checking 重预检。
+    for (const denyCode of ["PASSWORD_LOCKED", "FORBIDDEN_USER"] as const) {
+      seedActiveSession(staleToken);
+      const denyGate: PromiseWithResolvers<Response> = Promise.withResolvers<Response>();
+      const denyEntered: PromiseWithResolvers<void> = Promise.withResolvers<void>();
+      registerRoute("GET /api/chats", (): Promise<Response> => {
+        denyEntered.resolve();
+        return denyGate.promise;
+      });
+      const chatsStore: MiniAppChatsStore = createChatsStore();
+      const pending: Promise<void> = chatsStore.getState().loadChatList();
+      await denyEntered.promise;
+      rotateLocalSession();
+      denyGate.resolve(jsonRes({ ok: false, status: 403, code: denyCode, error: denyCode }, 403));
+      await pending;
+      expect(`${denyCode} gate -> ${useMiniAppStore.getState().gateState}`).toBe(
+        `${denyCode} gate -> checking`
+      );
+      expect(readMiniAppSessionToken()).toBe("");
+    }
+  });
+
+  test("配置保存/重启旧令牌失效与连续 3 次轮换耗尽快照追赶均保留新会话且不设置错误横幅或过期 Toast", async () => {
+    const staleToken: string = "d".repeat(64);
+    const rotatedToken: string = "e".repeat(64);
+    const rotateLocalSession = (): void => {
+      seedTestMiniAppSession(
+        rotatedToken,
+        Date.now() + MINI_APP_SESSION_TTL_MS,
+        TEST_ROTATED_SESSION_KEY
+      );
+    };
+
+    // 1. ConfigsPersistence.saveCurrentConfig：旧令牌在途保存于轮换后返回 401，保持 unlocked、不设置 errorBanner 也不弹 Toast。
+    seedActiveSession(staleToken);
+    useMiniAppStore.setState({ toastText: "", toastSeq: 0 });
+    const saveGate: PromiseWithResolvers<Response> = Promise.withResolvers<Response>();
+    const saveEntered: PromiseWithResolvers<void> = Promise.withResolvers<void>();
+    registerRoute("POST /api/configs/save", (): Promise<Response> => {
+      saveEntered.resolve();
+      return saveGate.promise;
+    });
+    const saveConfigsStore: MiniAppConfigsStore = createConfigsStore();
+    saveConfigsStore.setState({
+      scope: "dynamic",
+      fileExists: true,
+      loadedContent: '{"enabled": true}\n',
+      draftContent: '{"enabled": false}\n',
+      loading: false,
+      errorBanner: null,
+    });
+    const pendingSave: Promise<void> = saveConfigsStore.getState().saveCurrentConfig();
+    await saveEntered.promise;
+    rotateLocalSession();
+    saveGate.resolve(jsonRes({ code: "PASSWORD_REQUIRED", error: "SESSION_EXPIRED" }, 401));
+    await pendingSave;
+    expect(useMiniAppStore.getState().gateState).toBe("unlocked");
+    expect(readMiniAppSessionToken()).toBe(rotatedToken);
+    expect(saveConfigsStore.getState().errorBanner).toBeNull();
+    expect(useMiniAppStore.getState().toastText).toBe("");
+    expect(useMiniAppStore.getState().toastSeq).toBe(0);
+
+    // 2. ConfigsPersistence.runConfirmedServiceRestart：静态配置保存后确认重启，旧令牌在途重启于轮换后返回 EXPIRED_AUTH_DATE。
+    seedActiveSession(staleToken);
+    const restartGate: PromiseWithResolvers<Response> = Promise.withResolvers<Response>();
+    const restartEntered: PromiseWithResolvers<void> = Promise.withResolvers<void>();
+    registerRoute("POST /api/configs/save", (): Response =>
+      jsonRes({ ok: true, requiresRestart: true })
+    );
+    registerRoute("POST /api/configs/restart", (): Promise<Response> => {
+      restartEntered.resolve();
+      return restartGate.promise;
+    });
+    const restartConfigsStore: MiniAppConfigsStore = createConfigsStore();
+    restartConfigsStore.setState({
+      scope: "static",
+      selectedStaticFile: "bot.json",
+      fileExists: true,
+      loadedContent: '{"token": "a"}\n',
+      draftContent: '{"token": "b"}\n',
+      loading: false,
+      errorBanner: null,
+    });
+    const pendingSaveAndRestart: Promise<void> = restartConfigsStore.getState().saveCurrentConfig();
+    while (useMiniAppStore.getState().confirmModal === null) {
+      await Bun.sleep(10);
+    }
+    useMiniAppStore.setState({ toastText: "", toastSeq: 0 });
+    useMiniAppStore.getState().resolveConfirm(true);
+    await restartEntered.promise;
+    rotateLocalSession();
+    restartGate.resolve(
+      jsonRes({ code: MINI_APP_EXPIRED_AUTH_DATE_CODE, error: MINI_APP_EXPIRED_AUTH_DATE_CODE }, 401)
+    );
+    await pendingSaveAndRestart;
+    expect(useMiniAppStore.getState().gateState).toBe("unlocked");
+    expect(readMiniAppSessionToken()).toBe(rotatedToken);
+    expect(restartConfigsStore.getState().errorBanner).toBeNull();
+    expect(useMiniAppStore.getState().toastText).toBe("");
+    expect(useMiniAppStore.getState().toastSeq).toBe(0);
+
+    // 3. 连续 3 次并发密钥轮换耗尽 resolveMiniAppSessionCryptoSnapshot 重试时，抛出的错误携带 sentSessionToken 上下文：
+    // 不清除已轮换的新会话，也不经 notify 锁屏或弹出过期 Toast。
+    const realImportKey: typeof crypto.subtle.importKey = crypto.subtle.importKey.bind(crypto.subtle);
+    const rotationTokens: readonly string[] = [
+      "1".repeat(64),
+      "2".repeat(64),
+      "3".repeat(64),
+      "4".repeat(64),
+      "5".repeat(64),
+    ];
+    const rotationExpiresAt: number = Date.now() + MINI_APP_SESSION_TTL_MS;
+    const importGates: PromiseWithResolvers<void>[] = [];
+    let importCallIndex: number = 0;
+    (crypto.subtle as { importKey: typeof crypto.subtle.importKey }).importKey = (async (
+      ...args: Parameters<typeof crypto.subtle.importKey>
+    ): Promise<CryptoKey> => {
+      const currentCall: number = importCallIndex++;
+      if (currentCall < 4) {
+        const gate: PromiseWithResolvers<void> = Promise.withResolvers<void>();
+        importGates.push(gate);
+        await gate.promise;
+      }
+      return realImportKey(...args);
+    }) as typeof crypto.subtle.importKey;
+    try {
+      useMiniAppStore.setState({
+        gateState: "unlocked",
+        sessionExpiresAt: rotationExpiresAt,
+        toastText: "",
+        toastSeq: 0,
+      });
+      setMiniAppSessionToken(rotationTokens[0]!, rotationExpiresAt, TEST_SESSION_KEY);
+      const snapshotPromise: ReturnType<typeof resolveMiniAppSessionCryptoSnapshot> =
+        resolveMiniAppSessionCryptoSnapshot();
+      for (let step: number = 0; step < 4; step++) {
+        await Bun.sleep(0);
+        setMiniAppSessionToken(
+          rotationTokens[step + 1]!,
+          rotationExpiresAt,
+          step % 2 === 0 ? TEST_ROTATED_SESSION_KEY : TEST_SESSION_KEY
+        );
+        importGates[step]!.resolve();
+      }
+      let caughtError: unknown;
+      try {
+        await snapshotPromise;
+      } catch (error: unknown) {
+        caughtError = error;
+      }
+      expect(caughtError).toBeInstanceOf(Error);
+      const snapshotError: Error = caughtError as Error;
+      expect(snapshotError.message).toBe("[PASSWORD_REQUIRED] PASSWORD_REQUIRED");
+      expect(readMiniAppSessionToken()).toBe(rotationTokens[4]!);
+      expect(hasMiniAppSessionCryptoKey()).toBeTrue();
+      expect(classifyMiniAppAuthError(snapshotError.message, snapshotError)).toBeNull();
+      expect(isSuppressedStaleMiniAppAuthError(snapshotError.message, snapshotError)).toBeTrue();
+
+      useMiniAppStore.getState().notify(snapshotError.message, "danger", snapshotError);
+      expect(useMiniAppStore.getState().gateState).toBe("unlocked");
+      expect(readMiniAppSessionToken()).toBe(rotationTokens[4]!);
+      expect(useMiniAppStore.getState().toastText).toBe("");
+      expect(useMiniAppStore.getState().toastSeq).toBe(0);
+    } finally {
+      (crypto.subtle as { importKey: typeof crypto.subtle.importKey }).importKey = realImportKey;
+    }
   });
 });

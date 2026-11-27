@@ -56,6 +56,7 @@ export const LOGGER_SENSITIVE_FIELD_NAMES: readonly string[] = [
   "cookie",
   "set-cookie",
   "x-api-key",
+  "x-goog-api-key",
   "api-key",
   "apikey",
   "api_key",

@@ -1,6 +1,7 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import {
   claimSampleContextParts,
+  containsReferencedAdContent,
   enforceBundleCapacity,
   formatAdBundleText,
   selectAdBundleEntries,
@@ -19,9 +20,14 @@ function entry(seq: number, text: string): AdCandidateEntry {
     text,
     senderText: text,
     directText: text,
+    isForwarded: false,
     receivedAt: 1_000 + seq,
     withinReferencedWarning: false,
     stickerSetName: undefined,
+    stickerFileId: undefined,
+    stickerFileUniqueId: undefined,
+    imageFileId: undefined,
+    imageFileUniqueId: undefined,
     customEmojiIds: undefined,
     quote: undefined,
     replyTo: undefined,
@@ -127,5 +133,34 @@ describe("广告送检条目选取", () => {
   test("空正文同时带 quote 与 replyTo 时直接以空格拼接两者", () => {
     expect(claimSampleContextParts("", { quote: "引文片段", replyTo: "被回复原文" }, []))
       .toBe("引文片段 被回复原文");
+  });
+
+  test("纯转发无正文媒体消息与实际并入送检文本的引文/回复被识别为含引用内容，去重掉的引文不重复触发二次归因", () => {
+    expect(containsReferencedAdContent([entry(1, "普通发言")])).toBeFalse();
+    expect(containsReferencedAdContent([{
+      ...entry(1, ""),
+      isForwarded: true,
+      imageFileId: "photo-1",
+      imageFileUniqueId: "u-photo-1",
+    }])).toBeTrue();
+    expect(containsReferencedAdContent([{
+      ...entry(1, "普通发言 别人的引文"),
+      directText: "普通发言",
+      quote: "别人的引文",
+    }])).toBeTrue();
+    expect(containsReferencedAdContent([{
+      ...entry(1, "普通发言 被回复原文"),
+      directText: "普通发言",
+      replyTo: "被回复原文",
+    }])).toBeTrue();
+    // quote/replyTo 已被去重、未进入送检文本（text === directText）时，不再视为含引用内容。
+    expect(containsReferencedAdContent([{
+      ...entry(1, "普通发言"),
+      quote: "普通发言",
+    }])).toBeFalse();
+    expect(containsReferencedAdContent([{
+      ...entry(1, "普通发言"),
+      replyTo: "普通发言",
+    }])).toBeFalse();
   });
 });

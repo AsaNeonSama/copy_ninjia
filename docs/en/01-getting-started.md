@@ -166,7 +166,7 @@ config/
     ├── assets.json         # Paths for avatars, thumbnails, and dedicated image library
     ├── stickers.json       # Whitelisted sticker packs
     ├── mood.json           # AI mood tiers and weight distribution
-    ├── ad_detect.json      # Ad punishment, reference ad samples, and sticker/emoji blacklists
+    ├── ad_detect.json      # Ad punishment and reference ad samples
     └── cron.json           # Scheduled tasks and periodic broadcasts (optional)
 ```
 
@@ -196,13 +196,12 @@ config/
   - Configures the AI mood tiers `moods`. Each mood defines a `name`, positive integer `weight`, and character `instruction`. Weights must strictly sum to `MOOD_WEIGHT_TOTAL`.
 
 - **`config/dynamic/ad_detect.json`** ([Example](../../config_example/dynamic/ad_detect.json))
-  - Configures ad disposal, few-shot classifier samples, and fast-path pack blacklists:
+  - Configures ad disposal and few-shot classifier samples (ad sticker and custom-emoji pack blacklists are persisted separately in SQLite `ad_pack_blacklists` with no per-kind entry cap and a 768-entry shared main-thread LRU read cache, managed via `/ad_detect sticker|emoji` or the Mini App, and automatically persisted when AI classification attributes an ad pack; `ad_detect.json` is never modified at runtime):
     - `punishment`: Disposal applied after an ad verdict, specifying **exactly one** of `mute` or `kick`:
       - `mute`: Mutes the sender in the triggering chat — permanently when `permanent: true`, or for `duration` otherwise.
       - `kick`: Removes the sender from the triggering chat — without banning when `block: false`, or banning either in that chat only (`block_scope: "chat"`) or across all managed chats via the permanent blocklist (`block_scope: "global"`).
       - Channel identities have only their offending messages deleted under every setting except a `"global"` block.
     - `samples`: Few-shot reference texts for the AI ad classifier. After whitespace normalization and trimming, each entry must be non-empty, at most `AD_SAMPLE_MAX_CHARS` characters, and unique (up to `MAX_CONFIGURED_AD_SAMPLES` entries).
-    - `sticker_black_list` & `emoji_black_list`: Blacklisted sticker pack and custom emoji pack short names, checked in that order **before** AI classification. Trimmed entries must match `STICKER_PACK_NAME_PATTERN` and be unique (up to `MAX_CONFIGURED_AD_BLACKLIST_PACKS` per list); any match skips the AI classifier and applies `punishment` directly.
 
 - **`config/dynamic/agent.json`** ([Example](../../config_example/dynamic/agent.json))
   - Declares all AI model capabilities under the top-level `agent` object. Each capability is isolated and configured independently:
@@ -217,7 +216,7 @@ config/
          - `daily_limit` (default `TTS_DEFAULT_DAILY_LIMIT`) and `daily_reserve_quota` (default `TTS_DEFAULT_DAILY_RESERVE_QUOTA`, must be less than `daily_limit`) partition daily synthesis volume between AI chatter and administrative `/send`/cron broadcasts.
     3. **Search & Moderation**:
        - `web_search`: Function tool for real-time web search (`max_calls_per_use` limits calls per turn, default `WEB_SEARCH_DEFAULT_MAX_CALLS_PER_USE`). If omitted, the text model's native search is used if supported.
-       - `ad_detect`: Dedicated classifier model for inbound spam analysis.
+       - `ad_detect`: Dedicated multimodal and text spam/ad classifier model (inspects text, photos, stickers, and custom emojis). With `provider: "google"`, an optional boolean `use_decision` (default `false`) enables the Google Decisions API. Omitting this block disables ad detection.
     4. **Common Capability Attributes**:
        - `provider`: `google` | `openai` | `anthropic`.
        - `api_key`: API key string (placeholders trigger startup failure).

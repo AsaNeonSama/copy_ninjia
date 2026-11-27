@@ -223,6 +223,7 @@ export function createGalleryStore(): MiniAppGalleryStore {
         },
 
         downloadImage: async (fileName: string): Promise<void> => {
+          if (get().downloadingFileName !== null) return;
           const t: Readonly<MiniAppTranslations> =
             getMiniAppTranslations(useMiniAppStore.getState().language);
           set({ downloadingFileName: fileName });
@@ -244,12 +245,14 @@ export function createGalleryStore(): MiniAppGalleryStore {
         },
 
         deleteImage: async (fileName: string): Promise<void> => {
+          if (get().deletingFileName !== null) return;
           const app: MiniAppUiStoreState = useMiniAppStore.getState();
           const t: Readonly<MiniAppTranslations> = getMiniAppTranslations(app.language);
           const shortName: string = shortenGalleryFileName(fileName);
           if (!(await app.requestConfirm(t.gallery.confirmDeleteImage(shortName), "danger"))) {
             return;
           }
+          if (get().deletingFileName !== null) return;
           set({ deletingFileName: fileName });
           try {
             const result: MiniAppGalleryDeleteResult =
@@ -277,7 +280,7 @@ export function createGalleryStore(): MiniAppGalleryStore {
         },
 
         uploadFiles: async (files: readonly File[]): Promise<void> => {
-          if (files.length === 0) {
+          if (files.length === 0 || get().uploading) {
             return;
           }
           set({ uploading: true });
@@ -375,7 +378,8 @@ export function createGalleryStore(): MiniAppGalleryStore {
                   reasonText.length > 0
                     ? `${summaryText} · ${reasonText}`
                     : summaryText,
-                  "warning"
+                  "warning",
+                  firstFailureMeta
                 );
               }
             }

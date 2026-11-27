@@ -418,10 +418,11 @@ describe("同步原子写的权限接管", () => {
     expect(modeOf(targetPath)).toBe(0o600);
   });
 
-  test("目标不存在时没有可沿用的权限，交给 open 默认值", () => {
-    atomicWriteTextSync(targetPath, "created");
+  test("目标不存在时没有可沿用的权限，交给 open 默认值并返回写入的 UTF-8 字节数", () => {
+    const writtenBytes: number = atomicWriteTextSync(targetPath, "created-中文");
 
+    expect(writtenBytes).toBe(UTF8_ENCODER.encode("created-中文").byteLength);
     expect(realFsSnapshot.existsSync(targetPath)).toBeTrue();
-    expect(realFsSnapshot.readFileSync(targetPath, "utf8")).toBe("created");
+    expect(realFsSnapshot.readFileSync(targetPath, "utf8")).toBe("created-中文");
   });
 });

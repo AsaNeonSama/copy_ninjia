@@ -133,7 +133,7 @@ Comprehensive multi-page developer documentation covering environment setup, sys
 7. **[07 Operations and Troubleshooting](07-operations.md)**
    - Systemd unit setup, hardware sizing guidance, and standalone binary deployment.
    - Data root directory layout, filesystem capability checks (fsync, hard link, atomic rename), and permission lockdown.
-   - Persistent data migrations: fresh database bootstrap, the `/wed` member window cold migration (`migrate:wed-member-window`), `ad_detect.json` configuration layout migration, and staged historical upgrades.
+   - Persistent data migrations: fresh database bootstrap, ad pack blacklist SQLite v13 → v14 & `ad_detect.json` cold migration (`migrate:ad-pack-blacklists`), `/wed` member window cold migration (`migrate:wed-member-window`), and staged historical upgrades.
    - Fast-fail startup diagnosis: resolving `bot.lock` conflicts, schema mismatches, and fortune receipt HMAC validation.
 
 8. **[08 Image Library and Scheduled Tasks](08-images-and-cron.md)**
@@ -149,7 +149,7 @@ Comprehensive multi-page developer documentation covering environment setup, sys
 10. **[10 Mini App Setup and Recommended Configuration](10-mini-app.md)**
     - Configuring the `mini_app` section in `config/static/bot.json` and activation rules.
     - Exposing the local HTTP server via Cloudflare Tunnel (`cloudflared`), DNS routing, and systemd service setup.
-    - Private-chat `App` button entry, two-tier authentication with 256-bit key AES-256-GCM transport encryption, Google Authenticator (TOTP) 2FA, and the online highlighted JSON config editor.
+    - Private-chat `App` button entry, two-tier authentication with 256-bit key AES-256-GCM transport encryption, Google Authenticator (TOTP) 2FA, ad sticker/emoji pack blacklist management, and the online highlighted JSON config editor.
 
 11. **[11 Performance Benchmark](11-performance.md)**
     - Measurement scope of `bun run perf:full`: cold-start recovery, production hot paths, SQLite transaction chains, and data structures.

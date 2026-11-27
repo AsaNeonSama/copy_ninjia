@@ -1,4 +1,9 @@
 import type { BotCommand } from "grammy/types";
+import type {
+  AdDetectBlacklistListHeaderParams,
+  AdDetectBlacklistPageOutOfRangeParams,
+  AdDetectBlacklistTexts,
+} from "../../../types/atmosphere";
 import type { CommandTargetMessages, ToggleCommandTexts } from "../../../types/commands";
 import { CHAT_QA_MAX_PER_CHAT } from "../../qa";
 import { STATE_MANAGED_CHAT_LIMIT } from "../../storage";
@@ -17,7 +22,7 @@ export const BOT_COMMANDS: readonly Readonly<BotCommand>[] = [
   { command: "block", description: "末尾写 enable 把目标写进永久黑名单并在所有托管群封禁、之后再进群也秒踢（需 isCanBlock），写 disable 移出黑名单并解除封禁（需 isCanUnBlock）；支持回复、@username 或用户 id，disable 还认频道负数 id，杂鱼别乱碰♡" },
   { command: "ai_chat", description: "用 enable/disable 开关本群 AI 闲聊，只有获授权者配使唤本天才，杂鱼别乱按♡" },
   { command: "clear_context", description: "把本天才在这个群攒下的 AI 上下文记忆全忘光，内存里的和存档里的一起清，之后从零重新记；不带参数，需要 isCanClearContext，杂鱼别乱按♡" },
-  { command: "ad_detect", description: "用 enable/disable 开关本群广告检测；命中就拉黑并全群封禁删消息，只有获授权者配碰，杂鱼♡" },
+  { command: "ad_detect", description: "用 enable/disable 开关本群广告检测，或 sticker|emoji list|add|remove 管全局贴纸与自定义表情包黑名单；命中就拉黑全群封禁删消息，只有获授权者配碰，杂鱼♡" },
   { command: "flood_control", description: "用 enable/disable 开关本群防刷屏禁言，只有获授权者配碰，刷屏杂鱼可别手抖哦♡" },
   { command: "antiraid", description: "用 enable/disable 开关本群入群验证与防冲群私密模式，只有获授权者配碰，关掉就没人替你拦僵尸了哦杂鱼♡" },
   { command: "bot_status", description: "查看本机进程、全局模型能力、Telegram 出站、本群权限与已开启功能，连本天才会什么都记不住吗，笨蛋♡" },
@@ -57,11 +62,53 @@ export const AI_CHAT_TOGGLE_TEXTS: Readonly<ToggleCommandTexts> = {
 export const AD_DETECT_TOGGLE_TEXTS: Readonly<ToggleCommandTexts> = {
   rejection: (mockerLabel: string): string =>
     `就 ${mockerLabel} 也想管本天才抓不抓广告？哪来的资格呀，笨蛋♡`,
-  usage: `笨蛋，要 /ad_detect enable 还是 /ad_detect disable，说清楚呀♡`,
+  usage: `笨蛋，开关本群广告检测用 /ad_detect enable|disable；管贴纸或自定义表情包黑名单用 /ad_detect <sticker|emoji> <list [页码]|add [包名...]|remove [包名...]>，说清楚呀♡`,
   enabled: `哼，本天才这就盯着这个群的广告，敢发的杂鱼一个都别想留下♡`,
   disabled: `不抓广告了，随便你们刷吧，本天才可懒得管♡`,
   alreadyEnabled: `笨蛋，本天才本来就盯着这个群的广告呢，还要本天才多长几只眼睛吗？♡`,
   alreadyDisabled: `本天才本来就没在抓这个群的广告呀，笨蛋要关什么呢♡`,
+};
+
+/** `/ad_detect <sticker|emoji> <list|add|remove>` 的全部文案。 */
+export const AD_DETECT_BLACKLIST_TEXTS: Readonly<AdDetectBlacklistTexts> = {
+  kindSticker: "贴纸包",
+  kindEmoji: "自定义表情包",
+  usage: `笨蛋，用法是 /ad_detect <sticker|emoji> <list [页码]|add [包名...]|remove [包名...]>；add/remove 不写包名时得回复带贴纸或自定义表情的消息呀♡`,
+  listInvalidPage: `笨蛋，页码得写正整数（比如 1、2），list 后面也别塞乱七八糟的多余参数呀♡`,
+  listEmpty: (kindLabel: string): string =>
+    `全局广告${kindLabel}黑名单现在空空如也（共 0 条），连一个要拉黑的包都还没有呢♡`,
+  listOutOfRange: ({
+    kindLabel,
+    page,
+    totalPages,
+    total,
+  }: AdDetectBlacklistPageOutOfRangeParams): string =>
+    `笨蛋，全局广告${kindLabel}黑名单一共才 ${totalPages} 页（共 ${total} 条），翻到第 ${page} 页是想看空气吗♡`,
+  listHeader: ({
+    kindLabel,
+    page,
+    totalPages,
+    total,
+  }: AdDetectBlacklistListHeaderParams): string =>
+    `哼，本天才勉为其难给你看全局广告${kindLabel}黑名单（第 ${page}/${totalPages} 页，共 ${total} 条）♡`,
+  missingPacks: (kindLabel: string, action: string): string =>
+    `笨蛋，要么把要处理的${kindLabel}名写出来，要么回复目标消息再执行 ${action}，本天才可不会读心术♡`,
+  replyMissingStickerPack: `笨蛋，你回复的这条消息里根本没有带包名的贴纸呀，让本天才猜什么呢♡`,
+  replyMissingEmoji: `笨蛋，你回复的这条消息里一个自定义表情都没有呀♡`,
+  replyEmojiQueryFailed: `啧，找 Telegram 查自定义表情所属包失败了，本次什么都没改，稍后再试吧♡`,
+  replyEmojiNoPack: `这条消息里的自定义表情没带所属表情包名，本天才也没法记进或删出黑名单呀♡`,
+  invalidPacks: (packs: string): string =>
+    `笨蛋，这些包名根本不合法（只认 1~64 位英文字母、数字和下划线）：${packs}；本次一个都没改♡`,
+  ownStickerPacksBlocked: (packs: string): string =>
+    `哈？${packs} 可是本天才自己配置在用的贴纸包，居然想把本天才的包拉黑？本次驳回♡`,
+  mutationHeader: (kindLabel: string, total: number): string =>
+    `哼，全局广告${kindLabel}黑名单处理好啦（当前共 ${total} 条）♡`,
+  addedLine: (packs: string): string => `已拉黑：${packs}`,
+  alreadyExistsLine: (packs: string): string => `本来就在黑名单里：${packs}`,
+  removedLine: (packs: string): string => `已放行移除：${packs}`,
+  notFoundLine: (packs: string): string => `本来就不在黑名单里：${packs}`,
+  persistUnconfirmedLine: `警告：本天才脑子里的黑名单已经改了，但数据库落盘还没确认，杂鱼管理员快去检查存储状态♡`,
+  storageFailed: `啧，改广告黑名单时存储出故障了，杂鱼管理员快去查日志和数据库吧♡`,
 };
 
 /** `/flood_control enable|disable` 的全部文案。 */

@@ -4,6 +4,31 @@ import ts from "typescript";
 import { globalPropertyName } from "./staticAccess";
 
 /**
+ * 将源文件内的字符偏移转换为从 1 开始的行号。
+ *
+ * @param source TypeScript 源文件 AST。
+ * @param position 字符偏移（如 `node.getStart(source)`）。
+ * @returns 从 1 开始的行号。
+ */
+export function lineOfPosition(source: ts.SourceFile, position: number): number {
+  return source.getLineAndCharacterOfPosition(position).line + 1;
+}
+
+/**
+ * 向上查找包含指定 AST 节点的最近命名函数声明名。
+ *
+ * @param node 起始 AST 节点。
+ * @returns 最近外层 `FunctionDeclaration` 的函数名；不存在或为匿名声明时返回 `undefined`。
+ */
+export function enclosingFunctionName(node: ts.Node): string | undefined {
+  let owner: ts.Node | undefined = node.parent;
+  while (owner !== undefined && !ts.isFunctionDeclaration(owner)) {
+    owner = owner.parent;
+  }
+  return owner?.name?.text;
+}
+
+/**
  * import/export 是否在运行时求值目标模块；空声明仍保留副作用，纯类型引用被擦除。
  *
  * @param node 导入或导出声明节点

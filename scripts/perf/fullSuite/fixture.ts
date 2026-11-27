@@ -189,9 +189,10 @@ function chatStateRows(): readonly StoredChatStateRow[] {
     COLD_START_CHAT_STATE_ROWS
   );
   for (let index: number = 0; index < COLD_START_CHAT_STATE_ROWS; index += 1) {
+    const chatId: number = benchmarkChatId(index);
     rows[index] = {
-      chatId: benchmarkChatId(index),
-      data: encodeChatStateData(buildChatState(index)),
+      chatId,
+      data: encodeChatStateData(buildChatState(index), `chat state ${chatId}`, chatId),
     };
   }
   return rows;

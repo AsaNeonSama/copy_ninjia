@@ -68,8 +68,8 @@ export interface PromoteAdBypassWhitelistResult {
   readonly queued: boolean;
 }
 
-/** 单次合并身份缓存读取得到的「单项白名单权限优先于黑名单」三态结果。 */
-export type WhitelistPermissionOrBlocklistStatus = "allowed" | "blocked" | "none";
+/** 单次合并身份缓存读取得到的「有效白名单保护优先于黑名单」三态结果。 */
+export type WhitelistOrBlocklistStatus = "allowed" | "blocked" | "none";
 
 /**
  * 从合并身份缓存条目派生非超级管理员当前生效的白名单权限：永久白名单条目优先；
@@ -112,27 +112,24 @@ export function getEffectiveWhitelistPermissions(
 }
 
 /**
- * 经一次主线程合并身份缓存读取同时判定身份是否持有指定生效白名单权限或位于黑名单中。
+ * 经一次主线程合并身份缓存读取同时判定身份是否受有效白名单保护（超级管理员、永久白名单或当前有效的临时广告免检）
+ * 或位于黑名单中。
  *
- * 超级管理员直接按身份直授权限返回结果，不触碰缓存；其余身份先按
- * `effectiveWhitelistPermissionsFromEntry` 判定指定生效权限（命中返回 `"allowed"`），
+ * 超级管理员直接返回 `"allowed"`，不触碰缓存；其余身份先按
+ * `effectiveWhitelistPermissionsFromEntry` 判定是否受白名单保护（命中返回 `"allowed"`），
  * 未命中时再检查同一缓存条目的黑名单项（命中返回 `"blocked"`，否则返回 `"none"`）。
  *
  * @param id 待检查的用户或频道身份 ID。
- * @param key 优先判定的白名单权限键名。
  * @param now 可选的墙钟毫秒时间戳；未传时仅在确有临时免检记录时惰性读取 `Date.now()`。
- * @returns 持有指定生效权限返回 `"allowed"`，否则命中黑名单返回 `"blocked"`，其余返回 `"none"`。
+ * @returns 受有效白名单保护返回 `"allowed"`，否则命中黑名单返回 `"blocked"`，其余返回 `"none"`。
  */
-export function readWhitelistPermissionOrBlocked(
+export function readEffectiveWhitelistOrBlocked(
   id: number,
-  key: WhitelistPermissionKey,
   now?: number
-): WhitelistPermissionOrBlocklistStatus {
-  if (id === SUPER_ADMIN_USER_ID) {
-    return SUPER_ADMIN_WHITELIST_PERMISSIONS[key] ? "allowed" : "none";
-  }
+): WhitelistOrBlocklistStatus {
+  if (id === SUPER_ADMIN_USER_ID) return "allowed";
   const entry: Readonly<IdentityPolicyCacheEntry> | undefined = identityPolicyCache.get(id);
-  if (effectiveWhitelistPermissionsFromEntry(entry, now)?.[key] === true) {
+  if (effectiveWhitelistPermissionsFromEntry(entry, now) !== undefined) {
     return "allowed";
   }
   return entry?.blocklist !== undefined && entry.blocklist !== null

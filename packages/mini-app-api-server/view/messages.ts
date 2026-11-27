@@ -5,6 +5,11 @@ import {
   MINI_APP_MESSAGES_MAX_PAGE_SIZE,
 } from "../../consts/miniApp";
 import { getChatState } from "../../infra/chatStateStorage";
+import {
+  clampPageSize,
+  clampRequestedPage,
+  totalPagesFor,
+} from "../../libs/pagination";
 import { parseAiMemorySnapshot } from "../../libs/persistedSnapshotCodec";
 import type {
   AiMemorySnapshot,
@@ -88,9 +93,10 @@ export function readManagedChatMessages({
   const state: Readonly<ChatState> = getChatState(chatId);
   if (state.isInitEnabled !== true) return null;
 
-  const normalizedPageSize: number = Math.min(
-    MINI_APP_MESSAGES_MAX_PAGE_SIZE,
-    Math.max(1, Math.trunc(pageSize))
+  const normalizedPageSize: number = clampPageSize(
+    pageSize,
+    MINI_APP_MESSAGES_DEFAULT_PAGE_SIZE,
+    MINI_APP_MESSAGES_MAX_PAGE_SIZE
   );
 
   const rawSnapshot: string | undefined = latestAiMemories.get(chatId);
@@ -108,10 +114,10 @@ export function readManagedChatMessages({
   }
 
   const total: number = hotBuffer.length;
-  const totalPages: number = Math.max(1, Math.ceil(total / normalizedPageSize));
+  const totalPages: number = totalPagesFor(total, normalizedPageSize);
   const normalizedPage: number = Math.min(
     totalPages,
-    Math.max(1, Math.trunc(page))
+    clampRequestedPage(page)
   );
 
   const startOffset: number = (normalizedPage - 1) * normalizedPageSize;

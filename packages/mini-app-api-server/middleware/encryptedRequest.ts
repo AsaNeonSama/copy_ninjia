@@ -261,6 +261,7 @@ export async function unwrapEncryptedMiniAppRequest({
         : new Request(decryptedUrl.toString(), {
           method: ctx.request.method,
           headers: ctx.request.headers,
+          signal: ctx.request.signal,
         });
     return {
       ok: true,
@@ -294,6 +295,7 @@ export async function unwrapEncryptedMiniAppRequest({
         method: ctx.request.method,
         headers,
         body: decryptedBytes,
+        signal: ctx.request.signal,
       }),
       consumedIvs: incomingIvs,
     };
@@ -320,6 +322,7 @@ export async function unwrapEncryptedMiniAppRequest({
       method: ctx.request.method,
       headers,
       body: decryptedText,
+      signal: ctx.request.signal,
     }),
     consumedIvs: incomingIvs,
   };

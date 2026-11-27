@@ -3,6 +3,7 @@ import { diskIOReplyStub, diskIOStub } from "../helpers/diskIOMock";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { loggerStub } from "../helpers/loggerMock";
 import type { VerificationPersistedReply } from "../../packages/types/diskIO/replies";
+import type { AdPackBlacklistMutationObserver } from "../../packages/types/adPackBlacklist";
 import type { AntiRaidWorkerMessage } from "../../packages/types/antiRaid/protocol";
 import type { BotChatPermissions } from "../../packages/types/telegram";
 import type { ChatTeardownReason } from "../../packages/types/chatTeardown";
@@ -22,12 +23,19 @@ const loggerError = mock((..._args: unknown[]): void => {});
 
 /** 上游注册时交出的回调；每个用例从这里直接驱动。 */
 const captured: {
+  adPackBlacklist?: AdPackBlacklistMutationObserver | null;
   permissions?: (chatId: number, permissions: BotChatPermissions | undefined) => void;
   teardown?: (chatId: number, reason: ChatTeardownReason) => void;
   respawn?: DiskIORespawnListener;
   persisted?: (reply: VerificationPersistedReply) => void;
 } = {};
 
+mock.module("../../packages/infra/adPackBlacklistStorage", () => ({
+  getAdPackBlacklistCounts: () => ({ sticker: 0, emoji: 0 }),
+  registerAdPackBlacklistObserver: (observer: AdPackBlacklistMutationObserver | null): void => {
+    captured.adPackBlacklist = observer;
+  },
+}));
 mock.module("../../packages/infra/botAdmin", () => ({
   registerBotPermissionObserver: (
     observer: (chatId: number, permissions: BotChatPermissions | undefined) => void
@@ -51,6 +59,7 @@ mock.module("../../packages/infra/diskIO", () => (diskIOStub({
 })));
 mock.module("../../packages/infra/logger", () => ({ logger: loggerStub({ error: loggerError }) }));
 mock.module("../../packages/antiRaid/verificationAttempts", () => ({
+  deleteDeferredVerificationsForChat: (): void => {},
   settlePersistedVerificationDeferral: settleDeferral,
 }));
 
@@ -64,6 +73,7 @@ const {
   setActiveVerificationSnapshot,
 } = await import("../../packages/cache/main/antiRaid/verificationMirror");
 const { chatIsSupergroupById } = await import("../../packages/cache/main/antiRaid/chatKind");
+const { antiRaidRuntimeState } = await import("../../packages/cache/main/antiRaid/proxy");
 const { blockedSenderChatDeleteDeniedChats } = await import("../../packages/cache/main/antiRaid/blocklistGuard");
 const { emergencyLockdownRecoveries } = await import("../../packages/cache/main/antiRaid/lockdownMirror");
 
@@ -98,11 +108,31 @@ beforeEach(() => {
   pendingVerificationDeletes.clear();
   persistedVerificationRevisions.clear();
   chatIsSupergroupById.clear();
+  antiRaidRuntimeState.initialized = false;
   blockedSenderChatDeleteDeniedChats.clear();
   emergencyLockdownRecoveries.clear();
 });
 
 describe("Anti-Raid 主线程观察者", () => {
+  test("广告包黑名单观察者仅在 Worker 已初始化时推送计数同步消息，拒收时记录错误日志", () => {
+    const sample = { sticker: 2, emoji: 1 };
+    captured.adPackBlacklist?.(sample);
+    expect(post).not.toHaveBeenCalled();
+
+    antiRaidRuntimeState.initialized = true;
+    captured.adPackBlacklist?.(sample);
+    expect(post).toHaveBeenCalledWith({
+      type: "adPackBlacklistSync",
+      stickerCount: 2,
+      emojiCount: 1,
+    });
+
+    post.mockImplementation((): boolean => false);
+    captured.adPackBlacklist?.(sample);
+    expect(loggerError).toHaveBeenCalledTimes(1);
+    expect(loggerError.mock.calls[0]?.[0]).toContain("rejected the ad pack blacklist count update");
+  });
+
   test("权限镜像有值时带 permissions 推送，观测不到时只推 chatId", () => {
     captured.permissions?.(-1001, {
       canDeleteMessages: true,

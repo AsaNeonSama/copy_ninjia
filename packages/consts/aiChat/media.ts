@@ -4,11 +4,11 @@ import type { MediaInputEffect, MediaInputModalityState } from "../../types/stat
 export const MEDIA_DESCRIPTION_ERROR_LABEL: string = "AI image understanding API";
 
 /** 供应商错误中属于单份媒体格式或内容的证据；错误分类器遇到这些词不形成模态结论。 */
-export const MEDIA_INPUT_FILE_ERROR_PATTERN: RegExp =
+export const MEDIA_INPUT_FILE_ERROR_PATTERN: Readonly<RegExp> =
   /\b(?:formats?|mime|codecs?|encodings?|corrupt(?:ed|ion)?|malformed|damaged|decod(?:e|ing)|resolution|dimensions?|sizes?|bytes?|base64|urls?)\b/i;
 
 /** 媒体错误分类器所需的能力边界证据；模型、端点、模态或明确的媒体输入，普通 media type 不构成证据。 */
-export const MEDIA_INPUT_CAPABILITY_PATTERN: RegExp =
+export const MEDIA_INPUT_CAPABILITY_PATTERN: Readonly<RegExp> =
   /\b(?:model|endpoint|deployment|modalit(?:y|ies))\b|\b(?:image|vision|audio|voice|media)[ _-]?inputs?\b|\binput_(?:image|audio)\b/i;
 
 /** 图片视觉描述尚未落定时进入转录的占位。 */
@@ -46,10 +46,10 @@ export const MEDIA_INLINE_REQUEST_MAX_BYTES: number = 20_000_000;
 export const MEDIA_INLINE_PROMPT_RESERVE_BYTES: number = 1_000_000;
 /**
  * 单张视觉图片（下载与转码后）允许读入内存并内联进请求的最大字节数，也是下载
- * 与 photo 档位选择的上限，以及一次生图全部参考图的合计上限。按 base64 编码后加
+ * 与 photo 档位选择的上限，以及一次生图全部参考图与单次广告检测消息束全部视觉附件的合计上限。按 base64 编码后加
  * MEDIA_INLINE_PROMPT_RESERVE_BYTES 恰好不超过 MEDIA_INLINE_REQUEST_MAX_BYTES 推导。所属模块：
- * workers/aiChat/ai/telegramImage.ts、infra/telegram/workerRequests.ts、libs/telegramImage.ts 与
- * workers/aiChat/ai/tools/replyToolset/imageGeneration.ts。
+ * workers/aiChat/ai/telegramImage.ts、infra/telegram/workerRequests.ts、libs/telegramImage.ts、
+ * workers/aiChat/ai/tools/replyToolset/imageGeneration.ts 与 workers/antiRaid/adDetect/media.ts。
  */
 export const MEDIA_MAX_DOWNLOAD_BYTES: number =
   Math.floor((MEDIA_INLINE_REQUEST_MAX_BYTES - MEDIA_INLINE_PROMPT_RESERVE_BYTES) / 4) * 3;

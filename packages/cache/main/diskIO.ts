@@ -28,6 +28,7 @@ import type {
   LoadedReply,
   StorageCloseOutcome,
 } from "../../types/diskIO/replies";
+import type { AdPackBlacklistPage } from "../../types/adPackBlacklist";
 import type { WorkerRequestTable } from "../../types/workerRequest";
 import type { JoinLogRecord, LuckReceiptSecret } from "../../types/diskIO/storage";
 import type { IdentityPolicyRawReadResult, IdentityIdPage } from "../../types/identityStorage";
@@ -79,19 +80,29 @@ export const identityPolicyReadRequests: DiskIORequestChannel<IdentityPolicyRawR
 export const identityIdPageReadRequests: DiskIORequestChannel<IdentityIdPage> =
   createDiskIORequestChannel("identity ID page read", "Disk I/O Worker returned no identity ID page.");
 
+/** 广告包黑名单批量查询通道：主线程 768 LRU 冷缺失查库时登记，回执、超时、代际失效或 terminateDiskIO 时结算摘除；容量与并发请求数同阶，进程重启后从空表开始。 */
+export const adPackBlacklistReadRequests: DiskIORequestChannel<readonly string[]> =
+  createDiskIORequestChannel("ad pack blacklist read", "Disk I/O Worker returned no ad pack blacklist matches.");
+
+/** 广告包黑名单游标分页读取通道：命令分页与 Mini App 列表/搜索冷读时登记，回执、超时、代际失效或 terminateDiskIO 时结算摘除；容量与并发请求数同阶，进程重启后从空表开始。 */
+export const adPackBlacklistPageReadRequests: DiskIORequestChannel<AdPackBlacklistPage> =
+  createDiskIORequestChannel("ad pack blacklist page read", "Disk I/O Worker returned no ad pack blacklist page.");
+
 /** 停机关库（closeStorage）请求通道：请求时登记，回执、超时、代际失效或 terminateDiskIO 时结算摘除；容量至多一个在途请求，进程重启后从空表开始。 */
 export const storageCloseRequests: DiskIORequestChannel<StorageCloseOutcome> =
   createDiskIORequestChannel("storage close", "Disk I/O Worker returned no storage close outcome.");
 
 /**
  * 全部 Disk I/O 请求通道固定列表：模块加载时登记全集，供代际失效、恢复失败与 terminateDiskIO
- * 统一遍历结算等待者；固定 5 条通道引用，不淘汰，进程重启后随模块重建。
+ * 统一遍历结算等待者；固定 7 条通道引用，不淘汰，进程重启后随模块重建。
  */
 export const DISK_IO_REQUEST_CHANNELS: readonly DiskIORequestChannel<never>[] = [
   luckSecretRequests,
   joinLogReadRequests,
   identityPolicyReadRequests,
   identityIdPageReadRequests,
+  adPackBlacklistReadRequests,
+  adPackBlacklistPageReadRequests,
   storageCloseRequests,
 ] as readonly DiskIORequestChannel<never>[];
 

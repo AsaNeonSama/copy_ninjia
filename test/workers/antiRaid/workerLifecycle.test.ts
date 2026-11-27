@@ -7,6 +7,7 @@ import type { AdDetectAgentConfig } from "../../../packages/types/config";
 import type { LogLevel } from "../../../packages/types/diskIO/messages";
 import { workerDuplexRequestSignal } from "../../../packages/cache/perThread/workerDuplex";
 import { workerAtmosphere } from "../../../packages/workers/antiRaid/atmosphere";
+import { adPackBlacklistCounts } from "../../../packages/cache/workers/antiRaid/adDetect";
 import { atmosphereState } from "../../../packages/cache/workers/antiRaid/atmosphere";
 import { ATMOSPHERE_TEXTS } from "../../../packages/consts/atmosphere";
 
@@ -15,6 +16,8 @@ const INITIAL_LOG_LEVEL: LogLevel = getLogLevel();
 afterEach((): void => {
   adoptTimeZone(INITIAL_TIME_ZONE);
   adoptLogLevel(INITIAL_LOG_LEVEL);
+  adPackBlacklistCounts.sticker = 0;
+  adPackBlacklistCounts.emoji = 0;
 });
 
 const calls: string[] = [];
@@ -82,6 +85,11 @@ mock.module("../../../packages/workers/antiRaid/adDetect/queue", () => ({
   quiesceAdDetectQueue(): void { calls.push("quiesceAdDetect"); },
   startAdDetectQueue(): void { calls.push("startAdDetect"); },
   stopAdDetectQueue(): void { calls.push("stopAdDetect"); },
+}));
+const realQueueState = await import("../../../packages/workers/antiRaid/adDetect/queueState");
+mock.module("../../../packages/workers/antiRaid/adDetect/queueState", () => ({
+  ...realQueueState,
+  releaseAdDetectDedupKey(): void { calls.push("releaseAdDetectDedup"); },
 }));
 mock.module("../../../packages/workers/antiRaid/floodControl", () => ({
   handleFloodCandidate(): void { calls.push("floodCandidate"); },
@@ -280,7 +288,12 @@ describe("Anti-Raid Worker lifecycle", () => {
         timeZone: getTimeZone(),
         logLevel: getLogLevel(),
         adDetect: injectedAdDetectConfig,
-        adDetectConfig: { punishment: { kind: "kick", blockScope: "global" }, samples: [], stickerBlackList: new Set(), emojiBlackList: new Set() },
+        adDetectConfig: { punishment: { kind: "kick", blockScope: "global" }, samples: [] },
+      },
+      {
+        type: "adPackBlacklistSync",
+        stickerCount: 3,
+        emojiCount: 2,
       },
       {
         type: "join",
@@ -307,11 +320,12 @@ describe("Anti-Raid Worker lifecycle", () => {
       { type: "verificationPersisted", key: "-1001:1", generation: 1, revision: 1 },
       { type: "adminsChanged", chatId: -1001, userId: 1, isInviterExempt: true },
       { type: "removeBlockedMembers", chatId: -1001, userIds: [42], probeMembership: false, removalId: 1 },
-      { type: "adCandidate", chatId: -1001, senderId: 1, messageId: 11, observedAt: 1, text: "买号加我", firstName: "Spam", lastName: "", username: "spam", isChannel: false, isForwarded: false, blocked: false, justJoined: true, linkUrls: undefined, stickerSetName: undefined, customEmojiIds: undefined, sampleQuote: undefined, sampleReplyTo: undefined },
+      { type: "adCandidate", chatId: -1001, senderId: 1, messageId: 11, observedAt: 1, text: "买号加我", firstName: "Spam", lastName: "", username: "spam", isChannel: false, isForwarded: false, blocked: false, justJoined: true, linkUrls: undefined, stickerSetName: undefined, stickerFileId: undefined, stickerFileUniqueId: undefined, imageFileId: undefined, imageFileUniqueId: undefined, customEmojiIds: undefined, sampleQuote: undefined, sampleReplyTo: undefined },
       { type: "clearAdDetect", chatId: -1001 },
       { type: "floodCandidate", chatId: -1001, userId: 1, observedAt: 1, name: "@noisy" },
       { type: "clearFloodControl", chatId: -1001 },
-      { type: "temporaryAdBypassGranted", identityId: 1 },
+      { type: "clearIdentityAdDetect", identityId: 1 },
+      { type: "releaseAdDetectDedup", chatId: -1001, senderId: 1 },
       { type: "botPermissionsChanged", chatId: -1001, permissions: { canRestrictMembers: true, canDeleteMessages: true } },
       { type: "botPermissionsChanged", chatId: -1001, permissions: { canRestrictMembers: false, canDeleteMessages: true } },
       { type: "chatKind", chatId: -1001, isSupergroup: true },
@@ -332,12 +346,13 @@ describe("Anti-Raid Worker lifecycle", () => {
       "message", "callback",
       "adopt", "lockdownPersisted", "lockdownPersistFailed", "adoptVerifications", "verificationPersisted", "adminsChanged",
       "removeBlockedMembers", "adCandidate", "clearAdDetect",
-      "floodCandidate", "clearFloodWindows", "clearIdentityAdDetect",
+      "floodCandidate", "clearFloodWindows", "clearIdentityAdDetect", "releaseAdDetectDedup",
       // 限制成员权限从没有变成确证有时才触发被拒私密模式的解除重试。
       "botPermissionsChanged", "retryDeniedLockdownRestore", "botPermissionsChanged", "chatKindChanged",
     ]);
-    // 配置消息不产生业务副作用，只把快照写进 holder。
+    // 配置消息与黑名单计数同步消息不产生业务副作用，只把快照写进对应 holder。
     expect(adDetectAgentConfigCache.current).toBe(injectedAdDetectConfig);
+    expect(adPackBlacklistCounts).toEqual({ sticker: 3, emoji: 2 });
     expect(workerEvents).toEqual([{ type: "barrierComplete", barrierId: 99 }]);
     // 镜像里本来就确证能限制成员时，再来一次同样的确证不提前重试。
     couldRestrict = true;

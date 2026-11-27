@@ -96,7 +96,7 @@ export function isVanishedImageError(error: unknown): boolean {
  * @param entries `readdir` 返回的目录项列表。
  * @returns 符合图库图片规则的文件名列表。
  */
-export function randomImageNames(entries: readonly Dirent[]): string[] {
+function randomImageNames(entries: readonly Dirent[]): string[] {
   const names: string[] = [];
   for (const entry of entries) {
     if (!entry.isFile() || entry.name.startsWith(".")) continue;

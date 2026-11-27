@@ -1,3 +1,4 @@
+import { adPackBlacklists } from "../../packages/database/schema/adPackBlacklist";
 import { chatQa } from "../../packages/database/schema/chatQa";
 import { chatStates } from "../../packages/database/schema/chatState";
 import {
@@ -13,6 +14,7 @@ import type { StoredTemporaryAdBypassActivity } from
   "../../packages/types/temporaryAdBypass";
 import type {
   StorageDatabase,
+  StoredAdPackBlacklistRow,
   StoredChatQaRow,
   StoredChatStateRow,
   StoredIdentityPolicyRow,
@@ -39,6 +41,8 @@ export interface SeedStorageDatabaseOptions {
   readonly chatStates?: readonly StoredChatStateRow[];
   /** 群自定义问答行列表。 */
   readonly chatQa?: readonly StoredChatQaRow[];
+  /** 广告包黑名单行列表。 */
+  readonly adPackBlacklists?: readonly StoredAdPackBlacklistRow[];
   /** 临时广告豁免活动记录列表。 */
   readonly temporaryAdBypass?: readonly StoredTemporaryAdBypassActivity[];
 }
@@ -60,6 +64,7 @@ export function seedStorageDatabase(
     removals,
     chatStates: storedChatStates = [],
     chatQa: storedChatQa = [],
+    adPackBlacklists: storedAdPackBlacklists = [],
     temporaryAdBypass = [],
   }: SeedStorageDatabaseOptions
 ): void {
@@ -82,6 +87,9 @@ export function seedStorageDatabase(
     if (storedChatQa.length > 0) {
       transaction.insert(chatQa).values([...storedChatQa]).run();
     }
+    if (storedAdPackBlacklists.length > 0) {
+      transaction.insert(adPackBlacklists).values([...storedAdPackBlacklists]).run();
+    }
     if (temporaryAdBypass.length > 0) {
       transaction.insert(temporaryAdBypassEntries).values([...temporaryAdBypass]).run();
     }
@@ -96,6 +104,7 @@ export function seedStorageDatabase(
 export function clearStorageBusinessTables(database: StorageDatabase): void {
   database.transaction((transaction: StorageDatabaseTransaction): void => {
     transaction.delete(chatQa).run();
+    transaction.delete(adPackBlacklists).run();
     transaction.delete(pendingBlockedRemovals).run();
     transaction.delete(permissionList).run();
     transaction.delete(blocklistEntries).run();

@@ -282,4 +282,32 @@ describe("临时广告免检连续日状态机", () => {
       qualifiedAt: FIRST_QUALIFIED_AT,
     });
   });
+
+  test("非法时间戳与缺失授予时刻的损坏临时免检记录一律显式抛错", () => {
+    const validActivity: Readonly<TemporaryAdBypassActivity> = recordMessages(
+      null,
+      FIRST_DAY_AT,
+      1
+    );
+    for (const invalidNow of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect((): boolean =>
+        isTemporaryAdBypassActivityRetained(validActivity, invalidNow)
+      ).toThrow(RangeError);
+      expect((): Readonly<TemporaryAdBypassActivity> =>
+        advanceTemporaryAdBypassActivity(validActivity, invalidNow)
+      ).toThrow(RangeError);
+    }
+
+    const corrupted: Readonly<TemporaryAdBypassActivity> = {
+      adBypass: true,
+      adBypassGrantedAt: null,
+      qualifiedDays: 1,
+      sendCount: QUALIFYING_MESSAGE_COUNT,
+      countedAt: FIRST_DAY_AT,
+      qualifiedAt: FIRST_DAY_AT,
+    };
+    expect((): Readonly<TemporaryAdBypassActivity> =>
+      advanceTemporaryAdBypassActivity(corrupted, FIRST_DAY_AT - 1)
+    ).toThrow("Temporary ad bypass membership requires a grant timestamp.");
+  });
 });

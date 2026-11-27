@@ -100,7 +100,7 @@ export interface TelegramSendLane {
   frozenUntil: number;
   /** 保守档截止：429 冻结结束后的一段时间内关闭突发容量；未处于保守档时为初值。 */
   cautiousUntil: number;
-  /** 最近一次发出请求的时刻；空闲车道据此在窗口全部恢复后删除。 */
+  /** 最近一次发出请求的时刻（未发出过时为 -1）；空闲车道据此在窗口全部恢复后删除。 */
   lastSendAt: number;
   /** 本车道唯一的定时器：下一次有额度、冻结结束或空闲删除。 */
   timer: ReturnType<typeof setTimeout> | null;

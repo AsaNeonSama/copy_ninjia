@@ -3,7 +3,7 @@ import { describe, expect, spyOn, test } from "bun:test";
 import type { Mock } from "bun:test";
 import { Bot, Context } from "grammy";
 import type { MiddlewareFn, NextFunction } from "grammy";
-import type { UserFromGetMe } from "grammy/types";
+import type { BotFullInfo } from "grammy/types";
 import { registerHandlers } from "../../packages/app/registerHandlers";
 import { botMessageActivity } from "../../packages/cache/main/botMessage";
 import {
@@ -11,18 +11,21 @@ import {
   BOT_MESSAGE_ACTIVITY_TTL_MS,
 } from "../../packages/consts/botMessage";
 
-const BOT_INFO: Readonly<UserFromGetMe> = {
+const BOT_INFO: Readonly<BotFullInfo> = {
   id: 999,
   is_bot: true,
   first_name: "Chain",
   username: "chain_test_bot",
   can_join_groups: true,
   can_read_all_group_messages: true,
+  supports_guest_queries: false,
   supports_inline_queries: true,
+  needs_inline_query_location: false,
   can_connect_to_business: false,
   has_main_web_app: false,
   has_topics_enabled: false,
   allows_users_to_create_topics: false,
+  has_topic_sidebar: false,
   can_manage_bots: false,
   supports_join_request_queries: false,
 };

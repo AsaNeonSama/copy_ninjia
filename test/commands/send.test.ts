@@ -14,6 +14,8 @@ const logApiErrorMock = mock((..._args: unknown[]): void => {});
 mock.module("../../packages/infra/telegram", () => ({
   sendCommandMessage: sendMessageMock,
   replyCommandNotice: replyCommandNoticeVia(sendMessageMock),
+}));
+mock.module("../../packages/infra/telegram/client", () => ({
   logApiError: logApiErrorMock,
 }));
 mock.module("../../packages/infra/telegram/mainClient", () => ({

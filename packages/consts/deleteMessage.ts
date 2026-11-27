@@ -17,4 +17,4 @@ export const DELETE_MESSAGE_CHAT_TARGET_MAX: number = 15;
  * `/delete_message stop` 的参数结构；stop 不区分大小写，其后可选的用户名或 id 交给共享目标解析器。
  * 不匹配时整段参数都是开始删除的目标。所属模块：commands/deleteMessage.ts。
  */
-export const DELETE_MESSAGE_STOP_ARGUMENT_PATTERN: RegExp = /^stop(?:\s+([\s\S]+))?$/iu;
+export const DELETE_MESSAGE_STOP_ARGUMENT_PATTERN: Readonly<RegExp> = /^stop(?:\s+([\s\S]+))?$/iu;

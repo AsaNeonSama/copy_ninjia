@@ -1,16 +1,23 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
-import type { AdDetectJsonRequestParams } from "../../../packages/types/antiRaid/adDetect";
+import type {
+  AdDetectJsonRequestParams,
+  AdDetectProviderResult,
+  AdVerdict,
+} from "../../../packages/types/antiRaid/adDetect";
 import type { AgentProvider } from "../../../packages/types/config";
 
 let provider: AgentProvider = "google";
 const requestGoogleAdDetectJson = mock(
-  async (_params: AdDetectJsonRequestParams): Promise<string | null> => "google"
+  async (_params: AdDetectJsonRequestParams): Promise<AdDetectProviderResult> => ({ status: "ok", body: "google" })
 );
 const requestOpenAiAdDetectJson = mock(
-  async (_params: AdDetectJsonRequestParams): Promise<string | null> => "openai"
+  async (_params: AdDetectJsonRequestParams): Promise<AdDetectProviderResult> => ({ status: "ok", body: "openai" })
 );
 const requestAnthropicAdDetectJson = mock(
-  async (_params: AdDetectJsonRequestParams): Promise<string | null> => "anthropic"
+  async (_params: AdDetectJsonRequestParams): Promise<AdDetectProviderResult> => ({ status: "ok", body: "anthropic" })
+);
+const classifyWithGoogleDecision = mock(
+  async (_params: unknown): Promise<AdVerdict | null> => ({ isAd: true, reason: "decision(0.95): promo_contact" })
 );
 
 mock.module("../../../packages/config/agent", () => ({
@@ -19,8 +26,12 @@ mock.module("../../../packages/config/agent", () => ({
 mock.module("../../../packages/workers/antiRaid/adDetect/ai/google", () => ({ requestGoogleAdDetectJson }));
 mock.module("../../../packages/workers/antiRaid/adDetect/ai/openai", () => ({ requestOpenAiAdDetectJson }));
 mock.module("../../../packages/workers/antiRaid/adDetect/ai/anthropic", () => ({ requestAnthropicAdDetectJson }));
+mock.module("../../../packages/workers/antiRaid/adDetect/ai/googleDecision", () => ({ classifyWithGoogleDecision }));
 
-const { requestAdDetectJson } = await import("../../../packages/workers/antiRaid/adDetect/ai/provider");
+const {
+  requestAdDetectDecision,
+  requestAdDetectJson,
+} = await import("../../../packages/workers/antiRaid/adDetect/ai/provider");
 
 const params: AdDetectJsonRequestParams = {
   model: "ad-model",
@@ -38,20 +49,21 @@ beforeEach((): void => {
   requestGoogleAdDetectJson.mockClear();
   requestOpenAiAdDetectJson.mockClear();
   requestAnthropicAdDetectJson.mockClear();
+  classifyWithGoogleDecision.mockClear();
 });
 
 describe("广告检测 provider 分派", () => {
   test("Anthropic 配置只调用 Anthropic 传输", async () => {
     provider = "anthropic";
 
-    await expect(requestAdDetectJson(params)).resolves.toBe("anthropic");
+    await expect(requestAdDetectJson(params)).resolves.toEqual({ status: "ok", body: "anthropic" });
     expect(requestAnthropicAdDetectJson).toHaveBeenCalledWith(params);
     expect(requestGoogleAdDetectJson).not.toHaveBeenCalled();
     expect(requestOpenAiAdDetectJson).not.toHaveBeenCalled();
   });
 
   test("Google 配置只调用 Google 传输并原样转发请求", async () => {
-    await expect(requestAdDetectJson(params)).resolves.toBe("google");
+    await expect(requestAdDetectJson(params)).resolves.toEqual({ status: "ok", body: "google" });
     expect(requestGoogleAdDetectJson).toHaveBeenCalledWith(params);
     expect(requestOpenAiAdDetectJson).not.toHaveBeenCalled();
   });
@@ -59,8 +71,23 @@ describe("广告检测 provider 分派", () => {
   test("OpenAI 配置只调用 OpenAI 兼容传输", async () => {
     provider = "openai";
 
-    await expect(requestAdDetectJson(params)).resolves.toBe("openai");
+    await expect(requestAdDetectJson(params)).resolves.toEqual({ status: "ok", body: "openai" });
     expect(requestOpenAiAdDetectJson).toHaveBeenCalledWith(params);
     expect(requestGoogleAdDetectJson).not.toHaveBeenCalled();
+  });
+
+  test("requestAdDetectDecision 原样转发给 Google Decisions 传输", async () => {
+    const decisionParams = {
+      model: "gemini-decision",
+      instructions: "rules",
+      fact: "fact",
+      userContent: "1. hi",
+      errorLabel: "Decision test",
+    };
+    await expect(requestAdDetectDecision(decisionParams)).resolves.toEqual({
+      isAd: true,
+      reason: "decision(0.95): promo_contact",
+    });
+    expect(classifyWithGoogleDecision).toHaveBeenCalledWith(decisionParams);
   });
 });

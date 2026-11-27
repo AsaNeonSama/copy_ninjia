@@ -14,6 +14,10 @@ import type {
   MiniAppTranslations,
 } from "../../types/miniAppI18n";
 import {
+  formatJaAdBlacklistServerNotice,
+  getJaAdBlacklistsTranslations,
+} from "../adBlacklists/ja";
+import {
   formatJaConfigServerNotice,
   getJaConfigsTranslations,
 } from "../configs/ja";
@@ -323,7 +327,11 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
       case "INVALID_CHAT_TARGETS_PARAMS":
         return "マヌケな雑魚♡、対象管理リクエストのパラメータ形式が不正よ！";
       default:
-        return formatJaConfigServerNotice(code, params) ?? code;
+        return (
+          formatJaAdBlacklistServerNotice(code, params) ??
+          formatJaConfigServerNotice(code, params) ??
+          code
+        );
     }
   };
   return {
@@ -346,6 +354,7 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
       chats: "管理グループ",
       identities: "権限管理",
       configs: "設定編集",
+      adBlacklists: "内容ブラックリスト",
       gallery: "えっち図鑑",
       totp: "認証システム",
     },
@@ -354,6 +363,7 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
       chats: "/init 群スイッチと直近256件発言",
       identities: "白黒リストと18項目の権限管理",
       configs: "動的ホットリロードと静的 JSON 設定編集",
+      adBlacklists: "ステッカー＆カスタム絵文字の内容ブラックリスト",
       gallery: "/h_image プレビュー・追加・削除",
       totp: "Google 認証システム (TOTP) の登録・変更・削除",
     },
@@ -825,7 +835,7 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
         isCanBypassFloodControl: "このIDには連投カウントと自動ミュートをスルーしてあげる。押さえつけないから、荒らしザコに渡さないでよね♡",
         isCanControllAIPermission: "このザコに /ai_chat enable|disable で AI おしゃべりを切り替えさせるわ、変にいじらないでよ♡",
         isCanClearContext: "/clear_context でこのグループの AI 会話メモリをリセットすることを許可するわ。",
-        isCanControllAdDetectPermission: "このザコに /ad_detect enable|disable で広告検知を切り替えさせるわ、取りこぼしたらアンタのせいだからね♡",
+        isCanControllAdDetectPermission: "このザコに /ad_detect で広告検知の切り替えとステッカー・カスタム絵文字パックのブラックリスト管理をさせるわ、取りこぼしたらアンタのせいだからね♡",
         isCanControllFloodControlPermission: "このザコに /flood_control enable|disable で連投ミュートを切り替えさせるわ、勝手にカチカチしないでよ♡",
         isCanControllTranslatePermission: "このザコに /translate enable|disable で翻訳機能を切り替えさせるわ、このくらいわかるわよね♡",
         isCanControllAntiRaidPermission: "このザコに /antiraid enable|disable で入室認証と荒らし防衛ロックを切り替えさせるわ、切ったらゾンビが雪崩れ込むわよ♡",
@@ -858,5 +868,6 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
         "図鑑に画像が1枚もないじゃない！右上の「画像を追加」から登録しなさい雑魚♡",
     },
     configs: getJaConfigsTranslations(),
+    adBlacklists: getJaAdBlacklistsTranslations(),
   };
 }

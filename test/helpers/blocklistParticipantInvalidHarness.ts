@@ -88,7 +88,9 @@ export const flushDiskIODomain = mock(async (domain: DiskIODomain): Promise<Doma
       })),
       temporaryAdBypassWrites: [],
       chatStateWrites: [],
-      chatQaWrites: [], removalWrites: [],
+      chatQaWrites: [],
+      adPackBlacklistWrites: [],
+      removalWrites: [],
     });
   }
   return { result: "flushed" };

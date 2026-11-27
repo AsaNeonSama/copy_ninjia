@@ -15,6 +15,7 @@ export {
   readIdentityPolicyVerdicts,
 } from "./identityStorage/read";
 export {
+  assertIdentityPolicyWriteAdmissible,
   confirmIdentityPolicyPersisted,
   queueBlocklistDeletion,
   queueIdentityPolicyWrite,

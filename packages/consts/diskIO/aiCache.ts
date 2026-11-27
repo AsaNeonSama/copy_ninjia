@@ -10,7 +10,7 @@ export const AI_CACHE_SUMMARY_KEY: string = "summary";
  * 时分秒限制在日内范围，日期由解码器核验公历有效性。
  * 所属模块：workers/diskIO/aiCacheDocument.ts。
  */
-export const AI_CACHE_ROW_KEY_PATTERN: RegExp =
+export const AI_CACHE_ROW_KEY_PATTERN: Readonly<RegExp> =
   /^(\d{4}-\d{2}-\d{2}) (?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d\.\d{3}_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /** 命中率保留的小数位数。所属模块：workers/diskIO/aiCacheDocument.ts。 */
@@ -100,4 +100,4 @@ export const AI_CACHE_SUMMARY_ALLOWED_FIELDS: readonly string[] = [
  * 汇总 byModel 的分组键 `<capability>/<provider>/<model>`：第 1 组捕获 capability、第 2 组
  * 捕获 provider（AGENT_PROVIDERS 之一）；模型名可以含 `/`。所属模块：workers/diskIO/aiCacheDocument.ts。
  */
-export const AI_CACHE_GROUP_KEY_PATTERN: RegExp = new RegExp(`^([^/]+)/(${AGENT_PROVIDERS.join("|")})/(.+)$`);
+export const AI_CACHE_GROUP_KEY_PATTERN: Readonly<RegExp> = new RegExp(`^([^/]+)/(${AGENT_PROVIDERS.join("|")})/(.+)$`);

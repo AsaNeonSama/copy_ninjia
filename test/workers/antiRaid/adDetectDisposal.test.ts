@@ -60,9 +60,14 @@ function bundle(): AdMessageBundle {
         text: "加我",
         senderText: "加我",
         directText: "加我",
+        isForwarded: false,
         receivedAt: 1_000,
         withinReferencedWarning: false,
         stickerSetName: undefined,
+        stickerFileId: undefined,
+        stickerFileUniqueId: undefined,
+        imageFileId: undefined,
+        imageFileUniqueId: undefined,
         customEmojiIds: undefined,
         replyTo: "在吗",
         quote: undefined,
@@ -73,9 +78,14 @@ function bundle(): AdMessageBundle {
         text: "微信 xxx",
         senderText: "微信 xxx",
         directText: "微信 xxx",
+        isForwarded: false,
         receivedAt: 1_100,
         withinReferencedWarning: false,
         stickerSetName: undefined,
+        stickerFileId: undefined,
+        stickerFileUniqueId: undefined,
+        imageFileId: undefined,
+        imageFileUniqueId: undefined,
         customEmojiIds: undefined,
         quote: undefined,
         replyTo: undefined,
@@ -105,11 +115,11 @@ beforeEach(() => {
 });
 
 describe("广告处置副作用", () => {
-  test("回投主线程并删掉整串消息，但播报留给主线程发", async () => {
+  test("回投主线程并携带待删消息 ID，删消息与播报均留给主线程", () => {
     const events: AdDetectedEvent[] = [];
     adDetectPublishHolder.current = (event: AdDetectedEvent): void => { events.push(event); };
 
-    await disposeAdSender({ bundle: bundle(), judged: bundle().entries, verdict: { isAd: true, reason: "引流加微信" } });
+    disposeAdSender({ bundle: bundle(), judged: bundle().entries, verdict: { isAd: true, reason: "引流加微信" } });
 
     expect(events).toEqual([{
       type: "adDetected",
@@ -122,18 +132,17 @@ describe("广告处置副作用", () => {
       reason: "引流加微信",
       // 判定依据的整串原样回投，供主线程写进命中样本；引用/回复上下文跟着各自那条消息走，不在判定文本里。
       messages: [
-        { messageId: 11, text: "加我", replyTo: "在吗", quote: undefined },
-        { messageId: 12, text: "微信 xxx", quote: undefined, replyTo: undefined },
+        { messageId: 11, type: "text", text: "加我", stickerSetName: undefined, replyTo: "在吗", quote: undefined },
+        { messageId: 12, type: "text", text: "微信 xxx", stickerSetName: undefined, quote: undefined, replyTo: undefined },
       ],
+      deleteMessageIds: [11, 12],
     }]);
-    // 整串走一次批量删除。
-    expect(deleteMessages).toHaveBeenCalledTimes(1);
-    expect(deleteMessages.mock.calls[0]?.[1]).toEqual([11, 12]);
-    // 播报由知道结果的主线程发出，本线程不播报（见 antiRaid/adDetect.ts）。
+    // 删消息与播报均留给主线程复核受保护身份与开关后执行，Worker 侧不提前删消息。
+    expect(deleteMessages).not.toHaveBeenCalled();
     expect(sendTemporaryMessageFromMain).not.toHaveBeenCalled();
   });
 
-  test("纯贴纸命中黑名单时样本正文回退到贴纸包名", async () => {
+  test("纯贴纸命中黑名单时样本标注 sticker 类型与 stickerSetName，不写入 text", () => {
     const events: AdDetectedEvent[] = [];
     adDetectPublishHolder.current = (event: AdDetectedEvent): void => { events.push(event); };
     const stickerBundle: AdMessageBundle = {
@@ -145,9 +154,14 @@ describe("广告处置副作用", () => {
           text: "",
           senderText: "",
           directText: "",
+          isForwarded: false,
           receivedAt: 1_000,
           withinReferencedWarning: false,
           stickerSetName: "SpamStickerPack",
+          stickerFileId: undefined,
+          stickerFileUniqueId: undefined,
+          imageFileId: undefined,
+          imageFileUniqueId: undefined,
           customEmojiIds: undefined,
           quote: undefined,
           replyTo: undefined,
@@ -155,15 +169,150 @@ describe("广告处置副作用", () => {
       ],
     };
 
-    await disposeAdSender({
+    disposeAdSender({
       bundle: stickerBundle,
       judged: stickerBundle.entries,
       verdict: { isAd: true, reason: "sticker_black_list:SpamStickerPack" },
     });
 
     expect(events[0]?.messages).toEqual([
-      { messageId: 21, text: "SpamStickerPack", quote: undefined, replyTo: undefined },
+      { messageId: 21, type: "sticker", text: undefined, stickerSetName: "SpamStickerPack", quote: undefined, replyTo: undefined },
     ]);
+    expect(events[0]?.deleteMessageIds).toEqual([21]);
+  });
+
+  test("无正文视觉媒体与图文条目按 type 分类输出，仅存在送检正文时写入 text，并仅透传非空归因包列表", () => {
+    const events: AdDetectedEvent[] = [];
+    adDetectPublishHolder.current = (event: AdDetectedEvent): void => { events.push(event); };
+    const mediaBundle: AdMessageBundle = {
+      ...bundle(),
+      entries: [
+        {
+          messageId: 31,
+          seq: 1,
+          text: "",
+          senderText: "",
+          directText: "",
+          isForwarded: false,
+          receivedAt: 1_000,
+          withinReferencedWarning: false,
+          stickerSetName: undefined,
+          stickerFileId: "sticker-file-1",
+          stickerFileUniqueId: "sticker-uniq-1",
+          imageFileId: undefined,
+          imageFileUniqueId: undefined,
+          customEmojiIds: undefined,
+          quote: undefined,
+          replyTo: undefined,
+        },
+        {
+          messageId: 32,
+          seq: 2,
+          text: "",
+          senderText: "",
+          directText: "",
+          isForwarded: false,
+          receivedAt: 1_100,
+          withinReferencedWarning: false,
+          stickerSetName: undefined,
+          stickerFileId: undefined,
+          stickerFileUniqueId: undefined,
+          imageFileId: "photo-file-1",
+          imageFileUniqueId: "photo-uniq-1",
+          customEmojiIds: undefined,
+          quote: undefined,
+          replyTo: undefined,
+        },
+        {
+          messageId: 33,
+          seq: 3,
+          text: "Spammer 看图加我",
+          senderText: "Spammer 看图加我",
+          directText: "Spammer 看图加我",
+          isForwarded: false,
+          receivedAt: 1_200,
+          withinReferencedWarning: false,
+          stickerSetName: undefined,
+          stickerFileId: undefined,
+          stickerFileUniqueId: undefined,
+          imageFileId: "photo-file-2",
+          imageFileUniqueId: "photo-uniq-2",
+          customEmojiIds: undefined,
+          quote: undefined,
+          replyTo: undefined,
+        },
+        {
+          messageId: 34,
+          seq: 4,
+          text: "",
+          senderText: "",
+          directText: "",
+          isForwarded: false,
+          receivedAt: 1_300,
+          withinReferencedWarning: false,
+          stickerSetName: undefined,
+          stickerFileId: undefined,
+          stickerFileUniqueId: undefined,
+          imageFileId: undefined,
+          imageFileUniqueId: undefined,
+          customEmojiIds: ["emoji-1"],
+          quote: undefined,
+          replyTo: undefined,
+        },
+        {
+          messageId: 35,
+          seq: 5,
+          text: "Spammer 🔥",
+          senderText: "Spammer 🔥",
+          directText: "Spammer 🔥",
+          isForwarded: false,
+          receivedAt: 1_400,
+          withinReferencedWarning: false,
+          stickerSetName: undefined,
+          stickerFileId: undefined,
+          stickerFileUniqueId: undefined,
+          imageFileId: undefined,
+          imageFileUniqueId: undefined,
+          customEmojiIds: ["emoji-2"],
+          quote: undefined,
+          replyTo: undefined,
+        },
+      ],
+    };
+
+    disposeAdSender({
+      bundle: mediaBundle,
+      judged: mediaBundle.entries,
+      verdict: {
+        isAd: true,
+        reason: "图片与表情引流",
+        adStickerPacks: ["AdStickerPack"],
+        adEmojiPacks: ["AdEmojiPack"],
+      },
+    });
+    expect(events[0]?.messages).toEqual([
+      { messageId: 31, type: "sticker", text: undefined, stickerSetName: undefined, quote: undefined, replyTo: undefined },
+      { messageId: 32, type: "photo", text: undefined, stickerSetName: undefined, quote: undefined, replyTo: undefined },
+      { messageId: 33, type: "photo", text: "Spammer 看图加我", stickerSetName: undefined, quote: undefined, replyTo: undefined },
+      { messageId: 34, type: "custom_emoji", text: undefined, stickerSetName: undefined, quote: undefined, replyTo: undefined },
+      { messageId: 35, type: "text", text: "Spammer 🔥", stickerSetName: undefined, quote: undefined, replyTo: undefined },
+    ]);
+    expect(events[0]?.deleteMessageIds).toEqual([31, 32, 33, 34, 35]);
+    expect(events[0]?.adStickerPacks).toEqual(["AdStickerPack"]);
+    expect(events[0]?.adEmojiPacks).toEqual(["AdEmojiPack"]);
+
+    disposeAdSender({
+      bundle: mediaBundle,
+      judged: mediaBundle.entries,
+      verdict: {
+        isAd: true,
+        reason: "空归因数组不透传",
+        adStickerPacks: [],
+        adEmojiPacks: [],
+      },
+    });
+    expect("adStickerPacks" in (events[1] ?? {})).toBeFalse();
+    expect("adEmojiPacks" in (events[1] ?? {})).toBeFalse();
   });
 
   test("播报标签按冻结的元数据与本进程氛围现算：频道念标题，缺名字时按氛围兜底", async () => {
@@ -180,8 +329,8 @@ describe("广告处置副作用", () => {
     };
     atmosphereState.current = "plain";
     try {
-      await disposeAdSender({ bundle: anonymous, judged: anonymous.entries, verdict: { isAd: true, reason: "" } });
-      await disposeAdSender({ bundle: channel, judged: channel.entries, verdict: { isAd: true, reason: "" } });
+      disposeAdSender({ bundle: anonymous, judged: anonymous.entries, verdict: { isAd: true, reason: "" } });
+      disposeAdSender({ bundle: channel, judged: channel.entries, verdict: { isAd: true, reason: "" } });
     } finally {
       atmosphereState.current = null;
     }
@@ -192,7 +341,7 @@ describe("广告处置副作用", () => {
     ]);
   });
 
-  test("样本只记模型真正读过的那一份，删除取判定依据与现场的并集", async () => {
+  test("样本只记模型真正读过的那一份，待删消息 ID 取判定依据与现场的并集", () => {
     const live: AdMessageBundle = bundle();
     // 送检那一刻定格的两条。
     const judged = [...live.entries];
@@ -205,9 +354,14 @@ describe("广告处置副作用", () => {
         text: "微信 xxx",
         senderText: "微信 xxx",
         directText: "微信 xxx",
+        isForwarded: false,
         receivedAt: 1_100,
         withinReferencedWarning: false,
         stickerSetName: undefined,
+        stickerFileId: undefined,
+        stickerFileUniqueId: undefined,
+        imageFileId: undefined,
+        imageFileUniqueId: undefined,
         customEmojiIds: undefined,
         quote: undefined,
         replyTo: undefined,
@@ -218,9 +372,14 @@ describe("广告处置副作用", () => {
         text: "带你上岸",
         senderText: "带你上岸",
         directText: "带你上岸",
+        isForwarded: false,
         receivedAt: 1_200,
         withinReferencedWarning: false,
         stickerSetName: undefined,
+        stickerFileId: undefined,
+        stickerFileUniqueId: undefined,
+        imageFileId: undefined,
+        imageFileUniqueId: undefined,
         customEmojiIds: undefined,
         quote: undefined,
         replyTo: undefined,
@@ -229,27 +388,30 @@ describe("广告处置副作用", () => {
 
     const events: AdDetectedEvent[] = [];
     adDetectPublishHolder.current = (event: AdDetectedEvent): void => { events.push(event); };
-    await disposeAdSender({ bundle: live, judged, verdict: { isAd: true, reason: "引流" } });
+    disposeAdSender({ bundle: live, judged, verdict: { isAd: true, reason: "引流" } });
 
     // 样本是模型读过的那两条（11、12），不含它没读过的 13。
     expect(events[0]?.messages.map((message) => message.messageId)).toEqual([11, 12]);
-    // 删除取两边的并集：来自现场的 13 与来自已被裁掉的判定依据的 11。
-    expect(deleteMessages.mock.calls[0]?.[1]).toEqual([11, 12, 13]);
+    // 待删列表取两边的并集：来自现场的 13 与来自已被裁掉的判定依据的 11。
+    expect(events[0]?.deleteMessageIds).toEqual([11, 12, 13]);
+    expect(deleteMessages).not.toHaveBeenCalled();
   });
 
-  test("被挤出上下文、从没判过的消息也进删除集合", async () => {
+  test("被挤出上下文、从没判过的消息也并入待删消息 ID 列表", () => {
     const live: AdMessageBundle = bundle();
     // 爆发式刷屏：上限撑满时只剩没判过的可丢，正文不留但 id 转存下来。
     live.pendingDeleteIds = [9, 10];
 
-    adDetectPublishHolder.current = (): void => {};
-    await disposeAdSender({ bundle: live, judged: live.entries, verdict: { isAd: true, reason: "引流" } });
+    const events: AdDetectedEvent[] = [];
+    adDetectPublishHolder.current = (event: AdDetectedEvent): void => { events.push(event); };
+    disposeAdSender({ bundle: live, judged: live.entries, verdict: { isAd: true, reason: "引流" } });
 
-    // 转存的 id 并入删除集合。
-    expect(deleteMessages.mock.calls[0]?.[1]).toEqual([11, 12, 9, 10]);
+    // 转存的 id 并入回投给主线程的待删集合。
+    expect(events[0]?.deleteMessageIds).toEqual([11, 12, 9, 10]);
+    expect(deleteMessages).not.toHaveBeenCalled();
   });
 
-  test("并集超过接口单次上限时分片删除，不让整批被拒", async () => {
+  test("待删并集超过单次接口上限时完整随事件回投，引用警告清理在 Worker 侧分片删除", async () => {
     const live: AdMessageBundle = bundle();
     // 爆发式刷屏攒出的待删 id 可以超过 TELEGRAM_DELETE_MESSAGES_BATCH_MAX（见 AD_DETECT_MAX_PENDING_DELETE_IDS）。
     live.pendingDeleteIds = Array.from(
@@ -257,9 +419,20 @@ describe("广告处置副作用", () => {
       (_value, index): number => 1_000 + index
     );
 
-    adDetectPublishHolder.current = (): void => {};
+    const events: AdDetectedEvent[] = [];
+    adDetectPublishHolder.current = (event: AdDetectedEvent): void => { events.push(event); };
     const totalIds: number = live.pendingDeleteIds.length + live.entries.length;
-    await disposeAdSender({ bundle: live, judged: live.entries, verdict: { isAd: true, reason: "引流" } });
+    disposeAdSender({ bundle: live, judged: live.entries, verdict: { isAd: true, reason: "引流" } });
+
+    expect(events[0]?.deleteMessageIds).toHaveLength(totalIds);
+    expect(deleteMessages).not.toHaveBeenCalled();
+
+    deleteReferencedAdMessages({
+      bundle: live,
+      judged: live.entries,
+      messageIdThrough: 2_000,
+    });
+    await Promise.allSettled([...inFlightReferencedAdCleanupTasks]);
 
     // deleteMessages 只有整体成败，并集按 TELEGRAM_DELETE_MESSAGES_BATCH_MAX 分片。
     expect(deleteMessages).toHaveBeenCalledTimes(2);
@@ -267,7 +440,7 @@ describe("广告处置副作用", () => {
     expect((deleteMessages.mock.calls[1]?.[1] as number[]).length).toBe(totalIds - TELEGRAM_DELETE_MESSAGES_BATCH_MAX);
   });
 
-  test("已确证没有删消息权限时仍回投拉黑，但不发送注定失败的删除请求", async (): Promise<void> => {
+  test("已确证没有删消息权限时，命中事件照常回投主线程，尾随与引用清理跳过删除请求", async (): Promise<void> => {
     const events: AdDetectedEvent[] = [];
     adDetectPublishHolder.current = (event: AdDetectedEvent): void => {
       events.push(event);
@@ -277,14 +450,22 @@ describe("广告处置副作用", () => {
       canDeleteMessages: false,
     });
 
-    await disposeAdSender({
-      bundle: bundle(),
-      judged: bundle().entries,
+    const live: AdMessageBundle = bundle();
+    disposeAdSender({
+      bundle: live,
+      judged: live.entries,
       verdict: { isAd: true, reason: "引流" },
     });
     deleteStragglerAdMessage(-1001, 99);
+    deleteReferencedAdMessages({
+      bundle: live,
+      judged: live.entries,
+      messageIdThrough: 555,
+    });
+    await Promise.allSettled([...inFlightReferencedAdCleanupTasks]);
 
     expect(events).toHaveLength(1);
+    expect(events[0]?.deleteMessageIds).toEqual([11, 12]);
     expect(deleteMessages).not.toHaveBeenCalled();
     expect(deleteMessage).not.toHaveBeenCalled();
     expect(errorLogs).toContainEqual([
@@ -293,15 +474,16 @@ describe("广告处置副作用", () => {
     ]);
   });
 
-  test("Telegram 批量删除明确失败时只汇总一条权限诊断", async (): Promise<void> => {
+  test("引用广告批量删除明确失败时只汇总一条权限诊断", async (): Promise<void> => {
     deleteMessages.mockImplementation(async (): Promise<boolean> => false);
-    adDetectPublishHolder.current = (): void => {};
 
-    await disposeAdSender({
-      bundle: bundle(),
-      judged: bundle().entries,
-      verdict: { isAd: true, reason: "引流" },
+    const live: AdMessageBundle = bundle();
+    deleteReferencedAdMessages({
+      bundle: live,
+      judged: live.entries,
+      messageIdThrough: 555,
     });
+    await Promise.allSettled([...inFlightReferencedAdCleanupTasks]);
 
     expect(deleteMessages).toHaveBeenCalledTimes(1);
     expect(errorLogs).toContainEqual([
@@ -310,15 +492,14 @@ describe("广告处置副作用", () => {
     ]);
   });
 
-  test("回投通道已关闭时删消息照做，只记一行错误日志", async () => {
-    await disposeAdSender({ bundle: bundle(), judged: bundle().entries, verdict: { isAd: true, reason: "卖号" } });
+  test("回投通道已关闭时直接放弃，不删消息也不播报，只记一行错误日志", () => {
+    disposeAdSender({ bundle: bundle(), judged: bundle().entries, verdict: { isAd: true, reason: "卖号" } });
     expect(errorLogs).toEqual([[
       expect.stringContaining("main-thread channel is closed"),
       { chatId: -1001, senderId: 7 },
     ]]);
-    // 那一串确实是广告，删除照做。
-    expect(deleteMessages).toHaveBeenCalledTimes(1);
-    // 拉黑与各群封禁不会发生，播报也不发。
+    // 主线程无法复核受保护身份与开关时绝不提前删消息。
+    expect(deleteMessages).not.toHaveBeenCalled();
     expect(sendTemporaryMessageFromMain).not.toHaveBeenCalled();
   });
 
@@ -366,10 +547,15 @@ describe("广告处置副作用", () => {
       text: "警告后回复",
       senderText: "警告后回复",
       directText: "警告后回复",
+      isForwarded: false,
       // 本机时间早于发送回执也不影响 Telegram 群内的权威消息顺序。
       receivedAt: 1_400,
       withinReferencedWarning: true,
       stickerSetName: undefined,
+      stickerFileId: undefined,
+      stickerFileUniqueId: undefined,
+      imageFileId: undefined,
+      imageFileUniqueId: undefined,
       customEmojiIds: undefined,
       quote: undefined,
       replyTo: undefined,

@@ -10,6 +10,7 @@ import { reportGeminiUsage } from "../../../infra/aiCacheUsage";
 import { capabilityClient } from "../capabilityClient";
 import {
   GEMINI_API_BASE_URL,
+  GEMINI_API_VERSION,
   GEMINI_REQUEST_RETRY_ATTEMPTS,
   GEMINI_REQUEST_TIMEOUTS_MS,
   GEMINI_SAFETY_SETTINGS,
@@ -32,13 +33,14 @@ export function getGeminiClient(capability: AgentCapability): GoogleGenAI {
     provider: "google",
     capability,
     holder: geminiClientCache,
-    // 显式置 enterprise: false 并给出官方默认 baseUrl，使 SDK 不回退读取
-    // GOOGLE_GENAI_USE_ENTERPRISE / GOOGLE_GENAI_USE_VERTEXAI 与 GOOGLE_GEMINI_BASE_URL 环境变量。
+    // 显式置 enterprise: false 并给出默认 baseUrl 与固定 apiVersion，使 SDK 不回退读取
+    // GOOGLE_GENAI_USE_ENTERPRISE / GOOGLE_GENAI_USE_VERTEXAI、GOOGLE_GEMINI_BASE_URL 与 GOOGLE_GENAI_API_VERSION 环境变量。
     create: (config: ProviderCapabilityConfig<"google">): GoogleGenAI => new GoogleGenAI({
       apiKey: config.apiKey,
       enterprise: false,
       httpOptions: {
         baseUrl: config.baseUrl ?? GEMINI_API_BASE_URL,
+        apiVersion: GEMINI_API_VERSION,
         timeout: GEMINI_REQUEST_TIMEOUTS_MS[capability],
         retryOptions: { attempts: GEMINI_REQUEST_RETRY_ATTEMPTS },
       },

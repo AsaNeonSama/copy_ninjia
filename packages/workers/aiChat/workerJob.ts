@@ -19,7 +19,7 @@ export interface RunAiWorkerJobOptions<T> {
   readonly jobs: Map<number, AbortController>;
   /** 主线程分配的任务请求序号。 */
   readonly requestId: number;
-  /** 执行任务；必须自行把意外异常折算成结果，返回的 Promise 不得 reject。 */
+  /** 执行任务；正常情况应自行把异常折算成结果，若意外 reject 则记错误日志并回执 `AI_WORKER_JOB_UNAVAILABLE`。 */
   readonly run: (signal: AbortSignal) => Promise<T>;
   /** 回执结果给主线程。 */
   readonly publish: (result: T | AiWorkerJobFailure) => void;
@@ -27,7 +27,8 @@ export interface RunAiWorkerJobOptions<T> {
 
 /**
  * 接纳一次可取消的后台任务：若 Worker 已进入停机排空阶段则立即回执 `AI_WORKER_JOB_UNAVAILABLE`，
- * 否则登记 `AbortController`、纳入 `inFlightAiWorkerJobs` 排空追踪并启动任务，结算后摘除在途条目并回执结果。
+ * 否则登记 `AbortController`、纳入 `inFlightAiWorkerJobs` 排空追踪并启动任务，结算后摘除在途条目并回执结果；
+ * 若 `run` 意外 reject，摘除登记并记录错误日志后回执 `AI_WORKER_JOB_UNAVAILABLE`。
  *
  * @param options 任务在途登记表、请求序号、执行回调与回执回调
  */
@@ -48,6 +49,7 @@ export function runAiWorkerJob<T>({ jobs, requestId, run, publish }: RunAiWorker
     (error: unknown): void => {
       if (jobs.get(requestId) === controller) jobs.delete(requestId);
       logger.error("Unexpected error while running an AI worker job:", { requestId }, error);
+      publish(AI_WORKER_JOB_UNAVAILABLE);
     }
   );
   void trackInflight(inFlightAiWorkerJobs, task);

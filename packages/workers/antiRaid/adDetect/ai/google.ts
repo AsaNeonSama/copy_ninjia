@@ -6,22 +6,32 @@
  */
 
 import { ApiError, GoogleGenAI } from "@google/genai";
-import type { GenerateContentResponse } from "@google/genai";
+import type { GenerateContentResponse, Part } from "@google/genai";
+import { abnormalFinishDiagnostic, geminiFinishDetails } from "../../../../aiProviders/gemini/response";
+import { isExplicitUnsupportedMediaError, numericErrorStatus } from "../../../../aiProviders/mediaSupportError";
 import { adDetectStopping } from "../../../../cache/workers/antiRaid/adDetect";
 import { adDetectGoogleClientHolder } from "../../../../cache/workers/antiRaid/google";
 import { getAdDetectAgentConfig } from "../../../../config/agent";
 import {
   AD_DETECT_GOOGLE_REQUEST_ATTEMPTS,
   AD_DETECT_GOOGLE_REQUEST_TIMEOUT_MS,
+} from "../../../../consts/antiRaid/adDetect/limits";
+import {
   AD_DETECT_JSON_SCHEMA,
-} from "../../../../consts/antiRaid/adDetect";
+  AD_DETECT_PACK_JSON_SCHEMA,
+  formatAdDetectAttachmentLabel,
+} from "../../../../consts/antiRaid/adDetect/prompts";
 import { requestAdDetectJsonWithRetry } from "./emptyBodyRetry";
-import { GEMINI_API_BASE_URL, GEMINI_SAFETY_SETTINGS } from "../../../../consts/aiChat/gemini";
+import { GEMINI_API_BASE_URL, GEMINI_API_VERSION, GEMINI_SAFETY_SETTINGS } from "../../../../consts/aiChat/gemini";
 import { logger } from "../../../../infra/logger";
 import { reportGeminiUsage } from "../../../../infra/aiCacheUsage";
-import { abnormalFinishDiagnostic, geminiFinishDetails } from "../../../../aiProviders/gemini/response";
+import { errorMessage } from "../../../../libs/errorMessage";
 import type { AdDetectAgentConfig } from "../../../../types/config";
-import type { AdDetectJsonRequestParams } from "../../../../types/antiRaid/adDetect";
+import type {
+  AdDetectJsonRequestParams,
+  AdDetectMediaAttachment,
+  AdDetectProviderResult,
+} from "../../../../types/antiRaid/adDetect";
 import type { GeminiAbnormalFinishReason } from "../../../../types/aiChat/gemini";
 
 /**
@@ -38,6 +48,7 @@ function getAdDetectGoogleClient(): GoogleGenAI {
     enterprise: false,
     httpOptions: {
       baseUrl: config.baseUrl ?? GEMINI_API_BASE_URL,
+      apiVersion: GEMINI_API_VERSION,
       timeout: AD_DETECT_GOOGLE_REQUEST_TIMEOUT_MS,
       retryOptions: { attempts: AD_DETECT_GOOGLE_REQUEST_ATTEMPTS },
     },
@@ -58,9 +69,37 @@ interface GoogleAdDetectAttempt {
 }
 
 /**
- * 发一次结构化 JSON 请求并收窄结果；始终携带完整系统指令以依赖服务端隐式前缀缓存，异常时记日志并返回 null。
+ * 组装用户轮的文本与可选多模态图片 parts；无附件时保持 `[fact, userContent]` 原状。
+ * @param fact 系统事实文本行。
+ * @param userContent 待判定消息串文本。
+ * @param attachments 可选的视觉附件列表。
+ * @returns 传给 Gemini `contents[0].parts` 的数组。
+ */
+function buildGoogleUserParts(
+  fact: string,
+  userContent: string,
+  attachments: readonly AdDetectMediaAttachment[] | undefined
+): Part[] {
+  const parts: Part[] = [{ text: fact }, { text: userContent }];
+  if (attachments === undefined || attachments.length === 0) return parts;
+  for (let index: number = 0; index < attachments.length; index++) {
+    const attachment: AdDetectMediaAttachment = attachments[index]!;
+    parts.push({ text: formatAdDetectAttachmentLabel(index + 1, attachment) });
+    parts.push({
+      inlineData: {
+        mimeType: attachment.image.mime,
+        data: attachment.image.bytes.toBase64(),
+      },
+    });
+  }
+  return parts;
+}
+
+/**
+ * 发一次结构化 JSON 请求并收窄结果；始终携带完整系统指令以依赖服务端隐式前缀缓存，
+ * 带图请求遇明确模态不支持错误时返回 `"visionUnsupported"`，其余异常记日志并返回 null。
  * @param params 结构化广告判定请求参数。
- * @returns 单次尝试结果；请求异常时返回 null。
+ * @returns 单次尝试结果、`"visionUnsupported"` 标记或表示请求异常的 null。
  */
 async function attemptGoogleAdDetectJson({
   model,
@@ -69,17 +108,23 @@ async function attemptGoogleAdDetectJson({
   userContent,
   maxOutputTokens,
   errorLabel,
-}: AdDetectJsonRequestParams): Promise<GoogleAdDetectAttempt | null> {
+  attachments,
+  stickerPackCandidates,
+  emojiPackCandidates,
+}: AdDetectJsonRequestParams): Promise<GoogleAdDetectAttempt | "visionUnsupported" | null> {
+  const hasAttachments: boolean = attachments !== undefined && attachments.length > 0;
+  const hasPackCandidates: boolean =
+    (stickerPackCandidates?.length ?? 0) > 0 || (emojiPackCandidates?.length ?? 0) > 0;
   try {
     const response: GenerateContentResponse = await getAdDetectGoogleClient().models.generateContent({
       model,
-      contents: [{ role: "user", parts: [{ text: fact }, { text: userContent }] }],
+      contents: [{ role: "user", parts: buildGoogleUserParts(fact, userContent, attachments) }],
       config: {
         systemInstruction: instructions,
         safetySettings: [...GEMINI_SAFETY_SETTINGS],
         maxOutputTokens,
         responseMimeType: "application/json",
-        responseJsonSchema: AD_DETECT_JSON_SCHEMA,
+        responseJsonSchema: hasPackCandidates ? AD_DETECT_PACK_JSON_SCHEMA : AD_DETECT_JSON_SCHEMA,
       },
     });
     reportGeminiUsage({ capability: "ad_detect", model, usage: response.usageMetadata });
@@ -90,6 +135,12 @@ async function attemptGoogleAdDetectJson({
     }
     return { body: response.text?.trim() ?? "", abnormalReason: null, finishReason, finishDetails: null };
   } catch (error: unknown) {
+    if (
+      hasAttachments &&
+      isExplicitUnsupportedMediaError(numericErrorStatus(error), errorMessage(error))
+    ) {
+      return "visionUnsupported";
+    }
     if (error instanceof ApiError) {
       logger.error(
         "Ad detection API request failed.",
@@ -106,13 +157,14 @@ async function attemptGoogleAdDetectJson({
  * 收尾异常或空正文时有界重试，耗尽后连同最后一次的收尾原因与详情记一条日志；请求异常已经由
  * SDK 按配置重试，不在这里叠加。
  * @param params 结构化广告判定请求参数。
- * @returns 可用的模型 JSON 响应正文；重试耗尽或请求失败时返回 null。
+ * @returns 传输层统一结果（成功正文、明确不支持视觉输入或失败）。
  */
-export async function requestGoogleAdDetectJson(
+export function requestGoogleAdDetectJson(
   params: AdDetectJsonRequestParams
-): Promise<string | null> {
+): Promise<AdDetectProviderResult> {
   return requestAdDetectJsonWithRetry<GoogleAdDetectAttempt>({
-    attemptRequest: (): Promise<GoogleAdDetectAttempt | null> => attemptGoogleAdDetectJson(params),
+    attemptRequest: (): Promise<GoogleAdDetectAttempt | "visionUnsupported" | null> =>
+      attemptGoogleAdDetectJson(params),
     extractUsableBody: (result: GoogleAdDetectAttempt): string | null =>
       result.body.length > 0 ? result.body : null,
     shouldContinue: (): boolean => !adDetectStopping.current,

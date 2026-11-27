@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { loggerStub } from "../../helpers/loggerMock";
-import type { AdDetectJsonRequestParams } from "../../../packages/types/antiRaid/adDetect";
+import type {
+  AdDetectJsonRequestParams,
+  AdDetectMediaAttachment,
+} from "../../../packages/types/antiRaid/adDetect";
 
 const errorLogs: unknown[][] = [];
 const constructions: unknown[] = [];
@@ -17,6 +20,8 @@ class FakeApiError extends Error {
   }
 }
 
+let currentProvider: string = "google";
+
 const googleGenAi = await import("@google/genai");
 mock.module("@google/genai", () => ({
   ...googleGenAi,
@@ -28,10 +33,11 @@ mock.module("@google/genai", () => ({
 }));
 mock.module("../../../packages/config/agent", () => ({
   getAdDetectAgentConfig: () => ({
-    provider: "google",
+    provider: currentProvider,
     apiKey: "google-ad-key",
     baseUrl: "https://google.example",
     model: "gemini-ad",
+    useDecision: false,
   }),
 }));
 mock.module("../../../packages/infra/logger", () => ({
@@ -40,7 +46,7 @@ mock.module("../../../packages/infra/logger", () => ({
 
 const { requestGoogleAdDetectJson } = await import("../../../packages/workers/antiRaid/adDetect/ai/google");
 const { adDetectStopping } = await import("../../../packages/cache/workers/antiRaid/adDetect");
-const { GEMINI_SAFETY_SETTINGS } = await import("../../../packages/consts/aiChat/gemini");
+const { GEMINI_API_VERSION, GEMINI_SAFETY_SETTINGS } = await import("../../../packages/consts/aiChat/gemini");
 const { adDetectGoogleClientHolder } = await import("../../../packages/cache/workers/antiRaid/google");
 const { installAiCacheUsageSink } = await import("../../../packages/infra/aiCacheUsage");
 import type { AiCacheUsage } from "../../../packages/types/aiCache";
@@ -48,6 +54,9 @@ const {
   AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS,
   AD_DETECT_GOOGLE_REQUEST_ATTEMPTS,
   AD_DETECT_GOOGLE_REQUEST_TIMEOUT_MS,
+  AD_DETECT_JSON_SCHEMA,
+  AD_DETECT_PACK_JSON_SCHEMA,
+  formatAdDetectAttachmentLabel,
 } = await import("../../../packages/consts/antiRaid/adDetect");
 
 const params: AdDetectJsonRequestParams = {
@@ -81,6 +90,7 @@ function sentAt(index: number): SentRequest {
 }
 
 beforeEach((): void => {
+  currentProvider = "google";
   adDetectStopping.current = false;
   adDetectGoogleClientHolder.current = null;
   constructions.length = 0;
@@ -98,12 +108,16 @@ afterEach((): void => {
 
 describe("Google 广告检测请求入口", () => {
   test("使用独立凭据、端点与结构化 JSON 请求；系统事实作为正文之前的独立 part", async () => {
-    await expect(requestGoogleAdDetectJson(params)).resolves.toContain("闲聊");
+    await expect(requestGoogleAdDetectJson(params)).resolves.toEqual({
+      status: "ok",
+      body: "{\"ad\":false,\"reason\":\"闲聊\"}",
+    });
     expect(constructions[0]).toEqual({
       apiKey: "google-ad-key",
       enterprise: false,
       httpOptions: {
         baseUrl: "https://google.example",
+        apiVersion: GEMINI_API_VERSION,
         timeout: AD_DETECT_GOOGLE_REQUEST_TIMEOUT_MS,
         retryOptions: { attempts: AD_DETECT_GOOGLE_REQUEST_ATTEMPTS },
       },
@@ -114,12 +128,78 @@ describe("Google 广告检测请求入口", () => {
       config: {
         systemInstruction: params.instructions,
         responseMimeType: "application/json",
+        responseJsonSchema: AD_DETECT_JSON_SCHEMA,
         maxOutputTokens: params.maxOutputTokens,
       },
     });
     expect(sentAt(0).config.cachedContent).toBeUndefined();
     expect(sentAt(0).config.temperature).toBeUndefined();
     expect(sentAt(0).config.safetySettings).toEqual([...GEMINI_SAFETY_SETTINGS]);
+  });
+
+  test("多模态附件携带 inlineData，仅在存在贴纸/表情包候选时切换为 AD_DETECT_PACK_JSON_SCHEMA", async () => {
+    const bytes: Uint8Array = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+    const photoAttachment: AdDetectMediaAttachment = {
+      id: "img-1",
+      kind: "photo",
+      packName: undefined,
+      image: { bytes, mime: "image/png" },
+    };
+    const stickerAttachment: AdDetectMediaAttachment = {
+      id: "stk-1",
+      kind: "sticker",
+      packName: "AdPack",
+      image: { bytes, mime: "image/png" },
+    };
+
+    await expect(requestGoogleAdDetectJson({
+      ...params,
+      attachments: [photoAttachment],
+    })).resolves.toEqual({ status: "ok", body: "{\"ad\":false,\"reason\":\"闲聊\"}" });
+    expect(sentAt(0).config.responseJsonSchema).toEqual(AD_DETECT_JSON_SCHEMA);
+    expect(sentAt(0).contents).toEqual([{
+      role: "user",
+      parts: [
+        { text: params.fact },
+        { text: params.userContent },
+        { text: formatAdDetectAttachmentLabel(1, photoAttachment) },
+        { inlineData: { mimeType: "image/png", data: bytes.toBase64() } },
+      ],
+    }]);
+
+    await expect(requestGoogleAdDetectJson({
+      ...params,
+      attachments: [stickerAttachment],
+      stickerPackCandidates: ["AdPack"],
+    })).resolves.toEqual({ status: "ok", body: "{\"ad\":false,\"reason\":\"闲聊\"}" });
+    expect(sentAt(1).config.responseJsonSchema).toEqual(AD_DETECT_PACK_JSON_SCHEMA);
+    expect(sentAt(1).contents).toEqual([{
+      role: "user",
+      parts: [
+        { text: params.fact },
+        { text: params.userContent },
+        { text: formatAdDetectAttachmentLabel(1, stickerAttachment) },
+        { inlineData: { mimeType: "image/png", data: bytes.toBase64() } },
+      ],
+    }]);
+  });
+
+  test("带图请求遇明确不支持图片输入错误时返回 visionUnsupported 且不记错误日志", async () => {
+    const attachment: AdDetectMediaAttachment = {
+      id: "img-1",
+      kind: "photo",
+      packName: undefined,
+      image: { bytes: new Uint8Array([1, 2]), mime: "image/jpeg" },
+    };
+    generateContent.mockImplementationOnce((): never => {
+      throw new FakeApiError("This model does not support image input.", 400);
+    });
+    await expect(requestGoogleAdDetectJson({
+      ...params,
+      attachments: [attachment],
+    })).resolves.toEqual({ status: "visionUnsupported" });
+    expect(generateContent).toHaveBeenCalledTimes(1);
+    expect(errorLogs).toEqual([]);
   });
 
   test("成功响应按 ad_detect 上报 Gemini 用量", async () => {
@@ -141,21 +221,34 @@ describe("Google 广告检测请求入口", () => {
   });
 
   test("请求错误不叠加业务重试", async () => {
-    generateContent.mockImplementation((): never => { throw new FakeApiError("rate limited"); });
-    await expect(requestGoogleAdDetectJson(params)).resolves.toBeNull();
+    generateContent.mockImplementationOnce((): never => { throw new FakeApiError("rate limited"); });
+    await expect(requestGoogleAdDetectJson(params)).resolves.toEqual({ status: "failed" });
     expect(generateContent).toHaveBeenCalledTimes(1);
     expect(errorLogs[0]).toEqual([
       "Ad detection API request failed.",
       { errorLabel: "Test request", status: 429, errorMessage: "rate limited" },
     ]);
+
+    generateContent.mockImplementationOnce((): never => { throw new Error("socket hang up"); });
+    await expect(requestGoogleAdDetectJson(params)).resolves.toEqual({ status: "failed" });
+    expect(errorLogs[1]).toEqual([
+      "Ad detection request failed:",
+      { errorLabel: "Test request" },
+      expect.objectContaining({ message: "socket hang up" }),
+    ]);
+
+    currentProvider = "openai";
+    adDetectGoogleClientHolder.current = null;
+    await expect(requestGoogleAdDetectJson(params)).resolves.toEqual({ status: "failed" });
+    expect(constructions).toHaveLength(1);
   });
 
-  test("非 STOP 结束或空正文有限重试，耗尽后连同最后一次的收尾原因与详情记一条错误并返回 null", async () => {
+  test("非 STOP 结束或空正文有限重试，耗尽后连同最后一次的收尾原因与详情记一条错误并返回 failed", async () => {
     generateContent.mockImplementation(async (): Promise<unknown> => ({
       candidates: [{ finishReason: "MAX_TOKENS" }],
       text: "{\"ad\":",
     }));
-    await expect(requestGoogleAdDetectJson(params)).resolves.toBeNull();
+    await expect(requestGoogleAdDetectJson(params)).resolves.toEqual({ status: "failed" });
     expect(generateContent).toHaveBeenCalledTimes(AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS);
     expect(errorLogs).toEqual([[
       "Ad detection request returned no usable body.",
@@ -171,7 +264,7 @@ describe("Google 广告检测请求入口", () => {
     errorLogs.length = 0;
     const safetyRatings = [{ category: "HARM_CATEGORY_HARASSMENT", probability: "HIGH", blocked: true }];
     generateContent.mockImplementation(async (): Promise<unknown> => ({ candidates: [{ finishReason: "SAFETY", safetyRatings }] }));
-    await expect(requestGoogleAdDetectJson(params)).resolves.toBeNull();
+    await expect(requestGoogleAdDetectJson(params)).resolves.toEqual({ status: "failed" });
     expect(errorLogs).toEqual([[
       "Ad detection request returned no usable body.",
       {
@@ -185,7 +278,7 @@ describe("Google 广告检测请求入口", () => {
 
     errorLogs.length = 0;
     generateContent.mockImplementation(async (): Promise<unknown> => ({ candidates: [{ finishReason: "STOP" }], text: " " }));
-    await expect(requestGoogleAdDetectJson(params)).resolves.toBeNull();
+    await expect(requestGoogleAdDetectJson(params)).resolves.toEqual({ status: "failed" });
     expect(errorLogs).toEqual([[
       "Ad detection request returned no usable body.",
       {
@@ -202,7 +295,10 @@ describe("Google 广告检测请求入口", () => {
     generateContent
       .mockImplementationOnce(async (): Promise<unknown> => ({ candidates: [{ finishReason: "STOP" }], text: "   " }))
       .mockImplementationOnce(async (): Promise<unknown> => ({ candidates: [{ finishReason: "STOP" }], text: " {\"ad\":true,\"reason\":\"引流\"} " }));
-    await expect(requestGoogleAdDetectJson(params)).resolves.toBe("{\"ad\":true,\"reason\":\"引流\"}");
+    await expect(requestGoogleAdDetectJson(params)).resolves.toEqual({
+      status: "ok",
+      body: "{\"ad\":true,\"reason\":\"引流\"}",
+    });
     expect(generateContent).toHaveBeenCalledTimes(2);
     expect(errorLogs).toEqual([]);
   });
@@ -220,12 +316,12 @@ describe("Google 广告检测请求入口", () => {
     expect(second.contents).toEqual([{ role: "user", parts: [{ text: "【系统事实】非刚入群" }, { text: "2. 另一条消息" }] }]);
   });
 
-  test("首轮空正文后进入停机状态时停止第 2 轮重试并静默返回 null", async () => {
+  test("首轮空正文后进入停机状态时停止第 2 轮重试并静默返回 failed", async () => {
     generateContent.mockImplementationOnce(async (): Promise<unknown> => {
       adDetectStopping.current = true;
       return { candidates: [{ finishReason: "STOP" }], text: "" };
     });
-    await expect(requestGoogleAdDetectJson(params)).resolves.toBeNull();
+    await expect(requestGoogleAdDetectJson(params)).resolves.toEqual({ status: "failed" });
     expect(generateContent).toHaveBeenCalledTimes(1);
     expect(errorLogs).toEqual([]);
   });

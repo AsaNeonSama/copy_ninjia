@@ -35,7 +35,9 @@ async function flushDiskIODomainStub(_domain: DiskIODomain): Promise<DomainFlush
         writes: [],
         temporaryAdBypassWrites: [],
         chatStateWrites,
-        chatQaWrites: [], removalWrites: [],
+        chatQaWrites: [],
+        adPackBlacklistWrites: [],
+        removalWrites: [],
       });
     }
   }
@@ -186,7 +188,9 @@ describe("主线程 chat-state LRU 与 SQLite 最终一致性", () => {
         writes: [],
         temporaryAdBypassWrites: [],
         chatStateWrites: [{ chatId: -1001, revision: firstRevision }],
-        chatQaWrites: [], removalWrites: [],
+        chatQaWrites: [],
+        adPackBlacklistWrites: [],
+        removalWrites: [],
       });
     }
     expect(unacknowledgedChatStateWrites.get(-1001)?.revision).toBe(secondRevision);

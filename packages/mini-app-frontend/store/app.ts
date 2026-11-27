@@ -115,6 +115,7 @@ export interface MiniAppUiStoreState {
    * 展示一条自动消失的 Toast（`MINI_APP_TOAST_DURATION_MS` 后清除，重复调用重新计时），服务端状态码按当前语言映射为本地化文案。
    * 命中会话过期、凭据缺失或密钥吊销/加密载荷失效错误（含带前缀、裸状态码或 `metaSource` 中携带的错误码）时改为锁定控制台并跳转回登录门禁；
    * 命中 `PASSWORD_LOCKED`、`EXPIRED_AUTH_DATE` 等一层门禁拒绝错误时清除本地会话并回到 `checking` 重新预检进入拦截页。
+   * 若 `metaSource` 携带的发包会话令牌已被本地更新一代活跃令牌取代，则会话重认证与依赖会话延展窗口的 `EXPIRED_AUTH_DATE` 不触发锁定或清除新会话（无条件一层拒绝仍立即生效）。
    */
   readonly notify: (
     message: string,

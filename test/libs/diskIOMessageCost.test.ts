@@ -113,6 +113,37 @@ const CASES: Readonly<Record<QueuedDiskIOOperationMessage["type"], MessageCase>>
     payloadBytes: ("问题".length + "答案文本".length) * 2,
     business: true,
   },
+  adPackBlacklistWrite: {
+    message: {
+      type: "adPackBlacklistWrite",
+      kind: "sticker",
+      pack: "SpamPack_1",
+      blacklisted: true,
+      revision: 3,
+    },
+    payloadBytes: ("sticker".length + "SpamPack_1".length) * 2,
+    business: true,
+  },
+  readAdPackBlacklists: {
+    message: {
+      type: "readAdPackBlacklists",
+      requestId: 6,
+      kind: "sticker",
+      packs: ["Pack_A", "Pack_B"],
+    },
+    payloadBytes: ("sticker".length + "Pack_A".length + "Pack_B".length) * 2,
+    business: false,
+  },
+  readAdPackBlacklistPage: {
+    message: {
+      type: "readAdPackBlacklistPage",
+      requestId: 7,
+      kind: "emoji",
+      afterPack: "AlphaPack",
+    },
+    payloadBytes: ("emoji".length + "AlphaPack".length) * 2,
+    business: false,
+  },
   readIdentityPolicies: {
     message: { type: "readIdentityPolicies", requestId: 1, ids: [1, 2, 3] },
     payloadBytes: 3 * 8,
@@ -293,7 +324,7 @@ describe("Disk I/O 消息计价", () => {
       .map(([type]) => type)
       .sort();
     expect(business).toEqual([
-      "aiMemory", "blocklistRemovalWrite", "chatQaWrite", "chatStateWrite", "deleteAiMemory",
+      "adPackBlacklistWrite", "aiMemory", "blocklistRemovalWrite", "chatQaWrite", "chatStateWrite", "deleteAiMemory",
       "deleteJoinLog", "deleteWedMembers", "forgetAiMemory", "identityPolicyWrite", "joinLog",
       "luckDraw", "stickerCatalog", "temporaryAdBypassWrite", "verificationDelete",
       "verificationUpsert", "wedMembers",

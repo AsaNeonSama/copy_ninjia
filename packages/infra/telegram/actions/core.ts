@@ -1,3 +1,4 @@
+import { TELEGRAM_PERMISSION_DENIED_DESCRIPTION_PATTERN } from "../../../consts/telegram";
 import {
   combineWithUpdateAbortSignal,
   currentUpdateAbortSignal,
@@ -230,9 +231,9 @@ export function replyParametersFor(
 }
 
 /**
- * 判断 Telegram 错误是否属于操作权限不足。
+ * 判断 Telegram 错误是否属于操作权限不足或目标管理员/群主身份受保护导致的拒绝。
  * @param error 待判定的异常值。
- * @returns 属于 403 或 400 权限不足错误时返回 true，否则返回 false。
+ * @returns 属于 403 或匹配 TELEGRAM_PERMISSION_DENIED_DESCRIPTION_PATTERN 的 400 错误时返回 true，否则返回 false。
  */
 export function isPermissionDenied(error: unknown): boolean {
   const details: Readonly<{ errorCode: number; description: string }> | undefined =
@@ -241,7 +242,7 @@ export function isPermissionDenied(error: unknown): boolean {
   if (details.errorCode === 403) return true;
   return (
     details.errorCode === 400 &&
-    /not enough rights/i.test(details.description)
+    TELEGRAM_PERMISSION_DENIED_DESCRIPTION_PATTERN.test(details.description)
   );
 }
 

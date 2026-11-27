@@ -292,13 +292,14 @@ export async function atomicWriteText(path: string, content: string, mode?: numb
 }
 
 /**
- * atomicWriteText 的同步版本，供唯一的磁盘 IO Worker 使用。
+ * atomicWriteText 的同步版本，供唯一的磁盘 IO Worker 使用，并返回写入并持久化的 UTF-8 字节数。
  * @param path 目标文件路径。
  * @param content 待写入的完整 UTF-8 文本内容。
  * @param mode 首次创建文件时的默认权限位；目标已存在时沿用原权限。
+ * @returns 写入并持久化的字节数。
  */
-export function atomicWriteTextSync(path: string, content: string, mode?: number): void {
-  atomicWriteSync(path, (fd: number): number => {
+export function atomicWriteTextSync(path: string, content: string, mode?: number): number {
+  return atomicWriteSync(path, (fd: number): number => {
     writeFileSync(fd, content);
     return Buffer.byteLength(content);
   }, mode);

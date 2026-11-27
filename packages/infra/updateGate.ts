@@ -40,15 +40,24 @@ export function shouldPassInitGate(
 
 /**
  * 文本首词（按空白切分，不区分大小写）是否就是发给当前机器人的 command：裸命令或
- * `command@<当前机器人用户名>`。参数不在这里校验。
+ * `command@<当前机器人用户名>`；未提供非空用户名时仅匹配裸命令。参数不在这里校验。
  * @param text 待匹配的消息文本。
  * @param command 带前导斜杠的小写命令名（如 `"/init"`）。
- * @param botUsername 当前机器人的用户名（不含 `@`）。
+ * @param botUsername 当前机器人的用户名（不含 `@`）；缺失或空串时仅匹配裸命令。
  * @returns 首词匹配裸命令或带本机器人用户名的命令时返回 true，否则返回 false。
  */
-export function isBotCommandText(text: string, command: string, botUsername: string): boolean {
+export function isBotCommandText(
+  text: string,
+  command: string,
+  botUsername: string | undefined
+): boolean {
   const firstToken: string = (text.split(/\s/, 1)[0] ?? "").toLowerCase();
-  return firstToken === command || firstToken === `${command}@${botUsername.toLowerCase()}`;
+  if (firstToken === command) return true;
+  return (
+    botUsername !== undefined &&
+    botUsername.length > 0 &&
+    firstToken === `${command}@${botUsername.toLowerCase()}`
+  );
 }
 
 /**

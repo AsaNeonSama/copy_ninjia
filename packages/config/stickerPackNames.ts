@@ -9,21 +9,20 @@ export interface ParseStickerPackNamesOptions {
   readonly sourcePath: string;
   /** 该数组字段的 JSONPath（如 `$.packs`）。 */
   readonly fieldPath: string;
-  /** 允许的最大条数。 */
-  readonly maxEntries: number;
+  /** 可选的允许最大条数；省略时不设条数硬上限。 */
+  readonly maxEntries?: number;
 }
 
 /**
- * 严格解码贴纸包或自定义表情包 short name 数组（stickers.json 的 packs，ad_detect.json 的
- * sticker_black_list 与 emoji_black_list）：去掉首尾空白后按 STICKER_PACK_NAME_PATTERN 校验，
- * 拒绝超量、非法与重复。
- * @param options 原始数组、诊断用路径与条数上限。
+ * 严格解码贴纸包或自定义表情包 short name 数组（如 `stickers.json` 的 `packs`）：
+ * 去掉首尾空白后按 STICKER_PACK_NAME_PATTERN 校验，拒绝非法、重复及超过可选上限的数组。
+ * @param options 原始数组、诊断用路径与可选条数上限。
  * @returns 规范化后的 short name 列表。
  */
 export function parseStickerPackNames(
   { entries, sourcePath, fieldPath, maxEntries }: ParseStickerPackNamesOptions
 ): readonly string[] {
-  if (entries.length > maxEntries) {
+  if (maxEntries !== undefined && entries.length > maxEntries) {
     return invalidInput(sourcePath, fieldPath, `an array with at most ${maxEntries} entries`);
   }
   const packs: string[] = [];

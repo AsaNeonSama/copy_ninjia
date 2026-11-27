@@ -1,3 +1,4 @@
+import type { AdPackBlacklistKind } from "../types/adPackBlacklist";
 import type { DiskBusinessMessage } from "../types/diskIO/messages";
 import type { IdentityPolicyTable } from "../types/identityPolicy";
 import type { LinkedQueue } from "./linkedQueue";
@@ -10,6 +11,9 @@ export class DiskIORecoveryRevisions {
   private readonly temporary: Map<number, number> = new Map();
   private readonly states: Map<number, number> = new Map();
   private readonly questions: Map<number, Map<string, number>> = new Map();
+  private readonly adPackBlacklists: Readonly<Record<AdPackBlacklistKind, Map<string, number>>> = {
+    sticker: new Map(), emoji: new Map(),
+  };
   private readonly removals: Map<number, number> = new Map();
   private joinLogs: number = 0;
   private readonly coveredStickers: WeakSet<DiskBusinessMessage> = new WeakSet();
@@ -40,6 +44,9 @@ export class DiskIORecoveryRevisions {
         questions.set(message.q, message.revision);
         break;
       }
+      case "adPackBlacklistWrite":
+        this.adPackBlacklists[message.kind].set(message.pack, message.revision);
+        break;
       case "blocklistRemovalWrite": this.removals.set(message.removalId, message.revision); break;
       // 未确认镜像按序号原序重放，FIFO 里序号不超过末条的入群事实都已随镜像送达。
       case "joinLog": this.joinLogs = message.sequence; break;
@@ -72,6 +79,7 @@ export class DiskIORecoveryRevisions {
       case "wedMembers":
       case "deleteWedMembers": return this.coveredWedOperations.has(message);
       case "chatQaWrite": return (this.questions.get(message.chatId)?.get(message.q) ?? 0) >= message.revision;
+      case "adPackBlacklistWrite": return (this.adPackBlacklists[message.kind].get(message.pack) ?? 0) >= message.revision;
       case "blocklistRemovalWrite": return (this.removals.get(message.removalId) ?? 0) >= message.revision;
       case "joinLog": return this.joinLogs >= message.sequence;
       case "stickerCatalog": return this.coveredStickers.has(message);

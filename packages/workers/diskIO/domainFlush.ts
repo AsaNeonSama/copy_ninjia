@@ -53,6 +53,7 @@ async function flushDomain(
     case "blocklistRemovalOutbox":
     case "chatState":
     case "chatQa":
+    case "adPackBlacklist":
     case "aiMemory":
       flushStorageDatabase(reply);
       collectStorageDatabaseFailures(domain, failedDomains);

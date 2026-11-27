@@ -94,7 +94,7 @@ WantedBy=multi-user.target
 > [!WARNING]
 > **多租户环境的数据权限隔离**：
 > `memory/` 目录下新建文件的默认权限是 `0644`。如果上层目录开放了其他本地用户的读取权限，同一台机器上的其他本地用户将能够直接读取群聊数据。在多用户共享的服务器上，建议将数据根与 `memory/` 权限收紧为 `0750`，已有文件收紧为 `0600` 或 `0640`（程序运行时会保留已有文件的权限，不会静默修改）。
-> `database/` 目录权限上限为 `IDENTITY_DATABASE_DIRECTORY_MODE`（含 setgid 位时为 `02770`），主数据库及 WAL/SHM 临时文件创建权限为 `IDENTITY_DATABASE_FILE_MODE`。**切勿对整个数据根执行递归 `chmod 0750`**，因为 `database/` 必须保留属组写入权限。`config/` 默认属于只读输入，常规运行保持普通只读即可；若启用 Mini App「配置编辑」在线保存功能，需向服务运行账号开放 `config/dynamic/` 和/或 `config/static/` 的写入与原子替换权限（新建可选文件默认权限为 `0600`），且以非 `root` 账号执行静态配置在线重启时需通过 polkit 授权该服务账号重启 `copy-ninjia.service`（见 [10 Mini App 设置与推荐配置](10-mini-app.md)）。
+> `database/` 目录权限上限为 `IDENTITY_DATABASE_DIRECTORY_MODE`（含 setgid 位时为 `02770`），主数据库及 WAL/SHM 临时文件创建权限为 `IDENTITY_DATABASE_FILE_MODE`。**切勿对整个数据根执行递归 `chmod 0750`**，因为 `database/` 必须保留属组写入权限。`config/` 默认属于只读输入，常规运行保持普通只读即可；仅在启用 Mini App「配置编辑」在线保存功能时，需向服务运行账号开放 `config/dynamic/` 和/或 `config/static/` 的写入与原子替换权限（新建可选文件默认权限为 `0600`），且以非 `root` 账号执行静态配置在线重启时需通过 polkit 授权该服务账号重启 `copy-ninjia.service`（见 [10 Mini App 设置与推荐配置](10-mini-app.md)）。
 
 - **崩溃自愈机制**：如果进程意外崩溃或以非零码退出，systemd 的 `Restart=on-failure` 会自动拉起实例。尚未完成的入群验证状态、锁定计时器、身份写入、AI 上下文记忆以及未确认的 Telegram update 将按照 [04 运行时权威约束](04-invariants.md#持久化) 的规则无缝恢复。
 
@@ -171,13 +171,14 @@ WantedBy=multi-user.target
   - `temporary_ad_bypass_entries`：临时广告免检累计额度记录。
   - `pending_blocked_removals`：未执行完成的跨群剔除封禁任务排队列表。
   - `chat_qa`：群自定义问答库，主键为 `(chat_id, q)` 联合主键。
+  - `ad_pack_blacklists`：STRICT 关系表，联合主键 `(kind, pack)`，存储全局广告贴纸包（`'sticker'`）与自定义表情包（`'emoji'`）黑名单（不设条数硬上限，主线程保留 768 条共享 LRU 热查询缓存）。
   - `chat_states`：托管群的运行状态表（最多 `STATE_MANAGED_CHAT_LIMIT` 行）。包含必填的状态字段 JSONB（`status`，其中包含翻译会话列表 `translate`，单群上限 `TRANSLATE_CHAT_USER_LIMIT`）以及可选的 `ai_context`（可空 JSONB 快照，包含会话记忆明细与中期摘要）。
 - **独占与事务**：Disk I/O Worker 独占该数据库的读写连接。服务启动时会对其进行全方位的严格校验（包括 SQLite integrity 完整性检查、JSONB 格式解析、Schema 版本校验、迁移谱系检查、编解码器验证及互斥冲突检查）。群组状态与 AI 快照均从此连接恢复。
 - **停机关库**：服务干净停机时，Disk I/O Worker 提交残余写、把 WAL 合回主库并截断后关闭连接，正常情况下停机后 `database/` 只剩 `storage.sqlite`。进程被强杀，或 checkpoint 被其它读连接（如外部打开的 SQLite 编辑器）挡住时，`-wal`、`-shm` 会留在目录里。关库时无法确认残余写已提交，停机按 `unsettled` 以非零状态退出，journal 里会有对应的 `[diskIO]` 错误。
 - **备份规范**：包含敏感数据与核心权限。备份时**必须把主数据库文件与同一时刻的 `-wal`、`-shm` 文件（存在时）作为一个不可分割的整体一同备份与恢复**，绝不能只拷贝单独的 `.sqlite` 文件。
 
 ### 7. 广告样本与 AI 用量：`memory/ad-detected/` 与 `memory/ai-daily-usage/`
-- **`memory/ad-detected/sample.json`**：被广告拦截引擎命中的原始消息样本（包括触发时间、消息原文、命中原因及上下文；无正文的纯贴纸消息记其贴纸包 short name）。此数据纯属旁路分析审计用途；当文件大小达到 `AD_SAMPLE_FILE_MAX_BYTES` 时会自动归档切分为 `sample.<日期>[.<序号>].json`，历史归档按 `AD_SAMPLE_ARCHIVE_RETENTION_DAYS` 保留指定天数后自动清理。
+- **`memory/ad-detected/sample.json`**：被广告拦截引擎命中的原始消息样本（包括触发时间、命中原因、引用/回复上下文及每条消息的 `type`：`text` / `photo` / `sticker` / `custom_emoji`；仅存在送检正文或图注时写入 `text`，贴纸所属包名单独记录在 `stickerSetName`）。此数据纯属旁路分析审计用途；当文件大小达到 `AD_SAMPLE_FILE_MAX_BYTES` 时会自动归档切分为 `sample.<日期>[.<序号>].json`，历史归档按 `AD_SAMPLE_ARCHIVE_RETENTION_DAYS` 保留指定天数后自动清理。
 - **`memory/ai-daily-usage/usage.json`**：AI 模型调用的 Token 与请求量统计（不含任何用户对话正文）。
   - **数据结构**：最顶部的 `summary` 对象保存最近一个已结束自然日的用量汇总（按能力、供应商、模型名称分组归纳），其余键值为当天尚未汇总的实时逐条调用统计。
   - **覆盖能力范围**：全面覆盖 `AGENT_CAPABILITY_NAMES` 中定义的所有能力维度。
@@ -213,6 +214,27 @@ WantedBy=multi-user.target
 
 服务启动时如果发现数据库文件缺失，不会私自猜测建库，而是直接报错。全新部署必须按照 [01 环境搭建的初始化身份数据库步骤](01-getting-started.md#初始化身份数据库) 创建符合当前 Schema 的空数据库；运行 `install.sh` 脚本在未发现数据库时也会自动执行该步骤。如果数据库已存在，该建库脚本会自动拒绝覆盖。
 
+<a id="upgrade-ad-pack-blacklists"></a>
+
+### 广告包黑名单与 Schema v13 → v14 冷迁移（`migrate:ad-pack-blacklists`）
+
+迁移入口脚本为 [`scripts/migrateAdPackBlacklists.ts`](../../scripts/migrateAdPackBlacklists.ts)，用于把 Schema v13 的 `database/storage.sqlite` 与可选旧 4 键 `config/dynamic/ad_detect.json` 离线非破坏性迁移至 Schema v14（新增 `ad_pack_blacklists` 表）与清理后的 2 键 `ad_detect.json`：
+- **输入边界校验**：仅接受 Schema v13 数据库（严格匹配 `STORAGE_MIGRATION_LINEAGE.slice(0, -1)`、`PRAGMA integrity_check`、全部 JSONB 列及规范 IANA `time-zone`）。省略 `--config-root` 时默认检查 `<source-root>/config`；若 `<configRoot>/dynamic/ad_detect.json` 存在，必须为精确 4 键旧格式（`punishment`、`samples`、`sticker_black_list`、`emoji_black_list`；拒绝已迁移的 2 键文件、符号链接、重复项或非法包名，不设条数硬上限）；若 `ad_detect.json` 不存在，则将数据库升级至 v14 且 `ad_pack_blacklists` 为空，不新建 `ad_detect.json`。
+- **非破坏性与校验落盘**：绝不直接对源备份打开 SQLite 连接；先逐字节复制源库（及可选 WAL/SHM）至独立 `--output-root` 并核对 SHA-256，执行 Drizzle 迁移至 v14、导入贴纸/表情包黑名单、按源库时区跑完 `validateStorageDatabase` 并执行 `PRAGMA wal_checkpoint(TRUNCATE)` 后清理输出 WAL/SHM；若源存在 4 键 `ad_detect.json`，按原权限原子写出 2 键 `{ punishment, samples }` 并以 `parseAdDetectConfig` 回读校验；最后复核源备份内容、哈希、权限与 `mtimeMs` 未变，写出 `ready.json` 并删除 `incomplete.json`（中断续跑必须使用新的输出目录）。
+
+1. **停机与备份**：停止服务并确认状态为 `inactive`；使用 `mktemp -d` 在代码树外完整备份 `database/`（含 `-wal`、`-shm`）以及 `config/dynamic/ad_detect.json`（若存在），记录属主、权限与 SHA-256 清单。
+2. **执行迁移脚本**：
+   ```bash
+   bun run migrate:ad-pack-blacklists \
+     --source-root /absolute/cold-backup \
+     --config-root /absolute/config-backup \
+     --output-root /absolute/new-staging-directory
+   ```
+   若备份根下已包含 `config/`，可省略 `--config-root`。二进制发行包使用 `BUN_BE_BUN=1 ./copy-ninjia scripts/migrations/migrateAdPackBlacklists.js`，参数相同。
+3. **核对迁移产物**：检查输出目录下的 `ready.json`，核对 `sourceFiles` 与 `outputFiles` 的 SHA-256 哈希，确认 `sourceSchema: 13`、`targetSchema: 14`、`timeZone`、`migratedStickerPacks`、`migratedEmojiPacks` 与 `adDetectConfigMigrated` 符合预期。
+4. **替换部署文件**：停机状态下用产物中的 `database/storage.sqlite` 替换部署库（仅在确认备份完整后删除部署目录残留的旧 `-wal`、`-shm`），并在生成了清理配置时替换 `config/dynamic/ad_detect.json`；按 `sourceFiles` 恢复原属主与权限，确认服务账号可写 `database/` 及其文件。
+5. **启动验证**：校验配置与状态后启动服务，观察至少两个 supervisor 重启周期稳定无异常后再清理外部备份。
+
 <a id="upgrade-wed-member-window"></a>
 
 ### /wed 成员滑窗冷迁移（成员 ID 数组 → `{ id, enteredAt }`）
@@ -221,8 +243,8 @@ WantedBy=multi-user.target
 - **滑窗改写规则**：每群保留数组末尾（最近进入）至多 `WED_MEMBER_LIMIT` 个 ID，顺序不变，`enteredAt` 统一记为迁移开始时刻；超出部分从最早一端截断丢弃，丢弃总数记入 `ready.json` 的 `truncatedMembers`。
 - **输入边界校验**：仅接收 17.2.1 格式的成员文件（每份至多 `WED_MEMBER_WINDOW_SOURCE_LIMIT` 个不重复正安全整数 ID，群文件数不超过 `STATE_MANAGED_CHAT_LIMIT`）；已迁移文件、非规范文件名与符号链接一律拒绝，`*.tmp` 等非 `.json` 残留不参与迁移。
 - **其余持久化与配置迁移说明**：
-  - 17.2.1 至 18.2.0 的 `database/storage.sqlite`（Schema v13）及 `memory/` 下除 `memory/wed/` 以外的持久化数据格式保持不变，可直接沿用。
-  - 若部署目录仍保留 17.2.1 至 18.2.0 的 `config/dynamic/ad_samples.json`，必须在停机状态下手工迁移为 `config/dynamic/ad_detect.json`（保留原样本数组为 `samples`，补齐必填的 `punishment`（`mute` 或 `kick` 二选一）以及 `sticker_black_list`、`emoji_black_list` 字符串数组；字段规范见[部署配置说明](../../config_example/README/zh.md#ad_detectjson)），并删除原 `ad_samples.json`（三级配置目录白名单会拦截残留旧文件）。
+  - 两条冷迁移边分别面向独立数据集：`migrate:wed-member-window` 迁移 `memory/wed/`，`migrate:ad-pack-blacklists` 迁移 `database/storage.sqlite`（v13 → v14）与可选 4 键 `ad_detect.json`；`memory/` 下其余子目录格式不变，可直接沿用。
+  - 若部署目录仍保留 17.2.1 至 18.2.0 的 `config/dynamic/ad_samples.json`，先在不带 `ad_detect.json` 的备份上执行 `migrate:ad-pack-blacklists` 升级数据库至 v14，再在停机状态下将 `ad_samples.json` 手工迁移为当前 2 键 `config/dynamic/ad_detect.json`（保留原样本数组为 `samples`，补齐必填 `punishment`（`mute` 或 `kick` 二选一）；字段规范见[部署配置说明](../../config_example/README/zh.md#ad_detectjson)），并删除原 `ad_samples.json`（三级配置目录白名单会拦截残留旧文件）。
 
 1. **停机与备份**：停止服务并确认状态为 inactive；按照规范将整个 `memory/wed/` 目录连同属主、权限与 SHA-256 清单备份到外部安全目录，备份根下保持 `memory/wed/` 相对路径。
 2. **执行迁移脚本**：
@@ -242,10 +264,12 @@ WantedBy=multi-user.target
 
 ### 从旧版本分阶段升级流程
 
+- **从 19.x（Schema v13 + 4 键 `ad_detect.json`）升级**：
+  - 停机备份后直接执行[广告包黑名单与 Schema v13 → v14 冷迁移](#upgrade-ad-pack-blacklists)（`migrate:ad-pack-blacklists`）；`memory/wed/` 已为滑窗格式，无需重跑 `migrate:wed-member-window`。
 - **从 17.2.1–18.2.0 升级**：
   - 17.2.1 部署需先停机执行 [/wed 成员滑窗冷迁移](#upgrade-wed-member-window)（18.0.0–18.2.0 已为 `{ id, enteredAt }` 滑窗格式，无需重跑）。
-  - 17.2.1–18.2.0 若存在 `config/dynamic/ad_samples.json`，需在停机外部备份后手工迁移为 `config/dynamic/ad_detect.json`（补齐必填 `punishment`、`sticker_black_list` 与 `emoji_black_list`）并删除 `ad_samples.json`。
-- **针对落后于 17.2.1 的老旧版本**：当前版本仅保留从 17.2.1 升级的直达冷迁移脚本。若旧版本低于 17.2.1，必须先升级并安装 17.2.1，按照该版本的文档完成其迁移（16.3.2 需执行共享数据库冷迁移 `migrate:chat-persona-removal`，更早版本先按对应指引升级至 16.3.2），确认 17.2.1 能正常稳定启动后，再按上方步骤完成 `/wed` 冷迁移与 `ad_detect.json` 手工配置迁移。
+  - 所有 17.2.1–18.2.0 部署均需对 Schema v13 的 `database/storage.sqlite` 执行[广告包黑名单与 Schema v13 → v14 冷迁移](#upgrade-ad-pack-blacklists)（在尚无 `ad_detect.json` 时升级至 v14）；若存在旧 `config/dynamic/ad_samples.json`，停机外部备份后手工迁移为 2 键 `config/dynamic/ad_detect.json`（`{ punishment, samples }`）并删除 `ad_samples.json`。
+- **针对落后于 17.2.1 的老旧版本**：当前版本仅保留从 v13（数据库）与 17.2.1（`memory/wed/`）升级的直达冷迁移脚本。若旧版本低于 17.2.1，必须先升级并安装 17.2.1，按照该版本的文档完成其迁移（16.3.2 需执行共享数据库冷迁移 `migrate:chat-persona-removal`，更早版本先按对应指引升级至 16.3.2），确认 17.2.1 能正常稳定启动后，再按上方步骤完成 `/wed` 冷迁移、`migrate:ad-pack-blacklists` 数据库冷迁移与 `ad_detect.json` 手工配置迁移。
 - **11.0.9（Schema v8）跨大版本升级路径**：
   需要在独立目录中切出对应的历史 Git 标签，分步运行历史冷迁移链路：
   1. 切换至 `500e848fae` 提交：执行 `migrate:ai-context`（v8 → v9）
@@ -254,7 +278,7 @@ WantedBy=multi-user.target
   4. 切换至 `14.0.0` 标签：执行 `migrate:translate-sessions`
   5. 切换至 `16.3.2` 标签：根据该版本指引执行 `migrate:global-state` 与 `migrate:random-image-names`
   6. 切换至 `17.2.1` 标签：执行 `migrate:chat-persona-removal`（v11 → v13）
-  7. 切回当前最新版本：执行 `migrate:wed-member-window`，并将 `config/dynamic/ad_samples.json` 手工迁移为 `config/dynamic/ad_detect.json`
+  7. 切回当前最新版本：执行 `migrate:wed-member-window` 与 `migrate:ad-pack-blacklists`（v13 → v14），并将 `config/dynamic/ad_samples.json` 手工迁移为 2 键 `config/dynamic/ad_detect.json`（`{ punishment, samples }`）后删除旧文件
 
   *提示*：也可直接使用 12.0.0 Release 附带的中间源码归档包 `copy-ninjia-schema-v9-source-500e848f.tar.gz`（SHA-256: `df6502625512d8fde136dc66d8470e1d4c977856e8a0bd3909b9b6c763c820f8`）。
 
@@ -281,8 +305,8 @@ WantedBy=multi-user.target
 - **解决方法**：直接查看控制台打印的 JSON 错误路径定位具体字段并修改；字段详细约束请参阅[部署配置说明](../../config_example/README/zh.md)。
 
 ### 5. 身份数据库校验失败
-- **原因**：`storage.sqlite` 数据库不可写；数据库物理损坏；数据库 Schema 版本未完成迁移（非当前版本）；`time_zone` 配置与数据根中绑定的时区不匹配（错误会直接指出 `storage_metadata.time-zone` 与期望值）；或者黑名单与免检名单中存在相同的 ID 导致冲突。
-- **解决方法**：若为时区不符，将 `bot.json` 中的 `time_zone` 改回库中记录的值；若数据库不是当前 schema（例如 16.3.2 的 v11 库），先按[旧版本分阶段升级](#staged-upgrade)升级至 17.2.1 并完成其迁移；若文件物理损坏，从备份中同时恢复主库与附带的 `-wal`、`-shm` 文件。严禁私自建空库覆盖或手动在数据库中删改数据。
+- **原因**：`storage.sqlite` 数据库不可写；数据库物理损坏；数据库 Schema 版本未完成迁移（非当前版本 v14）；`time_zone` 配置与数据根中绑定的时区不匹配（错误会直接指出 `storage_metadata.time-zone` 与期望值）；或者黑名单与免检名单中存在相同的 ID 导致冲突。
+- **解决方法**：若为时区不符，将 `bot.json` 中的 `time_zone` 改回库中记录的值；若数据库为 Schema v13，停机备份后执行[广告包黑名单与 Schema v13 → v14 冷迁移](#upgrade-ad-pack-blacklists)（`migrate:ad-pack-blacklists`）；若数据库早于 v13（例如 16.3.2 的 v11 库），先按[旧版本分阶段升级](#staged-upgrade)升级至 v13 再执行本次冷迁移；若文件物理损坏，从备份中同时恢复主库与附带的 `-wal`、`-shm` 文件。严禁私自建空库覆盖或手动在数据库中删改数据。
 
 ### 6. 运势结果与回执密钥不一致
 - **原因**：当天的运势文件与 `receipt-secret.json` 签名密钥并非来自同一时间点的备份，导致签名校验失效。

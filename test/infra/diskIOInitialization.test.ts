@@ -289,6 +289,31 @@ describe("explicit Worker initialization", () => {
     });
   });
 
+  test("flushDiskIO 与 flushDiskIODomain 允许零预算并拒绝负值或 NaN", async () => {
+    await expect(diskIO.flushDiskIO(-1)).rejects.toThrow("non-negative finite");
+    await expect(diskIO.flushDiskIO(Number.NaN)).rejects.toThrow("non-negative finite");
+    await expect(diskIO.flushDiskIODomain("blocklist", -1)).rejects.toThrow("non-negative finite");
+    await expect(diskIO.flushDiskIODomain("log", -1)).rejects.toThrow("non-negative finite");
+    // 未初始化/不可写时：领域 flush 仍先判 failed，全量 flush 零预算按 timedOut 结算。
+    expect(await diskIO.flushDiskIODomain("blocklist", 0)).toEqual({ result: "failed" });
+    expect(await diskIO.flushDiskIODomain("log", 0)).toEqual({ result: "failed" });
+    expect(await diskIO.flushDiskIO(0)).toBe("timedOut");
+
+    await withDiskIORuntime(async (): Promise<void> => {
+      diskIO.initDiskIO();
+      const worker: FakeWorker = FakeWorker.instances[0]!;
+      const loadedPromise = diskIO.loadPersistedData(1_000);
+      emitLoaded(worker);
+      await loadedPromise;
+      const messagesBefore: number = worker.messages.length;
+
+      expect(await diskIO.flushDiskIO(0)).toBe("timedOut");
+      expect(await diskIO.flushDiskIODomain("blocklist", 0)).toEqual({ result: "timedOut" });
+      expect(await diskIO.flushDiskIODomain("log", 0)).toEqual({ result: "timedOut" });
+      expect(worker.messages).toHaveLength(messagesBefore);
+    });
+  });
+
   test("持久化回执路由到登记的监听器；重建后旧 Worker 的迟到回执被丢弃", async () => {
     await withDiskIORuntime(async (): Promise<void> => {
       diskIO.initDiskIO();

@@ -6,6 +6,6 @@ import { miniAppFetchJson } from "./request";
  *
  * @returns 动态与静态配置文件清单响应
  */
-export async function fetchMiniAppConfigList(): Promise<MiniAppConfigListResponse> {
+export function fetchMiniAppConfigList(): Promise<MiniAppConfigListResponse> {
   return miniAppFetchJson<MiniAppConfigListResponse>("./api/configs");
 }

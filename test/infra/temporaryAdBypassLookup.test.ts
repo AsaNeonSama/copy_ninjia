@@ -4,7 +4,7 @@ import { DAY_MS } from "../../packages/consts/time";
 import { hasActiveTemporaryAdBypassAt } from "../../packages/infra/identityPolicy/temporaryAdBypass";
 import {
   getEffectiveWhitelistPermissions,
-  readWhitelistPermissionOrBlocked,
+  readEffectiveWhitelistOrBlocked,
 } from "../../packages/infra/identityPolicy/whitelist";
 import { identityFieldView } from "../helpers/identityCacheView";
 import type { IdentityFieldView } from "../helpers/identityCacheView";
@@ -33,10 +33,10 @@ test("缺省时刻时只在缓存确有免检记录时读墙钟，负缓存查�
   const clock = spyOn(Date, "now");
   try {
     expect(getEffectiveWhitelistPermissions(8)).toBeUndefined();
-    expect(readWhitelistPermissionOrBlocked(8, "isCanBypassAdDetection")).toBe("none");
+    expect(readEffectiveWhitelistOrBlocked(8)).toBe("none");
     expect(clock).not.toHaveBeenCalled();
     expect(getEffectiveWhitelistPermissions(7)).toBeDefined();
-    expect(readWhitelistPermissionOrBlocked(7, "isCanBypassAdDetection")).toBe("allowed");
+    expect(readEffectiveWhitelistOrBlocked(7)).toBe("allowed");
     expect(clock).toHaveBeenCalledTimes(2);
   } finally {
     clock.mockRestore();

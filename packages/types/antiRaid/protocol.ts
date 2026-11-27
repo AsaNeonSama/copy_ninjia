@@ -1,3 +1,4 @@
+import type { AdPackBlacklistKind } from "../adPackBlacklist";
 import type { Atmosphere } from "../atmosphere";
 import type { LogLevel } from "../diskIO/messages";
 import type { ChatPermissions } from "grammy/types";
@@ -9,6 +10,8 @@ import type { TelegramWorkerRequest } from "../telegramWorker";
 import type {
   AdCandidateMessage,
   ClearAdDetectMessage,
+  ClearIdentityAdDetectMessage,
+  ReleaseAdDetectDedupMessage,
 } from "./adDetect";
 import type {
   DeferredVerificationRecord,
@@ -150,10 +153,18 @@ export interface VerificationAttemptPermitResult {
   readonly attempt: number;
 }
 
+/** Anti-Raid Worker -> 主线程：按种类与候选包名列表核对是否命中广告包黑名单（先查主线程 768 LRU，冷缺失查 SQLite）。 */
+export interface MatchAdPackBlacklistRequest {
+  readonly operation: "matchAdPackBlacklist";
+  readonly kind: AdPackBlacklistKind;
+  readonly packs: readonly string[];
+}
+
 /** Anti-Raid Worker 允许反向调用的主线程能力。 */
 export type AntiRaidWorkerRequest =
   | TelegramWorkerRequest
-  | VerificationAttemptPermitRequest;
+  | VerificationAttemptPermitRequest
+  | MatchAdPackBlacklistRequest;
 
 /** 主线程 -> Worker：某条验证 revision 已进入当天文件，可执行终态副作用。 */
 export interface VerificationPersistedMessage {
@@ -223,15 +234,6 @@ export interface ClearFloodControlMessage {
   chatId: number;
 }
 
-/**
- * 主线程 -> Worker：某身份刚获得临时广告检测豁免。
- * 只在 false -> true 边沿推送；Worker 据此清除授权前累积的广告状态。
- */
-export interface TemporaryAdBypassGrantedMessage {
-  type: "temporaryAdBypassGranted";
-  identityId: number;
-}
-
 /** 主线程 -> Worker：机器人自己的破坏性动作权限投影发生变化。 */
 export interface BotPermissionsChangedMessage {
   type: "botPermissionsChanged";
@@ -248,7 +250,7 @@ export interface ChatKindChangedMessage {
 }
 
 /**
- * 主线程 -> Worker：主线程当前生效的广告检测能力配置与广告检测部署配置（ad_detect.json）。初始化、Worker
+ * 主线程 -> Worker：主线程当前生效的广告检测能力配置与广告检测部署配置（ad_detect.json，仅含处罚设置与样本）。初始化、Worker
  * 重建与 config/dynamic/ 热重载替换这两份快照时各投递一次；`adDetectConfig` 为 `null` 时保留原配置 holder 不动，
  * 当 `adDetect` 或 `adDetectConfig` 为 `null` 时 Worker 清空残留待检队列与消息束。
  */
@@ -262,6 +264,18 @@ export interface AntiRaidAgentConfigMessage {
   readonly atmosphere: Atmosphere;
   adDetect: AdDetectAgentConfig | null;
   adDetectConfig: AdDetectConfig | null;
+}
+
+/**
+ * 主线程 -> Worker：同步贴纸包与自定义表情包黑名单的条数状态（供 Worker 在分类为空时零开销短路快路径）。
+ * 启动、Worker 崩溃重建与主线程条数变化时各投递一次；仅更新计数，不传包名列表、不重置 AI 客户端与提示词缓存。
+ */
+export interface AdPackBlacklistSyncMessage {
+  readonly type: "adPackBlacklistSync";
+  /** 当前贴纸包黑名单总条数。 */
+  readonly stickerCount: number;
+  /** 当前自定义表情包黑名单总条数。 */
+  readonly emojiCount: number;
 }
 
 /** 主线程 -> Worker：FIFO mailbox barrier；此前消息完成同步状态转移后回执。 */
@@ -279,6 +293,7 @@ export interface AntiRaidDrainMessage {
 /** 主线程投递给 Anti-Raid Worker 的完整协议。 */
 export type AntiRaidWorkerMessage =
   | AntiRaidAgentConfigMessage
+  | AdPackBlacklistSyncMessage
   | NewMemberMessage
   | MemberLeftMessage
   | DeactivateChatMessage
@@ -294,9 +309,10 @@ export type AntiRaidWorkerMessage =
   | RemoveBlockedMembersMessage
   | AdCandidateMessage
   | ClearAdDetectMessage
+  | ClearIdentityAdDetectMessage
+  | ReleaseAdDetectDedupMessage
   | FloodCandidateMessage
   | ClearFloodControlMessage
-  | TemporaryAdBypassGrantedMessage
   | BotPermissionsChangedMessage
   | ChatKindChangedMessage
   | AntiRaidBarrierMessage

@@ -27,6 +27,7 @@ import type { RemoveBlockedMembersParams } from "../../types/blocklist";
 import { antiRaidDispatchSignal } from "../../cache/workers/antiRaid/tasks";
 import { trackAntiRaidTask } from "./taskTracker";
 import { releaseAdDetectDedupKey } from "./adDetect/queueState";
+import { isRecordedWithinExclusive } from "../../libs/clockWindow";
 import { sleepUnlessAborted } from "../../libs/sleep";
 
 /**
@@ -193,7 +194,7 @@ async function removeBlockedMembers({
   // 黑名单入群不走 join 事件，在此按窗口内有效入群补记反刷群计数。
   if (joinedAt !== undefined) {
     const now: number = Date.now();
-    if (now - joinedAt < JOIN_WINDOW_MS) recordJoin(chatId, now);
+    if (isRecordedWithinExclusive(joinedAt, now, JOIN_WINDOW_MS)) recordJoin(chatId, now);
   }
   const epoch: number = currentBlocklistRemovalEpoch(chatId);
   const signal: AbortSignal = antiRaidDispatchSignal();

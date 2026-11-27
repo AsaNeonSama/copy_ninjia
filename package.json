@@ -31,7 +31,8 @@
     "release:verify": "bun scripts/release.ts verify",
     "release:publish": "bun scripts/release.ts publish",
     "audit:release": "bun audit --audit-level=moderate",
-    "migrate:wed-member-window": "bun scripts/migrateWedMemberWindow.ts"
+    "migrate:wed-member-window": "bun scripts/migrateWedMemberWindow.ts",
+    "migrate:ad-pack-blacklists": "bun scripts/migrateAdPackBlacklists.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -43,17 +44,17 @@
     "detect-libc": "^2.1.2",
     "eslint": "^10.15.0",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
-    "typescript-eslint": "^8.73.0"
+    "typescript-eslint": "^8.74.0"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "1.8.0",
+    "@anthropic-ai/sdk": "1.12.0",
     "@audio/encode-opus": "1.3.2",
     "@google-cloud/translate": "^10.3.0",
-    "@google/genai": "^2.32.0",
+    "@google/genai": "^3.6.1",
     "@grammyjs/files": "^1.2.0",
     "drizzle-orm": "0.45.4",
-    "grammy": "^1.46.0",
-    "openai": "^7.57.0",
+    "grammy": "^1.48.0",
+    "openai": "^7.62.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "zustand": "^5.1.0"

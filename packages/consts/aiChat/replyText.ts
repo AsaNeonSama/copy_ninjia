@@ -1,5 +1,5 @@
 /** 回复文本过滤的完整键帽表情序列。 */
-export const KEYCAP_SEQUENCE: RegExp = /[0-9#*]️?⃣/gu;
+export const KEYCAP_SEQUENCE: Readonly<RegExp> = /[0-9#*]️?⃣/gu;
 
 /** 回复文本表情序列中的修饰符、变体选择符与连接符字符集。 */
 export const EMOJI_ATTACHMENT: string = "\\p{Emoji_Modifier}\\uFE0F\\u200D";

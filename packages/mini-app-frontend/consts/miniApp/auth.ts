@@ -11,17 +11,17 @@ import {
 import { MINUTE_MS } from "../time";
 
 /** 十六进制 SHA-256 摘要字符串（固定 64 位十六进制字符）的匹配规则。不变量：不带全局标志 `g`，供持久化会话令牌格式校验无状态复用；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/libs/credentials.ts`、`packages/mini-app-frontend/api/authPrecheck.ts` 与 `packages/mini-app-frontend/api/request.ts`。 */
-export const MINI_APP_SHA256_HEX_PATTERN: RegExp = /^[0-9a-f]{64}$/i;
+export const MINI_APP_SHA256_HEX_PATTERN: Readonly<RegExp> = /^[0-9a-f]{64}$/i;
 
 /** 十进制有符号整数文本（可带前导 `-`，仅含数字）的匹配规则。不变量：不带全局标志 `g`，拒绝 `0x1F`、`1e3`、小数等会被 `Number()` 宽松接受的写法；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/store/identitiesMutations.ts` 与 `packages/mini-app-frontend/store/chatTargetsMutations.ts`。 */
-export const MINI_APP_SIGNED_INTEGER_PATTERN: RegExp = /^-?\d+$/u;
+export const MINI_APP_SIGNED_INTEGER_PATTERN: Readonly<RegExp> = /^-?\d+$/u;
 
 /** Unicode 双向文本控制字符（LRM/RLM/ALM、LRE/RLE/PDF/LRO/RLO、LRI/RLI/FSI/PDI）的匹配规则，供昵称与用户名展示前剥离双向控制符。不变量：携带全局标志 `g`；取值与 `packages/consts/text.ts` 的 `BIDI_CONTROL_PATTERN` 一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/libs/formatters.ts`。 */
-export const MINI_APP_BIDI_CONTROL_CHARS_PATTERN: RegExp =
+export const MINI_APP_BIDI_CONTROL_CHARS_PATTERN: Readonly<RegExp> =
   /[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/g;
 
 /** Unicode 双向文本控制字符的非全局前置检测规则，与 `MINI_APP_BIDI_CONTROL_CHARS_PATTERN` 字符类完全一致。不变量：不带 `g`/`y` 标志，`test()` 不受 `lastIndex` 影响也不改写它，可无状态复用；取值与 `packages/consts/text.ts` 的 `BIDI_CONTROL_TEST_PATTERN` 一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/libs/formatters.ts`。 */
-export const MINI_APP_BIDI_CONTROL_CHARS_TEST_PATTERN: RegExp =
+export const MINI_APP_BIDI_CONTROL_CHARS_TEST_PATTERN: Readonly<RegExp> =
   /[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/;
 
 /** Mini App API 请求携带 Telegram WebApp `initData` 原始查询串的 HTTP 请求头名（小写）。不变量：所有 `/api/*` 鉴权统一读取该请求头；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/api/request.ts`。 */
@@ -74,13 +74,20 @@ export const MINI_APP_SESSION_REAUTH_ERROR_CODES: ReadonlySet<string> = new Set<
 ]);
 
 /**
+ * Telegram WebApp `initData.auth_date` 过期拒绝状态码。
+ * 不变量：非空大写下划线状态码；配合活跃会话 2 小时 45 分钟延展窗口，仅当发包令牌仍为当前活跃会话或无发包令牌上下文时触发清理与门禁重定向。
+ * 所属模块：`packages/mini-app-frontend/api/authError.ts`。
+ */
+export const MINI_APP_EXPIRED_AUTH_DATE_CODE: string = "EXPIRED_AUTH_DATE";
+
+/**
  * 触发清除本地会话并回到 `checking` 重新预检（进入拦截诊断页 `AccessDeniedPage`）的一层网关、`initData` 时效、密码锁定与 WebCrypto 不可用错误代码集合。
- * 不变量：集合内任意状态码均表示无法仅靠在当前页面重新输入密码恢复，必须交由重新预检裁决或拒绝访问。
+ * 不变量：集合内任意状态码均表示无法仅靠在当前页面重新输入密码恢复，必须交由重新预检裁决或拒绝访问；其中 `MINI_APP_EXPIRED_AUTH_DATE_CODE` 依赖活跃会话延展窗口，由 `authError.ts` 按发包令牌一致性单独保护。
  * 所属模块：`packages/mini-app-frontend/api/authError.ts` 与 `packages/mini-app-frontend/store/appGateActions.ts`。
  */
 export const MINI_APP_ACCESS_DENIED_ERROR_CODES: ReadonlySet<string> = new Set<string>([
   "PASSWORD_LOCKED",
-  "EXPIRED_AUTH_DATE",
+  MINI_APP_EXPIRED_AUTH_DATE_CODE,
   "MISSING_INIT_DATA",
   "MALFORMED_INIT_DATA",
   "MISSING_HASH",
@@ -93,7 +100,7 @@ export const MINI_APP_ACCESS_DENIED_ERROR_CODES: ReadonlySet<string> = new Set<s
 ]);
 
 /** 匹配错误消息开头 `[CODE] 正文` 前缀形态的正则。不变量：不带全局标志 `g`，捕获组 1 为状态码、捕获组 2 为剥离前缀后的正文。所属模块：`packages/mini-app-frontend/api/authError.ts`。 */
-export const MINI_APP_LEADING_AUTH_PREFIX_PATTERN: RegExp = /^\[([A-Z0-9_]+)\]\s*(.*)$/su;
+export const MINI_APP_LEADING_AUTH_PREFIX_PATTERN: Readonly<RegExp> = /^\[([A-Z0-9_]+)\]\s*(.*)$/su;
 
 /** 匹配错误消息任意位置 `[CODE]` 标记的正则。不变量：携带全局标志 `g`，仅配合 `String.prototype.matchAll` 无状态迭代使用。所属模块：`packages/mini-app-frontend/api/authError.ts`。 */
-export const MINI_APP_EMBEDDED_AUTH_PREFIX_PATTERN: RegExp = /\[([A-Z0-9_]+)\]/gu;
+export const MINI_APP_EMBEDDED_AUTH_PREFIX_PATTERN: Readonly<RegExp> = /\[([A-Z0-9_]+)\]/gu;

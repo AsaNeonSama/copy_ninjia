@@ -1,4 +1,11 @@
 /** 发布子命令只由显式 CLI 调用；测试注入替身，不访问 GitHub 或修改分支。 */
+import { decodeUtf8 } from "../utf8";
+import {
+  RELEASE_BUNDLED_PATHS,
+  RELEASE_INSTALL_SCRIPT_GLOB,
+} from "../../packages/consts/release";
+
+/** 外部发布命令同步执行后的退出码与标准输出。 */
 export interface CommandResult {
   /** 子进程退出码，被信号终止时为 null。 */
   readonly exitCode: number | null;
@@ -8,9 +15,6 @@ export interface CommandResult {
 
 /** 接收参数数组并同步返回退出码与标准输出的外部命令执行函数。 */
 export type ReleaseCommand = (arguments_: readonly string[]) => CommandResult;
-
-/** 复用单一 UTF-8 解码器解码发布子命令标准输出。 */
-const UTF8_DECODER: TextDecoder = new TextDecoder();
 
 /**
  * 固定工作目录，参数按 argv 传递，不经过 shell 展开。
@@ -22,7 +26,7 @@ export function createReleaseCommand(cwd: string): ReleaseCommand {
     const result: Bun.SyncSubprocess<"pipe", "inherit"> = Bun.spawnSync({
       cmd: [...arguments_], cwd, stdout: "pipe", stderr: "inherit",
     });
-    return { exitCode: result.exitCode, stdout: UTF8_DECODER.decode(result.stdout) };
+    return { exitCode: result.exitCode, stdout: decodeUtf8(result.stdout) };
   };
 }
 
@@ -36,6 +40,60 @@ export function checked(command: ReleaseCommand, arguments_: readonly string[]):
   const result: CommandResult = command(arguments_);
   if (result.exitCode !== 0) throw new Error(`Release command failed: ${arguments_.slice(0, 3).join(" ")}`);
   return result.stdout.trim();
+}
+
+/** 查询发行包白名单受跟踪源码文件的 `git ls-files` 固定参数列表。 */
+const TRACKED_BUNDLED_SOURCE_FILES_ARGS: readonly string[] = [
+  "git",
+  "ls-files",
+  "-z",
+  "--",
+  ...RELEASE_BUNDLED_PATHS,
+  `:(glob)${RELEASE_INSTALL_SCRIPT_GLOB}`,
+];
+
+/**
+ * 将 `git ls-files -z` 输出的空字符分隔路径流解析为非空相对路径列表。
+ * @param stdout `git ls-files -z` 的标准输出文本。
+ * @returns 非空相对路径只读数组。
+ */
+function parseNullDelimitedPaths(stdout: string): readonly string[] {
+  return stdout
+    .split("\0")
+    .filter((entry: string): boolean => entry.length > 0);
+}
+
+/**
+ * 尝试列出 Git 索引中属于发行包白名单（`RELEASE_BUNDLED_PATHS` 与 `RELEASE_INSTALL_SCRIPT_GLOB`）的受跟踪相对文件路径；
+ * 当工作目录不在对应 Git 仓库内、命令返回非零退出码或索引中无匹配文件时返回 `null`。
+ * @param command 外部命令执行器。
+ * @returns 非空受跟踪相对路径列表；非对应 Git 工作树或查询失败时返回 `null`。
+ */
+export function tryListTrackedBundledSourceFiles(
+  command: ReleaseCommand
+): readonly string[] | null {
+  const result: CommandResult = command(TRACKED_BUNDLED_SOURCE_FILES_ARGS);
+  if (result.exitCode !== 0) return null;
+  const files: readonly string[] = parseNullDelimitedPaths(result.stdout);
+  return files.length > 0 ? files : null;
+}
+
+/**
+ * 严格列出 Git 索引中属于发行包白名单（`RELEASE_BUNDLED_PATHS` 与 `RELEASE_INSTALL_SCRIPT_GLOB`）的受跟踪相对文件路径；
+ * 命令失败或索引中无匹配文件时立即抛错，供发行构建与资产校验共用单一来源。
+ * @param command 外部命令执行器。
+ * @returns 非空受跟踪相对路径列表。
+ */
+export function listTrackedBundledSourceFiles(
+  command: ReleaseCommand
+): readonly string[] {
+  const files: readonly string[] = parseNullDelimitedPaths(
+    checked(command, TRACKED_BUNDLED_SOURCE_FILES_ARGS)
+  );
+  if (files.length === 0) {
+    throw new Error("No tracked bundled source files found in Git index.");
+  }
+  return files;
 }
 
 /**

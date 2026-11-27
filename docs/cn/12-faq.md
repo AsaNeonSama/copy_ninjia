@@ -201,7 +201,7 @@
 1. **修改请求端点（Endpoint）**：将对应模型能力中的 `base_url` 替换为网关地址（也可在 `install.sh` 安装问卷中直接填写 `base_url`），例如：
    `https://gateway.ai.cloudflare.com/v1/<account_id>/<gateway_id>/google-ai-studio`
 2. **填写 API Key**：`api_key` 填写原生的 Google AI API 密钥（SDK 以 `x-goog-api-key` 发送）；请求不附加其他请求头，网关须关闭鉴权（Authenticated Gateway）。使用网关托管密钥（BYOK / Unified Billing）时改为填写 Cloudflare 令牌。`api_key` 在日志输出时会自动脱敏。
-3. **接口路由适配**：文本对话、图像理解与图片生成路由自动走 `generateContent` 端点；语音合成走 `Interactions API`。配置完成后，超级管理员可在私聊中使用 `/send` 发送一条测试语音验证网关转发是否通畅。
+3. **接口路由适配**：文本对话、图像理解、图片生成与常规 `ad_detect` 路由走 `generateContent` 端点；语音合成走 `Interactions API`；`agent.ad_detect` 开启 `use_decision: true` 时走 `Decisions API`（`/<apiVersion>/decisions`，默认 `GEMINI_API_VERSION` 即 `"v1beta"`，`base_url` 支持填写网关根地址、带 `/<apiVersion>` 前缀或完整 `/<apiVersion>/decisions` 端点）。配置完成后，超级管理员可在私聊中使用 `/send` 发送一条测试语音验证网关转发是否通畅。
 
 ---
 

@@ -44,6 +44,18 @@ describe("install.sh 静态 systemd 数据根边界", () => {
     expect(INSTALL_SCRIPT).not.toContain("database/interact/admin");
   });
 
+  test("无控制终端时在步骤 1/8 平台自检立即失败，不继续进入仓库获取或服务检查", async (): Promise<void> => {
+    const result: CapturedCommandResult = await runCapturedCommand({
+      cmd: ["setsid", "-w", "bash", INSTALL_SCRIPT_PATH, "--binary"],
+      cwd: dirname(INSTALL_SCRIPT_PATH),
+    });
+    const output: string = result.stdout + result.stderr;
+    expect(result.exitCode).toBe(1);
+    expect(output).toContain("1/8 平台自检");
+    expect(output).toContain("拿不到控制终端（/dev/tty）");
+    expect(output).not.toContain("2/8 获取仓库");
+  });
+
   test("显式数据根使用生产解析结果而非重新拼路径", () => {
     expect(INSTALL_SCRIPT).toContain(
       'if [ "${COPY_NINJIA_DATA_ROOT+x}" = "x" ]; then'

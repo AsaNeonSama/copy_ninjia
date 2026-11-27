@@ -53,7 +53,8 @@ export function createIdentitiesMutations({
 }: CreateIdentitiesMutationsOptions): MiniAppIdentitiesMutationActions {
   return {
     addById: async (): Promise<void> => {
-      const { idInput, subTab }: MiniAppIdentitiesStoreState = get();
+      const { idInput, subTab, busyAction }: MiniAppIdentitiesStoreState = get();
+      if (busyAction) return;
       const t: Readonly<MiniAppTranslations> =
         getMiniAppTranslations(useMiniAppStore.getState().language);
       const trimmed: string = idInput.trim();
@@ -120,6 +121,7 @@ export function createIdentitiesMutations({
     },
 
     removeWhitelist: async (entry: Readonly<MiniAppWhitelistEntryView>): Promise<void> => {
+      if (get().busyAction) return;
       const app: MiniAppUiStoreState = useMiniAppStore.getState();
       const t: Readonly<MiniAppTranslations> = getMiniAppTranslations(app.language);
       if (
@@ -133,6 +135,7 @@ export function createIdentitiesMutations({
       ) {
         return;
       }
+      if (get().busyAction) return;
       set({ busyAction: true });
       try {
         const result: MiniAppIdentityMutationResult =
@@ -154,6 +157,7 @@ export function createIdentitiesMutations({
     },
 
     removeBlocklist: async (entry: Readonly<MiniAppBlocklistEntryView>): Promise<void> => {
+      if (get().busyAction) return;
       const app: MiniAppUiStoreState = useMiniAppStore.getState();
       const t: Readonly<MiniAppTranslations> = getMiniAppTranslations(app.language);
       if (
@@ -167,6 +171,7 @@ export function createIdentitiesMutations({
       ) {
         return;
       }
+      if (get().busyAction) return;
       set({ busyAction: true });
       try {
         const result: MiniAppIdentityMutationResult =

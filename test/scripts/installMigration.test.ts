@@ -46,6 +46,8 @@ test("config/dynamic/ 仍有 ad_samples.json 时安装器拒绝并提示手工�
   expect(result.exitCode).not.toBe(0);
   expect(result.output).toContain(`absent after manual migration to ${adDetectConfigName}`);
   expect(result.output).toContain(adDetectConfigName);
+  expect(result.output).toContain("docs/cn/07-operations.md");
+  expect(result.output).not.toContain("19.0.0");
   expect(result.output).not.toContain("INSTALL_API");
   expect(await readMigrationFileSnapshot(path)).toEqual(before);
   expect(await Bun.file(join(fixture.configRoot, STATIC_CONFIG_DIR_NAME, botConfigName)).exists()).toBeFalse();
@@ -121,7 +123,7 @@ test("memory/mini-app-totp/totp.json 格式非法时安装器在启动前拒绝�
   expect(await Bun.file(fixture.outboundLog).text()).not.toContain("systemctl:guarded:start");
 }, 30_000);
 
-test("数据库不是当前 schema 时安装器在启动前拒绝并提示先升级到 17.2.1，不改写数据库", async (): Promise<void> => {
+test("数据库不是当前 schema 时安装器在启动前拒绝并提示执行 migrate:ad-pack-blacklists 冷迁移，不改写数据库", async (): Promise<void> => {
   const fixture: InstallerFixture = await createFixture(true);
   const path: string = join(fixture.runtimeRoot, "database/storage.sqlite");
   mkdirSync(dirname(path), { mode: 0o770 });
@@ -136,7 +138,8 @@ test("数据库不是当前 schema 时安装器在启动前拒绝并提示先升
   const result: InstallerRunResult = await runInstaller(fixture, []);
   expect(result.exitCode).not.toBe(0);
   expect(result.output).toContain(`storage_metadata.schema-version must be {"version":${IDENTITY_DATABASE_SCHEMA_VERSION}}`);
-  expect(result.output).toContain("先升级到 17.2.1");
+  expect(result.output).toContain("migrate:ad-pack-blacklists");
+  expect(result.output).toContain("scripts/migrations/migrateAdPackBlacklists.js");
   expect(result.output).not.toContain("配置校验通过");
   expect(result.output).not.toContain("INSTALL_API");
   expect(await readMigrationFileSnapshot(path)).toEqual(before);
@@ -182,7 +185,7 @@ test("已有数据库绑定的时区与 bot.json 不一致时安装器在注册�
   expect(await Bun.file(fixture.outboundLog).text()).not.toContain("systemctl:guarded:start");
 }, 30_000);
 
-test("17.2.1 格式 mock 备份经源码冷迁移、安装与真实启动保留 /wed 滑窗、业务数据、全局状态、空字符串身份与配置", async (): Promise<void> => {
+test("上代 schema v13 与旧版 /wed mock 备份经源码冷迁移、安装与真实启动保留 /wed 滑窗、广告包黑名单、业务数据、全局状态、空字符串身份与配置", async (): Promise<void> => {
   const fixture: InstallerFixture = await createFixture(true);
   const migrated: MigratedDeployment = await prepareMigratedDeployment({
     packageRoot: join(import.meta.dir, "../.."), root: join(fixture.root, "migration"),
@@ -213,6 +216,8 @@ test("17.2.1 格式 mock 备份经源码冷迁移、安装与真实启动保留 
   expect(await Bun.file(join(fixture.runtimeRoot, "memory/global/state.json")).text())
     .toBe(await Bun.file(join(migrated.data, "memory/global/state.json")).text());
   expect(await Bun.file(join(fixture.runtimeRoot, "state.json")).exists()).toBeFalse();
+  expect(await Bun.file(join(fixture.configRoot, DYNAMIC_CONFIG_DIR_NAME, "ad_detect.json")).json())
+    .toEqual(migrated.adDetectConfig);
   for (const name of PRESERVED_MIGRATION_CONFIG_FILES) {
     expect((await readMigrationFileSnapshot(join(fixture.configRoot, name)))?.sha256)
       .toBe((await readMigrationFileSnapshot(join(migrated.config, name)))?.sha256);
@@ -220,6 +225,8 @@ test("17.2.1 格式 mock 备份经源码冷迁移、安装与真实启动保留 
   const client: Database = new Database(path, { readonly: true });
   try {
     expect(client.query("SELECT q, json(data) AS data FROM chat_qa").all()).toEqual([{ q: "迁移问题", data: '{"a":"保留答案"}' }]);
+    expect(client.query("SELECT kind, pack FROM ad_pack_blacklists ORDER BY kind ASC, pack ASC").all())
+      .toEqual([...migrated.adPackBlacklists]);
     expect(client.query("SELECT chat_id, json(ai_context) AS context FROM chat_states").all()).toEqual([{
       chat_id: -1001,
       context: JSON.stringify({ version: 1, buffer: [], summaries: ["迁移前的上下文"], pendingSummary: null, savedAt: 1 }),

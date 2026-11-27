@@ -1,10 +1,14 @@
-import { classifyMiniAppAuthError } from "../api/authError";
+import {
+  classifyMiniAppAuthError,
+  isSuppressedStaleMiniAppAuthError,
+} from "../api/authError";
 import { restartMiniAppService } from "../api/configsRestart";
 import { saveMiniAppConfigFile } from "../api/configsSave";
 import { MINI_APP_MAX_CONFIG_CONTENT_BYTES } from "../consts/miniAppConfig";
 import { getMiniAppTranslations } from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
 import { encodeUtf8Bytes } from "../libs/crypto";
+import { errorMessage } from "../libs/errorMessage";
 import { formatJsonPretty, validateJsonSyntax } from "../libs/jsonHighlight";
 import { waitMinimumLoadingDuration } from "../libs/loading";
 import type { JsonSyntaxValidationResult } from "../types/miniApp/ui";
@@ -89,12 +93,15 @@ export function createConfigsPersistenceActions({
       if (notifyMiniAppIfAuthError(error)) {
         return;
       }
+      if (isSuppressedStaleMiniAppAuthError(errorMessage(error), error)) {
+        return;
+      }
       const latestT: Readonly<MiniAppTranslations> = getMiniAppTranslations(
         useMiniAppStore.getState().language
       );
       const localized: string = localizeCaughtConfigError(error, latestT);
       set({ errorBanner: localized });
-      useMiniAppStore.getState().notify(localized, "danger");
+      useMiniAppStore.getState().notify(localized, "danger", error);
     } finally {
       if (get().restarting) {
         set({ restarting: false });
@@ -295,6 +302,9 @@ export function createConfigsPersistenceActions({
         if (notifyMiniAppIfAuthError(error)) {
           return;
         }
+        if (isSuppressedStaleMiniAppAuthError(errorMessage(error), error)) {
+          return;
+        }
         const latestT: Readonly<MiniAppTranslations> = getMiniAppTranslations(
           useMiniAppStore.getState().language
         );
@@ -304,7 +314,7 @@ export function createConfigsPersistenceActions({
           activeFile
         );
         set({ errorBanner: localized });
-        useMiniAppStore.getState().notify(localized, "danger");
+        useMiniAppStore.getState().notify(localized, "danger", error);
       } finally {
         if (get().saving) {
           set({ saving: false });

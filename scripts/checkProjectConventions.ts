@@ -86,6 +86,7 @@ import {
   CONSTS_ROOT_PREFIXES,
   STATES_CLOSURE_OPAQUE_MODULES,
 } from "./conventions/moduleBoundaries";
+import { decodeUtf8 } from "./utf8";
 
 const PROJECT_ROOT: string = join(import.meta.dir, "..");
 const CACHE_ROOT: string = join(PROJECT_ROOT, "packages", "cache");
@@ -103,8 +104,6 @@ const STATES_ROOT: string = join(SOURCE_ROOT, "states");
 const WORKERS_ROOT: string = join(SOURCE_ROOT, "workers");
 /** 并行 stat 与预读文件文本的有界批处理并发度上限。 */
 const CONVENTION_IO_BATCH_SIZE: number = 64;
-/** 复用单一 UTF-8 解码器解码子进程 stdout/stderr 字节缓冲。 */
-const UTF8_DECODER: TextDecoder = new TextDecoder();
 
 /**
  * 检查受跟踪与尚未加入索引的源码；Git 忽略的部署数据不进入清单。
@@ -127,12 +126,12 @@ export function projectFiles(): string[] {
     stderr: "pipe",
   });
   if (result.exitCode !== 0) {
-    const stderr: string = UTF8_DECODER.decode(result.stderr);
+    const stderr: string = decodeUtf8(result.stderr);
     throw new Error(
       `Failed to enumerate project files: ${stderr.trim()}`
     );
   }
-  const stdout: string = UTF8_DECODER.decode(result.stdout);
+  const stdout: string = decodeUtf8(result.stdout);
   return stdout.split("\0").filter(
     (path: string): boolean => path.length > 0
   );
@@ -174,7 +173,6 @@ async function runProjectConventionCheck(): Promise<number> {
   for (const problem of await collectColdMigrationProblems(PROJECT_ROOT)) {
     failures.push(`cold migration: ${problem}`);
   }
-  failures.push(...await collectCoverageMetricProblems(PROJECT_ROOT));
   for (const problem of await collectFaultInjectionSuiteProblems(PROJECT_ROOT)) {
     failures.push(`fault injection suite: ${problem}`);
   }
@@ -227,6 +225,7 @@ async function runProjectConventionCheck(): Promise<number> {
     if (result.status === "rejected") throw result.reason;
     fileTexts.set(result.item, result.value);
   }
+  failures.push(...await collectCoverageMetricProblems(PROJECT_ROOT, fileTexts));
 
   const repositoryPaths: ReadonlySet<string> = collectRepositoryPaths(tracked);
   failures.push(...await collectMiniAppFrontendBoundaryProblems(PROJECT_ROOT, tracked, fileTexts));
@@ -467,11 +466,13 @@ async function runProjectConventionCheck(): Promise<number> {
     testFiles,
   }));
 
-  failures.push(...await collectTelegramMessageProblems(
-    PROJECT_ROOT,
-    SOURCE_ROOT,
-    COMMANDS_ROOT
-  ));
+  failures.push(...await collectTelegramMessageProblems({
+    projectRoot: PROJECT_ROOT,
+    sourceRoot: SOURCE_ROOT,
+    commandsRoot: COMMANDS_ROOT,
+    fileTexts,
+    sourceFiles,
+  }));
 
   if (failures.length > 0) {
     console.error(`Project convention check failed with ${failures.length} issue(s):`);

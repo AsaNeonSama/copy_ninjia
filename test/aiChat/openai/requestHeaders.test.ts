@@ -19,6 +19,7 @@ import { adDetectOpenAiClientHolder } from "../../../packages/cache/workers/anti
 import { OPENAI_API_BASE_URL, OPENAI_SDK_LOG_LEVEL } from "../../../packages/consts/aiChat/openai";
 import { getOpenAiClient, requestOpenAiResult } from "../../../packages/workers/aiChat/openai/client";
 import { requestOpenAiAdDetectJson } from "../../../packages/workers/antiRaid/adDetect/ai/openai";
+import type { AdDetectProviderResult } from "../../../packages/types/antiRaid/adDetect";
 import type {
   AdDetectAgentConfig,
   AgentDeploymentConfig,
@@ -122,7 +123,7 @@ describe("openai provider 官方默认端点、自定义端点与环境变量隔
         }),
         errorLabel: "OpenAI default baseURL test",
       });
-      const adResult: string | null = await requestOpenAiAdDetectJson({
+      const adResult: AdDetectProviderResult = await requestOpenAiAdDetectJson({
         model: "gpt-test",
         instructions: "inst",
         fact: "fact",
@@ -134,7 +135,7 @@ describe("openai provider 官方默认端点、自定义端点与环境变量隔
       });
 
       expect(replyResult.ok).toBe(true);
-      expect(adResult).toBe("{\"ad\":false,\"reason\":\"ok\"}");
+      expect(adResult).toEqual({ status: "ok", body: "{\"ad\":false,\"reason\":\"ok\"}" });
       expect(captured).toHaveLength(2);
       expect(captured[0]!.url).toBe(`${OPENAI_API_BASE_URL}/responses`);
       expect(captured[0]!.headers.get("authorization")).toBe("Bearer openai-text-key");

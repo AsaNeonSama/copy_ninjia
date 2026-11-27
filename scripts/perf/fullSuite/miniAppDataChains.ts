@@ -36,6 +36,11 @@ const BENCHMARK_GALLERY_PNG_BYTES: Readonly<Uint8Array> = Uint8Array.fromBase64(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
 );
 
+/** `GET /api/chats/detail` 响应信封的固定 AEAD 附加认证数据，预编码以避免在计时循环中重复分配。 */
+const CHAT_DETAIL_RESPONSE_AAD: Uint8Array<ArrayBuffer> = new TextEncoder().encode(
+  "GET /api/chats/detail:res"
+);
+
 /**
  * 构造单群满规格 QA 问答表。
  * @param chatIndex 受管群在基准集合中的下标。
@@ -192,7 +197,7 @@ export function miniAppApiRequestChain(
         decryptedBody = await dependencies.decryptMiniAppPayload(
           sessionCryptoKey,
           envelope,
-          new TextEncoder().encode("GET /api/chats/detail:res")
+          CHAT_DETAIL_RESPONSE_AAD
         );
       } catch (error: unknown) {
         throw new Error(

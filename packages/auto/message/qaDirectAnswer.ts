@@ -73,14 +73,14 @@ function leadingBotMentionLength(message: Message, botUsername: string): number 
  *
  * @param chatId 群聊 ID
  * @param message Telegram 入站消息
- * @param botUsername 本机器人用户名（不含 `@`）
+ * @param botUsername 本机器人用户名（不含 `@`）；缺失或空串时仅做原文精确匹配，不剥离前导 `@` 提及
  * @returns 命中时是答案文本；未命中（含本群没有问答）时是 undefined，调用方
  *   照常继续原有流水线。
  */
 export function resolveQaDirectAnswer(
   chatId: number,
   message: Message,
-  botUsername: string
+  botUsername: string | undefined
 ): string | undefined {
   const entries: ReadonlyMap<string, string> | undefined = chatQaEntries.get(chatId);
   if (entries === undefined) return undefined;
@@ -88,6 +88,7 @@ export function resolveQaDirectAnswer(
   if (text === undefined) return undefined;
   const direct: string | undefined = entries.get(text);
   if (direct !== undefined) return direct;
+  if (botUsername === undefined || botUsername.length === 0) return undefined;
   const mentionLength: number = leadingBotMentionLength(message, botUsername);
   if (mentionLength === 0) return undefined;
   return entries.get(text.slice(mentionLength).trim());

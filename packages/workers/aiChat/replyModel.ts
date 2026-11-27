@@ -205,7 +205,7 @@ export async function generateReply(
         ...(turn.finishDetails !== undefined ? { finishDetails: turn.finishDetails } : {}),
         sideEffects: toolset.actionsUsed(),
       });
-      if (turn.toolCallLimitHit && webSearchEnabled && toolset.actionsUsed() === 0) {
+      if (round < MAX_TOOL_ROUNDS && turn.toolCallLimitHit && webSearchEnabled && toolset.actionsUsed() === 0) {
         searchDisabledByFallback = true;
         logger.error("AI reply hit the provider server-side tool-call limit; retrying once with web search disabled.", {
           chatId,

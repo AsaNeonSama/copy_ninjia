@@ -30,8 +30,8 @@ function sample(overrides: Partial<AdSampleDiskMessage> = {}): AdSampleDiskMessa
     detectedAt: "2026/07/28 11:44:01",
     reason: "引流加微信",
     messages: [
-      { messageId: 11, text: "加我", replyTo: "在吗", quote: undefined },
-      { messageId: 12, text: "微信 xxx", quote: "别人说过的话", replyTo: undefined },
+      { messageId: 11, type: "text", text: "加我", replyTo: "在吗", quote: undefined },
+      { messageId: 12, type: "text", text: "微信 xxx", quote: "别人说过的话", replyTo: undefined },
     ],
     ...overrides,
   };
@@ -66,7 +66,7 @@ describe("广告命中样本旁路", () => {
     expect(adSampleBuffer.timer?.hasRef()).toBeFalse();
 
     for (let index: number = 1; index < FLUSH_MAX_ENTRIES; index++) {
-      await handleAdSampleMessage(sample({ messages: [{ messageId: 1_000 + index, text: "批量", quote: undefined, replyTo: undefined }] }));
+      await handleAdSampleMessage(sample({ messages: [{ messageId: 1_000 + index, type: "text", text: "批量", quote: undefined, replyTo: undefined }] }));
     }
 
     expect(adSampleBuffer.chunks).toHaveLength(0);
@@ -87,11 +87,39 @@ describe("广告命中样本旁路", () => {
       reason: "引流加微信",
       // 样本按整串记录；引用/回复只出现在样本里，判定不读取。
       messages: [
-        { messageId: 11, text: "加我", replyTo: "在吗", quote: undefined },
-        { messageId: 12, text: "微信 xxx", quote: "别人说过的话", replyTo: undefined },
+        { messageId: 11, type: "text", text: "加我", replyTo: "在吗" },
+        { messageId: 12, type: "text", text: "微信 xxx", quote: "别人说过的话" },
       ],
     });
     expect((await Bun.file(AD_SAMPLE_FILE_PATH).stat()).mode & 0o777).toBe(PERSISTED_FILE_MODE);
+  });
+
+  test("非文本媒体消息落盘仅写 type 与元数据，省略空 text 键", async () => {
+    await appendSample(sample({
+      messages: [
+        { messageId: 2_221, type: "photo", text: undefined, stickerSetName: undefined, quote: undefined, replyTo: undefined },
+        { messageId: 2_222, type: "photo", text: "Spammer 扫码", stickerSetName: undefined, quote: undefined, replyTo: undefined },
+        { messageId: 2_223, type: "sticker", text: undefined, stickerSetName: "SpamStickerPack", quote: undefined, replyTo: undefined },
+        { messageId: 2_224, type: "sticker", text: undefined, stickerSetName: undefined, quote: undefined, replyTo: undefined },
+        { messageId: 2_225, type: "custom_emoji", text: undefined, stickerSetName: undefined, quote: undefined, replyTo: undefined },
+      ],
+    }));
+
+    const samples: Record<string, Record<string, unknown>> = await readSamples();
+    const messages: Record<string, unknown>[] = samples["-1001:2221"]?.messages as Record<string, unknown>[];
+    expect(messages).toEqual([
+      { messageId: 2_221, type: "photo" },
+      { messageId: 2_222, type: "photo", text: "Spammer 扫码" },
+      { messageId: 2_223, type: "sticker", stickerSetName: "SpamStickerPack" },
+      { messageId: 2_224, type: "sticker" },
+      { messageId: 2_225, type: "custom_emoji" },
+    ]);
+    expect("text" in messages[0]!).toBeFalse();
+    expect("stickerSetName" in messages[0]!).toBeFalse();
+    expect("text" in messages[2]!).toBeFalse();
+    expect("text" in messages[3]!).toBeFalse();
+    expect("stickerSetName" in messages[3]!).toBeFalse();
+    expect("text" in messages[4]!).toBeFalse();
   });
 
   test("后续命中按位置追加，不整文件重写，旧条目原样保留", async () => {
@@ -99,7 +127,7 @@ describe("广告命中样本旁路", () => {
     await appendSample(sample({
       chatId: -1002,
       senderId: 8,
-      messages: [{ messageId: 21, text: "日入过千", quote: undefined, replyTo: undefined }],
+      messages: [{ messageId: 21, type: "text", text: "日入过千", quote: undefined, replyTo: undefined }],
     }));
 
     const samples = await readSamples();
@@ -123,7 +151,7 @@ describe("广告命中样本旁路", () => {
     adSampleFileState.current = { size: AD_SAMPLE_FILE_MAX_BYTES, empty: false };
     const archivedBytes: string = await Bun.file(AD_SAMPLE_FILE_PATH).text();
 
-    await appendSample(sample({ messages: [{ messageId: 99, text: "换个号继续", quote: undefined, replyTo: undefined }] }));
+    await appendSample(sample({ messages: [{ messageId: 99, type: "text", text: "换个号继续", quote: undefined, replyTo: undefined }] }));
 
     expect(Object.keys(await readSamples())).toEqual(["-1001:99"]);
     // 新归档落在 AD_SAMPLE_ARCHIVE_RETENTION_DAYS 的自然日保留窗口内（按配置时区），内容原样保留。
@@ -143,7 +171,7 @@ describe("广告命中样本旁路", () => {
     await sweepExpiredAdSampleArchives({ today });
     expect(adSampleArchiveCursor.current).toEqual({ day: today, nextIndex: 2 });
     adSampleFileState.current = { size: AD_SAMPLE_FILE_MAX_BYTES, empty: true };
-    await appendSample(sample({ messages: [{ messageId: 99, text: "gap", quote: undefined, replyTo: undefined }] }));
+    await appendSample(sample({ messages: [{ messageId: 99, type: "text", text: "gap", quote: undefined, replyTo: undefined }] }));
 
     expect(await Bun.file(join(AD_SAMPLE_MEMORY_DIR, `sample.${today}.2.json`)).exists()).toBeTrue();
   });
@@ -156,7 +184,7 @@ describe("广告命中样本旁路", () => {
     await Bun.write(AD_SAMPLE_FILE_PATH, '{"-1001:1":{"reason":"旧样本"}}');
     adSampleFileState.current = { size: AD_SAMPLE_FILE_MAX_BYTES, empty: false };
 
-    await appendSample(sample({ messages: [{ messageId: 88, text: "新样本", quote: undefined, replyTo: undefined }] }));
+    await appendSample(sample({ messages: [{ messageId: 88, type: "text", text: "新样本", quote: undefined, replyTo: undefined }] }));
 
     expect(existsSync(occupiedDir)).toBeTrue();
     expect(await Bun.file(join(AD_SAMPLE_MEMORY_DIR, `sample.${today}.2.json`)).text())

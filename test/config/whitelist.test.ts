@@ -37,7 +37,9 @@ const flushDiskIODomain = mock(
         writes,
         temporaryAdBypassWrites: [],
         chatStateWrites: [],
-        chatQaWrites: [], removalWrites: [],
+        chatQaWrites: [],
+        adPackBlacklistWrites: [],
+        removalWrites: [],
       });
     }
     return { result: "flushed" as const };
@@ -76,7 +78,7 @@ const {
   setWhitelistMembership,
   setWhitelistPermission,
 } = await import("../../packages/infra/identityPolicy/whitelist");
-const { canBypassAdDetection } = await import(
+const { isProtectedFromAdDisposal } = await import(
   "../../packages/antiRaid/memberFacts"
 );
 const { seedMissingIdentity: seedMissing } = await import("../helpers/identityStorage");
@@ -137,8 +139,8 @@ describe("SQLite 白名单运行时视图", () => {
     });
 
     expect(isWhitelisted(7)).toBeFalse();
-    expect(canBypassAdDetection(SUPER_ADMIN_USER_ID, now)).toBeTrue();
-    expect(canBypassAdDetection(7, now)).toBeTrue();
+    expect(isProtectedFromAdDisposal(SUPER_ADMIN_USER_ID, now)).toBeTrue();
+    expect(isProtectedFromAdDisposal(7, now)).toBeTrue();
     expect(getEffectiveWhitelistPermissions(7)).toBe(TEMPORARY_AD_BYPASS_PERMISSIONS);
     expect(getWhitelistPermissionQueryView(7)).toBe(TEMPORARY_AD_BYPASS_PERMISSIONS);
     expect(hasWhitelistPermission(7, "isCanViewBotStatus")).toBeFalse();
@@ -158,30 +160,31 @@ describe("SQLite 白名单运行时视图", () => {
       countedAt: now - 2 * DAY_MS,
       qualifiedAt: now - 2 * DAY_MS,
     });
-    expect(canBypassAdDetection(7, now)).toBeFalse();
+    expect(isProtectedFromAdDisposal(7, now)).toBeFalse();
     expect(getEffectiveWhitelistPermissions(7)).toBeUndefined();
 
     temporaryAdBypassField.set(7, null);
     expect(isWhitelisted(7)).toBeFalse();
-    expect(canBypassAdDetection(7, now)).toBeFalse();
+    expect(isProtectedFromAdDisposal(7, now)).toBeFalse();
     expect(getEffectiveWhitelistPermissions(7)).toBeUndefined();
   });
 
-  test("广告专用读口只服从超级管理员与永久、临时身份的单项有效权限", () => {
+  test("广告保护读口保护超级管理员、永久白名单与未过期临时广告免检", () => {
     seedMissing(9);
     whitelistField.set(9, {
       permissions: { ...DEFAULT_WHITELIST_PERMISSIONS, isCanBypassAdDetection: false },
       meta: { firstName: "Permanent", lastName: "", username: "" },
     });
     expect(isWhitelisted(9)).toBeTrue();
-    expect(canBypassAdDetection(9)).toBeFalse();
+    expect(hasWhitelistPermission(9, "isCanBypassAdDetection")).toBeFalse();
+    expect(isProtectedFromAdDisposal(9)).toBeTrue();
 
     seedMissing(10);
     whitelistField.set(10, {
       permissions: DEFAULT_WHITELIST_PERMISSIONS,
       meta: { firstName: "Bypass", lastName: "", username: "" },
     });
-    expect(canBypassAdDetection(10)).toBeTrue();
+    expect(isProtectedFromAdDisposal(10)).toBeTrue();
 
     const now: number = Date.now();
     seedMissing(11);
@@ -193,8 +196,8 @@ describe("SQLite 白名单运行时视图", () => {
       countedAt: now,
       qualifiedAt: now,
     });
-    expect(canBypassAdDetection(11, now)).toBeTrue();
-    expect(canBypassAdDetection(11, now + 2 * DAY_MS)).toBeFalse();
+    expect(isProtectedFromAdDisposal(11, now)).toBeTrue();
+    expect(isProtectedFromAdDisposal(11, now + 2 * DAY_MS)).toBeFalse();
 
     seedMissing(12);
     temporaryAdBypassField.set(12, {
@@ -205,11 +208,11 @@ describe("SQLite 白名单运行时视图", () => {
       countedAt: now,
       qualifiedAt: null,
     });
-    expect(canBypassAdDetection(12, now)).toBeFalse();
+    expect(isProtectedFromAdDisposal(12, now)).toBeFalse();
 
     seedMissing(13);
-    expect(canBypassAdDetection(13, now)).toBeFalse();
-    expect(canBypassAdDetection(14, now)).toBeFalse();
+    expect(isProtectedFromAdDisposal(13, now)).toBeFalse();
+    expect(isProtectedFromAdDisposal(14, now)).toBeFalse();
   });
 
   test("新增成员写入完整默认权限和 Telegram meta", async () => {

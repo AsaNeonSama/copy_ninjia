@@ -16,6 +16,7 @@ function ignoreSettled(): undefined {
  * 把任务挂到单链串行队列尾部，在前一项结算后执行；前一项抛错不毒化后续排队任务，
  * 本次任务的结果与异常原样交回调用方。按 key 分组的串行队列见 `./keyedSerialTaskRunner.ts`。
  * 调用方：`infra/identityPolicy/coordination.ts` 的 `runProtectedIdentityMutation`、
+ * 广告检测自动拉黑持久化（`antiRaid/adBlacklistPersistence.ts`）、
  * Mini App 配置保存（`mini-app-api-server/view/configs/storage.ts`）与 TOTP 启用/删除（`mini-app-api-server/auth/totpStorage.ts`）。
  *
  * @param holder 保存当前链尾 Promise 的状态句柄。

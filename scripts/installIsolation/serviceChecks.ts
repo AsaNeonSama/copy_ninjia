@@ -244,7 +244,7 @@ export async function checkServiceObservation(
     if (scenario.overwriteUnit === true) {
       const backup: string = join(fixture.backupRoot, readdirSync(fixture.backupRoot)[0]!);
       assertContains(await Bun.file(join(backup, "manifest.tsv")).text(), "copy-ninjia.service", "覆盖 unit 前必须记录备份清单");
-      assertEqual(await Bun.file(join(backup, "original-1.json")).text(), "[Service]\n", "失败时必须保留 unit 原文");
+      assertEqual(await Bun.file(join(backup, "original-1.service")).text(), "[Service]\n", "失败时必须保留 unit 原文");
     }
   }
 }

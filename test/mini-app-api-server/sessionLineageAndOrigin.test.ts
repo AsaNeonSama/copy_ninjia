@@ -494,8 +494,26 @@ describe("Mini App 完整 Origin 协议校验与严格单查询参数解析", ()
       isAllowedRequestOriginUrl("https://miniapp.example.com", loopbackHttpReq)
     ).toBeTrue();
     expect(
+      isAllowedRequestOriginUrl("https://miniapp.example.com/sub/page?q=1", loopbackHttpReq)
+    ).toBeTrue();
+    expect(
+      isAllowedRequestOriginUrl("https://miniapp.example.com?q=1", loopbackHttpReq)
+    ).toBeTrue();
+    expect(
+      isAllowedRequestOriginUrl("https://miniapp.example.com#hash", loopbackHttpReq)
+    ).toBeTrue();
+    expect(
       isAllowedRequestOriginUrl("https://miniapp.example.com:443/sub/", loopbackHttpReq)
     ).toBeTrue();
+    expect(
+      isAllowedRequestOriginUrl("https://miniapp.example.com.evil.com/sub/", loopbackHttpReq)
+    ).toBeFalse();
+    expect(
+      isAllowedRequestOriginUrl("https://miniapp.example.com@evil.com/sub/", loopbackHttpReq)
+    ).toBeFalse();
+    expect(
+      isAllowedRequestOriginUrl("https://miniapp.example.com:444/sub/", loopbackHttpReq)
+    ).toBeFalse();
     expect(
       isAllowedRequestOriginUrl("http://miniapp.example.com", loopbackHttpReq)
     ).toBeFalse();

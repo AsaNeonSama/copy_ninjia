@@ -75,9 +75,11 @@ mock.module("../../../packages/infra/telegram", () => ({
   telegramApi: {},
 }));
 mock.module("../../../packages/infra/telegram/workerClient", () => ({
-  sendTemporaryMessageFromMain: ({ text }: { text: string }): Promise<undefined> => {
+  sendTemporaryMessageFromMain: (params: { text: string; messageThreadId?: number }): Promise<undefined> => {
+    // 主动私密模式解封公告必须落在 General（不带论坛话题 ID）。
+    expect(params.messageThreadId).toBeUndefined();
     if (unlockNoticeError !== null) return Promise.reject(unlockNoticeError);
-    sentNotices.push(text);
+    sentNotices.push(params.text);
     return Promise.resolve(undefined);
   },
 }));

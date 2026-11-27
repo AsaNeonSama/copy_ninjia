@@ -32,8 +32,12 @@ const { chatSummaries, dirtyMemoryChats, pendingSummaries } = await import("../.
 const { replyAbortControllers, resetAiChatReplyCache } = await import("../../../packages/cache/workers/aiChat/replies");
 const { resetAiChatCompactionCache } = await import("../../../packages/cache/workers/aiChat/compaction");
 const { resetAiChatMemoryCache } = await import("../../../packages/cache/workers/aiChat/memory");
-const { COMPACTION_MAX_PENDING_PER_CHAT, MAX_SUMMARY_ROUNDS, SUMMARY_MAX_CHARS } =
-  await import("../../../packages/consts/aiChat/memory");
+const {
+  COMPACTION_MAX_PENDING_PER_CHAT,
+  MAX_SUMMARY_ROUNDS,
+  SUMMARY_MAX_CHARS,
+  SUMMARY_RETRY_DELAYS_MS,
+} = await import("../../../packages/consts/aiChat/memory");
 const { SUMMARY_SYSTEM_PROMPT } = await import("../../../packages/consts/aiChat/prompts/memory");
 const { invalidateChatReplies } = await import("../../../packages/workers/aiChat/replyGeneration");
 
@@ -168,7 +172,7 @@ describe("AI 中期记忆压缩", () => {
 
     expect(generateText).toHaveBeenCalledTimes(2);
     expect(sleep).toHaveBeenCalledTimes(1);
-    expect(sleep).toHaveBeenCalledWith(15_000, expect.any(AbortSignal));
+    expect(sleep).toHaveBeenCalledWith(SUMMARY_RETRY_DELAYS_MS[0], expect.any(AbortSignal));
     expect(pendingSummaries.get(-1002)).toBe("重试得到的摘要");
   });
 

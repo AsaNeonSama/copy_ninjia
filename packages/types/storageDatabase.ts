@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 import type { storageDatabaseSchema } from "../database/schema/storage";
+import type { AdPackBlacklistCounts } from "./adPackBlacklist";
 import type { StoredTemporaryAdBypassActivity } from "./temporaryAdBypass";
 
 /** Drizzle 绑定 Bun SQLite 与共享运行时 schema 后的同步句柄。 */
@@ -45,6 +46,12 @@ export interface StoredChatQaRow {
   readonly data: string;
 }
 
+/** 广告包黑名单表的一行。主键是 `(kind, pack)` 复合键。 */
+export interface StoredAdPackBlacklistRow {
+  readonly kind: string;
+  readonly pack: string;
+}
+
 /** SQLite 自身元数据表的一行。 */
 export interface StoredStorageMetadataRow {
   readonly key: string;
@@ -66,11 +73,17 @@ export interface StorageDatabaseStartupRows {
   readonly blocklistEntryCount: number;
   readonly chatStates: readonly StoredChatStateRow[];
   readonly chatQa: readonly StoredChatQaRow[];
+  readonly adPackBlacklistCounts: Readonly<AdPackBlacklistCounts>;
 }
 
 /** 事务缓冲中一项主键的最终 JSON 文本；null 表示删除。 */
 export interface StorageDatabaseChange {
   readonly data: string | null;
+}
+
+/** 事务缓冲中一条广告包黑名单项的最终状态；`false` 表示删除该 `(kind, pack)`。 */
+export interface StorageAdPackBlacklistChange {
+  readonly blacklisted: boolean;
 }
 
 /** 一群 AI 上下文在事务缓冲中的最终快照文本；null 表示清空 `ai_context`。 */
@@ -132,6 +145,8 @@ export interface StorageDatabaseWriter {
   readonly deleteChatState: StorageWriteStatement;
   readonly upsertChatQa: StorageWriteStatement;
   readonly deleteChatQa: StorageWriteStatement;
+  readonly upsertAdPackBlacklist: StorageWriteStatement;
+  readonly deleteAdPackBlacklist: StorageWriteStatement;
   readonly updateAiContext: StorageWriteStatement;
 }
 
@@ -152,7 +167,8 @@ export interface StorageReadByIdStatement<TRow> {
 
 /**
  * 预热与容量闸用的整套预编译读语句，随连接一起存活：三张身份表按 `ids` 占位
- * （JSON 数组文本，经 SQLite `json_each` 展开）批量读取，并各附一条 `WHERE id = :id` 单行快路径语句；群状态表只读主键。
+ * （JSON 数组文本，经 SQLite `json_each` 展开）批量读取，并各附一条 `WHERE id = :id` 单行快路径语句；
+ * 广告包黑名单表提供按 `(kind, pack)` 单行快路径与按 `packs` JSON 数组批量查询语句；群状态表只读主键。
  */
 export interface StorageDatabaseReader {
   readonly whitelistPolicies: StorageReadStatement<StoredIdentityPolicyRow>;
@@ -161,6 +177,8 @@ export interface StorageDatabaseReader {
   readonly blocklistPolicyById: StorageReadByIdStatement<StoredIdentityPolicyRow>;
   readonly temporaryAdBypassActivities: StorageReadStatement<StoredTemporaryAdBypassActivity>;
   readonly temporaryAdBypassActivityById: StorageReadByIdStatement<StoredTemporaryAdBypassActivity>;
+  readonly adPackBlacklistByKey: StorageReadByIdStatement<Pick<StoredAdPackBlacklistRow, "pack">>;
+  readonly adPackBlacklistsByPacks: StorageReadStatement<Pick<StoredAdPackBlacklistRow, "pack">>;
   readonly chatStateIds: StorageReadStatement<Pick<StoredChatStateRow, "chatId">>;
 }
 

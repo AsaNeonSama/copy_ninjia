@@ -9,6 +9,7 @@ import {
   isLiteralConstant,
   isObjectFreezeCall,
   isVoidOrNeverReturnType,
+  lineOfPosition,
   moduleCacheInitializerKind,
   unwrapParamInterfaceName,
 } from "./sourceAnalysis";
@@ -64,7 +65,7 @@ export function collectConstantLocationProblems({
  * @returns 1 起始的行号。
  */
 function lineOf(source: ts.SourceFile, node: ts.Node): number {
-  return source.getLineAndCharacterOfPosition(node.getStart()).line + 1;
+  return lineOfPosition(source, node.getStart());
 }
 
 /** `packages/cache/` 导出或模块头注必须覆盖的单项生命周期语义规则。 */

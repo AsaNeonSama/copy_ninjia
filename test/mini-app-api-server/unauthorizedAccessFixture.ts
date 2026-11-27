@@ -20,6 +20,10 @@ export interface BusinessStateSnapshot {
   readonly blocklistEntries: readonly (readonly [number, string])[];
   readonly chatSnapshot: string;
   readonly qaEntries: readonly (readonly [string, string])[];
+  readonly adPackBlacklists: {
+    readonly sticker: readonly string[];
+    readonly emoji: readonly string[];
+  };
   readonly pendingPickerSize: number;
   readonly completedPickerSize: number;
   /** 图库目录的完整文件名列表（排序后），新增或删除任一文件都会改变它。 */
@@ -154,6 +158,15 @@ export const PROTECTED_ROUTE_DESCRIPTORS: readonly Readonly<ProtectedRouteDescri
     }),
   }),
   defineProtectedRoute("POST", "/api/configs/restart"),
+  defineProtectedRoute("GET", "/api/ad-blacklists", {
+    query: "kind=sticker&page=1&pageSize=10",
+  }),
+  defineProtectedRoute("POST", "/api/ad-blacklists", {
+    jsonBody: JSON.stringify({ kind: "sticker", pack: "UnauthPack_1", enabled: true }),
+  }),
+  defineProtectedRoute("GET", "/api/ad-blacklists/preview", {
+    query: "kind=sticker&pack=SeededStickerPack",
+  }),
   defineProtectedRoute("GET", "/api/gallery", { query: "page=1&pageSize=10" }),
   defineProtectedRoute("POST", "/api/gallery/upload", { binaryUpload: true }),
   defineProtectedRoute("POST", "/api/gallery/delete", {

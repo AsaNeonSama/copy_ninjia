@@ -243,6 +243,106 @@ describe("verifyMiniAppInitData", () => {
     });
   });
 
+  test("resolveExtendedMaxAgeSeconds 仅在 HMAC 通过且超出默认窗口时调用，且不绕过错误签名或未来时间", () => {
+    const extendedAgeSeconds: number = MINI_APP_AUTH_MAX_AGE_SECONDS + 3_600;
+    const withinExtendedInitData: string = buildSignedTestInitData({
+      botToken,
+      authDate: nowSec - MINI_APP_AUTH_MAX_AGE_SECONDS - 600,
+      user: { id: superAdminUserId, first_name: "Kakashi" },
+    });
+
+    let calls: number = 0;
+    const extendedResult: MiniAppAuthResult = verifyMiniAppInitData({
+      initData: withinExtendedInitData,
+      secretKey,
+      superAdminUserId,
+      nowMs,
+      resolveExtendedMaxAgeSeconds: (): number => {
+        calls += 1;
+        return extendedAgeSeconds;
+      },
+    });
+    expect(calls).toBe(1);
+    expect(extendedResult.ok).toBeTrue();
+
+    // 超过放宽上限或回调返回 undefined 时仍返回 expired_auth_date。
+    const beyondExtendedInitData: string = buildSignedTestInitData({
+      botToken,
+      authDate: nowSec - extendedAgeSeconds - 1,
+      user: { id: superAdminUserId, first_name: "Kakashi" },
+    });
+    expect(
+      verifyMiniAppInitData({
+        initData: beyondExtendedInitData,
+        secretKey,
+        superAdminUserId,
+        nowMs,
+        resolveExtendedMaxAgeSeconds: (): number => extendedAgeSeconds,
+      })
+    ).toEqual({ ok: false, reason: "expired_auth_date" });
+    expect(
+      verifyMiniAppInitData({
+        initData: withinExtendedInitData,
+        secretKey,
+        superAdminUserId,
+        nowMs,
+        resolveExtendedMaxAgeSeconds: (): undefined => undefined,
+      })
+    ).toEqual({ ok: false, reason: "expired_auth_date" });
+
+    // 未超默认窗口、伪造签名、未来 auth_date 均不得调用 resolveExtendedMaxAgeSeconds。
+    let forbiddenCalls: number = 0;
+    const forbiddenResolver = (): number => {
+      forbiddenCalls += 1;
+      return extendedAgeSeconds;
+    };
+    const freshInitData: string = buildSignedTestInitData({
+      botToken,
+      authDate: nowSec - 10,
+      user: { id: superAdminUserId, first_name: "Kakashi" },
+    });
+    expect(
+      verifyMiniAppInitData({
+        initData: freshInitData,
+        secretKey,
+        superAdminUserId,
+        nowMs,
+        resolveExtendedMaxAgeSeconds: forbiddenResolver,
+      }).ok
+    ).toBeTrue();
+
+    const forgedExpiredInitData: string = buildSignedTestInitData({
+      botToken: `${botToken}-forged`,
+      authDate: nowSec - MINI_APP_AUTH_MAX_AGE_SECONDS - 600,
+      user: { id: superAdminUserId, first_name: "Kakashi" },
+    });
+    expect(
+      verifyMiniAppInitData({
+        initData: forgedExpiredInitData,
+        secretKey,
+        superAdminUserId,
+        nowMs,
+        resolveExtendedMaxAgeSeconds: forbiddenResolver,
+      })
+    ).toEqual({ ok: false, reason: "invalid_signature" });
+
+    const futureInitData: string = buildSignedTestInitData({
+      botToken,
+      authDate: nowSec + MINI_APP_AUTH_CLOCK_SKEW_SECONDS + 5,
+      user: { id: superAdminUserId, first_name: "Kakashi" },
+    });
+    expect(
+      verifyMiniAppInitData({
+        initData: futureInitData,
+        secretKey,
+        superAdminUserId,
+        nowMs,
+        resolveExtendedMaxAgeSeconds: forbiddenResolver,
+      })
+    ).toEqual({ ok: false, reason: "expired_auth_date" });
+    expect(forbiddenCalls).toBe(0);
+  });
+
   test("缺失 initData、重复参数或格式损坏时返回明确拒绝原因", () => {
     expect(
       verifyMiniAppInitData({

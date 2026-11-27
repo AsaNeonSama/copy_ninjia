@@ -9,7 +9,14 @@ export type MiniAppLanguage = "en" | "ja" | "zh";
 export type MiniAppThemeMode = "dark" | "light";
 
 /** Mini App 主导航标签键。 */
-export type MiniAppTabKey = "status" | "chats" | "identities" | "configs" | "gallery" | "totp";
+export type MiniAppTabKey =
+  | "status"
+  | "chats"
+  | "identities"
+  | "adBlacklists"
+  | "configs"
+  | "gallery"
+  | "totp";
 
 /** Mini App 通用 SVG 图标组件入参。 */
 export interface MiniAppIconProps {

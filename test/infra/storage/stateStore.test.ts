@@ -77,8 +77,34 @@ describe("StateStore", () => {
     expect(() => new StateStore({ backgroundDelayMs: 0 })).toThrow("background delay");
     expect(() => new StateStore({ backgroundDelayMs: Number.POSITIVE_INFINITY })).toThrow("background delay");
     const store = new StateStore();
-    expect(() => store.flush(0)).toThrow("positive finite");
-    expect(() => store.flush(Number.NaN)).toThrow("positive finite");
+    expect(() => store.flush(-1)).toThrow("non-negative finite");
+    expect(() => store.flush(Number.NaN)).toThrow("non-negative finite");
+  });
+
+  test("零预算 flush 在干净时返回 flushed，有脏值时返回 timedOut 且不新投递，quiesce 后拒绝新写入", async () => {
+    const cleanWrites: string[] = [];
+    const cleanStore = new StateStore({
+      stateFilePath: "/virtual/clean-state.json",
+      writeText: async (_path, content) => {
+        cleanWrites.push(content);
+      },
+    });
+    expect(await cleanStore.flush(0, true)).toBe("flushed");
+    expect(cleanWrites).toEqual([]);
+    await expect(cleanStore.save(schema(1))).rejects.toThrow("quiescing");
+
+    const dirtyWrites: string[] = [];
+    const dirtyStore = new StateStore({
+      stateFilePath: "/virtual/dirty-state.json",
+      backgroundDelayMs: 60_000,
+      writeText: async (_path, content) => {
+        dirtyWrites.push(content);
+      },
+    });
+    await dirtyStore.save(schema(2), { waitForPersistence: false });
+    expect(await dirtyStore.flush(0, true)).toBe("timedOut");
+    expect(dirtyWrites).toEqual([]);
+    await expect(dirtyStore.save(schema(3))).rejects.toThrow("quiescing");
   });
 
   test("注入 IO 后独立验证 schema 序列化与 latest-only 写入", async () => {

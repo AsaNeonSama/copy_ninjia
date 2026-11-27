@@ -8,20 +8,27 @@
  */
 
 import OpenAI from "openai";
+import { finishDetailsJson } from "../../../../aiProviders/finishDetails";
+import { isExplicitUnsupportedMediaError, numericErrorStatus } from "../../../../aiProviders/mediaSupportError";
 import { adDetectStopping } from "../../../../cache/workers/antiRaid/adDetect";
 import { adDetectOpenAiClientHolder } from "../../../../cache/workers/antiRaid/openai";
 import { logger } from "../../../../infra/logger";
 import { reportOpenAiChatUsage } from "../../../../infra/aiCacheUsage";
-import { finishDetailsJson } from "../../../../aiProviders/finishDetails";
+import { errorMessage } from "../../../../libs/errorMessage";
 import { getAdDetectAgentConfig } from "../../../../config/agent";
 import {
   AD_DETECT_OPENAI_REQUEST_MAX_RETRIES,
   AD_DETECT_OPENAI_REQUEST_TIMEOUT_MS,
-} from "../../../../consts/antiRaid/adDetect";
+} from "../../../../consts/antiRaid/adDetect/limits";
+import { formatAdDetectAttachmentLabel } from "../../../../consts/antiRaid/adDetect/prompts";
 import { requestAdDetectJsonWithRetry } from "./emptyBodyRetry";
 import { OPENAI_API_BASE_URL, OPENAI_SDK_LOG_LEVEL } from "../../../../consts/aiChat/openai";
 import type { AdDetectAgentConfig } from "../../../../types/config";
-import type { AdDetectJsonRequestParams } from "../../../../types/antiRaid/adDetect";
+import type {
+  AdDetectJsonRequestParams,
+  AdDetectMediaAttachment,
+  AdDetectProviderResult,
+} from "../../../../types/antiRaid/adDetect";
 
 /**
  * 取得线程内唯一 OpenAI 兼容广告检测客户端。
@@ -60,9 +67,37 @@ interface OpenAiAdDetectAttempt {
 }
 
 /**
- * 发一次请求并收窄结果；异常就地归一成 null。
+ * 组装 OpenAI chat completions 的 user 消息 content：无附件时保持纯字符串以兼容纯文本代理端点，
+ * 有附件时使用图文分块数组。
+ * @param userContent 待判定消息串文本。
+ * @param attachments 可选的视觉附件列表。
+ * @returns 纯字符串或图文分块数组。
+ */
+function buildOpenAiUserContent(
+  userContent: string,
+  attachments: readonly AdDetectMediaAttachment[] | undefined
+): string | OpenAI.Chat.Completions.ChatCompletionContentPart[] {
+  if (attachments === undefined || attachments.length === 0) return userContent;
+  const parts: OpenAI.Chat.Completions.ChatCompletionContentPart[] = [
+    { type: "text", text: userContent },
+  ];
+  for (let index: number = 0; index < attachments.length; index++) {
+    const attachment: AdDetectMediaAttachment = attachments[index]!;
+    parts.push({ type: "text", text: formatAdDetectAttachmentLabel(index + 1, attachment) });
+    parts.push({
+      type: "image_url",
+      image_url: {
+        url: `data:${attachment.image.mime};base64,${attachment.image.bytes.toBase64()}`,
+      },
+    });
+  }
+  return parts;
+}
+
+/**
+ * 发一次请求并收窄结果；带图请求遇明确模态不支持错误时返回 `"visionUnsupported"`，其余异常就地归一成 null。
  * @param params 结构化广告判定请求参数。
- * @returns 单次尝试结果；请求异常时返回 null。
+ * @returns 单次尝试结果、`"visionUnsupported"` 标记或表示请求异常的 null。
  */
 async function attemptOpenAiAdDetectJson({
   model,
@@ -71,7 +106,9 @@ async function attemptOpenAiAdDetectJson({
   temperature,
   maxOutputTokens,
   errorLabel,
-}: AdDetectJsonRequestParams): Promise<OpenAiAdDetectAttempt | null> {
+  attachments,
+}: AdDetectJsonRequestParams): Promise<OpenAiAdDetectAttempt | "visionUnsupported" | null> {
+  const hasAttachments: boolean = attachments !== undefined && attachments.length > 0;
   try {
     const completion: OpenAI.Chat.Completions.ChatCompletion =
       await getAdDetectOpenAiClient().chat.completions.create({
@@ -82,7 +119,7 @@ async function attemptOpenAiAdDetectJson({
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: systemPrompt },
-          { role: "user", content: userContent },
+          { role: "user", content: buildOpenAiUserContent(userContent, attachments) },
         ],
       });
     reportOpenAiChatUsage({ capability: "ad_detect", model, usage: completion.usage });
@@ -98,6 +135,12 @@ async function attemptOpenAiAdDetectJson({
       reasoningTokens: completion.usage?.completion_tokens_details?.reasoning_tokens ?? null,
     };
   } catch (error: unknown) {
+    if (
+      hasAttachments &&
+      isExplicitUnsupportedMediaError(numericErrorStatus(error), errorMessage(error))
+    ) {
+      return "visionUnsupported";
+    }
     if (error instanceof OpenAI.APIError) {
       // APIError.message 已包含 HTTP 状态码前缀。
       logger.error(
@@ -115,13 +158,14 @@ async function attemptOpenAiAdDetectJson({
  * 发送 JSON object 模式的 chat completion 请求；出现非空 `refusal` 立即放弃不重采样，
  * 响应正文为空或被截断时按 `AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS` 有界重采样，停机期间放弃第 2 轮重采样。
  * @param params 结构化广告判定请求参数。
- * @returns 可用的模型 JSON 响应正文；拒答、重试耗尽或请求失败时返回 null。
+ * @returns 传输层统一结果（成功正文、明确不支持视觉输入或失败）。
  */
-export async function requestOpenAiAdDetectJson(
+export function requestOpenAiAdDetectJson(
   params: AdDetectJsonRequestParams
-): Promise<string | null> {
+): Promise<AdDetectProviderResult> {
   return requestAdDetectJsonWithRetry<OpenAiAdDetectAttempt>({
-    attemptRequest: (): Promise<OpenAiAdDetectAttempt | null> => attemptOpenAiAdDetectJson(params),
+    attemptRequest: (): Promise<OpenAiAdDetectAttempt | "visionUnsupported" | null> =>
+      attemptOpenAiAdDetectJson(params),
     extractUsableBody: (result: OpenAiAdDetectAttempt): string | null =>
       !result.refused && result.finishReason !== "length" && result.body.trim().length > 0
         ? result.body

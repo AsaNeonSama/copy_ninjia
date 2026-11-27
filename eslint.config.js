@@ -4,7 +4,7 @@ import { defineConfig } from "eslint/config";
 import tseslint from "typescript-eslint";
 
 export default defineConfig(
-  { ignores: ["coverage/**", "dist/**", "node_modules/**", "out/**"] },
+  { ignores: ["coverage/**", "dist/**", "node_modules/**", "out/**", "performance/**"] },
   {
     linterOptions: {
       reportUnusedDisableDirectives: "error",

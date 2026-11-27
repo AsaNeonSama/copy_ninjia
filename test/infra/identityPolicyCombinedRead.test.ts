@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import {
-  canBypassAdDetection,
   isProtectedFromAdDisposal,
   readAdCandidateSenderStatus,
 } from "../../packages/antiRaid/memberFacts";
@@ -9,10 +8,11 @@ import { SUPER_ADMIN_USER_ID } from "../../packages/config/bot";
 import { DAY_MS } from "../../packages/consts/time";
 import { DEFAULT_WHITELIST_PERMISSIONS } from "../../packages/consts/whitelist";
 import { isUserBlocked } from "../../packages/infra/blocklist/membership";
+import { hasActiveTemporaryAdBypassAt } from "../../packages/infra/identityPolicy/temporaryAdBypass";
 import {
   getEffectiveWhitelistPermissions,
   isWhitelisted,
-  readWhitelistPermissionOrBlocked,
+  readEffectiveWhitelistOrBlocked,
 } from "../../packages/infra/identityPolicy/whitelist";
 import type {
   BlocklistEntryData,
@@ -118,13 +118,17 @@ describe("身份策略单次 LRU 合并读取等价与不变量", () => {
       sequence.push(ids[state % ids.length]!);
     }
 
-    // 1. 候选构建读取（readAdCandidateSenderStatus vs canBypassAdDetection + isUserBlocked）
+    // 1. 候选构建读取（readAdCandidateSenderStatus vs (isWhitelisted || hasActiveTemporaryAdBypassAt) + isUserBlocked）
     seedMixedIdentities(ids);
     const baselineCandidate: ("allowed" | "blocked" | "none")[] = [];
     for (const id of sequence) {
-      if (canBypassAdDetection(id, BASE_NOW_MS)) baselineCandidate.push("allowed");
-      else if (isUserBlocked(id)) baselineCandidate.push("blocked");
-      else baselineCandidate.push("none");
+      if (isWhitelisted(id) || hasActiveTemporaryAdBypassAt(id, BASE_NOW_MS)) {
+        baselineCandidate.push("allowed");
+      } else if (isUserBlocked(id)) {
+        baselineCandidate.push("blocked");
+      } else {
+        baselineCandidate.push("none");
+      }
     }
     const baselineCandidateOrder: number[] = [...identityPolicyCache.keys()];
 
@@ -138,13 +142,13 @@ describe("身份策略单次 LRU 合并读取等价与不变量", () => {
     expect(combinedCandidate).toEqual(baselineCandidate);
     expect(combinedCandidateOrder).toEqual(baselineCandidateOrder);
 
-    // 2. 处置保护读取（isProtectedFromAdDisposal vs canBypassAdDetection || isWhitelisted）
+    // 2. 处置保护读取（isProtectedFromAdDisposal vs isWhitelisted || hasActiveTemporaryAdBypassAt）
     const nowSpy = spyOn(Date, "now").mockReturnValue(BASE_NOW_MS);
     try {
       seedMixedIdentities(ids);
       const baselineDisposal: boolean[] = [];
       for (const id of sequence) {
-        baselineDisposal.push(canBypassAdDetection(id) || isWhitelisted(id));
+        baselineDisposal.push(isWhitelisted(id) || hasActiveTemporaryAdBypassAt(id, BASE_NOW_MS));
       }
       const baselineDisposalOrder: number[] = [...identityPolicyCache.keys()];
 
@@ -241,11 +245,15 @@ describe("身份策略单次 LRU 合并读取等价与不变量", () => {
         isProtectedFromAdDisposal(id);
         getEffectiveWhitelistPermissions(id);
       }
+      // 永久白名单即使关闭 isCanBypassAdDetection 也受保护且放行，无需触碰墙钟。
+      expect(readAdCandidateSenderStatus(idPermanent)).toBe("allowed");
+      expect(isProtectedFromAdDisposal(idPermanent)).toBeTrue();
       expect(clockSpy).not.toHaveBeenCalled();
 
       // 显式传入 now 时，即使存在已授予的临时免检也不读墙钟。
       expect(readAdCandidateSenderStatus(idActiveTemp, BASE_NOW_MS)).toBe("allowed");
-      expect(readWhitelistPermissionOrBlocked(idActiveTemp, "isCanMute", BASE_NOW_MS)).toBe("none");
+      expect(readEffectiveWhitelistOrBlocked(idActiveTemp, BASE_NOW_MS)).toBe("allowed");
+      expect(readEffectiveWhitelistOrBlocked(idBlocked, BASE_NOW_MS)).toBe("blocked");
       expect(clockSpy).not.toHaveBeenCalled();
 
       // 省略 now 且命中已授予的临时免检时按需读一次墙钟。

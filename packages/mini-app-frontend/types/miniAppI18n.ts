@@ -1,5 +1,9 @@
 import type { WhitelistPermissionKey } from "./identityPolicy";
 import type {
+  MiniAppAdBlacklistKind,
+  MiniAppAdBlacklistStickerSetType,
+} from "./miniApp/adBlacklists";
+import type {
   MiniAppBatchKickCompletion,
   MiniAppChatDetail,
   MiniAppChatTargetKind,
@@ -64,6 +68,49 @@ export interface MiniAppServerNoticeParams {
   readonly recordCount?: number;
   /** 配置语法解析、结构校验或服务重启失败时的详细错误原因（仅配置编辑状态码使用）。 */
   readonly errorDetail?: string;
+  /** 广告包黑名单种类（`"sticker"` 或 `"emoji"`，仅 `AD_BLACKLIST_*` 状态码使用）。 */
+  readonly kind?: MiniAppAdBlacklistKind;
+  /** Telegram 贴纸包或自定义表情包 short name（仅 `AD_BLACKLIST_*` 状态码使用）。 */
+  readonly pack?: string;
+  /** 内存与实时拦截集合是否已发生实际变更（仅 `AD_BLACKLIST_*` 状态码使用）。 */
+  readonly changed?: boolean;
+}
+
+/** 内容黑名单管理页面（贴纸包 / 自定义表情包）的多语言文案结构。 */
+export interface MiniAppAdBlacklistsTranslations {
+  readonly stickerTab: string;
+  readonly emojiTab: string;
+  readonly refreshButton: string;
+  readonly searchPlaceholder: string;
+  readonly searchClearAria: string;
+  readonly addFoldButton: string;
+  readonly addInputPlaceholder: string;
+  readonly addButton: string;
+  readonly addingButton: string;
+  readonly invalidPackNotice: string;
+  readonly noticeBannerTitle: string;
+  readonly duplicateBannerTitle: string;
+  readonly dismissNoticeAria: string;
+  readonly previewPackButtonTitle: (kind: MiniAppAdBlacklistKind) => string;
+  readonly previewCountBadge: (count: number) => string;
+  readonly previewStickerTypeLabel: (
+    stickerType: MiniAppAdBlacklistStickerSetType
+  ) => string;
+  readonly previewLoadMoreButton: (shown: number, total: number) => string;
+  readonly previewLoadingMoreButton: string;
+  readonly previewRetryButton: string;
+  readonly previewCopyLinkButton: string;
+  readonly previewLinkCopiedToast: string;
+  readonly previewCopyFailedToast: string;
+  readonly previewOpenTelegramButton: string;
+  readonly previewCloseButton: string;
+  readonly previewEmptyHint: string;
+  readonly previewAnimatedTag: string;
+  readonly previewVideoTag: string;
+  readonly removeButton: string;
+  readonly confirmRemovePack: (kind: MiniAppAdBlacklistKind, pack: string) => string;
+  readonly emptySearchHint: (query: string) => string;
+  readonly emptyListHint: (kind: MiniAppAdBlacklistKind) => string;
 }
 
 /** 配置编辑页面（动态配置 / 静态配置 / JSON 代码高亮编辑器）的多语言文案结构。 */
@@ -366,4 +413,5 @@ export interface MiniAppTranslations {
   }>;
 
   readonly configs: Readonly<MiniAppConfigsTranslations>;
+  readonly adBlacklists: Readonly<MiniAppAdBlacklistsTranslations>;
 }

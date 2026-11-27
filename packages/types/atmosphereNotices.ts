@@ -20,7 +20,7 @@ export interface AtmosphereNotices {
   readonly adKicked: (head: string) => string;
   /** 广告移出处罚本群封禁：已在本群封禁。 */
   readonly adChatBanned: (head: string) => string;
-  /** 本群处罚未完成（权限不足或 Telegram 请求失败）；涉事消息已由 Worker 删除。 */
+  /** 本群处罚未完成（权限不足或 Telegram 请求失败）；涉事消息由主线程删除。 */
   readonly adPunishFailed: (head: string) => string;
   /** 频道身份在全局封禁以外的处罚设置下只删除消息。 */
   readonly adDeletedOnly: (head: string) => string;

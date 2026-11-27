@@ -17,12 +17,14 @@ import {
   prepareStorageDatabaseWriter,
 } from "../../../packages/database/interact/transaction";
 import type {
+  StorageAdPackBlacklistChange,
   StorageDatabase,
   StorageDatabaseChange,
   StorageDatabaseReader,
   StorageDatabaseWriter,
   StoredIdentityPolicyRow,
 } from "../../../packages/types/storageDatabase";
+import type { AdPackBlacklistKind } from "../../../packages/types/adPackBlacklist";
 import {
   COLD_READ_BATCH_COUNT,
   COLD_WRITE_TRANSACTION_COUNT,
@@ -48,6 +50,12 @@ const EMPTY_TEMPORARY_AD_BYPASS_CHANGES: ReadonlyMap<
   number,
   PendingTemporaryAdBypassWrite
 > = new Map();
+const EMPTY_AD_PACK_BLACKLIST_CHANGES: Readonly<
+  Record<AdPackBlacklistKind, ReadonlyMap<string, StorageAdPackBlacklistChange>>
+> = {
+  sticker: new Map(),
+  emoji: new Map(),
+};
 
 /** 身份数据库性能基准使用的临时目录、库文件路径与已打开 SQLite 连接夹具。 */
 interface DatabaseFixture {
@@ -224,6 +232,7 @@ function runWriteBatches(
       removals: EMPTY_STORAGE_CHANGES,
       chatStates: new Map(),
       chatQa: EMPTY_CHAT_QA_CHANGES,
+      adPackBlacklists: EMPTY_AD_PACK_BLACKLIST_CHANGES,
       aiContexts: new Map(),
     });
     checksum += whitelist.size;
@@ -252,6 +261,7 @@ function runColdWriteBatches(
         removals: EMPTY_STORAGE_CHANGES,
         chatStates: new Map(),
         chatQa: EMPTY_CHAT_QA_CHANGES,
+        adPackBlacklists: EMPTY_AD_PACK_BLACKLIST_CHANGES,
         aiContexts: new Map(),
       });
       checksum += whitelist.size;

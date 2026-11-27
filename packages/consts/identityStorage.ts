@@ -1,4 +1,6 @@
+import type { AdPackBlacklistKind } from "../types/adPackBlacklist";
 import type { StorageDatabaseMigrationJournalEntry } from "../types/storageDatabase";
+import { exhaustiveList } from "./exhaustiveList";
 
 /** 黑名单、白名单与临时广告免检各自在主线程保留的热查询 LRU 容量。 */
 export const IDENTITY_READ_CACHE_MAX_ENTRIES: number = 8_192;
@@ -43,8 +45,46 @@ export const IDENTITY_WRITE_FLUSH_INTERVAL_MS: number = 30_000;
  */
 export const CHAT_QA_WRITE_BATCH_MAX_ENTRIES: number = 32;
 
+/**
+ * 广告包黑名单（`ad_pack_blacklists`）允许的全部种类；与数据库 CHECK 约束一致。
+ * 所属模块：database/interact/transaction.ts、infra/adPackBlacklistStorage.ts。
+ */
+export const AD_PACK_BLACKLIST_KINDS: readonly AdPackBlacklistKind[] =
+  exhaustiveList<AdPackBlacklistKind>()(["sticker", "emoji"]);
+
+/**
+ * 广告包黑名单（`ad_pack_blacklists`）在主线程保留的热查询 LRU 容量（贴纸包与自定义表情包共享，缓存正/负命中结论，超出后打到 SQLite）。
+ * 所属模块：cache/main/adPackBlacklist.ts、infra/adPackBlacklistStorage/。
+ */
+export const AD_PACK_BLACKLIST_READ_CACHE_MAX_ENTRIES: number = 768;
+
+/**
+ * 单次跨线程按包名批量查询广告包黑名单的主键上限；**必须严格小于** `AD_PACK_BLACKLIST_READ_CACHE_MAX_ENTRIES`。
+ * 所属模块：database/interact/adPackBlacklist.ts、infra/adPackBlacklistStorage/read.ts、workers/diskIO/storageDatabase/adPackBlacklist.ts。
+ */
+export const AD_PACK_BLACKLIST_READ_CHUNK_MAX_ENTRIES: number = 256;
+
+/**
+ * 广告包黑名单按 `(kind, pack)` 游标分页冷读的单页包名条数上限；命令分页与 Mini App 列表/搜索共用此上限，不污染 768 热查询缓存。
+ * 所属模块：infra/adPackBlacklistStorage/page.ts、workers/diskIO/storageDatabase/adPackBlacklist.ts。
+ */
+export const AD_PACK_BLACKLIST_PAGE_SIZE: number = 256;
+
+/**
+ * 广告包黑名单游标分页读取允许叠加的 Worker 事务内未提交变化上限。
+ * 所属模块：workers/diskIO/storageDatabase/adPackBlacklist.ts。
+ */
+export const AD_PACK_BLACKLIST_PAGE_PENDING_DELTA_MAX_ENTRIES: number =
+  IDENTITY_WRITE_BATCH_MAX_ENTRIES;
+
+/**
+ * 广告包黑名单未提交变化（按 (kind, pack) 计条，含删除墓碑）累计到该条数时，立即用显式事务
+ * 提交当前全部待写变化。所属模块：workers/diskIO/storageDatabase/flush.ts。
+ */
+export const AD_PACK_BLACKLIST_WRITE_BATCH_MAX_ENTRIES: number = 32;
+
 /** SQLite 当前唯一受支持的 schema 版本。 */
-export const IDENTITY_DATABASE_SCHEMA_VERSION: number = 13;
+export const IDENTITY_DATABASE_SCHEMA_VERSION: number = 14;
 
 /**
  * 当前 schema 唯一受支持的完整迁移谱系，按 created_at 升序：每项是 `__drizzle_migrations` 的
@@ -77,6 +117,8 @@ export const STORAGE_MIGRATION_LINEAGE: readonly StorageDatabaseMigrationJournal
   { createdAt: 20_261_001_000_000, hash: "86b4dee97dbd407b3acefcb93f6dc848c90bbee8a52ef0be4d832fc264807eef" },
   // 0011_time_zone_marker
   { createdAt: 20_261_003_000_000, hash: "0691bf88adb273181fd8e0365b8dddd1aa69b173c2a10534db6e43c6679741d1" },
+  // 0012_ad_pack_blacklists
+  { createdAt: 20_261_123_000_000, hash: "d9d43bf1ee91ea1ef94748637dcfb50be0f69960944fa0bd8eb8c2cc8e5c8ac6" },
 ];
 
 /** SQLite 表级 CHECK 对自产 JSONB 做常数时间外壳校验的标志位。 */

@@ -104,7 +104,7 @@ export function laneForKey(key: TelegramSendChatKey, now: number): TelegramSendL
     minuteWindow: groupClass ? new TimestampDeque(TELEGRAM_SEND_GROUP_LIMIT) : null,
     frozenUntil: 0,
     cautiousUntil: 0,
-    lastSendAt: 0,
+    lastSendAt: -1,
     timer: null,
     inGlobalRing: false,
   };

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-const { describeStickerForContext, pickStickerVisionSource } = await import("../../../../packages/aiChat/stickerDescribe");
+const { describeStickerForContext } = await import("../../../../packages/aiChat/stickerDescribe");
+const { pickStickerVisionSource } = await import("../../../../packages/libs/telegramImage");
 
 describe("aiChat/stickerDescribe describeStickerForContext", () => {
   test("emoji + 包名都有时按顺序拼接", () => {

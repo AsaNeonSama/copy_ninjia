@@ -6,12 +6,17 @@ import { afterEach, beforeEach, expect, mock, test } from "bun:test";
 import type Anthropic from "@anthropic-ai/sdk";
 import { loggerStub } from "../../helpers/loggerMock";
 import type { AiCacheUsage } from "../../../packages/types/aiCache";
-import type { AdDetectJsonRequestParams } from "../../../packages/types/antiRaid/adDetect";
+import type {
+  AdDetectJsonRequestParams,
+  AdDetectMediaAttachment,
+} from "../../../packages/types/antiRaid/adDetect";
 import {
   AD_DETECT_ANTHROPIC_REQUEST_MAX_RETRIES,
   AD_DETECT_ANTHROPIC_REQUEST_TIMEOUT_MS,
   AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS,
   AD_DETECT_JSON_SCHEMA,
+  AD_DETECT_PACK_JSON_SCHEMA,
+  formatAdDetectAttachmentLabel,
 } from "../../../packages/consts/antiRaid/adDetect";
 import { ANTHROPIC_SDK_LOG_LEVEL } from "../../../packages/consts/aiChat/anthropic";
 
@@ -24,7 +29,13 @@ const fallbackMiddleware = mock((fallbacks: unknown, options: unknown): unknown 
 let provider: string = "anthropic";
 let fallbackModel: string | undefined;
 
-class FakeAPIError extends Error {}
+class FakeAPIError extends Error {
+  readonly status: number;
+  constructor(message: string, status: number = 429) {
+    super(message);
+    this.status = status;
+  }
+}
 
 function response(stopReason: string, text: string = '{"ad":false,"reason":"闲聊"}'): unknown {
   return {
@@ -84,7 +95,7 @@ afterEach(() => {
 });
 
 test("规则缓存与系统事实独立，Schema 直接透传；复用客户端并逐响应计入含缓存的输入", async () => {
-  expect(await requestAnthropicAdDetectJson(REQUEST)).toBe('{"ad":false,"reason":"闲聊"}');
+  expect(await requestAnthropicAdDetectJson(REQUEST)).toEqual({ status: "ok", body: '{"ad":false,"reason":"闲聊"}' });
   await requestAnthropicAdDetectJson(REQUEST);
   expect(constructions).toStrictEqual([{
     apiKey: "test-key", baseURL: "https://test.invalid", logLevel: ANTHROPIC_SDK_LOG_LEVEL,
@@ -99,6 +110,35 @@ test("规则缓存与系统事实独立，Schema 直接透传；复用客户端�
   expect(body).not.toHaveProperty("temperature");
   expect(reported).toHaveLength(2);
   expect(reported[0]).toMatchObject({ kind: "tokens", capability: "ad_detect", inputTokens: 14, cachedInputTokens: 5, cacheWriteInputTokens: 2, outputTokens: 3 });
+});
+
+test("多模态附件走 base64 image 块，仅带候选包时切换 Schema，不支持图片输入返回 visionUnsupported", async () => {
+  const bytes: Uint8Array = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+  const photo: AdDetectMediaAttachment = { id: "p1", kind: "photo", packName: undefined, image: { bytes, mime: "image/png" } };
+  const emoji: AdDetectMediaAttachment = { id: "e1", kind: "custom_emoji", packName: "BadEmoji", image: { bytes, mime: "image/png" } };
+
+  await expect(requestAnthropicAdDetectJson({ ...REQUEST, attachments: [photo] }))
+    .resolves.toEqual({ status: "ok", body: '{"ad":false,"reason":"闲聊"}' });
+  const firstBody = create.mock.calls[0]![0] as Anthropic.Beta.Messages.MessageCreateParamsNonStreaming;
+  expect(firstBody.output_config?.format).toEqual({ type: "json_schema", schema: AD_DETECT_JSON_SCHEMA });
+  expect(firstBody.messages).toEqual([{
+    role: "user",
+    content: [
+      { type: "text", text: REQUEST.userContent },
+      { type: "text", text: formatAdDetectAttachmentLabel(1, photo) },
+      { type: "image", source: { type: "base64", media_type: "image/png", data: bytes.toBase64() } },
+    ],
+  }]);
+
+  await expect(requestAnthropicAdDetectJson({ ...REQUEST, attachments: [emoji], emojiPackCandidates: ["BadEmoji"] }))
+    .resolves.toEqual({ status: "ok", body: '{"ad":false,"reason":"闲聊"}' });
+  const secondBody = create.mock.calls[1]![0] as Anthropic.Beta.Messages.MessageCreateParamsNonStreaming;
+  expect(secondBody.output_config?.format).toEqual({ type: "json_schema", schema: AD_DETECT_PACK_JSON_SCHEMA });
+
+  create.mockRejectedValueOnce(new FakeAPIError("Model does not support image input", 400));
+  await expect(requestAnthropicAdDetectJson({ ...REQUEST, attachments: [photo] }))
+    .resolves.toEqual({ status: "visionUnsupported" });
+  expect(errors).toEqual([]);
 });
 
 test("配置了 fallback_model 时挂以它为唯一回退项的拒答回退中间件；每次请求都带 fallbackState", async () => {
@@ -120,7 +160,7 @@ test("回退模型接手时用量记配置的回退模型并记一条改道日�
       content: [{ type: "fallback", from: { model: "claude-test" }, to: { model: "claude-fallback" }, trigger }, { type: "text", text: '{"ad":true,"reason":"引流"}' }],
     };
   });
-  expect(await requestAnthropicAdDetectJson(REQUEST)).toBe('{"ad":true,"reason":"引流"}');
+  expect(await requestAnthropicAdDetectJson(REQUEST)).toEqual({ status: "ok", body: '{"ad":true,"reason":"引流"}' });
   expect(reported[0]).toMatchObject({ capability: "ad_detect", model: "claude-fallback" });
   expect(warnings).toEqual([[
     "Anthropic request fell back after a refusal.",
@@ -141,7 +181,7 @@ test("回退模型也拒答：记改道 warn，日志里的 stop_details 不含�
     (options as { fallbackState: { index?: number } }).fallbackState.index = 0;
     return { ...(response("refusal", "") as object), model: "claude-fallback", stop_details: { ...stopDetails, fallback_credit_token: "credit-token" } };
   });
-  expect(await requestAnthropicAdDetectJson(REQUEST)).toBeNull();
+  expect(await requestAnthropicAdDetectJson(REQUEST)).toEqual({ status: "failed" });
   expect(warnings).toEqual([[
     "Anthropic request fell back after a refusal.",
     { errorLabel: REQUEST.errorLabel, from: "claude-test", to: "claude-fallback", stopReason: "refusal" },
@@ -164,7 +204,7 @@ test("回退模型也拒答：记改道 warn，日志里的 stop_details 不含�
 test("拒答立即放弃不重采样，日志带模型与 stop_details 整个对象", async () => {
   const stopDetails = { type: "refusal", category: "cyber", explanation: null };
   create.mockImplementation(async (): Promise<unknown> => ({ ...(response("refusal", "") as object), stop_details: stopDetails }));
-  expect(await requestAnthropicAdDetectJson(REQUEST)).toBeNull();
+  expect(await requestAnthropicAdDetectJson(REQUEST)).toEqual({ status: "failed" });
   expect(create).toHaveBeenCalledTimes(1);
   expect(reported).toHaveLength(1);
   expect(errors).toEqual([[
@@ -183,7 +223,7 @@ test("拒答立即放弃不重采样，日志带模型与 stop_details 整个对
 
 test.each(["max_tokens", "model_context_window_exceeded", "end_turn"])("%s 不可用或空正文有界重采样，每次响应都记用量", async (stopReason: string) => {
   create.mockImplementation(async (): Promise<unknown> => response(stopReason, stopReason === "end_turn" ? " " : '{"ad":true,"reason":"部分"}'));
-  expect(await requestAnthropicAdDetectJson(REQUEST)).toBeNull();
+  expect(await requestAnthropicAdDetectJson(REQUEST)).toEqual({ status: "failed" });
   expect(create).toHaveBeenCalledTimes(AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS);
   expect(reported).toHaveLength(AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS);
   expect(errors).toHaveLength(1);
@@ -191,7 +231,7 @@ test.each(["max_tokens", "model_context_window_exceeded", "end_turn"])("%s 不�
 
 test("耗尽后的日志带最后一次的模型与收尾原因；没有详情时 stopDetails 为 null", async () => {
   create.mockImplementation(async (): Promise<unknown> => response("max_tokens", "{"));
-  expect(await requestAnthropicAdDetectJson(REQUEST)).toBeNull();
+  expect(await requestAnthropicAdDetectJson(REQUEST)).toEqual({ status: "failed" });
   expect(errors).toEqual([[
     "Ad detection request produced no usable body.",
     {
@@ -208,20 +248,20 @@ test("耗尽后的日志带最后一次的模型与收尾原因；没有详情�
 
 test("首次正文为空，后续可用时返回完整正文", async () => {
   create.mockResolvedValueOnce(response("end_turn", ""));
-  expect(await requestAnthropicAdDetectJson(REQUEST)).toBe('{"ad":false,"reason":"闲聊"}');
+  expect(await requestAnthropicAdDetectJson(REQUEST)).toEqual({ status: "ok", body: '{"ad":false,"reason":"闲聊"}' });
   expect(errors).toEqual([]);
 });
 
 test.each([new FakeAPIError("429 unavailable"), new Error("unavailable")])("请求异常不叠加业务重试", async (error: Error) => {
   create.mockRejectedValueOnce(error);
-  expect(await requestAnthropicAdDetectJson(REQUEST)).toBeNull();
+  expect(await requestAnthropicAdDetectJson(REQUEST)).toEqual({ status: "failed" });
   expect(create).toHaveBeenCalledTimes(1);
   expect(errors).toHaveLength(1);
 });
 
 test("未配置 Anthropic 的能力拒绝构造客户端", async () => {
   provider = "openai";
-  expect(await requestAnthropicAdDetectJson(REQUEST)).toBeNull();
+  expect(await requestAnthropicAdDetectJson(REQUEST)).toEqual({ status: "failed" });
   expect(create).not.toHaveBeenCalled();
   expect(constructions).toEqual([]);
 });
@@ -231,7 +271,7 @@ test("首轮空正文后进入停机状态时不再发起第 2 轮重采样", as
     adDetectStopping.current = true;
     return response("end_turn", "");
   });
-  expect(await requestAnthropicAdDetectJson(REQUEST)).toBeNull();
+  expect(await requestAnthropicAdDetectJson(REQUEST)).toEqual({ status: "failed" });
   expect(create).toHaveBeenCalledTimes(1);
   expect(errors).toEqual([]);
 });

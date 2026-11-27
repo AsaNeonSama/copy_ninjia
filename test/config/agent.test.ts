@@ -401,7 +401,7 @@ describe("agent capability provider fields", () => {
       tts: { provider: "google", api_key: "key", model: "m", voice: "Leda", headers: { "x-a": "b" } },
     }, "agent.json")).toThrow(/agent\.tts must be exactly \{ provider, api_key, base_url\?, model, voice, style\?, bot_language\?, daily_limit\?, daily_reserve_quota\? \} when provider is google/);
     expect(() => parseAdDetectAgentConfig({ provider: "google", api_key: "key", model: "m", headers: { "x-a": "b" } }, "agent.json"))
-      .toThrow(/agent\.ad_detect must be exactly \{ provider, api_key, base_url\?, model \} when provider is google/);
+      .toThrow(/agent\.ad_detect must be exactly \{ provider, api_key, base_url\?, model, use_decision\? \} when provider is google/);
     expect(() => parseAgentDeploymentConfig({
       ...AGENT,
       tts: { provider: "openai", api_key: "key", model: "m", speech_protocol: "openai", voice: "Leda", headers: { "x-a": "b" } },
@@ -414,6 +414,68 @@ describe("agent capability provider fields", () => {
       ...AGENT,
       image: { provider: "openai", api_key: "key", model: "m", image_protocol: "xai", headers: { "x-a": "b" } },
     }, "agent.json")).toThrow(/agent\.image must be exactly \{ provider, api_key, base_url\?, model, image_protocol, max_reference_images\? \} when provider is openai/);
+  });
+
+  test("ad_detect 的 use_decision 仅在 google provider 下可选：缺省 false，非布尔拒绝，其余 provider 与普通能力拒绝", () => {
+    expect(parseAdDetectAgentConfig({
+      provider: "google",
+      api_key: "google-key",
+      model: "gemini-ad",
+    }, "agent.json")).toStrictEqual({
+      provider: "google",
+      apiKey: "google-key",
+      baseUrl: undefined,
+      model: "gemini-ad",
+      useDecision: false,
+    });
+    expect(parseAdDetectAgentConfig({
+      provider: "google",
+      api_key: "google-key",
+      model: "gemini-decision",
+      use_decision: true,
+    }, "agent.json")).toStrictEqual({
+      provider: "google",
+      apiKey: "google-key",
+      baseUrl: undefined,
+      model: "gemini-decision",
+      useDecision: true,
+    });
+    expect(parseAdDetectAgentConfig({
+      provider: "google",
+      api_key: "google-key",
+      model: "gemini-ad",
+      use_decision: false,
+    }, "agent.json")).toStrictEqual({
+      provider: "google",
+      apiKey: "google-key",
+      baseUrl: undefined,
+      model: "gemini-ad",
+      useDecision: false,
+    });
+    for (const invalid of ["true", 1, 0, null, {}, []]) {
+      expect(() => parseAdDetectAgentConfig({
+        provider: "google",
+        api_key: "google-key",
+        model: "gemini-ad",
+        use_decision: invalid,
+      }, "agent.json")).toThrow("agent.json: $.agent.ad_detect.use_decision must be a boolean");
+    }
+    expect(() => parseAdDetectAgentConfig({
+      provider: "openai",
+      api_key: "key",
+      model: "m",
+      use_decision: true,
+    }, "agent.json")).toThrow(/agent\.ad_detect must be exactly \{ provider, api_key, base_url\?, model \} when provider is openai/);
+    expect(() => parseAdDetectAgentConfig({
+      provider: "anthropic",
+      api_key: "key",
+      model: "m",
+      use_decision: false,
+    }, "agent.json")).toThrow(/agent\.ad_detect must be exactly \{ provider, api_key, base_url\?, model, fallback_model\? \} when provider is anthropic/);
+    expect(() => parseAgentDeploymentConfig({
+      ...AGENT,
+      text: { provider: "google", api_key: "key", model: "m", use_decision: true },
+    }, "agent.json")).toThrow(/agent\.text must be exactly \{ provider, api_key, base_url\?, model \} when provider is google/);
   });
 
 });
@@ -599,6 +661,7 @@ describe("unified agent.json loading", () => {
       apiKey: "google-key",
       baseUrl: undefined,
       model: "gemini-ad",
+      useDecision: false,
     });
   });
 
@@ -693,6 +756,10 @@ describe("unified agent.json loading", () => {
       }
       // @ts-expect-error ad_detect 能力配置为只读。
       adDetect.model = "replacement";
+      if (adDetect.provider === "google") {
+        // @ts-expect-error google ad_detect 的 useDecision 为只读。
+        adDetect.useDecision = true;
+      }
     };
     expect(assertReadonly).toBeDefined();
   });

@@ -364,31 +364,43 @@ export async function deriveClientMiniAppHandshakeKeys({
       `${MINI_APP_HANDSHAKE_HKDF_S2C_INFO_PREFIX}${contextSuffix}`
     );
 
-    const c2sKey: CryptoKey = await globalThis.crypto.subtle.deriveKey(
-      {
-        name: MINI_APP_HKDF_ALGORITHM,
-        hash: MINI_APP_HKDF_HASH,
-        salt,
-        info: c2sInfo,
-      },
-      hkdfBaseKey,
-      { name: "AES-GCM", length: MINI_APP_SESSION_KEY_BITS },
-      false,
-      ["encrypt"]
-    );
-    const s2cKey: CryptoKey = await globalThis.crypto.subtle.deriveKey(
-      {
-        name: MINI_APP_HKDF_ALGORITHM,
-        hash: MINI_APP_HKDF_HASH,
-        salt,
-        info: s2cInfo,
-      },
-      hkdfBaseKey,
-      { name: "AES-GCM", length: MINI_APP_SESSION_KEY_BITS },
-      false,
-      ["decrypt"]
-    );
-    return { c2sKey, s2cKey };
+    const [c2sResult, s2cResult]: readonly PromiseSettledResult<CryptoKey>[] =
+      await Promise.allSettled([
+        globalThis.crypto.subtle.deriveKey(
+          {
+            name: MINI_APP_HKDF_ALGORITHM,
+            hash: MINI_APP_HKDF_HASH,
+            salt,
+            info: c2sInfo,
+          },
+          hkdfBaseKey,
+          { name: "AES-GCM", length: MINI_APP_SESSION_KEY_BITS },
+          false,
+          ["encrypt"]
+        ),
+        globalThis.crypto.subtle.deriveKey(
+          {
+            name: MINI_APP_HKDF_ALGORITHM,
+            hash: MINI_APP_HKDF_HASH,
+            salt,
+            info: s2cInfo,
+          },
+          hkdfBaseKey,
+          { name: "AES-GCM", length: MINI_APP_SESSION_KEY_BITS },
+          false,
+          ["decrypt"]
+        ),
+      ]);
+    if (c2sResult?.status === "rejected") {
+      throw c2sResult.reason;
+    }
+    if (s2cResult?.status === "rejected") {
+      throw s2cResult.reason;
+    }
+    if (c2sResult?.status !== "fulfilled" || s2cResult?.status !== "fulfilled") {
+      throw new Error(MINI_APP_INVALID_HANDSHAKE_CODE);
+    }
+    return { c2sKey: c2sResult.value, s2cKey: s2cResult.value };
   } catch (error: unknown) {
     if (isMiniAppWebCryptoUnsupportedError(error)) {
       throw new Error(MINI_APP_WEBCRYPTO_UNSUPPORTED_CODE, { cause: error });

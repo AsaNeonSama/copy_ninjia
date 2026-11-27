@@ -1,3 +1,4 @@
+import { adPackBlacklists } from "./adPackBlacklist";
 import { chatQa } from "./chatQa";
 import { chatStates } from "./chatState";
 import { blocklistEntries, permissionList } from "./identityPolicy";
@@ -12,6 +13,7 @@ export const storageDatabaseSchema: Readonly<{
   pendingBlockedRemovals: typeof pendingBlockedRemovals;
   chatStates: typeof chatStates;
   chatQa: typeof chatQa;
+  adPackBlacklists: typeof adPackBlacklists;
   temporaryAdBypassEntries: typeof temporaryAdBypassEntries;
   storageMetadata: typeof storageMetadata;
 }> = {
@@ -20,6 +22,7 @@ export const storageDatabaseSchema: Readonly<{
   pendingBlockedRemovals,
   chatStates,
   chatQa,
+  adPackBlacklists,
   temporaryAdBypassEntries,
   storageMetadata,
 };

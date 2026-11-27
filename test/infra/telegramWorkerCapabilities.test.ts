@@ -212,7 +212,11 @@ test("上传与 CDN 下载均经主线程出站闸；跨 owner 调用和取消�
     expect(downloads).toBe(1);
     expect(calls.at(-1)?.method).toBe("getFile");
     owner = "antiRaid";
-    await expect(downloadTelegramFileFromMain({ fileId: "file", purpose: "vision" })).rejects.toThrow("unsupported Telegram capability");
+    await expect(downloadTelegramFileFromMain({ fileId: "file", purpose: "vision" }))
+      .resolves.toEqual({ status: "ok", bytes: new Uint8Array([3, 4]) });
+    expect(downloads).toBe(2);
+    await expect(downloadTelegramFileFromMain({ fileId: "file", purpose: "voice" }))
+      .rejects.toThrow("unsupported Telegram capability");
     owner = "ai";
     const controller: AbortController = new AbortController();
     controller.abort();
@@ -220,7 +224,7 @@ test("上传与 CDN 下载均经主线程出站闸；跨 owner 调用和取消�
     await expect(workerTelegramApi.sendMessage(-1001, "cancelled", {}, controller.signal as never))
       .rejects.toThrow("Telegram outbound request was aborted.");
     expect(calls.length).toBe(before);
-    expect(downloads).toBe(1);
+    expect(downloads).toBe(2);
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -34,6 +34,7 @@ import {
   stopAdDetectQueue,
   sweepAdDetect,
 } from "./antiRaid/adDetect/queue";
+import { releaseAdDetectDedupKey } from "./antiRaid/adDetect/queueState";
 import {
   clearChatFloodWindows,
   handleFloodCandidate,
@@ -51,7 +52,10 @@ import {
   resetWorkerChatKind,
 } from "./antiRaid/chatKind";
 import { bumpBlocklistRemovalEpoch } from "../cache/workers/antiRaid/blocklist";
-import { adoptAdDetectConfigMessage } from "./antiRaid/adDetect/config";
+import {
+  adoptAdDetectConfigMessage,
+  adoptAdPackBlacklistSyncMessage,
+} from "./antiRaid/adDetect/config";
 import { ANTI_RAID_CACHE_SWEEP_INTERVAL_MS } from "../consts/antiRaid/cache";
 import { clearChatAdminCache, resetAdminCache, sweepAdminCache } from "../cache/workers/antiRaid/admins";
 import { resetLinkedChannelCache, sweepLinkedChannelCache } from "../cache/workers/antiRaid/linkedChannels";
@@ -101,6 +105,9 @@ export function handleAntiRaidWorkerMessage(msg: AntiRaidWorkerMessage): void {
       adoptLogLevel(msg.logLevel);
       atmosphereState.current = msg.atmosphere;
       adoptAdDetectConfigMessage(msg);
+      break;
+    case "adPackBlacklistSync":
+      adoptAdPackBlacklistSyncMessage(msg);
       break;
     case "join":
       handleJoinEvent(msg, dispatchVerification);
@@ -172,8 +179,11 @@ export function handleAntiRaidWorkerMessage(msg: AntiRaidWorkerMessage): void {
     case "clearFloodControl":
       clearChatFloodWindows(msg.chatId);
       break;
-    case "temporaryAdBypassGranted":
+    case "clearIdentityAdDetect":
       clearIdentityAdDetect(msg.identityId);
+      break;
+    case "releaseAdDetectDedup":
+      releaseAdDetectDedupKey(msg.chatId, msg.senderId);
       break;
     case "botPermissionsChanged": {
       // 限制成员权限变为确证可用时，立即触发此前因缺权限拉长的私密模式解除重试。

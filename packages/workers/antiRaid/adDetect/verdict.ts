@@ -3,59 +3,53 @@
  * - 送检前由 `selectAdBundleEntries` 定格入选条目与水位；
  * - 先经 `./blacklistFastPath.ts` 执行贴纸与自定义表情包黑名单快路径，未命中时再调用 AI 分类；
  * - 按分类与归因结果分派：非广告/未知仅推进 `checkedSeq`，命中黑名单或本人姓名/正文命中广告直接处置，
- *   仅引用内容命中广告且未处于警告窗口时先发警告并删除警告前消息，警告窗口内再次命中则升级处置。
+ *   仅引用内容命中广告且未处于警告窗口时交由 `./referencedWarning.ts` 发警告并清理警告前消息，警告窗口内再次命中则升级处置。
  */
 
 import {
   matchCustomEmojiBlacklistFastPath,
   matchStickerBlacklistFastPath,
 } from "./blacklistFastPath";
+import type { CustomEmojiBlacklistMatchResult } from "./blacklistFastPath";
 import { classifyAdText } from "./classifier";
-import {
-  deleteReferencedAdMessages,
-  disposeAdSender,
-  warnReferencedAdSender,
-} from "./disposal";
-import { getAdDetectConfig } from "../../../config/adDetectConfig";
-import { deleteMessage, telegramApi } from "../../../infra/telegram";
+import { disposeAdSender } from "./disposal";
+import { resolveAdBundleMedia } from "./media";
+import { warnReferencedOnlySender } from "./referencedWarning";
+import { adDetectAgentConfigSnapshot } from "../../../config/agent";
 import { isChatAdmin } from "../adminCache";
 import { logger } from "../../../infra/logger";
 import {
   adVerdictTruePublishHolder,
   adDetectStopping,
+  adDetectVisionSupport,
+  adPackBlacklistCounts,
   inFlightAdDetectKeys,
   recentlyDisposedAdKeys,
   referencedAdWarningStates,
 } from "../../../cache/workers/antiRaid/adDetect";
-import { AD_REFERENCE_WARNING_WINDOW_MS } from "../../../consts/antiRaid/adDetect";
+import { EMPTY_RESOLVED_AD_BUNDLE_MEDIA } from "../../../consts/antiRaid/adDetect/limits";
+import { collectValidStickerPackNames } from "../../../libs/stickerPackNames";
 import {
-  claimSampleContextParts,
   containsReferencedAdContent,
   formatAdBundleText,
   formatDirectAdBundleText,
   selectAdBundleEntries,
 } from "./bundle";
 import {
-  beginReferencedAdWarning,
-  cancelReferencedAdWarning,
-  completeReferencedAdWarning,
-} from "./referencePolicy";
-import {
   deletePendingAdBundle,
   pendingAdBundle,
   requeueIfUnchecked,
 } from "./queueState";
 import type {
+  AdBundleMediaSlice,
   AdBundleSelection,
   AdCandidateEntry,
   AdMessageBundle,
   AdVerdict,
+  ClassifyAdBundleOptions,
+  ResolvedAdBundleMedia,
 } from "../../../types/antiRaid/adDetect";
-import type { AdDetectConfig } from "../../../types/config";
-import type {
-  TelegramWorkerTemporaryMessageResult,
-  TelegramWorkerTemporaryMessageSentResult,
-} from "../../../types/telegramWorker";
+import type { AdDetectAgentConfig } from "../../../types/config";
 
 /**
  * 核查发送者是否为本群管理员（频道身份直接返回 false，真人成员经 `isChatAdmin` 查询）。
@@ -75,25 +69,127 @@ type AdDetectionOutcome =
   | { readonly kind: "directAd"; readonly verdict: AdVerdict }
   | { readonly kind: "referencedOnly"; readonly verdict: AdVerdict };
 
-/**
- * 检查本次送检是否存在尚未做过 AI 文本判定的非空文本条目。
- *
- * @param bundle 待检消息束。
- * @param judged 本次送检入选的条目快照。
- * @returns 任一未检条目（`seq > bundle.checkedSeq`）含有非空 `text` 时返回 `true`。
- */
-function hasUncheckedAdText(
-  bundle: AdMessageBundle,
-  judged: readonly AdCandidateEntry[]
-): boolean {
-  for (const entry of judged) {
-    if (entry.seq > bundle.checkedSeq && entry.text.length > 0) return true;
-  }
-  return false;
+/** 本次送检条目快照中文本与视觉媒体的单遍扫描摘要。 */
+interface AdBundleContentSummary {
+  /** 任一未检条目（`seq > bundle.checkedSeq`）含有非空送检文本。 */
+  readonly hasUncheckedText: boolean;
+  /** 任一未检条目（`seq > bundle.checkedSeq`）携带视觉媒体标识。 */
+  readonly hasUncheckedMedia: boolean;
+  /** 任一条目（含已判上下文）携带视觉媒体标识。 */
+  readonly hasAnyMedia: boolean;
 }
 
 /**
- * 对选中条目按「贴纸与自定义表情黑名单快路径 -> AI 分类与引用归因」顺序执行检测。
+ * 检查单条候选条目是否携带可供视觉检测的媒体标识（贴纸、普通图片/图片文件或自定义表情）。
+ *
+ * @param entry 候选条目。
+ * @returns 携带任一视觉媒体标识时返回 `true`。
+ */
+function hasEntryAdMedia(entry: AdCandidateEntry): boolean {
+  return (
+    entry.stickerFileId !== undefined ||
+    entry.imageFileId !== undefined ||
+    (entry.customEmojiIds !== undefined && entry.customEmojiIds.length > 0)
+  );
+}
+
+/**
+ * 单遍扫描本次送检条目快照，汇总未检文本、未检视觉媒体与整串视觉媒体的存在性。
+ *
+ * @param bundle 待检消息束（提供已检水位 `checkedSeq`）。
+ * @param judged 本次送检入选的条目快照。
+ * @returns 条目快照的文本与视觉媒体摘要。
+ */
+function summarizeBundleEntries(
+  bundle: AdMessageBundle,
+  judged: readonly AdCandidateEntry[]
+): AdBundleContentSummary {
+  let hasUncheckedText: boolean = false;
+  let hasUncheckedMedia: boolean = false;
+  let hasAnyMedia: boolean = false;
+  for (const entry of judged) {
+    const isUnchecked: boolean = entry.seq > bundle.checkedSeq;
+    if (isUnchecked && entry.text.length > 0) {
+      hasUncheckedText = true;
+    }
+    if (hasEntryAdMedia(entry)) {
+      hasAnyMedia = true;
+      if (isUnchecked) hasUncheckedMedia = true;
+    }
+    if (hasUncheckedText && hasUncheckedMedia) break;
+  }
+  return { hasUncheckedText, hasUncheckedMedia, hasAnyMedia };
+}
+
+/**
+ * 组装交给分类器的单次多模态请求入参（保持固定对象形态，空数组字段显式置为 `undefined`）。
+ *
+ * @param text 按行编号的待判定消息文本。
+ * @param justJoined 发送者是否处于入群验证窗口内。
+ * @param slice 本轮对应的多模态附件与包归因候选切片。
+ * @returns 广告消息束分类入参。
+ */
+function buildClassifyOptions(
+  text: string,
+  justJoined: boolean,
+  slice: AdBundleMediaSlice
+): ClassifyAdBundleOptions {
+  return {
+    text,
+    justJoined,
+    attachments: slice.attachments.length > 0 ? slice.attachments : undefined,
+    stickerPackCandidates:
+      slice.stickerPackCandidates.length > 0 ? slice.stickerPackCandidates : undefined,
+    emojiPackCandidates:
+      slice.emojiPackCandidates.length > 0 ? slice.emojiPackCandidates : undefined,
+  };
+}
+
+/**
+ * 将模型返回的广告包归因列表与本轮候选集合求交集，并按 `STICKER_PACK_NAME_PATTERN` 校验后去重。
+ *
+ * @param returned 模型返回的原始包名列表。
+ * @param candidates 本轮送检实际附带视觉素材的合法候选包名列表。
+ * @returns 过滤后的去重包名列表；无有效条目时返回 `undefined`。
+ */
+function filterAttributedPacks(
+  returned: readonly string[] | undefined,
+  candidates: readonly string[]
+): readonly string[] | undefined {
+  if (returned === undefined || returned.length === 0 || candidates.length === 0) {
+    return undefined;
+  }
+  const filtered: string[] = collectValidStickerPackNames(returned, {
+    allowed: new Set<string>(candidates),
+  });
+  return filtered.length > 0 ? filtered : undefined;
+}
+
+/**
+ * 清洗模型广告判定结果中的贴纸包与自定义表情包归因字段：仅保留本轮候选内且合法的包名，空数组省略。
+ *
+ * @param verdict 模型返回的原始广告判定结果。
+ * @param slice 本轮送检对应的多模态切片。
+ * @returns 清洗归因字段后的广告判定结果。
+ */
+function sanitizePackAttribution(
+  verdict: AdVerdict,
+  slice: AdBundleMediaSlice
+): AdVerdict {
+  const adStickerPacks: readonly string[] | undefined =
+    filterAttributedPacks(verdict.adStickerPacks, slice.stickerPackCandidates);
+  const adEmojiPacks: readonly string[] | undefined =
+    filterAttributedPacks(verdict.adEmojiPacks, slice.emojiPackCandidates);
+  return {
+    isAd: verdict.isAd,
+    reason: verdict.reason,
+    ...(adStickerPacks !== undefined ? { adStickerPacks } : {}),
+    ...(adEmojiPacks !== undefined ? { adEmojiPacks } : {}),
+  };
+}
+
+/**
+ * 对选中条目按「贴纸与自定义表情黑名单快路径 -> 视觉素材准备 -> AI 分类与引用归因」顺序执行检测。
  *
  * @param bundle 待检消息束。
  * @param judged 本次送检入选的条目快照。
@@ -104,25 +200,51 @@ async function classifyAdBundle(
   judged: readonly AdCandidateEntry[]
 ): Promise<AdDetectionOutcome> {
   let combinedVerdict: AdVerdict | null;
+  let media: ResolvedAdBundleMedia;
   try {
-    const { stickerBlackList, emojiBlackList }: AdDetectConfig = getAdDetectConfig();
-    const stickerVerdict: AdVerdict | null =
-      matchStickerBlacklistFastPath(bundle, judged, stickerBlackList);
-    if (stickerVerdict !== null) {
-      return { kind: "directAd", verdict: stickerVerdict };
-    }
-    if (emojiBlackList.size > 0) {
-      const emojiVerdict: AdVerdict | null =
-        await matchCustomEmojiBlacklistFastPath(bundle, judged, emojiBlackList);
-      if (emojiVerdict !== null) {
-        return { kind: "directAd", verdict: emojiVerdict };
+    if (adPackBlacklistCounts.sticker > 0) {
+      const stickerVerdict: AdVerdict | null =
+        await matchStickerBlacklistFastPath(bundle, judged);
+      if (stickerVerdict !== null) {
+        return { kind: "directAd", verdict: stickerVerdict };
       }
     }
-    if (!hasUncheckedAdText(bundle, judged)) return { kind: "notAd" };
-    combinedVerdict = await classifyAdText({
-      text: formatAdBundleText(judged),
-      justJoined: bundle.justJoined,
-    });
+    let emojiQueryFailed: boolean = false;
+    if (adPackBlacklistCounts.emoji > 0) {
+      const emojiMatch: CustomEmojiBlacklistMatchResult =
+        await matchCustomEmojiBlacklistFastPath(bundle, judged);
+      if (emojiMatch.verdict !== null) {
+        return { kind: "directAd", verdict: emojiMatch.verdict };
+      }
+      emojiQueryFailed = emojiMatch.queryFailed;
+    }
+    const summary: AdBundleContentSummary = summarizeBundleEntries(bundle, judged);
+    if (!summary.hasUncheckedText && !summary.hasUncheckedMedia) return { kind: "notAd" };
+
+    const agentConfig: AdDetectAgentConfig | null = adDetectAgentConfigSnapshot();
+    const isGoogleDecision: boolean =
+      agentConfig?.provider === "google" && agentConfig.useDecision;
+    const skipMediaDownloads: boolean =
+      adDetectVisionSupport.current === "unsupported" && !isGoogleDecision;
+    if (skipMediaDownloads && !summary.hasUncheckedText) return { kind: "notAd" };
+
+    media = !skipMediaDownloads && summary.hasAnyMedia
+      ? await resolveAdBundleMedia({
+        bundle,
+        judged,
+        hasUncheckedText: summary.hasUncheckedText,
+        skipCustomEmojiNetworkQuery: emojiQueryFailed,
+      })
+      : EMPTY_RESOLVED_AD_BUNDLE_MEDIA;
+    if (!summary.hasUncheckedText && !media.hasUncheckedAttachments) {
+      return { kind: "notAd" };
+    }
+    const combinedOptions: ClassifyAdBundleOptions = buildClassifyOptions(
+      formatAdBundleText(judged),
+      bundle.justJoined,
+      media.combined
+    );
+    combinedVerdict = await classifyAdText(combinedOptions);
   } catch (error: unknown) {
     logger.error(
       "Ad detection failed to classify sender:",
@@ -134,18 +256,21 @@ async function classifyAdBundle(
   if (combinedVerdict === null) return { kind: "unknown" };
   if (!combinedVerdict.isAd) return { kind: "notAd" };
   if (!containsReferencedAdContent(judged)) {
-    return { kind: "directAd", verdict: combinedVerdict };
+    return { kind: "directAd", verdict: sanitizePackAttribution(combinedVerdict, media.combined) };
   }
 
+  const referencedVerdict: AdVerdict = { isAd: true, reason: combinedVerdict.reason };
   const directText: string = formatDirectAdBundleText(judged);
-  if (directText.length === 0) {
-    return { kind: "referencedOnly", verdict: combinedVerdict };
+  if (directText.length === 0 && media.direct.attachments.length === 0) {
+    return { kind: "referencedOnly", verdict: referencedVerdict };
   }
   try {
-    const directVerdict: AdVerdict | null = await classifyAdText({
-      text: directText,
-      justJoined: bundle.justJoined,
-    });
+    const directOptions: ClassifyAdBundleOptions = buildClassifyOptions(
+      directText,
+      bundle.justJoined,
+      media.direct
+    );
+    const directVerdict: AdVerdict | null = await classifyAdText(directOptions);
     if (directVerdict === null) {
       logger.error(
         "Ad detection could not attribute referenced content; the direct-content classifier returned no verdict.",
@@ -154,8 +279,8 @@ async function classifyAdBundle(
       return { kind: "unknown" };
     }
     return directVerdict.isAd
-      ? { kind: "directAd", verdict: directVerdict }
-      : { kind: "referencedOnly", verdict: combinedVerdict };
+      ? { kind: "directAd", verdict: sanitizePackAttribution(directVerdict, media.direct) }
+      : { kind: "referencedOnly", verdict: referencedVerdict };
   } catch (error: unknown) {
     logger.error(
       "Ad detection failed to attribute referenced content:",
@@ -174,70 +299,6 @@ async function classifyAdBundle(
  */
 function selectedWithinReferencedWarning(selection: AdBundleSelection): boolean {
   return selection.entries.at(-1)?.withinReferencedWarning === true;
-}
-
-/**
- * 提取本次送检条目快照中的最大消息 ID；快照为空时返回 0。
- *
- * @param entries 本次送检入选的条目列表。
- * @returns 最大 `messageId`。
- */
-function maxMessageId(entries: readonly AdCandidateEntry[]): number {
-  let maxId: number = 0;
-  for (const entry of entries) {
-    if (entry.messageId > maxId) maxId = entry.messageId;
-  }
-  return maxId;
-}
-
-/**
- * 裁剪不晚于 `messageIdThrough` 的已处置条目与待删 ID，并按保留条目的不可变 `senderText`
- * 重新计算引用去重；给出 `warningSentAt` 时同步刷新剩余条目的警告窗口标记（`AD_REFERENCE_WARNING_WINDOW_MS`）。
- *
- * @param bundle 待检消息束。
- * @param messageIdThrough 已触发清理的消息 ID 上界（含）。
- * @param warningSentAt 公开警告消息发送时刻；警告发送失败时缺省，不改写既有窗口标记。
- */
-function retainPostWarningContent(
-  bundle: AdMessageBundle,
-  messageIdThrough: number,
-  warningSentAt?: number
-): void {
-  const retainedEntries: AdCandidateEntry[] = [];
-  for (const entry of bundle.entries) {
-    if (entry.messageId <= messageIdThrough) continue;
-    if (
-      entry.text.length > 0 &&
-      (entry.quote !== undefined || entry.replyTo !== undefined)
-    ) {
-      entry.text = claimSampleContextParts(
-        entry.senderText,
-        entry,
-        retainedEntries
-      );
-    }
-    if (warningSentAt !== undefined) {
-      entry.withinReferencedWarning =
-        entry.receivedAt - warningSentAt < AD_REFERENCE_WARNING_WINDOW_MS;
-    }
-    retainedEntries.push(entry);
-  }
-  bundle.entries = retainedEntries;
-
-  let pendingIdWriteIndex: number = 0;
-  for (const messageId of bundle.pendingDeleteIds) {
-    if (messageId <= messageIdThrough) continue;
-    bundle.pendingDeleteIds[pendingIdWriteIndex] = messageId;
-    pendingIdWriteIndex++;
-  }
-  bundle.pendingDeleteIds.length = pendingIdWriteIndex;
-
-  if (
-    bundle.entries.length === 0 &&
-    bundle.pendingDeleteIds.length === 0
-  ) {
-    deletePendingAdBundle(bundle.chatId, bundle.senderId);
-  }
 }
 
 /**
@@ -308,90 +369,5 @@ export async function detectOne(
   deletePendingAdBundle(bundle.chatId, bundle.senderId);
   recentlyDisposedAdKeys.set(key, performance.now());
   referencedAdWarningStates.delete(key);
-  await disposeAdSender({ bundle, verdict: outcome.verdict, judged });
-}
-
-/**
- * 处理首次引用类广告命中：在 `inFlightAdDetectKeys` 保护下发送公开警告、删除警告前消息并保留警告后新消息重排。
- *
- * @param key `chatId:userId` 格式的队列键。
- * @param bundle 待检消息束。
- * @param judged 本次送检入选的条目快照。
- */
-async function warnReferencedOnlySender(
-  key: string,
-  bundle: AdMessageBundle,
-  judged: readonly AdCandidateEntry[]
-): Promise<void> {
-  const warningGeneration: number | undefined =
-    beginReferencedAdWarning(key);
-  if (warningGeneration === undefined) return;
-  inFlightAdDetectKeys.add(key);
-  try {
-    let warningResult: TelegramWorkerTemporaryMessageResult | undefined;
-    try {
-      warningResult = await warnReferencedAdSender(bundle);
-    } catch (error: unknown) {
-      logger.error(
-        "Ad detection failed to send referenced-ad warning:",
-        { chatId: bundle.chatId, senderId: bundle.senderId },
-        error
-      );
-    }
-    if (
-      warningResult !== undefined &&
-      "suppressed" in warningResult
-    ) {
-      cancelReferencedAdWarning(key, warningGeneration);
-      if (pendingAdBundle(bundle.chatId, bundle.senderId) === bundle) {
-        deletePendingAdBundle(bundle.chatId, bundle.senderId);
-      }
-      return;
-    }
-    const warning: TelegramWorkerTemporaryMessageSentResult | undefined =
-      warningResult;
-    if (warning === undefined) {
-      cancelReferencedAdWarning(key, warningGeneration);
-      if (
-        !adDetectStopping.current &&
-        pendingAdBundle(bundle.chatId, bundle.senderId) === bundle
-      ) {
-        const messageIdThrough: number = maxMessageId(judged);
-        deleteReferencedAdMessages({
-          bundle,
-          judged,
-          messageIdThrough,
-        });
-        retainPostWarningContent(bundle, messageIdThrough);
-      }
-      return;
-    }
-    if (
-      adDetectStopping.current ||
-      pendingAdBundle(bundle.chatId, bundle.senderId) !== bundle ||
-      !completeReferencedAdWarning(
-        key,
-        warningGeneration,
-        warning.sentAt
-      )
-    ) {
-      cancelReferencedAdWarning(key, warningGeneration);
-      void deleteMessage(bundle.chatId, warning.messageId, telegramApi);
-      return;
-    }
-    deleteReferencedAdMessages({
-      bundle,
-      judged,
-      messageIdThrough: warning.messageId,
-    });
-    retainPostWarningContent(bundle, warning.messageId, warning.sentAt);
-  } finally {
-    inFlightAdDetectKeys.delete(key);
-    if (!adDetectStopping.current) {
-      const current: AdMessageBundle | undefined = pendingAdBundle(bundle.chatId, bundle.senderId);
-      if (current !== undefined) {
-        requeueIfUnchecked(key, current);
-      }
-    }
-  }
+  disposeAdSender({ bundle, verdict: outcome.verdict, judged });
 }

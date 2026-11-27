@@ -9,6 +9,7 @@
 @import "./styles/chats-targets.css";
 @import "./styles/identities.css";
 @import "./styles/configs.css";
+@import "./styles/ad-blacklists.css";
 @import "./styles/overlays.css";
 @import "./styles/pagination.css";
 @import "./styles/gallery.css";

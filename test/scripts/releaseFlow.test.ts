@@ -3,8 +3,14 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
-import { createReleaseCommand, readBuildSourceTree } from "../../scripts/release/command";
+import {
+  createReleaseCommand,
+  listTrackedBundledSourceFiles,
+  readBuildSourceTree,
+  tryListTrackedBundledSourceFiles,
+} from "../../scripts/release/command";
 import type { CommandResult, ReleaseCommand } from "../../scripts/release/command";
+import { stageBundledSourceFiles } from "../../scripts/build";
 import { ACTIVE_COLD_MIGRATION_EDGES } from "../../scripts/migrations/active";
 import { fileSha256 } from "../../scripts/fileSha256";
 import { verifyReleaseAssets } from "../../scripts/release/assets";
@@ -85,10 +91,15 @@ async function fixture(
   }
   if (defect !== "missing-runtime") await Bun.write(join(content, "scripts/install/runtime.js"), "export {};\n");
   if (defect === "node-modules") await Bun.write(join(content, "node_modules/mock/index.js"), "export {};\n");
+  if (defect === "extra-ignored-env") await Bun.write(join(content, "config_example/.env"), "SECRET=1\n");
+  if (defect === "extra-ds-store") await Bun.write(join(content, "LICENSES/.DS_Store"), "junk\n");
+  if (defect === "extra-directory") mkdirSync(join(content, "config_example/logs"), { recursive: true });
+  if (defect === "extra-symlink") symlinkSync("LICENSE", join(content, "LICENSES/extra-link"));
   for (const path of migrationPaths) await Bun.write(join(content, path), "export {};\n");
   const archive: string = join(root, "copy-ninjia-linux-x64.tar.gz");
   const members: readonly string[] = defect === "duplicate-executable" ? ["copy-ninjia", "copy-ninjia/copy-ninjia"]
     : defect === "duplicate-bundled" ? ["copy-ninjia", "copy-ninjia/install.sh"]
+    : defect === "duplicate-directory" ? ["copy-ninjia", "--no-recursion", "copy-ninjia/LICENSES"]
     : defect === "mode-decoy" ? ["copy-ninjia/decoy copy-ninjia", "copy-ninjia"] : ["copy-ninjia"];
   const result: CapturedCommandResult = await runCapturedCommand({ cmd: ["tar", "-czf", archive, ...members], cwd: join(root, "content") });
   expect(result.exitCode).toBe(0);
@@ -229,6 +240,121 @@ describe("发布资产与谱系", (): void => {
     const { root }: { root: string } = await fixture({}, paths);
     await expect(verifiedAssets(root)).rejects.toThrow("exactly the active migration bundles and no source maps");
   });
+  test.each([
+    "extra-ignored-env",
+    "extra-ds-store",
+    "extra-directory",
+    "extra-symlink",
+    "duplicate-directory",
+  ])("拒绝发行包白名单之外的额外文件、忽略文件、目录或符号链接：%s", async (defect: string): Promise<void> => {
+    const { root }: { root: string } = await fixture({}, undefined, defect);
+    await expect(verifiedAssets(root)).rejects.toThrow("unexpected archive entry");
+  });
+
+  test("stageBundledSourceFiles 在 Git 工作树内严格只复制受跟踪文件并跳过 .gitignore 忽略文件，无 Git 源码包回退目录树复制", async (): Promise<void> => {
+    const workRoot: string = mkdtempSync(join(tmpdir(), "copy-ninjia-stage-test-"));
+    roots.push(workRoot);
+    const repo: string = join(workRoot, "repo");
+    for (const relPath of BUNDLED_TRACKED_FILES) {
+      await Bun.write(join(repo, relPath), Bun.file(join(PROJECT_ROOT, relPath)));
+    }
+    await Bun.write(join(repo, ".gitignore"), Bun.file(join(PROJECT_ROOT, ".gitignore")));
+
+    const repoCommand: ReleaseCommand = createReleaseCommand(repo);
+    expect(repoCommand(["git", "init", "-q"]).exitCode).toBe(0);
+    expect(repoCommand(["git", "config", "user.email", "test@example.invalid"]).exitCode).toBe(0);
+    expect(repoCommand(["git", "config", "user.name", "Test"]).exitCode).toBe(0);
+    expect(repoCommand(["git", "add", "."]).exitCode).toBe(0);
+    expect(repoCommand(["git", "commit", "-q", "-m", "init"]).exitCode).toBe(0);
+
+    // 在 RELEASE_BUNDLED_PATHS 内写入 .gitignore 忽略文件与未跟踪杂项。
+    await Bun.write(join(repo, "config_example/.env"), "SECRET_LEAK=1\n");
+    await Bun.write(join(repo, "config_example/g-auth.json"), "{\"private_key\":\"leak\"}\n");
+    await Bun.write(join(repo, "LICENSES/.DS_Store"), "mac-junk\n");
+    await Bun.write(join(repo, "packages/mini-app-api-server/resource/.env"), "SECRET_LEAK=2\n");
+
+    const sourceTree: string | null = readBuildSourceTree(repoCommand);
+    expect(sourceTree).not.toBeNull();
+    expect(listTrackedBundledSourceFiles(repoCommand)).toEqual(BUNDLED_TRACKED_FILES);
+
+    const stagedClean: string = join(workRoot, "staged-clean");
+    mkdirSync(stagedClean, { recursive: true });
+    await stageBundledSourceFiles({
+      projectRoot: repo,
+      packageRoot: stagedClean,
+      sourceCommand: repoCommand,
+      sourceTree,
+    });
+    for (const relPath of BUNDLED_TRACKED_FILES) {
+      expect(await Bun.file(join(stagedClean, relPath)).exists()).toBeTrue();
+    }
+    for (const leaked of [
+      "config_example/.env",
+      "config_example/g-auth.json",
+      "LICENSES/.DS_Store",
+      "packages/mini-app-api-server/resource/.env",
+    ]) {
+      expect(await Bun.file(join(stagedClean, leaked)).exists()).toBeFalse();
+    }
+
+    // 脏开发树（sourceTree === null）位于 Git 仓库内同样只复制受跟踪文件。
+    await Bun.write(join(repo, "LICENSES/untracked-note.txt"), "local\n");
+    expect(readBuildSourceTree(repoCommand)).toBeNull();
+    const stagedDirty: string = join(workRoot, "staged-dirty");
+    mkdirSync(stagedDirty, { recursive: true });
+    await stageBundledSourceFiles({
+      projectRoot: repo,
+      packageRoot: stagedDirty,
+      sourceCommand: repoCommand,
+      sourceTree: null,
+    });
+    expect(await Bun.file(join(stagedDirty, "LICENSES/untracked-note.txt")).exists()).toBeFalse();
+    expect(await Bun.file(join(stagedDirty, "config_example/.env")).exists()).toBeFalse();
+
+    // 干净 sourceTree 但缺少 Git 执行器时 fail-closed 拒绝。
+    await expect(
+      stageBundledSourceFiles({
+        projectRoot: repo,
+        packageRoot: join(workRoot, "staged-invalid"),
+        sourceCommand: null,
+        sourceTree: TREE,
+      })
+    ).rejects.toThrow("Clean sourceTree build requires a Git command runner.");
+
+    // 无 Git 工作树（如源码归档）且 sourceTree === null 时回退目录树与 Glob 复制。
+    const plainSource: string = join(workRoot, "plain-source");
+    for (const relPath of BUNDLED_TRACKED_FILES) {
+      await Bun.write(join(plainSource, relPath), Bun.file(join(PROJECT_ROOT, relPath)));
+    }
+    const failingGit: ReleaseCommand = (): CommandResult => ({ exitCode: 128, stdout: "" });
+    const emptyGit: ReleaseCommand = (): CommandResult => ({ exitCode: 0, stdout: "" });
+    expect(tryListTrackedBundledSourceFiles(failingGit)).toBeNull();
+    expect(tryListTrackedBundledSourceFiles(emptyGit)).toBeNull();
+    expect((): readonly string[] => listTrackedBundledSourceFiles(emptyGit)).toThrow(
+      "No tracked bundled source files found in Git index."
+    );
+    const stagedFallback: string = join(workRoot, "staged-fallback");
+    mkdirSync(stagedFallback, { recursive: true });
+    await stageBundledSourceFiles({
+      projectRoot: plainSource,
+      packageRoot: stagedFallback,
+      sourceCommand: failingGit,
+      sourceTree: null,
+    });
+    for (const relPath of BUNDLED_TRACKED_FILES) {
+      expect(await Bun.file(join(stagedFallback, relPath)).exists()).toBeTrue();
+    }
+    const stagedNoGit: string = join(workRoot, "staged-no-git");
+    mkdirSync(stagedNoGit, { recursive: true });
+    await stageBundledSourceFiles({
+      projectRoot: plainSource,
+      packageRoot: stagedNoGit,
+      sourceCommand: null,
+      sourceTree: null,
+    });
+    expect(await Bun.file(join(stagedNoGit, "install.sh")).exists()).toBeTrue();
+  });
+
   test("本地未提交改动不能获得发布用 Git tree", (): void => {
     expect(readBuildSourceTree(() => ({ exitCode: 0, stdout: " M scripts/build.ts\n" }))).toBeNull();
     expect(readBuildSourceTree((args) => ({ exitCode: 0, stdout: args[1] === "status" ? "" : TREE }))).toBe(TREE);

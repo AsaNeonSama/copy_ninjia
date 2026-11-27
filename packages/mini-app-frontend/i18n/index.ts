@@ -126,6 +126,7 @@ export function extractServerNoticeParams(
         ? (record.key as WhitelistPermissionKey)
         : undefined,
     value: typeof record.value === "boolean" ? record.value : undefined,
+    changed: typeof record.changed === "boolean" ? record.changed : undefined,
     persisted: typeof record.persisted === "boolean" ? record.persisted : undefined,
     affectedChats:
       typeof record.affectedChats === "number" ? record.affectedChats : undefined,
@@ -175,6 +176,11 @@ export function extractServerNoticeParams(
         : typeof record.error === "string"
           ? record.error
           : undefined,
+    kind:
+      record.kind === "sticker" || record.kind === "emoji"
+        ? record.kind
+        : undefined,
+    pack: typeof record.pack === "string" ? record.pack : undefined,
   };
 }
 

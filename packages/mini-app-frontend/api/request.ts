@@ -32,6 +32,7 @@ import { asPayloadRecord } from "../libs/record";
 import { readMiniAppInitData } from "../libs/telegram";
 import {
   clearLocalMiniAppSessionIfMatching,
+  createMiniAppAuthError,
   throwMiniAppRecordError,
 } from "./authError";
 
@@ -246,7 +247,8 @@ export interface PreparedEncryptedMiniAppQueryRequest extends MiniAppSessionCryp
 
 /**
  * 读取当前活跃的会话令牌与 256-bit `AES-GCM` `CryptoKey` 快照；若并发滑动续期在异步导入密钥期间轮换了令牌与密钥，
- * 则追赶读取同一代次的最新凭据。本地缺少会话令牌或密钥时清除本地会话凭据并抛出 `[PASSWORD_REQUIRED] PASSWORD_REQUIRED`，
+ * 则追赶读取同一代次的最新凭据。本地缺少会话令牌或密钥时按发包令牌一致性清除本地会话凭据，并抛出附带
+ * `sentSessionToken` 上下文的 `[PASSWORD_REQUIRED] PASSWORD_REQUIRED` 异常（连续轮换耗尽追赶次数时不会误清或锁定已生效的新会话），
  * 加密 JSON、查询与二进制上传请求一律在发出前拦截。
  *
  * @returns `(sentSessionToken, cryptoKeyAtSend)` 快照
@@ -254,24 +256,32 @@ export interface PreparedEncryptedMiniAppQueryRequest extends MiniAppSessionCryp
 export async function resolveMiniAppSessionCryptoSnapshot(): Promise<MiniAppSessionCryptoSnapshot> {
   let sentSessionToken: string = readMiniAppSessionToken();
   let cryptoKeyAtSend: CryptoKey | null = await getMiniAppSessionCryptoKey();
-  const latestTokenBeforeEncrypt: string = readMiniAppSessionToken();
-  if (
-    latestTokenBeforeEncrypt.length > 0 &&
-    latestTokenBeforeEncrypt !== sentSessionToken &&
-    hasMiniAppSessionCryptoKey()
-  ) {
+  for (let attempt: number = 0; attempt < 3; attempt++) {
+    const latestTokenBeforeEncrypt: string = readMiniAppSessionToken();
+    if (latestTokenBeforeEncrypt.length === 0) {
+      break;
+    }
+    if (latestTokenBeforeEncrypt === sentSessionToken && cryptoKeyAtSend !== null) {
+      return { sentSessionToken, cryptoKeyAtSend };
+    }
+    if (!hasMiniAppSessionCryptoKey()) {
+      break;
+    }
     sentSessionToken = latestTokenBeforeEncrypt;
     cryptoKeyAtSend = await getMiniAppSessionCryptoKey();
   }
-  if (
-    latestTokenBeforeEncrypt.length === 0 ||
-    sentSessionToken.length === 0 ||
-    cryptoKeyAtSend === null
-  ) {
-    clearMiniAppSessionToken();
-    throw new Error("[PASSWORD_REQUIRED] PASSWORD_REQUIRED");
+  const activeToken: string = readMiniAppSessionToken();
+  if (activeToken.length > 0 && activeToken === sentSessionToken && cryptoKeyAtSend !== null) {
+    return { sentSessionToken, cryptoKeyAtSend };
   }
-  return { sentSessionToken, cryptoKeyAtSend };
+  if (activeToken.length === 0 || activeToken === sentSessionToken) {
+    clearMiniAppSessionToken();
+  }
+  throw createMiniAppAuthError(
+    "[PASSWORD_REQUIRED] PASSWORD_REQUIRED",
+    undefined,
+    sentSessionToken
+  );
 }
 
 /**
@@ -347,9 +357,10 @@ export async function decodeAndSyncEncryptedMiniAppResponse({
   } catch (error: unknown) {
     if (errorMessage(error) === MINI_APP_INVALID_ENCRYPTED_PAYLOAD_CODE) {
       clearLocalMiniAppSessionIfMatching(sentSessionToken);
-      throw new Error(
+      throw createMiniAppAuthError(
         `[PASSWORD_REQUIRED] ${MINI_APP_INVALID_ENCRYPTED_PAYLOAD_CODE}`,
-        { cause: error }
+        error,
+        sentSessionToken
       );
     }
     throw error;

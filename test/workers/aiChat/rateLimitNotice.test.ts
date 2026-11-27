@@ -1,10 +1,11 @@
 import { installTemporaryMessageWorkerMock } from "../../helpers/temporaryMessageWorkerMock";
 installTemporaryMessageWorkerMock();
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { aiRecordMessageFixture } from "../../helpers/aiMemoryFixtures";
 import { ATMOSPHERE_TEXTS } from "../../../packages/consts/atmosphere";
 import { SELF_SPEAKER_NAME } from "../../../packages/consts/aiChat/prompts/transcript";
 import { COMMAND_MESSAGE_AUTO_DELETE_MS } from "../../../packages/consts/commands";
+import { logger } from "../../../packages/infra/logger";
 
 /**
  * 限频/溢出提示的投递路径（replyState.ts 的 notifyRateLimited）：按群冷却，
@@ -43,7 +44,7 @@ beforeEach(() => {
   nextSentMessageId = 501;
   sendMessage.mockReset();
   sendMessage.mockImplementation(sendMessageStub);
-  recordChatMessage.mockClear();
+  recordChatMessage.mockReset();
   deleteMessageAfter.mockClear();
 });
 
@@ -102,6 +103,15 @@ describe("AI 限频提示", () => {
     expect(rateLimitNoticeTimes.get(CHAT_ID)).toBe(NOW + RATE_LIMIT_NOTICE_COOLDOWN_MS);
   });
 
+  test("墙钟回拨到上次提示时刻之前时不抑制新提示", async () => {
+    notifyRateLimited({ chatId: CHAT_ID, now: NOW, messageThreadId: undefined });
+    notifyRateLimited({ chatId: CHAT_ID, now: NOW - 1, messageThreadId: undefined });
+    await Bun.sleep(0);
+
+    expect(sendMessage).toHaveBeenCalledTimes(2);
+    expect(rateLimitNoticeTimes.get(CHAT_ID)).toBe(NOW - 1);
+  });
+
   test("提示没发出去时不写记忆，但冷却照常记账", async () => {
     nextSentMessageId = undefined;
 
@@ -132,5 +142,26 @@ describe("AI 限频提示", () => {
     await Bun.sleep(0);
 
     expect(recordChatMessage).not.toHaveBeenCalled();
+  });
+
+  test("发送或自录阶段抛错时记录 logger.error，不静默吞掉异常", async () => {
+    const errorLog = spyOn(logger, "error").mockImplementation((): void => {});
+    try {
+      const failure: Error = new Error("recordChatMessage exploded");
+      recordChatMessage.mockImplementationOnce((): void => {
+        throw failure;
+      });
+
+      notifyRateLimited({ chatId: CHAT_ID, now: NOW, messageThreadId: undefined });
+      await Bun.sleep(0);
+
+      expect(errorLog).toHaveBeenCalledWith(
+        "Failed to send or record rate-limit notice:",
+        { chatId: CHAT_ID },
+        failure
+      );
+    } finally {
+      errorLog.mockRestore();
+    }
   });
 });

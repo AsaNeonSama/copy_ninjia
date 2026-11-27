@@ -77,6 +77,7 @@ describe("Mini App 按钮悬停稳定性与弹窗字体渲染一致性", () => {
     const identitiesCss: string = cssByName.get("identities.css")!;
     const statusCss: string = cssByName.get("status.css")!;
     const galleryCss: string = cssByName.get("gallery.css")!;
+    const adBlacklistsCss: string = cssByName.get("ad-blacklists.css")!;
 
     // 1. 全局 `body` 统一启用灰度抗锯齿，且位于 `* {` 之后（处于 `reject.html` 内联头部镜像区间之外）。
     const bodyRuleBody: string = extractRuleBody(baseCss, /(?:^|\n)body\s*\{([^}]*)\}/u);
@@ -245,6 +246,29 @@ describe("Mini App 按钮悬停稳定性与弹窗字体渲染一致性", () => {
     );
     expect(chatTargetsBackdropBody).not.toContain("animation:");
     expect(chatTargetsBackdropBody).toContain("padding-top: round(nearest, clamp(24px, 7vh, 64px), 1px);");
+    const adBlacklistPreviewTop: string = "clamp(49px, calc(7vh + 25px), 89px)";
+    const adBlacklistPreviewBackdropBody: string = extractRuleBody(
+      adBlacklistsCss,
+      /(?:^|\n)\.confirm-backdrop\.ad-blacklist-preview-backdrop\s*\{([^}]*)\}/u
+    );
+    expect(adBlacklistPreviewBackdropBody).not.toContain("animation:");
+    expect(adBlacklistPreviewBackdropBody).toContain("align-items: flex-start;");
+    expect(adBlacklistPreviewBackdropBody).toContain(
+      `padding: ${adBlacklistPreviewTop} 14px 14px;`
+    );
+    expect(adBlacklistPreviewBackdropBody).toContain(
+      `padding-top: round(nearest, ${adBlacklistPreviewTop}, 1px);`
+    );
+    const adBlacklistPreviewModalBody: string = extractRuleBody(
+      adBlacklistsCss,
+      /(?:^|\n)\.ad-blacklist-preview-modal\s*\{([^}]*)\}/u
+    );
+    expect(adBlacklistPreviewModalBody).toContain(
+      `max-height: min(calc(100vh - ${adBlacklistPreviewTop} - 14px), 660px);`
+    );
+    expect(adBlacklistPreviewModalBody).toContain(
+      `max-height: min(calc(100dvh - ${adBlacklistPreviewTop} - 14px), 660px);`
+    );
     expect(extractRuleBody(overlaysCss, /(?:^|\n)\.toast\s*\{([^}]*)\}/u)).toContain(
       "width: min(calc(100vw - 24px), 560px);"
     );
@@ -260,6 +284,7 @@ describe("Mini App 按钮悬停稳定性与弹窗字体渲染一致性", () => {
       ["chats-detail.css .chat-targets-menu-popover", chatsDetailCss, /(?:^|\n)\.chat-targets-menu-popover\s*\{([^}]*)\}/u],
       ["chats-targets.css .chat-targets-modal", chatsTargetsCss, /(?:^|\n)\.chat-targets-modal\s*\{([^}]*)\}/u],
       ["chats-targets.css .chat-targets-lang-popover", chatsTargetsCss, /(?:^|\n)\.chat-targets-lang-popover\s*\{([^}]*)\}/u],
+      ["ad-blacklists.css .ad-blacklist-preview-modal", adBlacklistsCss, /(?:^|\n)\.ad-blacklist-preview-modal\s*\{([^}]*)\}/u],
       [
         "chats-targets.css .chat-targets-tab-content slide",
         chatsTargetsCss,
@@ -336,6 +361,7 @@ describe("Mini App 按钮悬停稳定性与弹窗字体渲染一致性", () => {
       ["chats-detail.css .chat-targets-menu-popover.closing", chatsDetailCss, /(?:^|\n)\.chat-targets-menu-popover\.closing\s*\{([^}]*)\}/u],
       ["chats-targets.css .chat-targets-modal.closing", chatsTargetsCss, /(?:^|\n)\.chat-targets-modal\.closing\s*\{([^}]*)\}/u],
       ["chats-targets.css .chat-targets-lang-popover.closing", chatsTargetsCss, /(?:^|\n)\.chat-targets-lang-popover\.closing\s*\{([^}]*)\}/u],
+      ["ad-blacklists.css .ad-blacklist-preview-modal.closing", adBlacklistsCss, /(?:^|\n)\.ad-blacklist-preview-modal\.closing\s*\{([^}]*)\}/u],
     ];
     for (const [label, css, pattern] of popupClosingLayerRules) {
       const body: string = extractRuleBody(css, pattern);

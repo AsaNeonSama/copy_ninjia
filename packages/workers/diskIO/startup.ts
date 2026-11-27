@@ -1,6 +1,5 @@
 /** Disk I/O Worker 启动恢复编排：全域只读 inspect、统一 adopt、成功后 maintenance。 */
 
-import { stickerCatalogCache } from "../../cache/workers/diskIO/stickers";
 import { resetWedFileWrites } from "../../cache/workers/diskIO/wed";
 import { inspectWedMemberFiles, maintainWedMemberFiles } from "./wedMemberFiles";
 import type { WedMemberInspection } from "./wedMemberFiles";
@@ -37,6 +36,7 @@ import {
   stopDiskIOMaintenanceCron,
 } from "./maintenanceCron";
 import { getDateKey } from "../../libs/time";
+import type { AdPackBlacklistCounts } from "../../types/adPackBlacklist";
 import type { PendingBlockedRemoval } from "../../types/blocklist";
 import type { ChatState } from "../../types/chatState";
 import type { VerificationSnapshot } from "../../types/antiRaid/verification";
@@ -115,11 +115,16 @@ export async function handleDiskIOStartupLoad(
   let loadError: string | undefined;
   let verifications: Map<string, VerificationSnapshot> = new Map();
   let aiMemories: Map<number, string> = new Map();
+  let stickerCatalogs: Map<string, string> = new Map();
   let blocklistEntryCount: number = 0;
   let permissionEntryCount: number = 0;
   let pendingBlockedRemovals: Map<number, PendingBlockedRemoval> = new Map();
   let chatStates: Map<number, ChatState> = new Map();
   let chatQa: Map<number, ReadonlyMap<string, string>> = new Map();
+  let adPackBlacklistCounts: Readonly<AdPackBlacklistCounts> = {
+    sticker: 0,
+    emoji: 0,
+  };
   let luckReceiptSecret: LuckReceiptSecret | null = null;
   let maintenanceInspections: StartupMaintenanceInspections | null = null;
   try {
@@ -127,7 +132,7 @@ export async function handleDiskIOStartupLoad(
     const storage: StorageDatabaseInspection = inspectStorageDatabase();
     const logs: LogFilesInspection = await inspectLogFiles();
     const aiCache: AiCacheInspection = await inspectAiCacheFile();
-    const stickerCatalogs: StickerCatalogRecoveryInspection =
+    const stickerCatalogInspection: StickerCatalogRecoveryInspection =
       await inspectStickerCatalogs(stickerPacks);
     const joinLogs: JoinLogRecoveryInspection = await inspectJoinLogFiles(today);
     const luck: LuckDayRecoveryInspection = await inspectLuckDay(today);
@@ -145,7 +150,7 @@ export async function handleDiskIOStartupLoad(
     adoptAiCacheFile(aiCache);
     resetWedFileWrites();
     aiMemories = adoptAiMemorySnapshots(storage.aiMemories);
-    adoptStickerCatalogSnapshots(stickerCatalogs);
+    stickerCatalogs = adoptStickerCatalogSnapshots(stickerCatalogInspection);
     adoptLuckDay(luck);
     verifications = adoptVerificationDay(verificationState);
     luckReceiptSecret = adoptLuckReceiptSecret(luckSecret);
@@ -154,9 +159,10 @@ export async function handleDiskIOStartupLoad(
     pendingBlockedRemovals = identityStorage.pendingBlockedRemovals;
     chatStates = identityStorage.chatStates;
     chatQa = identityStorage.chatQa;
+    adPackBlacklistCounts = identityStorage.adPackBlacklistCounts;
     maintenanceInspections = {
       logs,
-      stickerCatalogs,
+      stickerCatalogs: stickerCatalogInspection,
       joinLogs,
       luck,
       verifications: verificationState,
@@ -170,7 +176,7 @@ export async function handleDiskIOStartupLoad(
   postReply({
     type: "loaded",
     aiMemories,
-    stickerCatalogs: stickerCatalogCache,
+    stickerCatalogs,
     luckDay: maintenanceInspections?.luck.cache ?? null,
     luckReceiptSecret,
     verifications,
@@ -179,6 +185,7 @@ export async function handleDiskIOStartupLoad(
     permissionEntryCount,
     chatStates,
     chatQa,
+    adPackBlacklistCounts,
     wedMembers: maintenanceInspections?.wedMembers.snapshots ?? new Map(),
     error: loadError,
   });

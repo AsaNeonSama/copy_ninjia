@@ -25,7 +25,7 @@ export const RANDOM_ECHO_MODES: readonly (CopyMode | undefined)[] = [undefined, 
  * 「说到洗澡就回看看」的触发词：洗澡 / 泡澡（中间可插有限个白名单里的
  * 助词/修饰字）以及冲凉（含繁体沖涼，中间可插「个/個/了」等）。
  */
-export const BATH_TRIGGER_PATTERN: RegExp = /[洗泡][个個了完一热熱水冷好]{0,4}澡|[冲沖][个個了完一]{0,2}[凉涼]/;
+export const BATH_TRIGGER_PATTERN: Readonly<RegExp> = /[洗泡][个個了完一热熱水冷好]{0,4}澡|[冲沖][个個了完一]{0,2}[凉涼]/;
 
 /** 「说到洗澡就回看看」只对短消息生效（字符数不超过此值）。 */
 export const BATH_TRIGGER_MAX_MESSAGE_LENGTH: number = 15;

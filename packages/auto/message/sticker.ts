@@ -1,5 +1,6 @@
 import { recordChatMedia } from "../../aiChat";
-import { describeStickerForContext, pickStickerVisionSource } from "../../aiChat/stickerDescribe";
+import { describeStickerForContext } from "../../aiChat/stickerDescribe";
+import { pickStickerVisionSource } from "../../libs/telegramImage";
 import { resolveSpeaker } from "./facts";
 import { buildAiRecordMediaMessage, mediaReplyBackpressurePlaceholder } from "./recordContext";
 import { replyToUnresolvableMedia } from "./mediaFallback";

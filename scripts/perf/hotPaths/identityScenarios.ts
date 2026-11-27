@@ -24,7 +24,7 @@ import {
 import { LruCache } from "../../../packages/libs/lruCache";
 import { prototypeProbes } from "./jitTiers";
 import type { Scenario } from "./types";
-import type { WhitelistPermissionOrBlocklistStatus } from
+import type { WhitelistOrBlocklistStatus } from
   "../../../packages/infra/identityPolicy/whitelist";
 import type {
   BlocklistEntryData,
@@ -117,7 +117,7 @@ export function createIdentityPermissionReadScenario(): Scenario {
         const id: number = ids[keys[index & KEY_SEQUENCE_MASK]!]!;
         // 与 buildFloodCandidate + buildAdCandidate 在一条群消息上的读法一致。
         if (canBypassFloodControl(id)) checksum += 1;
-        const status: WhitelistPermissionOrBlocklistStatus =
+        const status: WhitelistOrBlocklistStatus =
           readAdCandidateSenderStatus(id);
         if (status !== "none") checksum += 1;
       }

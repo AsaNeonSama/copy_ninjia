@@ -6,6 +6,8 @@ import {
   resetStoragePendingBudgets,
   storageWriteRetry,
   storageWriteFatalReply,
+  pendingAdPackBlacklistEntryCount,
+  pendingAdPackBlacklistWrites,
   pendingAiContextWrites,
   pendingBlocklistWrites,
   pendingChatQaEntryCount,
@@ -22,6 +24,8 @@ import {
   storageWriteFlushTimer,
 } from "../../../cache/workers/diskIO/storageDatabase";
 import {
+  AD_PACK_BLACKLIST_KINDS,
+  AD_PACK_BLACKLIST_WRITE_BATCH_MAX_ENTRIES,
   CHAT_QA_WRITE_BATCH_MAX_ENTRIES,
   IDENTITY_WRITE_BATCH_MAX_ENTRIES,
   IDENTITY_WRITE_FLUSH_INTERVAL_MS,
@@ -31,7 +35,9 @@ import {
   commitStorageDatabaseChanges,
   prepareStorageDatabaseWriter,
 } from "../../../database/interact/transaction";
+import type { PendingAdPackBlacklistWrite } from "../../../types/adPackBlacklist";
 import type {
+  AdPackBlacklistPersistedRevision,
   BlocklistRemovalPersistedRevision,
   ChatQaPersistedRevision,
   ChatStatePersistedRevision,
@@ -65,6 +71,7 @@ function hasPendingStorageWrites(): boolean {
     pendingRemovalWrites.size > 0 ||
     pendingChatStateWrites.size > 0 ||
     pendingChatQaWrites.size > 0 ||
+    pendingAdPackBlacklistEntryCount.current > 0 ||
     pendingAiContextWrites.size > 0;
 }
 
@@ -121,6 +128,7 @@ export function flushIfStorageFull(reply: IdentityPersistenceReply): void {
     pendingTemporaryAdBypassWrites.size >= IDENTITY_WRITE_BATCH_MAX_ENTRIES ||
     pendingRemovalWrites.size >= IDENTITY_WRITE_BATCH_MAX_ENTRIES ||
     pendingChatQaEntryCount.current >= CHAT_QA_WRITE_BATCH_MAX_ENTRIES ||
+    pendingAdPackBlacklistEntryCount.current >= AD_PACK_BLACKLIST_WRITE_BATCH_MAX_ENTRIES ||
     pendingChatStateWrites.size >= STATE_MANAGED_CHAT_LIMIT
   ) {
     flushStorageDatabase(reply);
@@ -150,6 +158,7 @@ export function flushStorageDatabase(reply: IdentityPersistenceReply): boolean {
       removals: pendingRemovalWrites,
       chatStates: pendingChatStateWrites,
       chatQa: pendingChatQaWrites,
+      adPackBlacklists: pendingAdPackBlacklistWrites,
       aiContexts: pendingAiContextWrites,
     });
   } catch (error: unknown) {
@@ -171,6 +180,7 @@ export function flushStorageDatabase(reply: IdentityPersistenceReply): boolean {
   const temporaryAdBypassAcknowledgements: TemporaryAdBypassPersistedRevision[] = [];
   const chatStateAcknowledgements: ChatStatePersistedRevision[] = [];
   const chatQaAcknowledgements: ChatQaPersistedRevision[] = [];
+  const adPackBlacklistAcknowledgements: AdPackBlacklistPersistedRevision[] = [];
   const removalAcknowledgements: BlocklistRemovalPersistedRevision[] = [];
   for (const [id, change] of pendingWhitelistWrites) {
     acknowledgements.push({ table: "whitelist", id, revision: change.revision });
@@ -199,6 +209,15 @@ export function flushStorageDatabase(reply: IdentityPersistenceReply): boolean {
     pendingChatQaEntryCount.current -= questions.size;
   }
   pendingChatQaWrites.clear();
+  for (const kind of AD_PACK_BLACKLIST_KINDS) {
+    const writesByPack: Map<string, PendingAdPackBlacklistWrite> =
+      pendingAdPackBlacklistWrites[kind];
+    for (const [pack, change] of writesByPack) {
+      adPackBlacklistAcknowledgements.push({ kind, pack, revision: change.revision });
+    }
+    writesByPack.clear();
+  }
+  pendingAdPackBlacklistEntryCount.current = 0;
   for (const [chatId, change] of pendingAiContextWrites) {
     settleAiContextPersisted(chatId, change);
   }
@@ -209,6 +228,7 @@ export function flushStorageDatabase(reply: IdentityPersistenceReply): boolean {
     temporaryAdBypassWrites: temporaryAdBypassAcknowledgements,
     chatStateWrites: chatStateAcknowledgements,
     chatQaWrites: chatQaAcknowledgements,
+    adPackBlacklistWrites: adPackBlacklistAcknowledgements,
     removalWrites: removalAcknowledgements,
   });
   return true;
@@ -255,6 +275,7 @@ function isStorageDomainDirty(domain: StorageDatabaseDomain): boolean {
     case "blocklistRemovalOutbox": return pendingRemovalWrites.size > 0;
     case "chatState": return pendingChatStateWrites.size > 0;
     case "chatQa": return pendingChatQaWrites.size > 0;
+    case "adPackBlacklist": return pendingAdPackBlacklistEntryCount.current > 0;
     case "aiMemory": return pendingAiContextWrites.size > 0;
   }
 }

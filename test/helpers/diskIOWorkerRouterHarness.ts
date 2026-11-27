@@ -120,6 +120,7 @@ function closeStorageDatabaseForShutdownStub(_reply: unknown): { committed: bool
 export const closeStorageDatabaseForShutdown = mock(closeStorageDatabaseForShutdownStub);
 export const handleChatStateWrite = mock((_message: unknown): void => {});
 export const handleChatQaWrite = mock((_message: unknown): void => {});
+export const handleAdPackBlacklistWrite = mock((_message: unknown): void => {});
 export const handleTemporaryAdBypassWrite = mock((_message: unknown): void => {});
 export const postMessage = mock((_reply: unknown): void => {});
 export const consoleError = mock((..._args: unknown[]): void => {});
@@ -129,6 +130,10 @@ interface HydratedStorageDatabase {
   readonly pendingBlockedRemovals: Map<number, never>;
   readonly chatStates: Map<number, never>;
   readonly chatQa: Map<number, never>;
+  readonly adPackBlacklistCounts: {
+    readonly sticker: number;
+    readonly emoji: number;
+  };
 }
 function inspectStorageDatabaseStub(): { readonly kind: "storage" } {
   return { kind: "storage" };
@@ -140,6 +145,10 @@ export const adoptStorageDatabase = mock((_inspection: unknown): HydratedStorage
   pendingBlockedRemovals: new Map<number, never>(),
   chatStates: new Map<number, never>(),
   chatQa: new Map<number, never>(),
+  adPackBlacklistCounts: {
+    sticker: 0,
+    emoji: 0,
+  },
 }));
 
 mock.module("../../packages/workers/diskIO/logFiles", () => ({
@@ -227,6 +236,7 @@ mock.module("../../packages/workers/diskIO/storageDatabase", () => ({
   handleIdentityPolicyWrite,
   handleChatStateWrite,
   handleChatQaWrite,
+  handleAdPackBlacklistWrite,
   handleTemporaryAdBypassWrite,
   handleBlocklistRemovalWrite: handleBlocklistRemovalWriteMessage,
   inspectStorageDatabase,
@@ -244,6 +254,16 @@ mock.module("../../packages/workers/diskIO/storageDatabase", () => ({
     whitelist: [],
     blocklist: [],
     temporaryAdBypass: [],
+  }),
+  readAdPackBlacklists: (message: { requestId: number; packs: readonly string[] }): unknown => ({
+    type: "adPackBlacklistsRead",
+    requestId: message.requestId,
+    matchedPacks: message.packs.slice(0, 1),
+  }),
+  readAdPackBlacklistPage: (message: { requestId: number; afterPack: string | null }): unknown => ({
+    type: "adPackBlacklistPageRead",
+    requestId: message.requestId,
+    page: { packs: [], nextCursor: message.afterPack, done: true },
   }),
 }));
 const workerGlobal = globalThis as typeof globalThis & { postMessage: (message: unknown) => void };
@@ -283,7 +303,6 @@ beforeEach(() => {
     adoptAiCacheFile,
     maintainAiCacheFile,
     summarizeAiCache,
-    deleteAiMemorySnapshot,
     markStickerCatalogSnapshotDirty,
     handleLuckDrawMessage,
     handleVerificationDelete,
@@ -329,6 +348,7 @@ beforeEach(() => {
   hydratedLuckEntries.current = new Map();
   // 默认实现返回 undefined 的几个，reset 后的空实现与之等价，无需装回。
   for (const fn of [
+    deleteAiMemorySnapshot,
     markAiMemorySnapshotDirty,
     handleVerificationUpsert,
     collectStorageDatabaseFailures,
@@ -336,6 +356,7 @@ beforeEach(() => {
     handleIdentityPolicyWrite,
     handleChatStateWrite,
     handleChatQaWrite,
+    handleAdPackBlacklistWrite,
     handleTemporaryAdBypassWrite,
   ]) fn.mockReset();
   for (const fn of [flushLogBuffer, flushStickerCatalogs, flushLuckAppends, purgeJoinLogDeletions]) {
@@ -362,6 +383,10 @@ beforeEach(() => {
     pendingBlockedRemovals: new Map<number, never>(),
     chatStates: new Map<number, never>(),
     chatQa: new Map<number, never>(),
+    adPackBlacklistCounts: {
+      sticker: 0,
+      emoji: 0,
+    },
   }));
   flushVerificationChanges.mockReturnValue(true);
   flushBlocklistRemovalOutbox.mockReturnValue(true);

@@ -1,4 +1,7 @@
-import { classifyMiniAppAuthError } from "../api/authError";
+import {
+  classifyMiniAppAuthError,
+  isSuppressedStaleMiniAppAuthError,
+} from "../api/authError";
 import type { MiniAppAuthErrorAction } from "../api/authError";
 import { loginMiniAppWithPassword } from "../api/authLogin";
 import { logoutMiniAppSession } from "../api/authLogout";
@@ -133,6 +136,9 @@ export function createAppGateActions({
         get().lockSession(localized);
         return;
       }
+      if (isSuppressedStaleMiniAppAuthError(message, metaSource)) {
+        return;
+      }
       get().showToast(localized, tone);
       if (localized.length > 0) {
         scheduleToastDismiss();
@@ -203,7 +209,8 @@ export function createAppGateActions({
     },
 
     submitCredential: async (): Promise<void> => {
-      const { authMode, passwordInput, language }: MiniAppUiStoreState = get();
+      const { authMode, passwordInput, passwordBusy, language }: MiniAppUiStoreState = get();
+      if (passwordBusy) return;
       const t: Readonly<MiniAppTranslations> = getMiniAppTranslations(language);
       const trimmed: string = passwordInput.trim();
       if (authMode === "totp") {

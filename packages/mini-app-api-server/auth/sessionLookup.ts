@@ -1,4 +1,7 @@
-import { miniAppAuthSessions } from "../../cache/main/miniApp";
+import {
+  miniAppAuthSessions,
+  miniAppAuthSessionWatermark,
+} from "../../cache/main/miniApp";
 import {
   MINI_APP_SESSION_PREVIOUS_GRACE_MS,
   MINI_APP_SHA256_HEX_PATTERN,
@@ -46,14 +49,73 @@ function isMiniAppSessionWithinLifetime(
 }
 
 /**
+ * 计算单条会话最早需要进入清理扫描的毫秒时刻（45 分钟窗口到期、2 小时绝对寿命到期或 5 分钟宽限字段截止）。
+ * @param session 会话记录。
+ * @returns 最早需要扫描该会话的毫秒时间戳。
+ */
+function sessionNextPurgeAt(session: Readonly<MiniAppAuthSession>): number {
+  let deadline: number = Math.min(session.expiresAt, session.absoluteExpiresAt);
+  if (
+    session.previousToken !== undefined ||
+    session.pendingSessionKey !== undefined ||
+    session.sealedSessionKey !== undefined ||
+    session.sealedSessionKeyPromise !== undefined
+  ) {
+    const graceDeadline: number =
+      session.createdAt + MINI_APP_SESSION_PREVIOUS_GRACE_MS + 1;
+    if (graceDeadline < deadline) {
+      deadline = graceDeadline;
+    }
+  }
+  return deadline;
+}
+
+/**
+ * 按当前会话表重算最早清理水位；表为空时重置为 `Infinity`。
+ */
+export function recomputeMiniAppSessionPurgeWatermark(): void {
+  if (miniAppAuthSessions.size === 0) {
+    miniAppAuthSessionWatermark.nextPurgeAt = Number.POSITIVE_INFINITY;
+    return;
+  }
+  let nextPurgeAt: number = Number.POSITIVE_INFINITY;
+  miniAppAuthSessions.forEach((session: Readonly<MiniAppAuthSession>): void => {
+    const deadline: number = sessionNextPurgeAt(session);
+    if (deadline < nextPurgeAt) {
+      nextPurgeAt = deadline;
+    }
+  });
+  miniAppAuthSessionWatermark.nextPurgeAt = nextPurgeAt;
+}
+
+/**
+ * 写入新会话后按 O(1) 向下收紧清理水位。
+ * @param session 刚写入会话表的存活会话。
+ */
+export function noteMiniAppSessionPurgeDeadline(
+  session: Readonly<MiniAppAuthSession>
+): void {
+  const deadline: number = sessionNextPurgeAt(session);
+  if (deadline < miniAppAuthSessionWatermark.nextPurgeAt) {
+    miniAppAuthSessionWatermark.nextPurgeAt = deadline;
+  }
+}
+
+/**
  * 清理已超过 45 分钟窗口或 2 小时绝对寿命上限的会话（同步吊销关联下载票据），
- * 并清除已过 5 分钟并发宽限期（`MINI_APP_SESSION_PREVIOUS_GRACE_MS`）却仍残留的旧令牌、旧密钥、轮换密文与过渡期明文密钥。
+ * 并清除已过 5 分钟并发宽限期（`MINI_APP_SESSION_PREVIOUS_GRACE_MS`）却仍残留的旧令牌、旧密钥、轮换密文与过渡期明文密钥；
+ * 当前时刻早于全表最早清理水位时直接 O(1) 返回。
  * @param nowMs 当前毫秒时间戳。
  */
 export function purgeExpiredAuthSessions(nowMs: number): void {
   if (miniAppAuthSessions.size === 0) {
+    miniAppAuthSessionWatermark.nextPurgeAt = Number.POSITIVE_INFINITY;
     return;
   }
+  if (nowMs < miniAppAuthSessionWatermark.nextPurgeAt) {
+    return;
+  }
+  let nextPurgeAt: number = Number.POSITIVE_INFINITY;
   miniAppAuthSessions.forEach(
     (session: Readonly<MiniAppAuthSession>, token: string): void => {
       if (!isMiniAppSessionWithinLifetime(session, nowMs)) {
@@ -61,6 +123,7 @@ export function purgeExpiredAuthSessions(nowMs: number): void {
         revokeMiniAppGalleryDownloadTicketsForSession(session.lineageId);
         return;
       }
+      let effectiveSession: Readonly<MiniAppAuthSession> = session;
       if (
         (session.previousToken !== undefined ||
           session.pendingSessionKey !== undefined ||
@@ -68,7 +131,7 @@ export function purgeExpiredAuthSessions(nowMs: number): void {
           session.sealedSessionKeyPromise !== undefined) &&
         nowMs - session.createdAt > MINI_APP_SESSION_PREVIOUS_GRACE_MS
       ) {
-        miniAppAuthSessions.set(token, {
+        effectiveSession = {
           ...session,
           previousToken: undefined,
           pendingSessionKey: undefined,
@@ -76,10 +139,16 @@ export function purgeExpiredAuthSessions(nowMs: number): void {
           sealedSessionKeyPromise: undefined,
           previousCryptoKey: undefined,
           previousSeenRequestIvs: undefined,
-        });
+        };
+        miniAppAuthSessions.set(token, effectiveSession);
+      }
+      const deadline: number = sessionNextPurgeAt(effectiveSession);
+      if (deadline < nextPurgeAt) {
+        nextPurgeAt = deadline;
       }
     }
   );
+  miniAppAuthSessionWatermark.nextPurgeAt = nextPurgeAt;
 }
 
 /**

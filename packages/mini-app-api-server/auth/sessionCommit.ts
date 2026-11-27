@@ -18,6 +18,8 @@ import {
   evaluateMiniAppSessionRequestIvs,
   findLiveMiniAppSessionByLineage,
   findMiniAppAuthSessionMatch,
+  noteMiniAppSessionPurgeDeadline,
+  recomputeMiniAppSessionPurgeWatermark,
 } from "./sessionLookup";
 import type {
   MatchedMiniAppAuthSession,
@@ -69,7 +71,7 @@ interface CommitAcceptedRequestIvsOptions {
   /** 当前匹配密钥纪元已接受过的 IV 去重集合。 */
   readonly seenIvs: Set<string> | undefined;
   /** 本次请求携带并待登记的已消费 IV 列表。 */
-  readonly acceptedRequestIvs: readonly string[];
+  readonly acceptedRequestIvs: readonly string[] | undefined;
   /** 触发 `MINI_APP_SESSION_MAX_SEEN_REQUEST_IVS` 硬上限时待吊销的会话内部谱系标识。 */
   readonly sessionLineageIdToRevoke: string;
   /** 当前毫秒时间戳。 */
@@ -87,7 +89,11 @@ function commitAcceptedRequestIvs({
   sessionLineageIdToRevoke,
   nowMs,
 }: Readonly<CommitAcceptedRequestIvsOptions>): "ok" | "replay" | "cap_exceeded" {
-  if (seenIvs === undefined || acceptedRequestIvs.length === 0) {
+  if (
+    seenIvs === undefined ||
+    acceptedRequestIvs === undefined ||
+    acceptedRequestIvs.length === 0
+  ) {
     return "ok";
   }
   const check: MiniAppSessionRequestIvCheckResult =
@@ -127,6 +133,7 @@ function recordSealedMiniAppSessionKey(
       existing.previousToken !== undefined ? sealedSessionKey : undefined,
     sealedSessionKeyPromise: undefined,
   });
+  recomputeMiniAppSessionPurgeWatermark();
 }
 
 /**
@@ -145,7 +152,7 @@ export function commitMiniAppSessionAccess({
   requestToken,
   matchedViaPrevious,
   allowRotation,
-  acceptedRequestIvs = [],
+  acceptedRequestIvs,
   nowMs = Date.now(),
 }: Readonly<CommitMiniAppSessionAccessOptions>): CommitMiniAppSessionAccessResult {
   const effectiveToken: string =
@@ -225,6 +232,7 @@ export function commitMiniAppSessionAccess({
       previousSeenRequestIvs: undefined,
     };
     miniAppAuthSessions.set(activeSession.token, activeSession);
+    recomputeMiniAppSessionPurgeWatermark();
   }
 
   const shouldRotate: boolean =
@@ -273,6 +281,7 @@ export function commitMiniAppSessionAccess({
   };
   miniAppAuthSessions.delete(activeSession.token);
   miniAppAuthSessions.set(newToken, refreshed);
+  noteMiniAppSessionPurgeDeadline(refreshed);
   return {
     ok: true,
     session: refreshed,

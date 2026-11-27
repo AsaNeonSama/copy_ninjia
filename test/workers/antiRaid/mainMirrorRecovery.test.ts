@@ -89,8 +89,6 @@ describe("Anti-Raid main-thread persistence mirror", () => {
       const reloadedSamples: AdDetectConfig = {
         punishment: { kind: "kick", blockScope: "global" },
         samples: ["热重载后的示例"],
-        stickerBlackList: new Set(["ReloadedStickerPack"]),
-        emojiBlackList: new Set(["ReloadedEmojiPack"]),
       };
       adoptAdDetectAgentConfig(reloadedAdDetect);
       adoptAdDetectConfig(reloadedSamples);
@@ -281,7 +279,12 @@ describe("Anti-Raid main-thread persistence mirror", () => {
       adDetect: adDetectAgentConfigSnapshot(),
       adDetectConfig: getAdDetectConfig(),
     });
-    expect(workerPosts[1]).toMatchObject({
+    expect(workerPosts[1]).toEqual({
+      type: "adPackBlacklistSync",
+      stickerCount: 0,
+      emojiCount: 0,
+    });
+    expect(workerPosts[2]).toMatchObject({
       type: "adoptVerifications",
       generation: 1,
       verifications: [{ generation: 1, revision: 1 }],
@@ -298,7 +301,7 @@ describe("Anti-Raid main-thread persistence mirror", () => {
       { type: "verificationUpsert", revision: 4, critical: true },
     ]);
     expect(respawnPosts).toEqual([
-      // 重生同样先投配置快照，且投的是主线程那份唯一快照，不重新读盘。
+      // 重生同样先投配置快照与广告包黑名单镜像，且投的是主线程那份唯一快照，不重新读盘。
       {
         atmosphere: "teasing",
         type: "agentConfig",
@@ -306,6 +309,11 @@ describe("Anti-Raid main-thread persistence mirror", () => {
         logLevel: getLogLevel(),
         adDetect: adDetectAgentConfigSnapshot(),
         adDetectConfig: getAdDetectConfig(),
+      },
+      {
+        type: "adPackBlacklistSync",
+        stickerCount: 0,
+        emojiCount: 0,
       },
       expect.objectContaining({
         type: "adoptVerifications",

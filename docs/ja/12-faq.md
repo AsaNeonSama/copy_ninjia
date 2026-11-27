@@ -203,7 +203,7 @@ Bot プロセスは稼働しているのにグループ内で期待どおりに�
 2. **`api_key` の設定**：
    - **自前の Google API キーを使う場合**：`api_key` に Google AI Studio のキーを設定します（SDK が `x-goog-api-key` ヘッダーで送信）。追加ヘッダーは付与しないため、Cloudflare 側の Authenticated Gateway は無効にしてください。
    - **ゲートウェイ保管キー（BYOK / Unified Billing）を使う場合**：`api_key` に Cloudflare トークンを設定します。`api_key` はログ出力時に自動マスクされます。
-3. **ルーティングと疎通確認**：テキスト・画像認識・画像生成は `generateContent`、音声合成は `Interactions API` を経由します。設定後は個人チャット `/send` からテスト音声を送信して疎通を確認できます。
+3. **ルーティングと疎通確認**：テキスト・画像認識・画像生成・通常の `ad_detect` は `generateContent`、音声合成は `Interactions API`、`use_decision: true` の `agent.ad_detect` は `Decisions API`（`/<apiVersion>/decisions`、既定は `GEMINI_API_VERSION` = `"v1beta"`、`base_url` はゲートウェイのルート・`/<apiVersion>` プレフィックス・完全な `/<apiVersion>/decisions` URL のいずれにも対応）を経由します。設定後は個人チャット `/send` からテスト音声を送信して疎通を確認できます。
 
 ---
 

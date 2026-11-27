@@ -85,6 +85,13 @@
       "when": 20261003000000,
       "tag": "0011_time_zone_marker",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 20261123000000,
+      "tag": "0012_ad_pack_blacklists",
+      "breakpoints": true
     }
   ]
 }

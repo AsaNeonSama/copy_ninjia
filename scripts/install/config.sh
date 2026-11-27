@@ -95,7 +95,7 @@ create_config_from_example() {
 backup_deployment_config() {
   local target_path="$1" existing_target="" backup_parent="" backup_parent_real=""
   local worktree_real="" backup_path="" source_hash="" backup_hash=""
-  local original_mode="" original_uid="" original_gid=""
+  local original_mode="" original_uid="" original_gid="" target_base="" target_ext=""
   [ -e "$target_path" ] || return 0
   for existing_target in "${CONFIG_CREATED_PATHS[@]}"; do
     [ "$existing_target" = "$target_path" ] && return 0
@@ -123,7 +123,12 @@ backup_deployment_config() {
     chmod 600 -- "$CONFIG_BACKUP_MANIFEST" || die "无法收紧配置备份清单权限。"
   fi
 
-  backup_path="${CONFIG_BACKUP_DIRECTORY}/original-${#CONFIG_BACKUP_TARGETS[@]}.json"
+  target_base="$(basename -- "$target_path")"
+  case "$target_base" in
+    ?*.*) target_ext=".${target_base##*.}" ;;
+    *) target_ext="" ;;
+  esac
+  backup_path="${CONFIG_BACKUP_DIRECTORY}/original-${#CONFIG_BACKUP_TARGETS[@]}${target_ext}"
   if ! cp -p -- "$target_path" "$backup_path"; then
     rm -f -- "$backup_path"
     cp -- "$target_path" "$backup_path" ||

@@ -39,7 +39,8 @@
 | `bun run release:verify -- --version <tag> --platforms <list>` | Release package verification | Verifies archives, SHA-256 hashes, embedded versions, and Git tree alignment across all target platforms |
 | `bun run release:publish -- --version <tag> --platforms <list> --notes-file <file>` | Publish to GitHub | Verifies remote refs, creates a draft release, uploads and re-verifies assets, and publishes as Latest |
 | `bun run audit:release` | Dependency security audit | Scans dependencies for vulnerabilities rated `moderate` or higher |
-| `bun run migrate:wed-member-window` | `/wed` member-window cold migration | Offline migration converting 17.2.1 `memory/wed` member ID arrays into `{ id, enteredAt }` sliding-window entries (see [07 Operations](07-operations.md)) |
+| `bun run migrate:wed-member-window` | `/wed` member-window cold migration | Offline migration converting 17.2.1 `memory/wed` member ID arrays into `{ id, enteredAt }` sliding-window entries (see [07 Operations](07-operations.md#upgrade-wed-member-window)) |
+| `bun run migrate:ad-pack-blacklists` | Ad pack blacklists & v13 → v14 cold migration | Offline migration upgrading a schema v13 database and optional legacy 4-key `ad_detect.json` to schema v14 (`ad_pack_blacklists`) and 2-key config (see [07 Operations](07-operations.md#upgrade-ad-pack-blacklists)) |
 
 ---
 
@@ -76,7 +77,7 @@
     - Enforces `states/` closure: direct and transitive runtime dependencies of `states/` must stay within `consts`, `libs`, `types`, and `states` (`config/time.ts` is the sole exception registered in `STATES_CLOSURE_OPAQUE_MODULES`).
     - Enforces `infra/` layering: at runtime `infra/` may only import `cache`, `config`, `consts`, `database`, `infra`, `libs`, `states`, `types`, and `users` (`INFRA_ALLOWED_PREFIXES`, with `workers/diskIO/diagnosticSink.ts` as the sole exemption), preventing upward imports into business layers; the full-benchmark parent process may only import pure constants and types.
   - **Constant table rules**:
-    - Exported constant tables with object elements (excluding `RegExp` and functions) must have a mutation check in `test/consts/immutability.test.ts` on the line immediately following `@ts-expect-error` (`scripts/conventions/constImmutability.ts`).
+    - Exported regular expressions and any `RegExp` exposed inside containers or properties must be annotated as `Readonly<RegExp>`; exported constant tables with object elements (excluding `Readonly<RegExp>` and functions) must have a mutation check in `test/consts/immutability.test.ts` on the line immediately following `@ts-expect-error` (`scripts/conventions/constImmutability.ts`).
     - Exported array tables typed over a literal union must use `exhaustiveList<U>()([...])` (`packages/consts/exhaustiveList.ts`, or `packages/mini-app-frontend/consts/exhaustiveList.ts` in the frontend), where `U` matches the declared element type and every element is a string or number literal so union drift fails compilation.
     - Intentional subset tables must be registered as `<relative path>#<table name>` in `PARTIAL_LITERAL_TABLES` (`scripts/conventions/constExhaustiveLists.ts`); stale entries fail the gate.
   - **Runtime safety and APIs**:
@@ -124,7 +125,7 @@ All dependency installations enforce the release cooling period configured by `i
 
 ### Measurements for This Documentation Version
 
-`bun run test:coverage`: **7448 tests / 649 files / 592390 `expect()` calls**; full-source **function coverage 98.02% / line coverage 98.07%**. The Coverage badge in each project README displays line coverage.
+`bun run test:coverage`: **7674 tests / 667 files / 595279 `expect()` calls**; full-source **function coverage 98.00% / line coverage 97.97%**. The Coverage badge in each project README displays line coverage.
 
 ---
 
@@ -143,7 +144,7 @@ All tests run via `bun run test` (`bun test --isolate`), providing automatic mul
 ### Key Test Suite Distribution
 
 - **Installation and upgrade suites**: `test/scripts/installStartup.test.ts` and `test/scripts/installMigration.test.ts` verify installer workflows, fresh database setup, full startup sequences, and non-destructive rejection of outdated configs, SQLite schemas, or `/wed` member files.
-- **Cold migration suites**: `test/scripts/migrateWedMemberWindow.test.ts` verifies that `migrate:wed-member-window` accepts only 17.2.1 `memory/wed` member ID arrays, preserves the last `WED_MEMBER_LIMIT` IDs in order as `{ id, enteredAt }` entries sharing one timestamp, produces output that passes startup validation, and rejects migrated/invalid inputs, symlinks, or pre-existing output directories without touching source backups.
+- **Cold migration suites**: `test/scripts/migrateWedMemberWindow.test.ts` verifies that `migrate:wed-member-window` accepts only 17.2.1 `memory/wed` member ID arrays, preserves the last `WED_MEMBER_LIMIT` IDs in order as `{ id, enteredAt }` entries sharing one timestamp, produces output that passes startup validation, and rejects migrated/invalid inputs, symlinks, or pre-existing output directories without touching source backups; `test/scripts/migrateAdPackBlacklists.test.ts` verifies that `migrate:ad-pack-blacklists` accepts only schema v13 databases and optional legacy 4-key `ad_detect.json`, migrates to schema v14 with `ad_pack_blacklists`, writes a `parseAdDetectConfig`-validated 2-key config, completes `wal_checkpoint(TRUNCATE)`, and leaves source backups untouched.
 - **Media and outbound suites**: `test/aiChat/ai/mediaAdmission.test.ts`, `test/aiChat/ai/imageDescription.test.ts`, and `test/infra/telegramWorkerCapabilities.test.ts` verify multimodal safety admission and duplex Worker Telegram capability gates.
 - **Unified outbound integration suites**: `test/infra/telegramOutboundIntegration.test.ts` runs real client initialization, outbound schedulers, and per-chat lanes while stubbing only the innermost HTTP transport to verify cross-thread per-chat FIFO order, category-scoped 429 backoff, download throttling, and shutdown drain.
 - **Security and logger suites**: `test/infra/loggerSecurity.test.ts` verifies credential redaction across nested and serialized error shapes.
@@ -262,7 +263,7 @@ Every release publishes a GitHub Release carrying native standalone binaries acr
      ```bash
      bun run release:verify -- --version <tag> --platforms <comma-separated-platforms> --directory <staging-directory>
      ```
-   - Checks SHA-256 sums, embedded version and Git tree metadata, target architecture, required runtime files and cold-migration CLIs, dependency integrity, and absence of `.map` files or `node_modules`.
+   - Checks SHA-256 sums, embedded version and Git tree metadata, target architecture, required runtime files and cold-migration CLIs, exact archive entry allowlists against Git-tracked bundled sources (rejecting any unexpected/ignored files, extra directories, or symlinks), dependency integrity, and absence of `.map` files or `node_modules`.
 5. **Merge and tag creation**:
    - Merge `dev` into `master` via `git merge --squash` and confirm the resulting Git tree hash matches the built binaries.
    - Push `master`, then create and push an annotated version tag on that commit.

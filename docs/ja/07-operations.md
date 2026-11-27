@@ -95,7 +95,7 @@ WantedBy=multi-user.target
 > [!WARNING]
 > **マルチテナント環境のデータ隔離**：
 > `memory/` 配下に新規作成されるファイルの既定モードは `PERSISTED_FILE_MODE`（`packages/consts/diskIO/common.ts`、`0644`）です。親ディレクトリが他のローカルユーザーに読み取り・通過を許していると、共有サーバー上の別アカウントからログを読まれる恐れがあります。共有環境ではデータルートと `memory/` を `0750`、既存ファイルを `0600` または `0640` に絞ってください（ランタイムは既存ファイルの権限を勝手に変更しません）。
-> `database/` は上限 `IDENTITY_DATABASE_DIRECTORY_MODE`（共有サービスグループ運用では `setgid` 付き `02770` も可）、DB 本体と WAL/SHM の作成モードは `IDENTITY_DATABASE_FILE_MODE` です。`database/` はグループ書き込み権限を必要とするため、**データルート全体に再帰的な `chmod 0750` を実行しないでください**。`config/` は既定で読み取り専用のまま維持します。Mini App のオンライン設定編集を使用する場合は、サービス実行アカウントに `config/dynamic/` および／または `config/static/` への書き込み・アトミック `rename` 権限を付与し（新規作成の任意ファイルは `0600`）、非 `root` アカウントで静的設定のオンライン再起動を行う場合はサービスアカウントに `copy-ninjia.service` の再起動を許可する polkit 認可も設定してください（[10 Mini App の設定方法と推奨構成](10-mini-app.md) を参照）。
+> `database/` は上限 `IDENTITY_DATABASE_DIRECTORY_MODE`（共有サービスグループ運用では `setgid` 付き `02770` も可）、DB 本体と WAL/SHM の作成モードは `IDENTITY_DATABASE_FILE_MODE` です。`database/` はグループ書き込み権限を必要とするため、**データルート全体に再帰的な `chmod 0750` を実行しないでください**。`config/` は既定で読み取り専用のまま維持し、Mini App のオンライン設定編集を使用する場合に限り、サービス実行アカウントに `config/dynamic/` および／または `config/static/` への書き込み・アトミック `rename` 権限を付与してください（新規作成の任意ファイルは `0600`）。非 `root` アカウントで静的設定のオンライン再起動を行う場合はサービスアカウントに `copy-ninjia.service` の再起動を許可する polkit 認可も設定してください（[10 Mini App の設定方法と推奨構成](10-mini-app.md) を参照）。
 
 - **クラッシュ時の自動復旧**：異常終了時は systemd の `Restart=on-failure` で自動再起動され、参加認証待ち、ロックダウンタイマー、ID 書き込み、AI 会話メモリ、未確認の Telegram update は [04 実行時の正式な不変条件](04-invariants.md#永続化) に従って復元されます。
 
@@ -177,6 +177,7 @@ WantedBy=multi-user.target
   - `temporary_ad_bypass_entries`：一時広告免除枠の累積カウント。
   - `pending_blocked_removals`：未完了のグループ横断 BAN キュー。
   - `chat_qa`：複合主キー `(chat_id, q)` のグループカスタム Q&A。
+  - `ad_pack_blacklists`：複合主キー `(kind, pack)` の STRICT テーブル。グローバル広告ステッカー（`'sticker'`）・カスタム絵文字（`'emoji'`）パックブラックリストを保持（件数上限なし、メインスレッドに 768 件の共有 LRU 読み取りキャッシュを保持）。
   - `chat_states`：最大 `STATE_MANAGED_CHAT_LIMIT` 行の管理グループ状態。必須の `status` JSONB（上限 `TRANSLATE_CHAT_USER_LIMIT` の翻訳セッション `translate` を含む）と null 許容の `ai_context` JSONB（逐語会話メモリと中期要約）を保持。
 - **排他接続と起動検査**：Disk I/O Worker のみが読み書き接続を保持し、起動時に SQLite integrity・JSONB・スキーマバージョン・マイグレーション系譜・相互排他制約を全件検証してからグループ状態と AI メモリを復元します。
 - **停止時のクローズ**：
@@ -186,7 +187,7 @@ WantedBy=multi-user.target
 - **バックアップ規約**：**必ず `storage.sqlite` 本体と同一時点の `-wal`・`-shm`（存在する場合）を不可分のセットとしてバックアップ・復元**してください（`.sqlite` 単体コピーは厳禁です）。
 
 ### 7. 広告サンプルと AI 利用量：`memory/ad-detected/` と `memory/ai-daily-usage/`
-- **`memory/ad-detected/sample.json`**：広告検出に命中した監査用サンプル（時刻、本文、判定理由、文脈。本文なしのスタンプ単体メッセージはスタンプパックの short name を記録）。`AD_SAMPLE_FILE_MAX_BYTES` 到達で `sample.<日付>[.<連番>].json` へローテーションし、`AD_SAMPLE_ARCHIVE_RETENTION_DAYS` 日保持後に自動削除します。
+- **`memory/ad-detected/sample.json`**：広告検出に命中した監査用サンプル（時刻、判定理由、引用・返信の文脈、および各メッセージの `type`：`text` / `photo` / `sticker` / `custom_emoji`。検査対象となる本文・キャプションがある場合のみ `text` を記録し、スタンプパックの short name は `stickerSetName` に記録）。`AD_SAMPLE_FILE_MAX_BYTES` 到達で `sample.<日付>[.<連番>].json` へローテーションし、`AD_SAMPLE_ARCHIVE_RETENTION_DAYS` 日保持後に自動削除します。
 - **`memory/ai-daily-usage/usage.json`**：会話本文を含まないトークン・リクエスト統計です：
   - **データ構造**：先頭の `summary` が直近完了日の機能 / プロバイダ / モデル別集計、残りのキーが当日未集計の呼び出し記録です。
   - **対象範囲**：`AGENT_CAPABILITY_NAMES` の全機能を網羅します。
@@ -221,6 +222,27 @@ WantedBy=multi-user.target
 
 起動時に `database/storage.sqlite` が存在しない場合、勝手な初期化は行わずエラー終了します。新規デプロイでは [01 環境構築の identity storage 初期化手順](01-getting-started.md#identity-storage-の初期化) に従って現行スキーマの空 DB を作成してください（`install.sh` は DB 未作成時に自動実行し、既存 DB の上書きは拒否します）。
 
+<a id="upgrade-ad-pack-blacklists"></a>
+
+### 広告パックブラックリストおよび Schema v13 → v14 のコールド移行（`migrate:ad-pack-blacklists`）
+
+[`scripts/migrateAdPackBlacklists.ts`](../../scripts/migrateAdPackBlacklists.ts) を用いて、Schema v13 の `database/storage.sqlite` と任意の旧 4 キー `config/dynamic/ad_detect.json` を、非破壊的に Schema v14（`ad_pack_blacklists` テーブル追加）および整理後の 2 キー `ad_detect.json` へ移行します：
+- **受付条件**：Schema v13 データベース（`STORAGE_MIGRATION_LINEAGE.slice(0, -1)`、`PRAGMA integrity_check`、全 JSONB カラム、正規 IANA `time-zone`）のみを受け付けます。`--config-root` 省略時は `<source-root>/config` を検査し、`<configRoot>/dynamic/ad_detect.json` が存在する場合は厳密な旧 4 キー形式（`punishment`、`samples`、`sticker_black_list`、`emoji_black_list`。移行済み 2 キー形式・シンボリックリンク・重複・不正パック名は拒否、件数上限なし）を要求します。`ad_detect.json` が存在しない場合は空の `ad_pack_blacklists` を持つ v14 DB へ移行し、`ad_detect.json` は新規作成しません。
+- **非破壊ステージングと検証**：元バックアップへ SQLite 接続を直接開かず、元 DB（および存在時の WAL/SHM）を新規 `--output-root` へ SHA-256 検証付きで複製してから Drizzle で v14 へ移行・ブラックリスト投入・元 DB タイムゾーンでの `validateStorageDatabase` 実行・`PRAGMA wal_checkpoint(TRUNCATE)` 完了および出力側 WAL/SHM 削除を行います。旧 4 キー `ad_detect.json` がある場合は元権限を保って 2 キー `{ punishment, samples }` をアトミック書き出しし `parseAdDetectConfig` で再読込検証したうえで、元バックアップの内容・ハッシュ・権限・`mtimeMs` 不変を確認し `ready.json` を書き出して `incomplete.json` を削除します（中断時は新しい出力ディレクトリで再実行します）。
+
+1. **サービス停止とバックアップ**：サービスを停止して `inactive` を確認し、`mktemp -d` でワークツリー外へ `database/`（`-wal`・`-shm` を含む）と存在時の `config/dynamic/ad_detect.json` を所有者・モード・SHA-256 一覧とともにバックアップします。
+2. **移行スクリプトの実行**：
+   ```bash
+   bun run migrate:ad-pack-blacklists \
+     --source-root /absolute/cold-backup \
+     --config-root /absolute/config-backup \
+     --output-root /absolute/new-staging-directory
+   ```
+   バックアップルート直下に `config/` がある場合は `--config-root` を省略できます。バイナリ配布版では同じ引数で `BUN_BE_BUN=1 ./copy-ninjia scripts/migrations/migrateAdPackBlacklists.js` を実行します。
+3. **成果物の照合**：出力先の `ready.json` で `sourceFiles` / `outputFiles` の SHA-256、`sourceSchema: 13`、`targetSchema: 14`、`timeZone`、`migratedStickerPacks`、`migratedEmojiPacks`、`adDetectConfigMigrated` を確認します。
+4. **本番ファイルの差し替え**：停止中に `database/storage.sqlite` を差し替え（バックアップ保全確認後に本番側の古い `-wal`・`-shm` を削除）、生成された場合は `config/dynamic/ad_detect.json` も差し替えます。`sourceFiles` に従って所有者とモードを復元し、サービスアカウントの `database/` 書き込み権限を確認します。
+5. **起動検証**：設定と状態を検証してからサービスを起動し、2 周期分の再起動監視を通過した後にのみ外部バックアップを削除します。
+
 <a id="upgrade-wed-member-window"></a>
 
 ### /wed メンバーウィンドウのコールド移行（メンバー ID 配列 → `{ id, enteredAt }`）
@@ -228,7 +250,7 @@ WantedBy=multi-user.target
 [`scripts/migrateWedMemberWindow.ts`](../../scripts/migrateWedMemberWindow.ts) を用いて、`memory/wed/<chatId>.json` を 17.2.1 のメンバー ID 配列から参加順の `{ id, enteredAt }` スライディングウィンドウ配列へ変換します：
 - **変換内容**：各グループとも配列末尾（直近参加側）の最大 `WED_MEMBER_LIMIT` 件の ID を元の順序のまま保持し、`enteredAt` には移行開始時刻を一括設定します（溢れた古い ID は先頭側から破棄され、`ready.json` の `truncatedMembers` に記録されます）。
 - **受付条件**：17.2.1 形式のメンバーファイル（1 ファイル最大 `WED_MEMBER_WINDOW_SOURCE_LIMIT` 件の重複なし正の安全な整数 ID、最大 `STATE_MANAGED_CHAT_LIMIT` ファイル）のみを受け付け、移行済みファイル・非正規ファイル名・シンボリックリンクは拒否します（`*.tmp` 等の非 `.json` ファイルは対象外）。
-- **その他の永続データと `ad_samples.json` → `ad_detect.json` 設定移行**：17.2.1〜18.2.0 の他の `memory/` サブディレクトリおよび `database/storage.sqlite`（Schema v13）は形式共通のためそのまま利用できます。一方、`config/dynamic/ad_samples.json`（17.2.1〜18.2.0 で使用）が存在する場合は、停止中に手動で `config/dynamic/ad_detect.json` へ移行し（`samples` を引き継ぎ、必須の `punishment`〔`mute` または `kick`〕・`sticker_black_list`・`emoji_black_list` を追加）、旧 `ad_samples.json` を削除する必要があります（`packages/config/layout.ts` と `install.sh` は `ad_samples.json` の残存を拒否します）。
+- **その他の永続データと `ad_samples.json` → `ad_detect.json` 設定移行**：現行の 2 本のコールド移行エッジは独立したデータセットを対象とします（`memory/wed/` は `migrate:wed-member-window`、`database/storage.sqlite`〔v13 → v14〕と任意の旧 4 キー `ad_detect.json` は `migrate:ad-pack-blacklists`、他の `memory/` サブディレクトリはそのまま継続利用可）。`config/dynamic/ad_samples.json`（17.2.1〜18.2.0）が残っている場合は、先に `ad_detect.json` 不在の状態で `migrate:ad-pack-blacklists` により DB を v14 へ移行したうえで、停止中に手動で現行 2 キーの `config/dynamic/ad_detect.json`（`{ punishment, samples }`、[デプロイ設定説明](../../config_example/README/ja.md#ad_detectjson) 参照）へ変換し、旧 `ad_samples.json` を削除してください（`packages/config/layout.ts` と `install.sh` は `ad_samples.json` の残存を拒否します）。
 
 1. **サービス停止とバックアップ**：サービスを停止して `inactive` を確認し、`memory/wed/` 全体（および `ad_samples.json` を移行する場合は `config/`）を所有者・モード・SHA-256 一覧とともに外部ディレクトリへバックアップします（バックアップルート配下に `memory/wed/` の相対パスを維持）。
 2. **移行スクリプトの実行**：
@@ -239,7 +261,7 @@ WantedBy=multi-user.target
    ```
    バイナリ配布版では同じ引数で `BUN_BE_BUN=1 ./copy-ninjia scripts/migrations/migrateWedMemberWindow.js` を実行します。
 3. **成果物の照合**：出力先 `ready.json` の `sourceFiles` / `outputFiles` の SHA-256、および `chatCount`・`keptMembers`・`truncatedMembers`・`enteredAt` を確認します（成果物ファイルは実行アカウントのみ読み書き可能で作成されます）。
-4. **ファイル差し替えと `ad_detect.json` 更新**：停止中に成果物の `memory/wed/<chatId>.json` で本番ファイルを置き換え、`sourceFiles` に基づき所有者とモードを復元してサービスアカウントの書き込み権限を確認します。`config/dynamic/ad_samples.json` がある場合は `config/dynamic/ad_detect.json`（`punishment`・`samples`・`sticker_black_list`・`emoji_black_list`）へ変換し、`ad_samples.json` を削除します。
+4. **ファイル差し替えと `ad_detect.json` 更新**：停止中に成果物の `memory/wed/<chatId>.json` で本番ファイルを置き換え、`sourceFiles` に基づき所有者とモードを復元してサービスアカウントの書き込み権限を確認します。`config/dynamic/ad_samples.json` がある場合は、`migrate:ad-pack-blacklists` 完了後に 2 キーの `config/dynamic/ad_detect.json`（`{ punishment, samples }`）へ変換して `ad_samples.json` を削除します。
 5. **起動検証**：サービスを起動して 2 周期分の再起動監視を通過した後にのみ、外部バックアップを削除します。
 
 ---
@@ -248,7 +270,9 @@ WantedBy=multi-user.target
 
 ### 旧バージョンからの段階的アップグレード手順
 
-- **17.2.1 より古いデプロイ**：現行版のコールド移行スクリプトが直接受け付けるのは 17.2.1 のデータのみです。先に 17.2.1 を導入してその移行（16.3.2 からは `migrate:chat-persona-removal`、それ以前は各版の案内に従ってまず 16.3.2 まで）を完了し、17.2.1 の安定起動を確認してからサービスを止め、本バージョンの [/wed メンバーウィンドウのコールド移行](#upgrade-wed-member-window)を実行するとともに、`config/dynamic/ad_samples.json` がある場合は手動で `config/dynamic/ad_detect.json`（`punishment`・`sticker_black_list`・`emoji_black_list` を追加）へ移行して旧ファイルを削除してください。
+- **19.x（Schema v13＋4 キー `ad_detect.json`）からのアップグレード**：停止・外部バックアップ後、[広告パックブラックリストおよび Schema v13 → v14 のコールド移行](#upgrade-ad-pack-blacklists)（`migrate:ad-pack-blacklists`）を直接実行します（`memory/wed/` は移行済みのため再実行不要）。
+- **17.2.1〜18.2.0 からのアップグレード**：17.2.1 では [/wed メンバーウィンドウのコールド移行](#upgrade-wed-member-window)を実行し（18.0.0〜18.2.0 は移行済み）、いずれの版も `ad_detect.json` 不在の状態で `migrate:ad-pack-blacklists` により v13 DB を v14 へ移行したうえで、`config/dynamic/ad_samples.json` がある場合は 2 キーの `config/dynamic/ad_detect.json`（`{ punishment, samples }`）へ手動変換して `ad_samples.json` を削除します。
+- **17.2.1 より古いデプロイ**：現行版のコールド移行スクリプトが直接受け付けるのは Schema v13 DB と 17.2.1 の `memory/wed/` のみです。先に 17.2.1 を導入してその移行（16.3.2 からは `migrate:chat-persona-removal`、それ以前は各版の案内に従ってまず 16.3.2 まで）を完了し、17.2.1 の安定起動を確認してからサービスを止め、本バージョンの `migrate:wed-member-window` と `migrate:ad-pack-blacklists`、および `ad_samples.json` → 2 キー `ad_detect.json` の手動移行を実施してください。
 - **11.0.9（Schema v8）からのメジャーバージョン跨ぎアップグレード**：
   独立した作業ディレクトリで各 Git タグを順にチェックアウトし、コールド移行チェーンを段階実行します：
   1. `500e848fae` コミット：`migrate:ai-context`（v8 → v9）
@@ -257,7 +281,7 @@ WantedBy=multi-user.target
   4. `14.0.0` タグ：`migrate:translate-sessions`
   5. `16.3.2` タグ：`migrate:global-state` と `migrate:random-image-names`
   6. `17.2.1` タグ：`migrate:chat-persona-removal`（v11 → v13）
-  7. 現行バージョン：`migrate:wed-member-window` を実行し、`config/dynamic/ad_samples.json` が存在する場合は手動で `config/dynamic/ad_detect.json`（`punishment`・`sticker_black_list`・`emoji_black_list` を追加）へ移行して `ad_samples.json` を削除
+  7. 現行バージョン：`migrate:wed-member-window` と `migrate:ad-pack-blacklists`（v13 → v14）を実行し、`config/dynamic/ad_samples.json` が存在する場合は手動で 2 キーの `config/dynamic/ad_detect.json`（`{ punishment, samples }`）へ移行して `ad_samples.json` を削除
 
   *補足*：手順 1 では 12.0.0 Release 添付の中間ソースアーカイブ `copy-ninjia-schema-v9-source-500e848f.tar.gz`（SHA-256: `df6502625512d8fde136dc66d8470e1d4c977856e8a0bd3909b9b6c763c820f8`）も利用できます。
 
@@ -279,15 +303,15 @@ WantedBy=multi-user.target
 
 ### 3. 設定ディレクトリレイアウト不一致
 - **原因**：`config/`・`config/static/`・`config/dynamic/` にホワイトリスト外のエントリ（配置ミス、旧 `telegram.json` や `ad_samples.json`、隠しファイル・一時ファイル・バックアップ、未定義サブディレクトリ、リンク切れシンボリックリンク）がある、`config/dynamic/` が欠落している、またはディレクトリパスが非ディレクトリで占有されている。
-- **対処**：停止中に `config/static/` は `bot.json` と `g-auth.json` のみ、`config/dynamic/` は 6 つの動的 JSON のみに整理し、バックアップ等は `config/` 外へ移動します。旧 `telegram.json` は[段階的アップグレード](#staged-upgrade)の `migrate:bot-config` を実施し、旧 `ad_samples.json` は手動で `config/dynamic/ad_detect.json`（`samples` を保持し必須の `punishment`・`sticker_black_list`・`emoji_black_list` を追加）へ移行して `ad_samples.json` を削除します。
+- **対処**：停止中に `config/static/` は `bot.json` と `g-auth.json` のみ、`config/dynamic/` は 6 つの動的 JSON のみに整理し、バックアップ等は `config/` 外へ移動します。旧 `telegram.json` は[段階的アップグレード](#staged-upgrade)の `migrate:bot-config` を実施し、旧 `ad_samples.json` は手動で 2 キーの `config/dynamic/ad_detect.json`（`{ punishment, samples }`）へ移行して `ad_samples.json` を削除します。
 
 ### 4. Config Schema 検証失敗
 - **原因**：`config/{static,dynamic}/*.json` に必須項目欠落、型・値域・列挙値の不一致、または未定義キーがある。
 - **対処**：ログに出力されたファイルパスと JSONPath を確認し、[デプロイ設定説明](../../config_example/README/ja.md) に従って修正します。
 
 ### 5. ID データベース検証失敗
-- **原因**：`storage.sqlite` が書き込み不可・物理破損・未移行スキーマである、`bot.json` の `time_zone` が `storage_metadata.time-zone` と異なる、またはブラックリストと一時広告免除に同一 ID が重複している。
-- **対処**：タイムゾーン不一致は `bot.json` の `time_zone` を DB 記録値に戻します。旧スキーマ（16.3.2 の v11 等）は先に[段階的アップグレード](#staged-upgrade)で 17.2.1 への移行を完了します。物理破損時は同一時点のバックアップから `storage.sqlite` と `-wal` / `-shm` を一括復元します（空 DB での上書きや手動レコード編集は厳禁です）。
+- **原因**：`storage.sqlite` が書き込み不可・物理破損・未移行スキーマ（現行 v14 以外）である、`bot.json` の `time_zone` が `storage_metadata.time-zone` と異なる、またはブラックリストと一時広告免除に同一 ID が重複している。
+- **対処**：タイムゾーン不一致は `bot.json` の `time_zone` を DB 記録値に戻します。Schema v13 の場合は停止・バックアップ後に[広告パックブラックリストおよび Schema v13 → v14 のコールド移行](#upgrade-ad-pack-blacklists)（`migrate:ad-pack-blacklists`）を実行し、v13 より古いスキーマ（16.3.2 の v11 等）は先に[段階的アップグレード](#staged-upgrade)で v13 まで移行します。物理破損時は同一時点のバックアップから `storage.sqlite` と `-wal` / `-shm` を一括復元します（空 DB での上書きや手動レコード編集は厳禁です）。
 
 ### 6. おみくじ結果とレシート秘密鍵の不一致
 - **原因**：当日おみくじファイルと `receipt-secret.json` が別時点のバックアップから混在し、HMAC 検証に失敗している。

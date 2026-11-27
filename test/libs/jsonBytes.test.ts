@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { jsonSerializedBytes } from "../../packages/libs/jsonBytes";
+import { jsonSerializedBytes, jsonTextSerializedBytes } from "../../packages/libs/jsonBytes";
 
 const UTF8_ENCODER: TextEncoder = new TextEncoder();
 
@@ -38,5 +38,11 @@ describe("jsonSerializedBytes", () => {
     expect(jsonSerializedBytes({
       toJSON: (): never => { throw new Error("hostile toJSON"); },
     })).toBe(Number.MAX_SAFE_INTEGER);
+  });
+
+  test("jsonTextSerializedBytes 直接计量已生成 JSON 文本的 UTF-8 字节数且下限为 1", () => {
+    expect(jsonTextSerializedBytes("")).toBe(1);
+    expect(jsonTextSerializedBytes('{"a":1}')).toBe(7);
+    expect(jsonTextSerializedBytes('"中"')).toBe(5);
   });
 });

@@ -8,6 +8,7 @@ import { buildNoStoreHeaders, jsonResponse } from "../libs/response";
 import { configuredBasePathname, normalizeRoutePathname } from "../libs/routePath";
 import type { NormalizedRoutePath } from "../libs/routePath";
 import { runMiniAppAuthorized } from "../middleware/pipeline";
+import { MINI_APP_AD_BLACKLISTS_BUN_ROUTES } from "../routes/adBlacklists";
 import { MINI_APP_AUTH_BUN_ROUTES } from "../routes/auth";
 import { MINI_APP_CHATS_BUN_ROUTES } from "../routes/chats";
 import { MINI_APP_CONFIGS_BUN_ROUTES } from "../routes/configs";
@@ -31,6 +32,7 @@ export function createMiniAppBunRoutes(): Bun.Serve.Routes<undefined, string> {
     ...MINI_APP_STATUS_BUN_ROUTES,
     ...MINI_APP_CHATS_BUN_ROUTES,
     ...MINI_APP_IDENTITIES_BUN_ROUTES,
+    ...MINI_APP_AD_BLACKLISTS_BUN_ROUTES,
     ...MINI_APP_CONFIGS_BUN_ROUTES,
     ...MINI_APP_GALLERY_BUN_ROUTES,
   };

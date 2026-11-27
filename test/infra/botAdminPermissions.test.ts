@@ -334,6 +334,27 @@ describe("机器人自身权限 State 快照", () => {
     expect(statePermissions()).toEqual(botPermissions({ canRestrictMembers: true }));
   });
 
+  test("墙钟回拨到上次退避起点之前时按退避已结束处理，立即允许重新现查", async () => {
+    const t0: number = 1_700_000_000_000;
+    const clock = spyOn(Date, "now").mockReturnValue(t0);
+    getChatMemberFails = true;
+    try {
+      await markBotAdminObserved(CHAT_ID);
+      await settleBackgroundWork();
+      expect(getChatMemberCalls).toBe(1);
+
+      clock.mockReturnValue(t0 - 1);
+      getChatMemberFails = false;
+      await markBotAdminObserved(CHAT_ID);
+      expect(getChatMemberCalls).toBe(2);
+
+      await settleBackgroundWork();
+      expect(statePermissions()).toEqual(botPermissions({ canRestrictMembers: true }));
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
   test("与事实冲突的陈旧快照只作废一次，随后的 chat_member 落进退避而不是逐条重查", async () => {
     setStatePermissions(botPermissions({ isAdministrator: false, canManageChat: false }));
     getChatMemberFails = true;

@@ -182,7 +182,7 @@ export function rejectNewAdBundleAtCapacity(): boolean {
 }
 
 /**
- * 在封禁取得确定结果后移除该发送者的处置抑制记录。
+ * 在主线程拒绝处置、完成非全局封禁处置或全局封禁取得确定结果后移除该发送者的处置抑制记录。
  *
  * @param chatId 目标群 ID。
  * @param senderId 发送者 ID。
@@ -205,7 +205,7 @@ export function noteAdDetectSaturation(saturated: boolean): void {
       { inFlightLimit: AD_DETECT_MAX_IN_FLIGHT, queuedKeys: adDetectQueue.size }
     );
   } else {
-    logger.error("Ad detection dropped back below its in-flight ceiling.");
+    logger.info("Ad detection dropped back below its in-flight ceiling.");
   }
 }
 
@@ -223,7 +223,7 @@ function noteAdDetectCapacitySaturation(saturated: boolean): void {
       { pendingKeyLimit: AD_DETECT_MAX_PENDING_SENDERS }
     );
   } else {
-    logger.error("Ad detection pending-key capacity recovered below its ceiling.");
+    logger.info("Ad detection pending-key capacity recovered below its ceiling.");
   }
 }
 

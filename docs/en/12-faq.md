@@ -203,7 +203,7 @@ Payloads are parsed as JSONC (comments and trailing commas allowed). If parsing 
 2. **Configure `api_key`**:
    - **Direct Google key**: Put your Google AI Studio key in `api_key` (sent as `x-goog-api-key`). Because no extra gateway auth header is sent, disable Authenticated Gateway on Cloudflare.
    - **Gateway-stored key (BYOK / Unified Billing)**: Put your Cloudflare token in `api_key` instead. `api_key` is automatically redacted from logs.
-3. **Verify routing**: Text, vision, and image generation call `generateContent`, while TTS calls the `Interactions API`. Test end-to-end by sending a `/send` TTS block in private chat.
+3. **Verify routing**: Text, vision, image generation, and standard `ad_detect` call `generateContent`, TTS calls the `Interactions API`, and `agent.ad_detect` with `use_decision: true` calls the `Decisions API` (`/<apiVersion>/decisions`, defaulting to `GEMINI_API_VERSION` = `"v1beta"`, where `base_url` accepts the gateway root, a `/<apiVersion>` prefix, or the full `/<apiVersion>/decisions` URL). Test end-to-end by sending a `/send` TTS block in private chat.
 
 ---
 

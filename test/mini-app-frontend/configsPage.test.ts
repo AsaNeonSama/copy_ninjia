@@ -254,11 +254,13 @@ afterEach((): void => {
 });
 
 describe("配置编辑页面交互、单行子标签与加密保存流", () => {
-  test("侧边栏将「配置编辑」紧跟在「权限控制」下方，切至 configs 标签页挂载全视口修饰类与密集骨架屏", () => {
+  test("侧边栏将「配置编辑」置于「内容黑名单」之后，切至 configs 标签页挂载全视口修饰类与密集骨架屏", () => {
     const identitiesIdx: number = MINI_APP_TAB_KEYS.indexOf("identities");
+    const adBlacklistsIdx: number = MINI_APP_TAB_KEYS.indexOf("adBlacklists");
     const configsIdx: number = MINI_APP_TAB_KEYS.indexOf("configs");
     expect(identitiesIdx).toBeGreaterThanOrEqual(0);
-    expect(configsIdx).toBe(identitiesIdx + 1);
+    expect(adBlacklistsIdx).toBe(identitiesIdx + 1);
+    expect(configsIdx).toBe(adBlacklistsIdx + 1);
 
     useMiniAppStore.setState({
       sidebarOpen: true,

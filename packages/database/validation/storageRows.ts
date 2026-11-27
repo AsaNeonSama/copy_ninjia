@@ -35,7 +35,7 @@ export function storageRowSource(
   id: number | string
 ): string {
   const row: string = `${source}:${table}[${String(id)}]`;
-  if (table === "temporary_ad_bypass_entries") return row;
+  if (table === "temporary_ad_bypass_entries" || table === "ad_pack_blacklists") return row;
   return `${row}.${table === "chat_states" ? "status" : table === "permission_list" ? "policy" : "data"}`;
 }
 

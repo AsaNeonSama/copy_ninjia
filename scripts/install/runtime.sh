@@ -85,7 +85,7 @@ step "5/8 准备配置目录"
 bun -e '
   import { assertNoMisplacedConfigFiles } from "./scripts/install/runtime";
   await assertNoMisplacedConfigFiles("config");
-' || die "config/ 只允许 static/（bot.json、g-auth.json）与 dynamic/（六份）；有 telegram.json 时先安装 13.x 发行版并按其说明执行 migrate:bot-config 冷迁移；有 config/dynamic/ad_samples.json 时按本版发布说明手工迁移为 ad_detect.json（含必填 punishment）后删除旧文件；其余多余条目移出 config/ 后重新安装。"
+' || die "config/ 只允许 static/（bot.json、g-auth.json）与 dynamic/（六份）；有 telegram.json 时先安装 13.x 发行版并按其说明执行 migrate:bot-config 冷迁移；有 config/dynamic/ad_samples.json 时按 docs/cn/07-operations.md 手工迁移为 2 键 ad_detect.json（{ punishment, samples }）后删除旧文件；其余多余条目移出 config/ 后重新安装。"
 
 # 全局状态与 Mini App 验证器文件按启动恢复同一口径只读校验：数据根不得残留旧 state.json，
 # memory/global/state.json 与已存在的 memory/mini-app-totp/totp.json 必须是当前格式。
@@ -99,7 +99,7 @@ bun -e '
 bun -e '
   import { assertStorageDatabaseMigrated } from "./scripts/install/runtime";
   await assertStorageDatabaseMigrated();
-' || die "database/storage.sqlite 不是当前 schema（版本见上）：先升级到 17.2.1 并按其说明完成迁移，再安装本版。"
+' || die "database/storage.sqlite 不是当前 schema（版本见上）：若当前为 v13，请停服备份 database/（含 WAL/SHM）与 config/dynamic/ad_detect.json，执行本版 migrate:ad-pack-blacklists 生成 v14 数据库与两键 ad_detect.json 并按清单手工替换（二进制包用 BUN_BE_BUN=1 ./copy-ninjia scripts/migrations/migrateAdPackBlacklists.js --help 查看用法）；更早版本请先分阶段升级至 v13 后再安装本版。"
 
 # /wed 成员滑窗按启动恢复同一口径只读校验；未迁移的文件由部署方停服冷迁移，不带着它注册和启动服务。
 bun -e '

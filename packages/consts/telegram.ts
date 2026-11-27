@@ -314,13 +314,27 @@ export const MESSAGE_NOT_MODIFIED: string = "message is not modified";
  * 旧 id 为 `group chat was upgraded to a supergroup chat`（同时带 parameters.migrate_to_chat_id）。
  * 所属模块：infra/telegram/errors.ts 的 classifyChatAbsence。
  */
-export const CHAT_GONE_DESCRIPTION_PATTERN: RegExp = /\b(?:chat not found|group chat was upgraded to a supergroup chat)\b/i;
+export const CHAT_GONE_DESCRIPTION_PATTERN: Readonly<RegExp> = /\b(?:chat not found|group chat was upgraded to a supergroup chat)\b/i;
 
 /**
  * getChat 以 403 回报机器人已不是成员时的描述：被踢出，或已不在该（超级）群。
  * 所属模块：infra/telegram/errors.ts 的 classifyChatAbsence。
  */
-export const BOT_DEPARTED_DESCRIPTION_PATTERN: RegExp = /\bbot (?:was kicked from|is not a member of) the (?:super)?group chat\b/i;
+export const BOT_DEPARTED_DESCRIPTION_PATTERN: Readonly<RegExp> = /\bbot (?:was kicked from|is not a member of) the (?:super)?group chat\b/i;
+
+/**
+ * Telegram Bot API 以 400 返回权限不足或目标身份受保护时的错误描述匹配规则：
+ * 覆盖机器人缺管理员身份/权限位（`not enough rights`、`don't have enough rights`、`have no rights`、
+ * `need administrator rights`、`bot is not an administrator`、`available only for administrators`、
+ * `CHAT_ADMIN_REQUIRED`、`CHANNEL_ADMIN_REQUIRED`、`CHAT_CREATOR_REQUIRED`、`RIGHT_FORBIDDEN`、
+ * `CHAT_WRITE_FORBIDDEN`），以及目标为群管理员、群主或机器人自身（`user is an administrator`、
+ * `user is ... owner/creator`、`can't remove/restrict/ban/kick/demote self / ... owner/creator/administrator`、
+ * `USER_ADMIN_INVALID`、`USER_CREATOR`）。
+ * 不带 `g`/`y` 标志，不维护 `lastIndex`，可安全复用。
+ * 所属模块：infra/telegram/actions/core.ts 的 isPermissionDenied。
+ */
+export const TELEGRAM_PERMISSION_DENIED_DESCRIPTION_PATTERN: Readonly<RegExp> =
+  /\b(?:(?:not|don'?t have) enough rights|have no rights|need administrator rights|bot is not an administrator|available only for administrators|user is (?:an administrator|(?:the )?(?:chat )?(?:owner|creator))|can(?:'?t|not) (?:remove|restrict|ban|kick|demote) (?:self|(?:the |an )?(?:chat )?(?:owner|creator|administrator))|CHAT_ADMIN_REQUIRED|CHANNEL_ADMIN_REQUIRED|CHAT_CREATOR_REQUIRED|RIGHT_FORBIDDEN|CHAT_WRITE_FORBIDDEN|USER_ADMIN_INVALID|USER_CREATOR)\b/i;
 
 /**
  * Bot API 限制成员时的永久分界（`until_date` 距当前超过此时长按永久限制处理；`/mute` 的上限

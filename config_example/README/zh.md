@@ -24,7 +24,7 @@ done
 - `config/dynamic/`：仅允许 `assets.json`、`ad_detect.json`、`agent.json`、`mood.json`、`stickers.json`、`cron.json`，运行中修改会自动热重载生效。
 - `config/dynamic/` 必须是已存在的目录（可以为空）；若目录路径被非目录占用，或任一层级出现未声明条目（含错放或旧版文件如 `telegram.json`、`ad_samples.json`，隐藏/交换/备份文件、额外子目录及悬空软链接），启动阶段直接拒绝。
 - 热重载期间若 `config/dynamic/` 出现非白名单条目，整轮重载会被拒绝并保留当前已生效快照。
-- 白名单、黑名单和群状态保存在运行时数据根的 `database/storage.sqlite` 中，不属于部署配置文件。
+- 白名单、黑名单、广告贴纸包/表情包黑名单和群状态保存在运行时数据根的 `database/storage.sqlite` 中，不属于部署配置文件。
 
 所有 JSON 文件均执行严格 schema 校验：未知字段、拼写错误、类型不符、非法枚举或越界取值都会在启动阶段或热重载时被拒绝，**绝不静默修正或忽略**。
 
@@ -69,7 +69,7 @@ done
   <tr>
     <td><code>dynamic/ad_detect.json</code></td>
     <td><nobr>动态（热重载）</nobr></td>
-    <td>广告处罚设置、广告分类正例参考样本与贴纸包/表情包黑名单</td>
+    <td>广告处罚设置与广告分类正例参考样本</td>
     <td>广告检测停摆（但不拒绝启动）</td>
   </tr>
   <tr>
@@ -168,7 +168,7 @@ done
 | `text` | **核心必备** | 主群聊回复生成、工具调用调度 | 必须与 `summary`、`media` 同时存在 |
 | `summary` | **核心必备** | 压缩长期对话记忆、生成贴纸包自然语言摘要 | 必须存在 |
 | `media` | **核心必备** | 图像理解、贴纸图像描述、语音消息识别转写 | 必须存在（多模态能力） |
-| `ad_detect` | 可选能力 | 广告消息判定分类器；刷屏禁言由独立的计数规则处理 | 缺省时广告检测停摆，不影响刷屏禁言 |
+| `ad_detect` | 可选能力 | 多模态与文本广告消息判定分类器（支持文本、图片、贴纸与自定义表情；`provider: "google"` 支持可选 `use_decision` 调用 Google Decisions API）；刷屏禁言由独立的计数规则处理 | 缺省时广告检测停摆，不影响刷屏禁言 |
 | `image` | 可选能力 | 注册 AI 生图工具（如 Grok Imagine、Imagen） | 缺省时 AI 对话不挂载生图工具 |
 | `tts` | 可选能力 | AI 语音回复、`/send` 代发语音与 cron 定时语音合成 | 缺省时 AI 语音工具关闭；`cron` 包含 `send_voice` 时强依赖此项 |
 | `web_search` | 可选能力 | 独立联网搜索工具（由专属模型执行内建检索） | 缺省时使用 `text` 模型自带的内建搜索 |
@@ -266,6 +266,12 @@ done
 | 键名 | 类型 | 必填/可选 | 约束与取值范围 | 说明 |
 | --- | --- | --- | --- | --- |
 | `max_calls_per_use` | `number` | 可选 | 正安全整数（`≥ 1`），缺省 `WEB_SEARCH_DEFAULT_MAX_CALLS_PER_USE` | 每轮对话回复最多调用本地 `web_search` 函数的次数；不限制一次调用内供应商的检索次数，也不作用于 cron 摘要 |
+
+### 广告检测专属键说明（`agent.ad_detect`）
+
+| 键名 | 类型 | 必填/可选 | 约束与取值范围 | 说明 |
+| --- | --- | --- | --- | --- |
+| `use_decision` | `boolean` | 可选 | `true` 或 `false`，缺省 `false`（**仅 `provider: "google"` 允许**；`openai`、`anthropic` 与其他能力禁止配置） | 为 `true` 时经 `@google/genai` 的 `client.decisions.create` 调用 Google Decisions API（如 `gemini-decision-1`）执行单次多问题评分（广告阈值 `AD_DETECT_DECISION_AD_THRESHOLD`、包归因阈值 `AD_DETECT_DECISION_PACK_THRESHOLD`）；此时 `base_url` 支持填写网关根地址、`/<apiVersion>` 前缀或完整 `/<apiVersion>/decisions` 端点，缺省使用 `GEMINI_API_BASE_URL` 与 `GEMINI_API_VERSION` |
 
 ---
 
@@ -456,9 +462,9 @@ done
 
 ## `ad_detect.json`
 
-动态配置文件，路径为 `config/dynamic/ad_detect.json`。顶层为 JSON 对象，必须精确包含 `punishment` 对象与 `samples`、`sticker_black_list`、`emoji_black_list` 三个数组：
-- **配置内容**：分别定义判定为广告后的处罚设置、广告分类正例样本、贴纸包黑名单与自定义表情包黑名单。
-- **检测顺序**：按「贴纸包黑名单快路径 -> 自定义表情包黑名单 -> AI 文本判定」依次执行，命中任一黑名单直接跳过 AI 判定。
+动态配置文件，路径为 `config/dynamic/ad_detect.json`。顶层为 JSON 对象，必须精确包含 `punishment` 对象与 `samples` 数组：
+- **配置内容**：分别定义判定为广告后的处罚设置与广告分类正例样本。广告贴纸包与自定义表情包黑名单持久化保存在运行时数据根的 `database/storage.sqlite`（`ad_pack_blacklists` 表，不设条数硬上限，主线程保留 768 条共享 LRU 热查询缓存），通过 `/ad_detect sticker|emoji` 命令或 Mini App 管理，并在 AI 将直接广告归因到贴纸包/自定义表情包时自动写入数据库（排除 `stickers.json` 自用贴纸包）；运行期不会改写 `ad_detect.json`。
+- **检测顺序**：按「贴纸包黑名单快路径 -> 自定义表情包黑名单 -> AI 多模态与文本判定」依次执行，命中任一黑名单直接跳过 AI 判定。AI 阶段同时审查发送者自身发出的正文、图片、图片文档（`AD_DETECT_IMAGE_DOCUMENT_MIME_TYPES`）、静态/动态/视频贴纸及自定义表情（单串最多附带 `AD_DETECT_MAX_IMAGES_PER_BUNDLE` 张图像，且单串总字节受 `MEDIA_MAX_DOWNLOAD_BYTES` 预算约束；不支持视觉输入的生成式模型会自动回退至纯文本判定）。
 - **命中处置**：任一路径判定为广告后，先删除涉事消息，再按 `punishment` 处罚，并在触发群发出 `COMMAND_MESSAGE_AUTO_DELETE_MS` 后自动删除的播报。
 
 ### 配置案例
@@ -476,12 +482,6 @@ done
     "招聘日结兼职，手机就能做，日入三百起，加微信 xxxxxx",
     "长期收u出u，价格美丽，秒结，飞机 @xxxxxx",
     "出售TG老号 白号 API号 协议号，价格优惠，私聊"
-  ],
-  "sticker_black_list": [
-    "SpamStickerPack_by_example_bot"
-  ],
-  "emoji_black_list": [
-    "SpamEmojiPack_by_example_bot"
   ]
 }
 ```
@@ -514,8 +514,6 @@ done
 | `punishment.kick.block` | `boolean` | **必填** | — | `false` 为只踢不封，`true` 时按 `block_scope` 封禁 |
 | `punishment.kick.block_scope` | `string` | `block` 为 `true` 时必填，为 `false` 时必须缺省 | 去掉首尾空白后只能是 `"chat"` 或 `"global"`（`AD_BLOCK_SCOPES`） | `"chat"` 只在触发群封禁；`"global"` 写入永久黑名单并在全部受管群封禁 |
 | `samples` | `string[]` | **必填** | 数组长度 `0 ～ MAX_CONFIGURED_AD_SAMPLES`，元素互不重复 | 广告正例文本样本数组。每条样本的连续空白压成单个空格并去掉首尾空白后必须非空且长度 `≤ AD_SAMPLE_MAX_CHARS` 个字符，判重按该规范化结果 |
-| `sticker_black_list` | `string[]` | **必填** | 数组长度 `0 ～ MAX_CONFIGURED_AD_BLACKLIST_PACKS`，元素去掉首尾空白后符合 `STICKER_PACK_NAME_PATTERN` 且互不重复 | 贴纸包 short name 黑名单（即 `https://t.me/addstickers/<short_name>` 末尾段）。非豁免发送者发送所属贴纸包命中该列表的贴纸时，直接跳过后续检测并按 `punishment` 处罚 |
-| `emoji_black_list` | `string[]` | **必填** | 数组长度 `0 ～ MAX_CONFIGURED_AD_BLACKLIST_PACKS`，元素去掉首尾空白后符合 `STICKER_PACK_NAME_PATTERN` 且互不重复 | 自定义表情包 short name 黑名单（即 `https://t.me/addemoji/<short_name>` 末尾段）。非豁免发送者消息含 `custom_emoji` 实体时，经主线程统一 Telegram 出站查询所属表情包，命中该列表时直接跳过 AI 检测并按 `punishment` 处罚 |
 
 ---
 

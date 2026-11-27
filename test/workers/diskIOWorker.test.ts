@@ -27,6 +27,7 @@ import {
   handleAiCacheUsageMessage,
   flushAiCacheBuffer,
   handleBlocklistRemovalWriteMessage,
+  handleAdPackBlacklistWrite,
   handleChatQaWrite,
   handleVerificationUpsert,
   handleChatStateWrite,
@@ -88,6 +89,7 @@ describe("Disk I/O Worker protocol router", () => {
     await route({ type: "luckDraw", day: "2026-07-22", key: "42", label: "大吉", fortunePercent: 99 });
     await route({ type: "verificationDelete", chatId: -1, userId: 42, generation: 1, revision: 4 });
     await route({ type: "blocklistRemovalWrite", removalId: 1, data: null, revision: 1 });
+    await route({ type: "adPackBlacklistWrite", kind: "sticker", pack: "SpamPack_1", blacklisted: true, revision: 1 });
     await route({
       type: "joinLog",
       sequence: 1,
@@ -109,10 +111,35 @@ describe("Disk I/O Worker protocol router", () => {
     expect(handleLuckDrawMessage).toHaveBeenCalledTimes(1);
     expect(handleVerificationDelete).toHaveBeenCalledTimes(1);
     expect(handleBlocklistRemovalWriteMessage).toHaveBeenCalledTimes(1);
+    expect(handleAdPackBlacklistWrite).toHaveBeenCalledTimes(1);
     expect(handleJoinLogMessage).toHaveBeenCalledTimes(1);
     expect(postMessage).toHaveBeenCalledWith({
       type: "diagnosticBatchAccepted",
       batchId: 7,
+    });
+
+    await route({
+      type: "readAdPackBlacklists",
+      requestId: 101,
+      kind: "sticker",
+      packs: ["SpamPack_1", "CleanPack"],
+    });
+    expect(postMessage).toHaveBeenLastCalledWith({
+      type: "adPackBlacklistsRead",
+      requestId: 101,
+      matchedPacks: ["SpamPack_1"],
+    });
+
+    await route({
+      type: "readAdPackBlacklistPage",
+      requestId: 102,
+      kind: "emoji",
+      afterPack: null,
+    });
+    expect(postMessage).toHaveBeenLastCalledWith({
+      type: "adPackBlacklistPageRead",
+      requestId: 102,
+      page: { packs: [], nextCursor: null, done: true },
     });
   });
 

@@ -6,7 +6,6 @@ import {
   AD_PUNISHMENT_KICK_KEYS,
   AD_PUNISHMENT_MUTE_KEYS,
   AD_SAMPLE_MAX_CHARS,
-  MAX_CONFIGURED_AD_BLACKLIST_PACKS,
   MAX_CONFIGURED_AD_SAMPLES,
 } from "../consts/antiRaid/adDetect";
 import {
@@ -25,7 +24,6 @@ import type {
   AdDetectConfig,
   AdDetectPunishment,
 } from "../types/config";
-import { parseStickerPackNames } from "./stickerPackNames";
 
 /**
  * 严格解码 `punishment.mute`：`permanent` 为 true 时不得带 `duration`；为 false 时 `duration` 必须是
@@ -128,11 +126,11 @@ function parsePunishment(value: unknown, sourcePath: string): AdDetectPunishment
 }
 
 /**
- * 严格解码 ad_detect.json：顶层必须精确包含对象 `punishment` 与 `samples`、`sticker_black_list`、
- * `emoji_black_list` 三个字符串数组；拒绝非法处罚设置、空串、超长、非法包名与重复。
+ * 严格解码 ad_detect.json：顶层必须精确包含对象 `punishment` 与字符串数组 `samples`；
+ * 拒绝非法处罚设置、空串、超长与重复样本，以及多余字段。
  * @param value 待校验的原始 JSON 值。
  * @param sourcePath 配置文件路径，用于构造致命错误诊断。
- * @returns 处罚设置与规范化并去重后的广告示例、黑名单配置。
+ * @returns 处罚设置与规范化并去重后的广告示例配置。
  */
 export function parseAdDetectConfig(
   value: unknown,
@@ -141,14 +139,12 @@ export function parseAdDetectConfig(
   if (
     !isPlainRecord(value) ||
     !hasExactKeys(value, AD_DETECT_CONFIG_KEYS) ||
-    !Array.isArray(value.samples) ||
-    !Array.isArray(value.sticker_black_list) ||
-    !Array.isArray(value.emoji_black_list)
+    !Array.isArray(value.samples)
   ) {
     return invalidInput(
       sourcePath,
       "$",
-      "exactly { punishment: object, samples: string[], sticker_black_list: string[], emoji_black_list: string[] }"
+      "exactly { punishment: object, samples: string[] }"
     );
   }
   const punishment: AdDetectPunishment = parsePunishment(value.punishment, sourcePath);
@@ -193,18 +189,6 @@ export function parseAdDetectConfig(
   return {
     punishment,
     samples,
-    stickerBlackList: new Set(parseStickerPackNames({
-      entries: value.sticker_black_list,
-      sourcePath,
-      fieldPath: "$.sticker_black_list",
-      maxEntries: MAX_CONFIGURED_AD_BLACKLIST_PACKS,
-    })),
-    emojiBlackList: new Set(parseStickerPackNames({
-      entries: value.emoji_black_list,
-      sourcePath,
-      fieldPath: "$.emoji_black_list",
-      maxEntries: MAX_CONFIGURED_AD_BLACKLIST_PACKS,
-    })),
   };
 }
 

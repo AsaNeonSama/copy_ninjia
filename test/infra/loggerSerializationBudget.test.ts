@@ -301,4 +301,50 @@ describe("serializeLogArgs 原语、错误属性、预算与异常 Proxy 分支"
     const [ownKeysOut] = serializeLogArgs([ownKeysTrapError]) as [Record<string, unknown>];
     expect(ownKeysOut).toMatchObject({ name: "Error", message: "own-keys-trap" });
   });
+
+  test("单次字节预算核算对未变更 JSON、合法脱敏 JSON 与退化为带引号字符串的 JSON 均严格贴合上限", () => {
+    const baseCapability = (apiKey: string): Readonly<{ provider: string; model: string; api_key: string }> => ({
+      provider: "google",
+      model: "mock",
+      api_key: apiKey,
+    });
+    // 含双引号的凭据在 JSON 键/值中被替换为 [REDACTED] 时可能破坏 JSON 合法性并退化为带引号字符串。
+    const quotingSecretAgent: AgentDeploymentConfig = parseAgentDeploymentConfig({
+      text: baseCapability('secret"break'),
+      summary: baseCapability("short-sec"),
+      media: baseCapability("another-secret-token"),
+    });
+
+    withThreadSecretCaches({ bot: null, adDetect: null, agent: quotingSecretAgent }, () => {
+      // 1. 合法未变更对象与原语复用精确字节数：总字节恰好不超上限，超出预算即触发截断标记。
+      const chunk: { readonly pad: string } = { pad: "x".repeat(4_000) };
+      const unchangedCount: number = Math.ceil(LOGGER_MAX_SERIALIZED_BYTES / 4_000) + 2;
+      const manyUnchanged: unknown[] = serializeLogArgs(
+        Array.from({ length: unchangedCount }, (): { readonly pad: string } => chunk)
+      );
+      expect(manyUnchanged).toContain(LOGGER_SERIALIZATION_LIMIT_VALUE);
+      expect(Buffer.byteLength(JSON.stringify(manyUnchanged))).toBeLessThanOrEqual(
+        LOGGER_MAX_SERIALIZED_BYTES
+      );
+
+      // 2. 合法脱敏后 JSON（rawJson !== redacted）与破坏合法性退化为带引号字符串均按最终 JSON 字节核算，不超预算。
+      const keySecretPayload: Record<string, string> = {
+        ['k_secret"break_k']: "a".repeat(2_000),
+      };
+      const valueSecretPayload: Record<string, string> = {
+        short_sec_key: "short-sec",
+        body: "b".repeat(2_000),
+      };
+      const mixedCount: number = Math.ceil(LOGGER_MAX_SERIALIZED_BYTES / 2_000) + 2;
+      const mixed: unknown[] = serializeLogArgs([
+        keySecretPayload,
+        valueSecretPayload,
+        ...Array.from({ length: mixedCount }, (): Record<string, string> => keySecretPayload),
+      ]);
+      expect(mixed).toContain(LOGGER_SERIALIZATION_LIMIT_VALUE);
+      expect(Buffer.byteLength(JSON.stringify(mixed))).toBeLessThanOrEqual(
+        LOGGER_MAX_SERIALIZED_BYTES
+      );
+    });
+  });
 });
